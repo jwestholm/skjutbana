@@ -1,16 +1,6 @@
-# config.py
-
-# Screen dimensions
+# Screen configuration
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 
 # Asset paths
-ASSET_PATHS = {
-    'background': 'assets/background.png',
-    'player': 'assets/player.png',
-    'enemy': 'assets/enemy.png',
-}
-
-# Game settings
-FPS = 60
-DEBUG_MODE = True
+LOADING_SCREEN_PATH = 'assets/loading_screen.png'
