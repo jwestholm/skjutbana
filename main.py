@@ -126,11 +126,18 @@ class CameraProcessor(threading.Thread):
 
 class Game:
     def __init__(self) -> None:
+        # Choose which display SDL should open on (0 = monitor, 1 = projector)
         os.environ["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(config.DISPLAY_INDEX)
+
         pygame.init()
-        
+
         pygame.display.set_caption("Skjutbana")
-        self.screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.FULLSCREEN)
+
+        # Choose fullscreen vs windowed from config (default should be windowed)
+        if getattr(config, "FULLSCREEN", False):
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
 
         # Domain event queue (thread-safe). Sensors push here; main thread consumes.
         self.event_queue: "queue.Queue[DomainEvent]" = queue.Queue()
