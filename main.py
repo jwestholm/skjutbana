@@ -126,7 +126,7 @@ class Game:
     def __init__(self) -> None:
         pygame.init()
         pygame.display.set_caption("Skjutbana")
-        self.screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
+        self.screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.FULLSCREEN)
 
         # Domain event queue (thread-safe). Sensors push here; main thread consumes.
         self.event_queue: "queue.Queue[DomainEvent]" = queue.Queue()
