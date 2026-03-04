@@ -124,7 +124,9 @@ class CameraProcessor(threading.Thread):
 
 class Game:
     def __init__(self) -> None:
+        os.environ["SDL_VIDEO_FULLSCREEN_DISPLAY"] = str(config.DISPLAY_INDEX)
         pygame.init()
+        
         pygame.display.set_caption("Skjutbana")
         self.screen = pygame.display.set_mode((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), pygame.FULLSCREEN)
 
