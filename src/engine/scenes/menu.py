@@ -53,21 +53,18 @@ class MenuScene(Scene):
     def render(self, screen: pygame.Surface) -> None:
         screen.blit(self.background, (0, 0))
         screen.blit(self.overlay, (0, 0))
-
+        
         title = self.big.render("Skjutbana", True, (240, 240, 240))
         screen.blit(title, (40, 40))
-
+        
         y = 140
         for i, (label, _) in enumerate(self.items):
             selected = (i == self.index)
             prefix = "> " if selected else "  "
-            color = (255, 255, 255) if selected else (180, 180, 180)
+            color = (255,255,255) if selected else (180,180,180)
             text = self.font.render(prefix + label, True, color)
             screen.blit(text, (60, y))
             y += 40
-
-        hint = self.font.render("UP/DOWN + ENTER startar | SPACE pause i video | ESC avslutar", True, (140, 140, 140))
-        screen.blit(hint, (40, SCREEN_HEIGHT - 50))
         
     def start_video(self):
         from src.engine.scenes.video import VideoScene
