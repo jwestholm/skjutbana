@@ -19,7 +19,8 @@ def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
 
 
 def load_viewport_rect() -> pygame.Rect:
-    path = Path(config.SETTINGS_PATH)
+    settings_path = getattr(config, "SETTINGS_PATH", "content/settings.json")
+    path = Path(settings_path)
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -36,7 +37,8 @@ def load_viewport_rect() -> pygame.Rect:
 
 def save_viewport_rect(rect: pygame.Rect) -> None:
     rect = _clamp_viewport(rect.copy())
-    path = Path(config.SETTINGS_PATH)
+    settings_path = getattr(config, "SETTINGS_PATH", "content/settings.json")
+    path = Path(settings_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"viewport": [rect.x, rect.y, rect.w, rect.h]}
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
