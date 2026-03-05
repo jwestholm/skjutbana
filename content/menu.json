@@ -2,6 +2,22 @@
   "version": 1,
   "title": "Skjutbana",
   "categories": [
+	{
+	  "id": "settings",
+	  "title": "Inställningar",
+	  "description": "Justera projicerad rityta.",
+	  "preview": "assets/thumbs/settings_icon.png",
+	  "items": [
+		{
+		  "id": "calibrate_viewport",
+		  "type": "settings",
+		  "title": "Justera skjutgränser",
+		  "description": "Flytta och skala grön ram. ENTER sparar, ESC avbryter.",
+		  "path": "",
+		  "preview": "assets/settings.png"
+		}
+	  ]
+	},  
     {
       "id": "images",
       "title": "Bilder",

@@ -12,4 +12,8 @@ def build_scene_from_item(item: MenuItem):
         from src.engine.scenes.image import ImageScene
         return ImageScene(item.path)
 
+    if item.type == "settings":
+        from src.engine.scenes.calibrate import CalibrateViewportScene
+        return CalibrateViewportScene()
+
     raise ValueError(f"Unknown item type: {item.type}")

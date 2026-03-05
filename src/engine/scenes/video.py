@@ -7,16 +7,19 @@ from src.engine.scene import Scene
 from src.engine.video_player import VideoPlayer
 from src.engine.scenes.menu import MenuScene
 from src.engine.scene import SceneSwitch
+from src.engine.settings import load_viewport_rect
 
 class VideoScene(Scene):
     def __init__(self, movie_path: str) -> None:
         self.movie_path = movie_path
         self.player: VideoPlayer | None = None
         self.last_frame: pygame.Surface | None = None
-
+        self.viewport = None
+        
     def on_enter(self) -> None:
-        self.player = VideoPlayer(self.movie_path, (SCREEN_WIDTH, SCREEN_HEIGHT))
-
+        self.viewport = load_viewport_rect()
+        self.player = VideoPlayer(self.movie_path, (self.viewport.w, self.viewport.h))
+    
     def on_exit(self) -> None:
         if self.player:
             self.player.close()
@@ -42,9 +45,8 @@ class VideoScene(Scene):
             self.player.pause()
 
         return None
-
+    
     def render(self, screen: pygame.Surface) -> None:
+        screen.fill((0, 0, 0))
         if self.last_frame:
-            screen.blit(self.last_frame, (0, 0))
-        else:
-            screen.fill((0, 0, 0))
+            screen.blit(self.last_frame, (self.viewport.x, self.viewport.y))
