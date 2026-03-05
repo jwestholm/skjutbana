@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pygame
 
-from config import SCREEN_WIDTH, SCREEN_HEIGHT, HOSTAGE_MOVIE_PATH
+from config import SCREEN_WIDTH, SCREEN_HEIGHT, LOADING_SCREEN_PATH, HOSTAGE_MOVIE_PATH
 from src.engine.scene import Scene, SceneSwitch
 
 
@@ -15,6 +15,14 @@ class MenuScene(Scene):
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 32)
         self.big = pygame.font.Font(None, 56)
+        
+        # ladda bakgrundsbild
+        bg = pygame.image.load(str(LOADING_SCREEN_PATH)).convert()
+        self.background = pygame.transform.smoothscale(bg, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        
+        # halvtransparent overlay
+        self.overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self.overlay.fill((0, 0, 0, 140))  # sista värdet = transparens
 
         # Börja hårdkodat (enkelt). Sen flyttar vi till JSON.
         self.items = [("Hostage (video test)", self.start_video),("Måltavla 1 (bild)", self.start_image)]
