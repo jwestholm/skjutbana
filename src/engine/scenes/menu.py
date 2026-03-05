@@ -51,7 +51,8 @@ class MenuScene(Scene):
         return None
 
     def render(self, screen: pygame.Surface) -> None:
-        screen.fill((10, 10, 10))
+        screen.blit(self.background, (0, 0))
+        screen.blit(self.overlay, (0, 0))
 
         title = self.big.render("Skjutbana", True, (240, 240, 240))
         screen.blit(title, (40, 40))
