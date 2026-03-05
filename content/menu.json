@@ -6,7 +6,7 @@
       "id": "images",
       "title": "Bilder",
       "description": "Stillbilder",
-      "preview": "assets/thumbs/images_icons.png",
+      "preview": "assets/thumbs/images_icon.png",
       "items": [
         {
           "id": "img_test_1",
