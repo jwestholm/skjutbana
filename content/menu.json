@@ -37,6 +37,26 @@
           "preview": "assets/targets/10-point-1.png",
           "fit": "cover",
           "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "paper_2",
+          "type": "image",
+          "title": "Bågskytte",
+          "description": "En 10 poängstavla för bågskytte",
+          "path": "assets/targets/bagskytte.jpg",
+          "preview": "assets/targets/bagskytte.jpg",
+          "fit": "cover",
+          "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "paper_3",
+          "type": "image",
+          "title": "Dart",
+          "description": "En Dart tavla",
+          "path": "assets/targets/darttavla.jpg",
+          "preview": "assets/targets/darttavla.jpg",
+          "fit": "cover",
+          "bg_color": [0, 0, 0]
         }
       ]
     },
