@@ -35,8 +35,8 @@
           "description": "En 10 poängstavla, svart center.",
           "path": "assets/targets/10-point-1.png",
           "preview": "assets/targets/10-point-1.png",
-          "fit": "cover",
-          "bg_color": [0, 0, 0]
+          "fit": "contain",
+          "bg_color": [255, 255, 255]
         },
         {
           "id": "paper_2",
@@ -45,8 +45,8 @@
           "description": "En 10 poängstavla för bågskytte",
           "path": "assets/targets/bagskytte.jpg",
           "preview": "assets/targets/bagskytte.jpg",
-          "fit": "cover",
-          "bg_color": [0, 0, 0]
+          "fit": "contain",
+          "bg_color": [255, 255, 255]
         },
         {
           "id": "paper_3",
@@ -55,8 +55,8 @@
           "description": "En Dart tavla",
           "path": "assets/targets/darttavla.jpg",
           "preview": "assets/targets/darttavla.jpg",
-          "fit": "cover",
-          "bg_color": [0, 0, 0]
+          "fit": "contain",
+          "bg_color": [255, 255, 255]
         }
       ]
     },
