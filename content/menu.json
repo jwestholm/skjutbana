@@ -31,11 +31,11 @@
         {
           "id": "paper_1",
           "type": "image",
-          "title": "Papptavla 1",
-          "description": "Bra för framtida hit-detection.",
-          "path": "assets/targets/target1.png",
-          "preview": "assets/targets/target1.png",
-          "fit": "contain",
+          "title": "Papptavla 10p",
+          "description": "En 10 poängstavla, svart center.",
+          "path": "assets/targets/10-point-1.png",
+          "preview": "assets/targets/10-point-1.png",
+          "fit": "stretch",
           "bg_color": [0, 0, 0]
         }
       ]
