@@ -3,8 +3,6 @@ import pygame
 
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, HOSTAGE_MOVIE_PATH
 from src.engine.scene import Scene, SceneSwitch
-from src.engine.scenes.video import VideoScene
-from src.engine.scenes.image import ImageScene
 
 
 class MenuScene(Scene):
@@ -19,10 +17,7 @@ class MenuScene(Scene):
         self.big = pygame.font.Font(None, 56)
 
         # Börja hårdkodat (enkelt). Sen flyttar vi till JSON.
-        self.items = [
-            ("Hostage (video test)", lambda: VideoScene(str(HOSTAGE_MOVIE_PATH))),
-            ("Måltavla 1 (bild)", lambda: ImageScene("assets/targets/target1.png")),
-        ]
+        self.items = [("Hostage (video test)", self.start_video),("Måltavla 1 (bild)", self.start_image)]
         self.index = 0
 
     def handle_event(self, event: pygame.event.Event):
@@ -64,3 +59,11 @@ class MenuScene(Scene):
 
         hint = self.font.render("UP/DOWN + ENTER startar | SPACE pause i video | ESC avslutar", True, (140, 140, 140))
         screen.blit(hint, (40, SCREEN_HEIGHT - 50))
+        
+    def start_video(self):
+        from src.engine.scenes.video import VideoScene
+        from config import HOSTAGE_MOVIE_PATH
+        return VideoScene(str(HOSTAGE_MOVIE_PATH))
+    def start_image(self):
+        from src.engine.scenes.image import ImageScene
+        return ImageScene("assets/targets/target1.png")
