@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "title": "Skjutbana",
+  "categories": [
+    {
+      "id": "images",
+      "title": "Bilder",
+      "description": "Stillbilder (t.ex. bakgrunder, briefing, statiska banor).",
+      "preview": "assets/loading_screen.png",
+      "items": [
+        {
+          "id": "img_test_1",
+          "type": "image",
+          "title": "Testbild 1",
+          "description": "En stillbild du kan byta ut senare.",
+          "path": "assets/targets/target1.png",
+          "preview": "assets/targets/target1.png"
+        }
+      ]
+    },
+    {
+      "id": "targets",
+      "title": "Tavlor",
+      "description": "Måltavlor som senare ska få träffdetektion.",
+      "preview": "assets/targets/target1.png",
+      "items": [
+        {
+          "id": "paper_1",
+          "type": "image",
+          "title": "Papptavla 1",
+          "description": "Bra för framtida hit-detection.",
+          "path": "assets/targets/target1.png",
+          "preview": "assets/targets/target1.png"
+        }
+      ]
+    },
+    {
+      "id": "video",
+      "title": "Video",
+      "description": "Videobanor. SPACE = play/pause. ESC = tillbaka.",
+      "preview": "assets/thumbs/hostage.png",
+      "items": [
+        {
+          "id": "hostage",
+          "type": "video",
+          "title": "Hostage (test)",
+          "description": "Video-test. SPACE pause/play.",
+          "path": "assets/movies/hostage.mp4",
+          "preview": "assets/thumbs/hostage.png"
+        }
+      ]
+    }
+  ]
+}
