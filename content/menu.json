@@ -35,7 +35,7 @@
           "description": "En 10 poängstavla, svart center.",
           "path": "assets/targets/10-point-1.png",
           "preview": "assets/targets/10-point-1.png",
-          "fit": "stretch",
+          "fit": "cover",
           "bg_color": [0, 0, 0]
         }
       ]
