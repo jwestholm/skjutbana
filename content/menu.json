@@ -7,6 +7,7 @@
       "title": "Bilder",
       "description": "Stillbilder",
       "preview": "assets/thumbs/images_icon.png",
+      "defaults": { "fit": "contain", "bg_color": [0, 0, 0] },
       "items": [
         {
           "id": "img_test_1",
@@ -14,7 +15,9 @@
           "title": "Testbild 1",
           "description": "En stillbild du kan byta ut senare.",
           "path": "assets/targets/target1.png",
-          "preview": "assets/targets/target1.png"
+          "preview": "assets/targets/target1.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
         }
       ]
     },
@@ -23,6 +26,7 @@
       "title": "Tavlor",
       "description": "Måltavlor",
       "preview": "assets/thumbs/targets_icon.png",
+      "defaults": { "fit": "contain", "bg_color": [0, 0, 0] },
       "items": [
         {
           "id": "paper_1",
@@ -30,41 +34,46 @@
           "title": "Papptavla 1",
           "description": "Bra för framtida hit-detection.",
           "path": "assets/targets/target1.png",
-          "preview": "assets/targets/target1.png"
+          "preview": "assets/targets/target1.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
         }
       ]
     },
     {
       "id": "video",
       "title": "Video",
-      "description": "Videobanor. SPACE = play/pause. ESC = tillbaka.",
+      "description": "Videobanor.\nSPACE = play/pause. ESC = tillbaka.",
       "preview": "assets/thumbs/video_icon.png",
+      "defaults": { "fit": "contain", "bg_color": [0, 0, 0] },
       "items": [
         {
           "id": "hostage",
           "type": "video",
           "title": "Hostage (test)",
-          "description": "Video-test. SPACE pause/play.",
+          "description": "Video-test.\nSPACE pause/play.",
           "path": "assets/movies/hostage.mp4",
-          "preview": "assets/thumbs/hostage.png"
+          "preview": "assets/thumbs/hostage.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
         }
       ]
     },
-	{
-	  "id": "settings",
-	  "title": "Inställningar",
-	  "description": "Justera projicerad rityta.",
-	  "preview": "assets/thumbs/settings_icon.png",
-	  "items": [
-		{
-		  "id": "calibrate_viewport",
-		  "type": "settings",
-		  "title": "Justera skjutgränser",
-		  "description": "Flytta och skala grön ram. ENTER sparar, ESC avbryter.",
-		  "path": "",
-		  "preview": "assets/settings.png"
-		}
-	  ]
-	}	
+    {
+      "id": "settings",
+      "title": "Inställningar",
+      "description": "Justera projicerad rityta.",
+      "preview": "assets/thumbs/settings_icon.png",
+      "items": [
+        {
+          "id": "calibrate_viewport",
+          "type": "settings",
+          "title": "Justera skjutgränser",
+          "description": "Flytta och skala grön ram. ENTER sparar, ESC avbryter.",
+          "path": "",
+          "preview": "assets/settings.png"
+        }
+      ]
+    }
   ]
 }
