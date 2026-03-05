@@ -21,8 +21,8 @@ class VideoScene(Scene):
 
         self.move_step = 20
         self.zoom_step = 0.05
-        self.min_zoom = 0.5
-        self.max_zoom = 2.0
+        self.min_zoom = 0.05
+        self.max_zoom = 4.0
 
     def on_enter(self) -> None:
         self.viewport = load_viewport_rect()
