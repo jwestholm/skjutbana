@@ -41,6 +41,26 @@
         {
           "id": "paper_2",
           "type": "image",
+          "title": "5 tavla",
+          "description": "En 5 tavla med 10 punkt.",
+          "path": "assets/targets/5tavla.jpg",
+          "preview": "assets/targets/5tavla.jpg",
+          "fit": "contain",
+          "bg_color": [100, 100, 100]
+        },		
+        {
+          "id": "paper_3",
+          "type": "image",
+          "title": "Skidskytte",
+          "description": "En tavla för skidskytte",
+          "path": "assets/targets/skidskytte.jpg",
+          "preview": "assets/targets/skidskytte.jpg",
+          "fit": "contain",
+          "bg_color": [100, 100, 100]
+        },		
+        {
+          "id": "paper_4",
+          "type": "image",
           "title": "Bågskytte",
           "description": "En 10 poängstavla för bågskytte",
           "path": "assets/targets/bagskytte.jpg",
@@ -49,7 +69,7 @@
           "bg_color": [255, 255, 255]
         },
         {
-          "id": "paper_3",
+          "id": "paper_5",
           "type": "image",
           "title": "Dart",
           "description": "En Dart tavla",
@@ -57,7 +77,17 @@
           "preview": "assets/targets/darttavla.jpg",
           "fit": "contain",
           "bg_color": [255, 255, 255]
-        }
+        },
+        {
+          "id": "paper_6",
+          "type": "image",
+          "title": "Inskjutning",
+          "description": "Entavla för inskjutning",
+          "path": "assets/targets/inskjutning.jpg",
+          "preview": "assets/targets/inskjutning.jpg",
+          "fit": "contain",
+          "bg_color": [255, 255, 255]
+        }		
       ]
     },
     {
