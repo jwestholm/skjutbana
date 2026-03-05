@@ -4,7 +4,8 @@ import pygame
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, LOADING_SCREEN_PATH, HOSTAGE_MOVIE_PATH
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.scenes.video import VideoScene
-
+from src.engine.scenes.menu import MenuScene
+from src.engine.scene import SceneSwitch
 
 class LoadingScene(Scene):
     def __init__(self) -> None:
@@ -19,9 +20,9 @@ class LoadingScene(Scene):
     def handle_event(self, event: pygame.event.Event) -> SceneSwitch | None:
         # Efter loading: valfri tangent (utom ESC som hanteras globalt) eller musklick => spela film
         if event.type == pygame.KEYDOWN:
-            return SceneSwitch(VideoScene(str(HOSTAGE_MOVIE_PATH)))
+            return SceneSwitch(MenuScene())
         if event.type == pygame.MOUSEBUTTONDOWN:
-            return SceneSwitch(VideoScene(str(HOSTAGE_MOVIE_PATH)))
+            return SceneSwitch(MenuScene())
         return None
 
     def render(self, screen: pygame.Surface) -> None:

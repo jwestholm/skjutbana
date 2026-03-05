@@ -1,10 +1,12 @@
 from __future__ import annotations
 import pygame
 
+
 from config import SCREEN_WIDTH, SCREEN_HEIGHT
 from src.engine.scene import Scene
 from src.engine.video_player import VideoPlayer
-
+from src.engine.scenes.menu import MenuScene
+from src.engine.scene import SceneSwitch
 
 class VideoScene(Scene):
     def __init__(self, movie_path: str) -> None:
@@ -23,6 +25,8 @@ class VideoScene(Scene):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             if self.player:
                 self.player.toggle_pause()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            return SceneSwitch(MenuScene())
         return None
 
     def update(self, dt: float):

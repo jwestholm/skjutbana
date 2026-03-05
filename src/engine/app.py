@@ -29,11 +29,6 @@ class App:
                     self.quit()
                     break
 
-                # Global ESC = avsluta (du kan senare flytta detta till input-mapping)
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    self.quit()
-                    break
-
                 switch = self.scene.handle_event(event)
                 if switch:
                     self._switch_to(switch.new_scene)
