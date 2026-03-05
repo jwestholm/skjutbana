@@ -1,16 +1,11 @@
-# config.py
+from pathlib import Path
 
-# Screen resolution 
-SCREEN_WIDTH = 1920
-SCREEN_HEIGHT = 1080
+# --- Window / timing ---
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+FPS = 60
 
-# vilken display spelet ska köras på
-# 0 = din skärm (DP)
-# 1 = projektorn (HDMI)
-DISPLAY_INDEX = 0
-
-# fullscreen eller window
-FULLSCREEN = False
-
-# Asset paths (behåll)
-LOADING_SCREEN_PATH = 'assets/loading_screen.png'
+# --- Assets ---
+ASSETS_DIR = Path("assets")
+LOADING_SCREEN_PATH = ASSETS_DIR / "loading_screen.png"
+HOSTAGE_MOVIE_PATH = ASSETS_DIR / "movies" / "hostage.mp4"
