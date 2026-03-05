@@ -5,8 +5,8 @@
     {
       "id": "images",
       "title": "Bilder",
-      "description": "Stillbilder (t.ex. bakgrunder, briefing, statiska banor).",
-      "preview": "assets/loading_screen.png",
+      "description": "Stillbilder",
+      "preview": "assets/thumbs/images_icons.png",
       "items": [
         {
           "id": "img_test_1",
@@ -21,8 +21,8 @@
     {
       "id": "targets",
       "title": "Tavlor",
-      "description": "Måltavlor som senare ska få träffdetektion.",
-      "preview": "assets/targets/target1.png",
+      "description": "Måltavlor",
+      "preview": "assets/thumbs/targets_icon.png",
       "items": [
         {
           "id": "paper_1",
@@ -38,7 +38,7 @@
       "id": "video",
       "title": "Video",
       "description": "Videobanor. SPACE = play/pause. ESC = tillbaka.",
-      "preview": "assets/thumbs/hostage.png",
+      "preview": "assets/thumbs/video_icon.png",
       "items": [
         {
           "id": "hostage",
