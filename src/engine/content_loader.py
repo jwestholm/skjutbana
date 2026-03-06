@@ -8,13 +8,14 @@ from pathlib import Path
 @dataclass(frozen=True)
 class MenuItem:
     id: str
-    type: str  # "image" | "video" | "settings" | (senare "script")
+    type: str  # "image" | "video" | "settings" | "game"
     title: str
     description: str
     path: str
     preview: str
-    fit: str  # "stretch" | "contain" | "cover"
+    fit: str
     bg_color: tuple[int, int, int]
+    script: str
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ def _parse_item(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int
         preview=str(raw.get("preview", "")),
         fit=item_fit,
         bg_color=item_bg,
+        script=str(raw.get("script", "")),
     )
 
 
