@@ -35,9 +35,11 @@ class ShootDontShootGame:
 
         self._scaled_cache: dict[tuple[int, int], pygame.Surface] = {}
 
-        # Betydligt mindre storlekar än tidigare
-        self.min_scale = 0.02
-        self.max_scale = 0.10
+        # Justerad skala efter din screenshot:
+        # svart = nära = större
+        # vitt = långt bort = mindre
+        self.min_scale = 0.12
+        self.max_scale = 0.45
 
     def on_enter(self) -> None:
         self.font_big = pygame.font.Font(None, 96)
@@ -91,6 +93,7 @@ class ShootDontShootGame:
                 }
             )
 
+        # Rita bakifrån till framifrån
         self.active_slots.sort(key=lambda s: s["hotspot"]["cy"])
 
     def handle_event(self, event: pygame.event.Event):
@@ -180,6 +183,8 @@ class ShootDontShootGame:
                 continue
 
             img = pygame.image.load(str(path)).convert_alpha()
+            img = self._make_white_transparent(img)
+
             w, h = img.get_size()
             half = w // 2
 
@@ -200,6 +205,25 @@ class ShootDontShootGame:
             )
 
         return out
+
+    def _make_white_transparent(self, surf: pygame.Surface) -> pygame.Surface:
+        """
+        Gör nästan-vita bakgrunder transparenta.
+        Detta hjälper om vissa PNG-filer egentligen saknar riktig alpha.
+        """
+        result = surf.copy().convert_alpha()
+        w, h = result.get_size()
+
+        for y in range(h):
+            for x in range(w):
+                c = result.get_at((x, y))
+                if c.a == 0:
+                    continue
+
+                if c.r >= 245 and c.g >= 245 and c.b >= 245:
+                    result.set_at((x, y), (255, 255, 255, 0))
+
+        return result
 
     def _make_silhouette(self, friendly: pygame.Surface, hostile: pygame.Surface) -> pygame.Surface:
         w = max(friendly.get_width(), hostile.get_width())
@@ -268,8 +292,6 @@ class ShootDontShootGame:
                 if not too_close:
                     hotspots.append(candidate)
 
-        # Rensa bort punkter högt upp om du vill ha "stående på golv"-känsla
-        # Men behåll allt just nu för att vara neutral.
         hotspots.sort(key=lambda hs: hs["cy"])
         return hotspots
 
