@@ -38,11 +38,11 @@ class ShootDontShootGame:
         self._scaled_cache: dict[tuple[int, int], pygame.Surface] = {}
         self._silhouette_cache: dict[int, pygame.Surface] = {}
 
-        # Ny skala enligt önskemål:
-        # svart = dubbelt så stor som tidigare max (0.20 -> 0.40)
-        # vitt = 10% större än tidigare min (0.08 -> 0.088)
-        self.min_scale = 0.088
-        self.max_scale = 0.40
+        # Ca 20% mindre än förra versionen:
+        # förra: 0.088 -> 0.40
+        # nu:   0.0704 -> 0.32
+        self.min_scale = 0.0704
+        self.max_scale = 0.32
 
         # Mask-analys i låg upplösning för fart
         self.mask_analysis_max_w = 320
@@ -75,7 +75,7 @@ class ShootDontShootGame:
             self.active_slots = []
             return
 
-        max_people = min(10, len(self.hotspots))
+        max_people = min(6, len(self.hotspots), len(self.characters))
         if max_people <= 0:
             self.active_slots = []
             return
@@ -83,29 +83,54 @@ class ShootDontShootGame:
         min_people = min(3, max_people)
         num_people = random.randint(min_people, max_people)
 
-        chosen_hotspots = self._choose_spread_hotspots(num_people)
+        chosen_hotspots = self._choose_non_overlapping_hotspots(num_people)
+        if not chosen_hotspots:
+            self.active_slots = []
+            return
+
+        num_people = min(len(chosen_hotspots), len(self.characters))
+        if num_people <= 0:
+            self.active_slots = []
+            return
+
+        if len(chosen_hotspots) > num_people:
+            chosen_hotspots = chosen_hotspots[:num_people]
+
+        # Unika personer per runda
+        chosen_characters = random.sample(self.characters, num_people)
 
         self.active_slots = []
-        for hotspot in chosen_hotspots:
-            char = random.choice(self.characters)
-            is_enemy = False
-
+        for hotspot, char in zip(chosen_hotspots, chosen_characters):
             self.active_slots.append(
                 {
                     "hotspot": hotspot,
                     "friendly": char["friendly"],
                     "hostile": char["hostile"],
-                    "is_enemy": is_enemy,
+                    "is_enemy": False,
                 }
             )
 
-        num_enemies = random.randint(0, min(3, len(self.active_slots)))
-        if num_enemies > 0:
-            enemy_indices = set(random.sample(range(len(self.active_slots)), num_enemies))
+        # 0 skurkar ska vara ovanligt
+        enemy_count = self._choose_enemy_count(len(self.active_slots))
+        if enemy_count > 0:
+            enemy_indices = set(random.sample(range(len(self.active_slots)), enemy_count))
             for i, slot in enumerate(self.active_slots):
                 slot["is_enemy"] = i in enemy_indices
 
         self.active_slots.sort(key=lambda s: s["hotspot"]["cy"])
+
+    def _choose_enemy_count(self, people_count: int) -> int:
+        max_enemies = min(3, people_count)
+        if max_enemies <= 0:
+            return 0
+
+        choices = [0, 1, 2, 3]
+        weights = [1, 6, 5, 3]  # 0 är möjligt men ovanligt
+        valid = [(c, w) for c, w in zip(choices, weights) if c <= max_enemies]
+
+        values = [c for c, _ in valid]
+        probs = [w for _, w in valid]
+        return random.choices(values, weights=probs, k=1)[0]
 
     def handle_event(self, event: pygame.event.Event):
         return None
@@ -210,6 +235,7 @@ class ShootDontShootGame:
                 {
                     "friendly": friendly,
                     "hostile": hostile,
+                    "name": path.stem,
                 }
             )
 
@@ -347,45 +373,62 @@ class ShootDontShootGame:
         merged.sort(key=lambda hs: hs["cy"])
         return merged
 
-    def _choose_spread_hotspots(self, count: int) -> list[dict]:
-        if count >= len(self.hotspots):
-            return self.hotspots[:]
+    def _choose_non_overlapping_hotspots(self, count: int) -> list[dict]:
+        """
+        Välj hotspots med bra spridning så att figurer inte står bakom/ovanpå varandra.
+        """
+        if not self.hotspots:
+            return []
 
-        sorted_hotspots = sorted(self.hotspots, key=lambda hs: hs["depth"])
-        buckets = [[], [], []]
+        candidates = self.hotspots[:]
+        random.shuffle(candidates)
 
-        for hs in sorted_hotspots:
-            if hs["depth"] < 0.33:
-                buckets[0].append(hs)
-            elif hs["depth"] < 0.66:
-                buckets[1].append(hs)
-            else:
-                buckets[2].append(hs)
+        # Större skyddsavstånd än tidigare
+        min_dx = max(90, self.viewport.w // 10)
+        min_dy = max(70, self.viewport.h // 12)
+        min_dist_sq = max(140 * 140, (min(self.viewport.w, self.viewport.h) // 7) ** 2)
 
         chosen: list[dict] = []
-        used_ids: set[int] = set()
 
-        while len(chosen) < count:
-            available_buckets = [b for b in buckets if any(id(h) not in used_ids for h in b)]
-            if not available_buckets:
-                break
+        for hs in candidates:
+            ok = True
+            for other in chosen:
+                dx = abs(hs["cx"] - other["cx"])
+                dy = abs(hs["cy"] - other["cy"])
 
-            bucket = random.choice(available_buckets)
-            candidates = [h for h in bucket if id(h) not in used_ids]
-            if not candidates:
-                continue
+                if dx < min_dx and dy < min_dy:
+                    ok = False
+                    break
 
-            hs = random.choice(candidates)
-            chosen.append(hs)
-            used_ids.add(id(hs))
+                ddx = hs["cx"] - other["cx"]
+                ddy = hs["cy"] - other["cy"]
+                if (ddx * ddx + ddy * ddy) < min_dist_sq:
+                    ok = False
+                    break
 
+            if ok:
+                chosen.append(hs)
+                if len(chosen) >= count:
+                    break
+
+        # Om vi inte fick ihop tillräckligt, fyll på försiktigt med mindre hårda krav
         if len(chosen) < count:
-            remaining = [h for h in self.hotspots if id(h) not in used_ids]
-            if remaining:
-                chosen.extend(random.sample(remaining, min(len(remaining), count - len(chosen))))
+            remaining = [hs for hs in candidates if hs not in chosen]
+            for hs in remaining:
+                ok = True
+                for other in chosen:
+                    dx = abs(hs["cx"] - other["cx"])
+                    dy = abs(hs["cy"] - other["cy"])
+                    if dx < (min_dx * 0.7) and dy < (min_dy * 0.7):
+                        ok = False
+                        break
+                if ok:
+                    chosen.append(hs)
+                    if len(chosen) >= count:
+                        break
 
         chosen.sort(key=lambda hs: hs["cy"])
-        return chosen
+        return chosen[:count]
 
     # ---------- helpers ----------
     def _scale_sprite(self, sprite: pygame.Surface, scale: float) -> pygame.Surface:
