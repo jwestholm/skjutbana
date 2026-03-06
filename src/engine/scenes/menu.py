@@ -6,7 +6,7 @@ from pathlib import Path
 import pygame
 
 from config import LOADING_SCREEN_PATH, SCREEN_HEIGHT, SCREEN_WIDTH
-from src.engine.content_loader import MenuData, MenuFolder, MenuItem, MenuNode, load_menu
+from src.engine.content_loader import MenuData, MenuFolder, MenuItem, load_menu
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.scene_factory import build_scene_from_item
 
