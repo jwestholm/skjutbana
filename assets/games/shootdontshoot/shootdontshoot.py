@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 import random
 
@@ -15,35 +16,41 @@ class ShootDontShootGame:
         self.game_root = Path(game_root)
         self.viewport = viewport
 
-        self.background = None
-        self.mask = None
+        self.background: pygame.Surface | None = None
+        self.mask: pygame.Surface | None = None
 
         self.characters: list[dict] = []
         self.hotspots: list[dict] = []
         self.active_slots: list[dict] = []
 
-        self.font_big = None
-        self.font_small = None
+        self.font_big: pygame.font.Font | None = None
+        self.font_small: pygame.font.Font | None = None
+        self.font_markera: pygame.font.Font | None = None
 
         self.state = "countdown"   # countdown -> action -> markera
-        self.countdown_value = 3
+        self.countdown_value = 10
         self.countdown_acc = 0.0
 
         self.timer_enabled = True
-        self.action_time = 3.0
+        self.action_time = 10.0
         self.action_remaining = self.action_time
 
         self._scaled_cache: dict[tuple[int, int], pygame.Surface] = {}
 
-        # Justerad skala efter din screenshot:
-        # svart = nära = större
-        # vitt = långt bort = mindre
-        self.min_scale = 0.12
-        self.max_scale = 0.45
+        # Ca 33 % mindre än förra versionen
+        self.min_scale = 0.08
+        self.max_scale = 0.30
+
+        # Mask-analys i låg upplösning för fart
+        self.mask_analysis_max_w = 320
+        self.mask_analysis_max_h = 180
+        self.min_region_pixels = 8
+        self.gray_tolerance = 12
 
     def on_enter(self) -> None:
         self.font_big = pygame.font.Font(None, 96)
         self.font_small = pygame.font.Font(None, 42)
+        self.font_markera = pygame.font.Font(None, 64)
 
         self.background = self._load_scaled_background()
         self.mask = self._load_mask()
@@ -55,7 +62,7 @@ class ShootDontShootGame:
 
     def _build_round(self) -> None:
         self.state = "countdown"
-        self.countdown_value = 3
+        self.countdown_value = 10
         self.countdown_acc = 0.0
         self.action_remaining = self.action_time
         self._scaled_cache.clear()
@@ -64,7 +71,7 @@ class ShootDontShootGame:
             self.active_slots = []
             return
 
-        max_people = min(10, len(self.hotspots), len(self.characters))
+        max_people = min(10, len(self.hotspots))
         if max_people <= 0:
             self.active_slots = []
             return
@@ -72,16 +79,12 @@ class ShootDontShootGame:
         min_people = min(3, max_people)
         num_people = random.randint(min_people, max_people)
 
-        chosen_hotspots = random.sample(self.hotspots, num_people)
-        chosen_characters = random.sample(self.characters, num_people)
-
-        num_enemies = random.randint(0, min(3, num_people))
-        enemy_indices = set(random.sample(range(num_people), num_enemies))
+        chosen_hotspots = self._choose_spread_hotspots(num_people)
 
         self.active_slots = []
         for i, hotspot in enumerate(chosen_hotspots):
-            char = chosen_characters[i]
-            is_enemy = i in enemy_indices
+            char = random.choice(self.characters)
+            is_enemy = False
 
             self.active_slots.append(
                 {
@@ -93,7 +96,12 @@ class ShootDontShootGame:
                 }
             )
 
-        # Rita bakifrån till framifrån
+        num_enemies = random.randint(0, min(3, len(self.active_slots)))
+        if num_enemies > 0:
+            enemy_indices = set(random.sample(range(len(self.active_slots)), num_enemies))
+            for i, slot in enumerate(self.active_slots):
+                slot["is_enemy"] = i in enemy_indices
+
         self.active_slots.sort(key=lambda s: s["hotspot"]["cy"])
 
     def handle_event(self, event: pygame.event.Event):
@@ -102,11 +110,12 @@ class ShootDontShootGame:
     def update(self, dt: float):
         if self.state == "countdown":
             self.countdown_acc += dt
-            if self.countdown_acc >= 1.0:
-                self.countdown_acc = 0.0
+            while self.countdown_acc >= 1.0:
+                self.countdown_acc -= 1.0
                 self.countdown_value -= 1
                 if self.countdown_value <= 0:
                     self.state = "action"
+                    break
 
         elif self.state == "action":
             if self.timer_enabled:
@@ -133,11 +142,11 @@ class ShootDontShootGame:
 
             scaled = self._scale_sprite(sprite, hotspot["scale"])
 
-            # Bottom-center ankare
-            x = self.viewport.x + hotspot["cx"] - scaled.get_width() // 2
-            y = self.viewport.y + hotspot["cy"] - scaled.get_height()
+            # bottom-center ankare
+            draw_x = self.viewport.x + hotspot["cx"] - scaled.get_width() // 2
+            draw_y = self.viewport.y + hotspot["cy"] - scaled.get_height()
 
-            screen.blit(scaled, (x, y))
+            screen.blit(scaled, (draw_x, draw_y))
 
         if self.state == "countdown":
             txt = "GO" if self.countdown_value <= 0 else str(self.countdown_value)
@@ -147,7 +156,7 @@ class ShootDontShootGame:
                 txt = f"{self.action_remaining:0.1f}"
                 self._draw_top_text(screen, txt)
         elif self.state == "markera":
-            self._draw_top_text(screen, "MARKERA")
+            self._draw_markera_text(screen)
 
     # ---------- assets ----------
     def _load_scaled_background(self) -> pygame.Surface:
@@ -183,16 +192,18 @@ class ShootDontShootGame:
                 continue
 
             img = pygame.image.load(str(path)).convert_alpha()
-            img = self._make_white_transparent(img)
-
             w, h = img.get_size()
             half = w // 2
 
             if half <= 0:
                 continue
 
-            friendly = img.subsurface((0, 0, half, h)).copy()
-            hostile = img.subsurface((half, 0, w - half, h)).copy()
+            friendly = img.subsurface((0, 0, half, h)).copy().convert_alpha()
+            hostile = img.subsurface((half, 0, w - half, h)).copy().convert_alpha()
+
+            # Snabb vit-transparens via colorkey i stället för pixel-loop
+            friendly = self._apply_white_colorkey(friendly)
+            hostile = self._apply_white_colorkey(hostile)
 
             silhouette = self._make_silhouette(friendly, hostile)
 
@@ -206,23 +217,9 @@ class ShootDontShootGame:
 
         return out
 
-    def _make_white_transparent(self, surf: pygame.Surface) -> pygame.Surface:
-        """
-        Gör nästan-vita bakgrunder transparenta.
-        Detta hjälper om vissa PNG-filer egentligen saknar riktig alpha.
-        """
+    def _apply_white_colorkey(self, surf: pygame.Surface) -> pygame.Surface:
         result = surf.copy().convert_alpha()
-        w, h = result.get_size()
-
-        for y in range(h):
-            for x in range(w):
-                c = result.get_at((x, y))
-                if c.a == 0:
-                    continue
-
-                if c.r >= 245 and c.g >= 245 and c.b >= 245:
-                    result.set_at((x, y), (255, 255, 255, 0))
-
+        result.set_colorkey((255, 255, 255))
         return result
 
     def _make_silhouette(self, friendly: pygame.Surface, hostile: pygame.Surface) -> pygame.Surface:
@@ -251,49 +248,148 @@ class ShootDontShootGame:
     # ---------- hotspots ----------
     def _extract_hotspots(self, mask_surface: pygame.Surface) -> list[dict]:
         """
-        Enkel och snabb hotspot-extraktion:
-        - sampla masken glest
-        - alla icke-transparenta pixlar är giltiga
-        - gråvärde styr scale
-        - gruppera bort punkter som ligger för nära varandra
+        Snabbare och bättre mask-analys:
+        - analysera en nedskalad kopia av masken
+        - hitta sammanhängande regioner med liknande gråvärde
+        - placera hotspot i nederkanten av varje region
+        - skala tillbaka till viewport-koordinater
         """
-        w, h = mask_surface.get_size()
+        full_w, full_h = mask_surface.get_size()
+
+        analysis_w = min(self.mask_analysis_max_w, full_w)
+        analysis_h = min(self.mask_analysis_max_h, full_h)
+
+        small_mask = pygame.transform.smoothscale(mask_surface, (analysis_w, analysis_h))
+        w, h = small_mask.get_size()
+
+        visited = [[False for _ in range(h)] for _ in range(w)]
         hotspots: list[dict] = []
 
-        step_x = max(12, w // 80)
-        step_y = max(12, h // 45)
-        min_distance = max(24, min(w, h) // 18)
+        scale_x = full_w / w
+        scale_y = full_h / h
 
-        for y in range(0, h, step_y):
-            for x in range(0, w, step_x):
-                c = mask_surface.get_at((x, y))
-                if c.a == 0:
+        def pixel_info(x: int, y: int) -> tuple[int, int]:
+            c = small_mask.get_at((x, y))
+            gray = (int(c.r) + int(c.g) + int(c.b)) // 3
+            return int(c.a), gray
+
+        for sx in range(w):
+            for sy in range(h):
+                if visited[sx][sy]:
                     continue
 
-                gray = (int(c.r) + int(c.g) + int(c.b)) / 3.0
-                depth = gray / 255.0  # 0 = svart/nära, 1 = vit/långt bort
+                visited[sx][sy] = True
+                a, seed_gray = pixel_info(sx, sy)
+
+                if a == 0:
+                    continue
+
+                q = deque([(sx, sy)])
+                pixels: list[tuple[int, int]] = []
+                sum_gray = 0.0
+
+                while q:
+                    x, y = q.popleft()
+                    a2, gray2 = pixel_info(x, y)
+                    if a2 == 0:
+                        continue
+
+                    pixels.append((x, y))
+                    sum_gray += gray2
+
+                    for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                        if 0 <= nx < w and 0 <= ny < h and not visited[nx][ny]:
+                            visited[nx][ny] = True
+                            na, ngray = pixel_info(nx, ny)
+                            if na > 0 and abs(ngray - seed_gray) <= self.gray_tolerance:
+                                q.append((nx, ny))
+
+                if len(pixels) < self.min_region_pixels:
+                    continue
+
+                max_y = max(y for _, y in pixels)
+                bottom_xs = [x for x, y in pixels if y == max_y]
+
+                if not bottom_xs:
+                    continue
+
+                cx_small = sum(bottom_xs) / len(bottom_xs)
+                cy_small = max_y
+
+                mean_gray = sum_gray / len(pixels)
+                depth = mean_gray / 255.0  # 0=svart/nära, 1=vit/långt bort
                 scale = self.max_scale - depth * (self.max_scale - self.min_scale)
 
-                candidate = {
-                    "cx": x,
-                    "cy": y,
-                    "depth": depth,
-                    "scale": scale,
-                }
+                cx = int(cx_small * scale_x)
+                cy = int(cy_small * scale_y)
 
-                too_close = False
-                for hs in hotspots:
-                    dx = hs["cx"] - candidate["cx"]
-                    dy = hs["cy"] - candidate["cy"]
-                    if (dx * dx + dy * dy) < (min_distance * min_distance):
-                        too_close = True
-                        break
+                hotspots.append(
+                    {
+                        "cx": max(0, min(full_w - 1, cx)),
+                        "cy": max(0, min(full_h - 1, cy)),
+                        "depth": depth,
+                        "scale": scale,
+                        "pixel_count": len(pixels),
+                    }
+                )
 
-                if not too_close:
-                    hotspots.append(candidate)
+        # slå ihop hotspots som ligger för nära
+        merged: list[dict] = []
+        min_distance = max(28, min(full_w, full_h) // 14)
 
-        hotspots.sort(key=lambda hs: hs["cy"])
-        return hotspots
+        for hs in sorted(hotspots, key=lambda item: (item["cy"], item["cx"])):
+            too_close = False
+            for kept in merged:
+                dx = kept["cx"] - hs["cx"]
+                dy = kept["cy"] - hs["cy"]
+                if (dx * dx + dy * dy) < (min_distance * min_distance):
+                    too_close = True
+                    break
+            if not too_close:
+                merged.append(hs)
+
+        merged.sort(key=lambda hs: hs["cy"])
+        return merged
+
+    def _choose_spread_hotspots(self, count: int) -> list[dict]:
+        if count >= len(self.hotspots):
+            return self.hotspots[:]
+
+        sorted_hotspots = sorted(self.hotspots, key=lambda hs: hs["depth"])
+        buckets = [[], [], []]
+
+        for hs in sorted_hotspots:
+            if hs["depth"] < 0.33:
+                buckets[0].append(hs)
+            elif hs["depth"] < 0.66:
+                buckets[1].append(hs)
+            else:
+                buckets[2].append(hs)
+
+        chosen: list[dict] = []
+        used_ids: set[int] = set()
+
+        while len(chosen) < count:
+            available_buckets = [b for b in buckets if any(id(h) not in used_ids for h in b)]
+            if not available_buckets:
+                break
+
+            bucket = random.choice(available_buckets)
+            candidates = [h for h in bucket if id(h) not in used_ids]
+            if not candidates:
+                continue
+
+            hs = random.choice(candidates)
+            chosen.append(hs)
+            used_ids.add(id(hs))
+
+        if len(chosen) < count:
+            remaining = [h for h in self.hotspots if id(h) not in used_ids]
+            if remaining:
+                chosen.extend(random.sample(remaining, min(len(remaining), count - len(chosen))))
+
+        chosen.sort(key=lambda hs: hs["cy"])
+        return chosen
 
     # ---------- helpers ----------
     def _scale_sprite(self, sprite: pygame.Surface, scale: float) -> pygame.Surface:
@@ -310,13 +406,22 @@ class ShootDontShootGame:
         return scaled
 
     def _draw_center_text(self, screen: pygame.Surface, text: str) -> None:
+        assert self.font_big is not None
         surf = self.font_big.render(text, True, (255, 255, 255))
         x = self.viewport.x + (self.viewport.w - surf.get_width()) // 2
         y = self.viewport.y + 40
         screen.blit(surf, (x, y))
 
     def _draw_top_text(self, screen: pygame.Surface, text: str) -> None:
+        assert self.font_big is not None
         surf = self.font_big.render(text, True, (255, 255, 255))
         x = self.viewport.x + (self.viewport.w - surf.get_width()) // 2
-        y = self.viewport.y + 20
+        y = self.viewport.y + 16
+        screen.blit(surf, (x, y))
+
+    def _draw_markera_text(self, screen: pygame.Surface) -> None:
+        assert self.font_markera is not None
+        surf = self.font_markera.render("MARKERA", True, (255, 255, 255))
+        x = self.viewport.x + (self.viewport.w - surf.get_width()) // 2
+        y = self.viewport.y + 8
         screen.blit(surf, (x, y))
