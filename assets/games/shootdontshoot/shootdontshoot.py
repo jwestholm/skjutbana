@@ -36,20 +36,19 @@ class ShootDontShootGame:
         self.action_remaining = self.action_time
 
         self._scaled_cache: dict[tuple[int, int], pygame.Surface] = {}
-        self._darkened_cache: dict[tuple[int, int], pygame.Surface] = {}
+        self._silhouette_cache: dict[int, pygame.Surface] = {}
 
-        # Justerad skala efter dina tester
-        self.min_scale = 0.08
-        self.max_scale = 0.20
+        # Ny skala enligt önskemål:
+        # svart = dubbelt så stor som tidigare max (0.20 -> 0.40)
+        # vitt = 10% större än tidigare min (0.08 -> 0.088)
+        self.min_scale = 0.088
+        self.max_scale = 0.40
 
         # Mask-analys i låg upplösning för fart
         self.mask_analysis_max_w = 320
         self.mask_analysis_max_h = 180
         self.min_region_pixels = 8
         self.gray_tolerance = 12
-
-        # Hur mörk countdown-figuren ska vara
-        self.countdown_darkness = 190  # 0-255, högre = mörkare
 
     def on_enter(self) -> None:
         self.font_big = pygame.font.Font(None, 96)
@@ -70,7 +69,7 @@ class ShootDontShootGame:
         self.countdown_acc = 0.0
         self.action_remaining = self.action_time
         self._scaled_cache.clear()
-        self._darkened_cache.clear()
+        self._silhouette_cache.clear()
 
         if not self.hotspots or not self.characters:
             self.active_slots = []
@@ -142,7 +141,7 @@ class ShootDontShootGame:
             scaled = self._scale_sprite(sprite, hotspot["scale"])
 
             if self.state == "countdown":
-                draw_sprite = self._darken_sprite(scaled)
+                draw_sprite = self._make_black_silhouette(scaled)
             else:
                 draw_sprite = scaled
 
@@ -221,20 +220,28 @@ class ShootDontShootGame:
         result.set_colorkey((255, 255, 255))
         return result
 
-    def _darken_sprite(self, surf: pygame.Surface) -> pygame.Surface:
-        key = (id(surf), self.countdown_darkness)
-        cached = self._darkened_cache.get(key)
+    def _make_black_silhouette(self, surf: pygame.Surface) -> pygame.Surface:
+        key = id(surf)
+        cached = self._silhouette_cache.get(key)
         if cached is not None:
             return cached
 
-        result = surf.copy().convert_alpha()
+        silhouette = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
 
-        darkness = pygame.Surface(result.get_size(), pygame.SRCALPHA)
-        darkness.fill((0, 0, 0, self.countdown_darkness))
-        result.blit(darkness, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
+        alpha_src = pygame.surfarray.array_alpha(surf)
+        rgb_dst = pygame.surfarray.pixels3d(silhouette)
+        alpha_dst = pygame.surfarray.pixels_alpha(silhouette)
 
-        self._darkened_cache[key] = result
-        return result
+        rgb_dst[:, :, 0] = 0
+        rgb_dst[:, :, 1] = 0
+        rgb_dst[:, :, 2] = 0
+        alpha_dst[:, :] = alpha_src[:, :]
+
+        del rgb_dst
+        del alpha_dst
+
+        self._silhouette_cache[key] = silhouette
+        return silhouette
 
     # ---------- hotspots ----------
     def _extract_hotspots(self, mask_surface: pygame.Surface) -> list[dict]:
@@ -307,7 +314,7 @@ class ShootDontShootGame:
                 cy_small = max_y
 
                 mean_gray = sum_gray / len(pixels)
-                depth = mean_gray / 255.0
+                depth = mean_gray / 255.0  # 0 = svart/nära, 1 = vit/långt bort
                 scale = self.max_scale - depth * (self.max_scale - self.min_scale)
 
                 cx = int(cx_small * scale_x)
