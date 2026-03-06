@@ -28,7 +28,7 @@ class ShootDontShootGame:
         self.font_markera: pygame.font.Font | None = None
 
         self.state = "countdown"   # countdown -> action -> markera
-        self.countdown_value = 10
+        self.countdown_value = 5
         self.countdown_acc = 0.0
 
         self.timer_enabled = True
@@ -36,16 +36,20 @@ class ShootDontShootGame:
         self.action_remaining = self.action_time
 
         self._scaled_cache: dict[tuple[int, int], pygame.Surface] = {}
+        self._darkened_cache: dict[tuple[int, int], pygame.Surface] = {}
 
-        # Ca 33 % mindre än förra versionen
+        # Justerad skala efter dina tester
         self.min_scale = 0.08
-        self.max_scale = 0.30
+        self.max_scale = 0.20
 
         # Mask-analys i låg upplösning för fart
         self.mask_analysis_max_w = 320
         self.mask_analysis_max_h = 180
         self.min_region_pixels = 8
         self.gray_tolerance = 12
+
+        # Hur mörk countdown-figuren ska vara
+        self.countdown_darkness = 190  # 0-255, högre = mörkare
 
     def on_enter(self) -> None:
         self.font_big = pygame.font.Font(None, 96)
@@ -62,10 +66,11 @@ class ShootDontShootGame:
 
     def _build_round(self) -> None:
         self.state = "countdown"
-        self.countdown_value = 10
+        self.countdown_value = 5
         self.countdown_acc = 0.0
         self.action_remaining = self.action_time
         self._scaled_cache.clear()
+        self._darkened_cache.clear()
 
         if not self.hotspots or not self.characters:
             self.active_slots = []
@@ -82,7 +87,7 @@ class ShootDontShootGame:
         chosen_hotspots = self._choose_spread_hotspots(num_people)
 
         self.active_slots = []
-        for i, hotspot in enumerate(chosen_hotspots):
+        for hotspot in chosen_hotspots:
             char = random.choice(self.characters)
             is_enemy = False
 
@@ -91,7 +96,6 @@ class ShootDontShootGame:
                     "hotspot": hotspot,
                     "friendly": char["friendly"],
                     "hostile": char["hostile"],
-                    "silhouette": char["silhouette"],
                     "is_enemy": is_enemy,
                 }
             )
@@ -134,19 +138,18 @@ class ShootDontShootGame:
 
         for slot in self.active_slots:
             hotspot = slot["hotspot"]
-
-            if self.state == "countdown":
-                sprite = slot["silhouette"]
-            else:
-                sprite = slot["hostile"] if slot["is_enemy"] else slot["friendly"]
-
+            sprite = slot["hostile"] if slot["is_enemy"] else slot["friendly"]
             scaled = self._scale_sprite(sprite, hotspot["scale"])
 
-            # bottom-center ankare
-            draw_x = self.viewport.x + hotspot["cx"] - scaled.get_width() // 2
-            draw_y = self.viewport.y + hotspot["cy"] - scaled.get_height()
+            if self.state == "countdown":
+                draw_sprite = self._darken_sprite(scaled)
+            else:
+                draw_sprite = scaled
 
-            screen.blit(scaled, (draw_x, draw_y))
+            draw_x = self.viewport.x + hotspot["cx"] - draw_sprite.get_width() // 2
+            draw_y = self.viewport.y + hotspot["cy"] - draw_sprite.get_height()
+
+            screen.blit(draw_sprite, (draw_x, draw_y))
 
         if self.state == "countdown":
             txt = "GO" if self.countdown_value <= 0 else str(self.countdown_value)
@@ -201,17 +204,13 @@ class ShootDontShootGame:
             friendly = img.subsurface((0, 0, half, h)).copy().convert_alpha()
             hostile = img.subsurface((half, 0, w - half, h)).copy().convert_alpha()
 
-            # Snabb vit-transparens via colorkey i stället för pixel-loop
             friendly = self._apply_white_colorkey(friendly)
             hostile = self._apply_white_colorkey(hostile)
-
-            silhouette = self._make_silhouette(friendly, hostile)
 
             out.append(
                 {
                     "friendly": friendly,
                     "hostile": hostile,
-                    "silhouette": silhouette,
                 }
             )
 
@@ -222,37 +221,28 @@ class ShootDontShootGame:
         result.set_colorkey((255, 255, 255))
         return result
 
-    def _make_silhouette(self, friendly: pygame.Surface, hostile: pygame.Surface) -> pygame.Surface:
-        w = max(friendly.get_width(), hostile.get_width())
-        h = max(friendly.get_height(), hostile.get_height())
+    def _darken_sprite(self, surf: pygame.Surface) -> pygame.Surface:
+        key = (id(surf), self.countdown_darkness)
+        cached = self._darkened_cache.get(key)
+        if cached is not None:
+            return cached
 
-        base = pygame.Surface((w, h), pygame.SRCALPHA)
-        base.blit(friendly, ((w - friendly.get_width()) // 2, h - friendly.get_height()))
-        base.blit(hostile, ((w - hostile.get_width()) // 2, h - hostile.get_height()))
+        result = surf.copy().convert_alpha()
 
-        alpha = pygame.surfarray.array_alpha(base)
-        silhouette = pygame.Surface((w, h), pygame.SRCALPHA)
+        darkness = pygame.Surface(result.get_size(), pygame.SRCALPHA)
+        darkness.fill((0, 0, 0, self.countdown_darkness))
+        result.blit(darkness, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
 
-        arr = pygame.surfarray.pixels3d(silhouette)
-        arr[:, :, 0] = 0
-        arr[:, :, 1] = 0
-        arr[:, :, 2] = 0
-        del arr
-
-        alpha_target = pygame.surfarray.pixels_alpha(silhouette)
-        alpha_target[:, :] = alpha[:, :]
-        del alpha_target
-
-        return silhouette
+        self._darkened_cache[key] = result
+        return result
 
     # ---------- hotspots ----------
     def _extract_hotspots(self, mask_surface: pygame.Surface) -> list[dict]:
         """
-        Snabbare och bättre mask-analys:
-        - analysera en nedskalad kopia av masken
+        Snabbare mask-analys:
+        - analysera en nedskalad mask
         - hitta sammanhängande regioner med liknande gråvärde
-        - placera hotspot i nederkanten av varje region
-        - skala tillbaka till viewport-koordinater
+        - sätt hotspot i nederkanten av regionen
         """
         full_w, full_h = mask_surface.get_size()
 
@@ -317,7 +307,7 @@ class ShootDontShootGame:
                 cy_small = max_y
 
                 mean_gray = sum_gray / len(pixels)
-                depth = mean_gray / 255.0  # 0=svart/nära, 1=vit/långt bort
+                depth = mean_gray / 255.0
                 scale = self.max_scale - depth * (self.max_scale - self.min_scale)
 
                 cx = int(cx_small * scale_x)
@@ -333,7 +323,6 @@ class ShootDontShootGame:
                     }
                 )
 
-        # slå ihop hotspots som ligger för nära
         merged: list[dict] = []
         min_distance = max(28, min(full_w, full_h) // 14)
 
