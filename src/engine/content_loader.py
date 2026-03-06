@@ -8,39 +8,43 @@ from pathlib import Path
 @dataclass(frozen=True)
 class MenuItem:
     id: str
-    type: str  # "image" | "video" | "settings" | (senare "script")
+    type: str  # "image" | "video" | "settings" | "game"
     title: str
     description: str
     path: str
     preview: str
+
     fit: str  # "stretch" | "contain" | "cover"
     bg_color: tuple[int, int, int]
 
+    # Nytt: används av type="game"
+    script: str
+
 
 @dataclass(frozen=True)
-class MenuFolder:
+class Category:
     id: str
     title: str
     description: str
     preview: str
-    children: list["MenuNode"]
-
-
-MenuNode = MenuFolder | MenuItem
+    items: list[MenuItem]
 
 
 @dataclass(frozen=True)
 class MenuData:
     title: str
-    root: MenuFolder
+    categories: list[Category]
 
 
 def _parse_color(value, fallback=(0, 0, 0)) -> tuple[int, int, int]:
     try:
         if isinstance(value, list) and len(value) == 3:
-            r = max(0, min(255, int(value[0])))
-            g = max(0, min(255, int(value[1])))
-            b = max(0, min(255, int(value[2])))
+            r = int(value[0])
+            g = int(value[1])
+            b = int(value[2])
+            r = max(0, min(255, r))
+            g = max(0, min(255, g))
+            b = max(0, min(255, b))
             return (r, g, b)
     except Exception:
         pass
@@ -54,100 +58,6 @@ def _parse_fit(value, fallback="stretch") -> str:
     return fallback
 
 
-def _parse_item(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int]) -> MenuItem:
-    item_fit = _parse_fit(raw.get("fit", inherited_fit), inherited_fit)
-    item_bg = _parse_color(raw.get("bg_color", list(inherited_bg)), inherited_bg)
-
-    return MenuItem(
-        id=str(raw["id"]),
-        type=str(raw["type"]),
-        title=str(raw.get("title", "")),
-        description=str(raw.get("description", "")),
-        path=str(raw.get("path", "")),
-        preview=str(raw.get("preview", "")),
-        fit=item_fit,
-        bg_color=item_bg,
-    )
-
-
-def _parse_folder(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int]) -> MenuFolder:
-    defaults = raw.get("defaults", {}) or {}
-    folder_fit = _parse_fit(defaults.get("fit", inherited_fit), inherited_fit)
-    folder_bg = _parse_color(defaults.get("bg_color", list(inherited_bg)), inherited_bg)
-
-    children: list[MenuNode] = []
-    for child in raw.get("children", []):
-        kind = str(child.get("kind", "")).lower().strip()
-
-        if kind == "folder":
-            children.append(_parse_folder(child, folder_fit, folder_bg))
-        elif kind == "item":
-            children.append(_parse_item(child, folder_fit, folder_bg))
-        else:
-            # enkel fallback:
-            # har den children => folder, annars item
-            if "children" in child:
-                children.append(_parse_folder(child, folder_fit, folder_bg))
-            else:
-                children.append(_parse_item(child, folder_fit, folder_bg))
-
-    return MenuFolder(
-        id=str(raw.get("id", "")),
-        title=str(raw.get("title", "")),
-        description=str(raw.get("description", "")),
-        preview=str(raw.get("preview", "")),
-        children=children,
-    )
-
-
-def _load_tree_format(data: dict) -> MenuData:
-    if "root" not in data:
-        raise ValueError("menu.json saknar 'root'")
-
-    root = _parse_folder(data["root"], "stretch", (0, 0, 0))
-    return MenuData(
-        title=str(data.get("title", "Menu")),
-        root=root,
-    )
-
-
-def _load_legacy_categories_format(data: dict) -> MenuData:
-    # Bakåtkompatibilitet för gamla categories/items-formatet
-    root_children: list[MenuNode] = []
-
-    for c in data.get("categories", []):
-        defaults = c.get("defaults", {}) or {}
-        cat_fit = _parse_fit(defaults.get("fit", "stretch"), "stretch")
-        cat_bg = _parse_color(defaults.get("bg_color", [0, 0, 0]), (0, 0, 0))
-
-        children: list[MenuNode] = []
-        for it in c.get("items", []):
-            children.append(_parse_item(it, cat_fit, cat_bg))
-
-        root_children.append(
-            MenuFolder(
-                id=str(c.get("id", "")),
-                title=str(c.get("title", "")),
-                description=str(c.get("description", "")),
-                preview=str(c.get("preview", "")),
-                children=children,
-            )
-        )
-
-    root = MenuFolder(
-        id="root",
-        title="Huvudmeny",
-        description="",
-        preview="",
-        children=root_children,
-    )
-
-    return MenuData(
-        title=str(data.get("title", "Menu")),
-        root=root,
-    )
-
-
 def load_menu(path: str | Path) -> MenuData:
     p = Path(path)
     data = json.loads(p.read_text(encoding="utf-8"))
@@ -155,7 +65,40 @@ def load_menu(path: str | Path) -> MenuData:
     if data.get("version") != 1:
         raise ValueError("Unsupported menu.json version")
 
-    if "root" in data:
-        return _load_tree_format(data)
+    categories: list[Category] = []
 
-    return _load_legacy_categories_format(data)
+    for c in data.get("categories", []):
+        defaults = c.get("defaults", {}) or {}
+        cat_fit = _parse_fit(defaults.get("fit", "stretch"), "stretch")
+        cat_bg = _parse_color(defaults.get("bg_color", [0, 0, 0]), (0, 0, 0))
+
+        items: list[MenuItem] = []
+        for it in c.get("items", []):
+            item_fit = _parse_fit(it.get("fit", cat_fit), cat_fit)
+            item_bg = _parse_color(it.get("bg_color", list(cat_bg)), cat_bg)
+
+            items.append(
+                MenuItem(
+                    id=str(it["id"]),
+                    type=str(it["type"]),
+                    title=str(it.get("title", "")),
+                    description=str(it.get("description", "")),
+                    path=str(it.get("path", "")),
+                    preview=str(it.get("preview", "")),
+                    fit=item_fit,
+                    bg_color=item_bg,
+                    script=str(it.get("script", "")),
+                )
+            )
+
+        categories.append(
+            Category(
+                id=str(c["id"]),
+                title=str(c.get("title", "")),
+                description=str(c.get("description", "")),
+                preview=str(c.get("preview", "")),
+                items=items,
+            )
+        )
+
+    return MenuData(title=str(data.get("title", "Menu")), categories=categories)

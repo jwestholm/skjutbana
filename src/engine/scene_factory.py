@@ -16,4 +16,8 @@ def build_scene_from_item(item: MenuItem):
         from src.engine.scenes.calibrate import CalibrateViewportScene
         return CalibrateViewportScene()
 
+    if item.type == "game":
+        from src.engine.scenes.game import GameScene
+        return GameScene(game_root=item.path, script_path=item.script)
+
     raise ValueError(f"Unknown item type: {item.type}")
