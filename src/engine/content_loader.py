@@ -20,6 +20,13 @@ class MenuItem:
     # Nytt: används av type="game"
     script: str
 
+@dataclass(frozen=True)
+class MenuFolder:
+    id: str
+    title: str
+    description: str
+    preview: str
+    items: list["MenuItem"]
 
 @dataclass(frozen=True)
 class Category:
