@@ -55,7 +55,8 @@ class ShootDontShootGame:
         self.font_small = pygame.font.Font(None, 42)
         self.font_markera = pygame.font.Font(None, 64)
 
-        self.background, self.mask = self._load_background_and_mask()
+        self.background = self._load_scaled_background()
+        self.mask = self._load_mask()
 
         self.hotspots = self._extract_hotspots(self.mask)
         self.characters = self._load_characters()
@@ -185,48 +186,24 @@ class ShootDontShootGame:
             self._draw_markera_text(screen)
 
     # ---------- assets ----------
-    def _load_background_and_mask(self) -> tuple[pygame.Surface, pygame.Surface]:
-        pair = self._choose_background_mask_pair()
-
-        bg = pygame.image.load(str(pair["background"])).convert()
-        mask = pygame.image.load(str(pair["mask"])).convert_alpha()
-
-        scaled_bg = pygame.transform.smoothscale(bg, (self.viewport.w, self.viewport.h))
-        scaled_mask = pygame.transform.smoothscale(mask, (self.viewport.w, self.viewport.h))
-        return scaled_bg, scaled_mask
-
-    def _choose_background_mask_pair(self) -> dict[str, Path]:
-        backgrounds = {
-            p.stem[1:]: p
-            for p in sorted(self.game_root.glob("b*.png"))
+    def _load_scaled_background(self) -> pygame.Surface:
+        backgrounds = sorted(
+            p for p in self.game_root.glob("b*.png")
             if p.stem[1:].isdigit()
-        }
-        masks = {
-            p.stem[1:]: p
-            for p in sorted(self.game_root.glob("m*.png"))
-            if p.stem[1:].isdigit()
-        }
-
-        common_ids = sorted(set(backgrounds) & set(masks), key=int)
-        if common_ids:
-            chosen_id = random.choice(common_ids)
-            return {
-                "background": backgrounds[chosen_id],
-                "mask": masks[chosen_id],
-            }
-
-        fallback_bg = self.game_root / "b1.png"
-        fallback_mask = self.game_root / "m1.png"
-
-        if fallback_bg.exists() and fallback_mask.exists():
-            return {
-                "background": fallback_bg,
-                "mask": fallback_mask,
-            }
-
-        raise FileNotFoundError(
-            "No valid background/mask pairs found. Expected matching files like b1.png + m1.png, b2.png + m2.png, etc."
         )
+
+        if not backgrounds:
+            bg_path = self.game_root / "b1.png"
+        else:
+            bg_path = random.choice(backgrounds)
+
+        bg = pygame.image.load(str(bg_path)).convert()
+        return pygame.transform.smoothscale(bg, (self.viewport.w, self.viewport.h))
+
+    def _load_mask(self) -> pygame.Surface:
+        mask_path = self.game_root / "m1.png"
+        img = pygame.image.load(str(mask_path)).convert_alpha()
+        return pygame.transform.smoothscale(img, (self.viewport.w, self.viewport.h))
 
     def _load_characters(self) -> list[dict]:
         out: list[dict] = []
@@ -268,29 +245,59 @@ class ShootDontShootGame:
         result = surf.copy().convert_alpha()
         result.set_colorkey((255, 255, 255))
         return result
-
+    
     def _make_black_silhouette(self, surf: pygame.Surface) -> pygame.Surface:
         key = id(surf)
         cached = self._silhouette_cache.get(key)
         if cached is not None:
             return cached
-
-        silhouette = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
-
+        
         alpha_src = pygame.surfarray.array_alpha(surf)
+        w, h = surf.get_size()
+        
+        # Bas-siluett med lägre alpha så den inte blir så tydlig
+        silhouette = pygame.Surface((w, h), pygame.SRCALPHA)
         rgb_dst = pygame.surfarray.pixels3d(silhouette)
         alpha_dst = pygame.surfarray.pixels_alpha(silhouette)
-
+        
         rgb_dst[:, :, 0] = 0
         rgb_dst[:, :, 1] = 0
         rgb_dst[:, :, 2] = 0
-        alpha_dst[:, :] = alpha_src[:, :]
-
+        alpha_dst[:, :] = (alpha_src[:, :] * 0.22).astype("uint8")
+        
         del rgb_dst
         del alpha_dst
-
-        self._silhouette_cache[key] = silhouette
-        return silhouette
+        
+        # Enkel "glow"/blur-effekt genom att rita flera offset-kopior bakom
+        
+        glow = pygame.Surface((w, h), pygame.SRCALPHA)
+        glow_offsets = [
+        (-10, 0), (10, 0), (0, -10), (0, 10),
+        (-7, -7), (-7, 7), (7, -7), (7, 7),
+        (-4, 0), (4, 0), (0, -4), (0, 4),
+        ]
+        
+        glow_sprite = pygame.Surface((w, h), pygame.SRCALPHA)
+        glow_rgb = pygame.surfarray.pixels3d(glow_sprite)
+        glow_alpha = pygame.surfarray.pixels_alpha(glow_sprite)
+        
+        glow_rgb[:, :, 0] = 0
+        glow_rgb[:, :, 1] = 0
+        glow_rgb[:, :, 2] = 0
+        glow_alpha[:, :] = (alpha_src[:, :] * 0.08).astype("uint8")
+        del glow_rgb
+        del glow_alpha
+        
+        for ox, oy in glow_offsets:
+            glow.blit(glow_sprite, (ox, oy))
+        
+        # Lägg glow bakom och svag kärna ovanpå
+        out = pygame.Surface((w, h), pygame.SRCALPHA)
+        out.blit(glow, (0, 0))
+        out.blit(silhouette, (0, 0))
+        
+        self._silhouette_cache[key] = out
+        return out
 
     # ---------- hotspots ----------
     def _extract_hotspots(self, mask_surface: pygame.Surface) -> list[dict]:
