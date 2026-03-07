@@ -176,10 +176,10 @@ class MenuScene(Scene):
 
     def _entry_label(self, entry: _BackEntry | MenuNode) -> str:
         if isinstance(entry, _BackEntry):
-            return "◀ Tillbaka"
+            return "< Tillbaka"
 
         if isinstance(entry, MenuFolder):
-            return f"[Mapp] {entry.title}"
+            return f"{entry.title}"
 
         return entry.title
 
@@ -229,7 +229,7 @@ class MenuScene(Scene):
         line_h = 44
         for i, entry in enumerate(entries):
             is_sel = i == selected
-            prefix = "▶ " if is_sel else "  "
+            prefix = "> " if is_sel else "  "
             color = (255, 255, 255) if is_sel else (185, 185, 185)
             txt = self.font.render(prefix + self._entry_label(entry), True, color)
             screen.blit(txt, (list_rect.x + 18, y))
