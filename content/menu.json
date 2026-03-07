@@ -13,12 +13,22 @@
       },
       "items": [
         {
-          "id": "img_test_1",
+          "id": "img_sniper1",
           "type": "image",
-          "title": "Testbild 1",
-          "description": "En stillbild du kan byta ut senare.",
-          "path": "assets/targets/target1.png",
-          "preview": "assets/targets/target1.png",
+          "title": "Hitta snipern",
+          "description": "En dold sniper",
+          "path": "assets/images/sniper_woods.png",
+          "preview": "assets/images/sniper_woods.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "img_sniper2",
+          "type": "image",
+          "title": "Hitta snipern 2",
+          "description": "En dold sniper",
+          "path": "assets/images/sniper_woods2.png",
+          "preview": "assets/images/sniper_woods2.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
         }
@@ -93,6 +103,16 @@
           "preview": "assets/targets/inskjutning.jpg",
           "fit": "contain",
           "bg_color": [255, 255, 255]
+        },
+        {
+          "id": "paper_7",
+          "type": "image",
+          "title": "Putin",
+          "description": "Skitstövel",
+          "path": "assets/targets/putin.png",
+          "preview": "assets/targets/putin.png",
+          "fit": "contain",
+          "bg_color": [255, 255, 255]
         }
       ]
     },
@@ -109,20 +129,50 @@
         {
           "id": "hostage",
           "type": "video",
-          "title": "Hostage (test)",
-          "description": "Video-test.\nSPACE pause/play.",
+          "title": "Gisslan",
+          "description": "Du kommer in i ett rum, rädda gisslan!\nSkjutledare behövs.",
           "path": "assets/movies/hostage.mp4",
           "preview": "assets/thumbs/hostage.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        }
+        },
+		{
+          "id": "zombie1",
+          "type": "video",
+          "title": "Zombie",
+          "description": "Skjut zombien i huvudet.\nSkjutledare behövs",
+          "path": "assets/movies/zombie1.mp4",
+          "preview": "assets/thumbs/zombie1.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+		{
+          "id": "battlefield",
+          "type": "video",
+          "title": "Slagfält",
+          "description": "Fienderna kommer!.\nSkjutledare behövs",
+          "path": "assets/movies/battlefield.mp4",
+          "preview": "assets/thumbs/battlefield.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+		{
+          "id": "soldiers",
+          "type": "video",
+          "title": "Soldater",
+          "description": "Soldater!.\nSkjutledare behövs",
+          "path": "assets/movies/soldiers.mp4",
+          "preview": "assets/thumbs/soldiers.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        }			
       ]
     },
     {
       "id": "games",
       "title": "Spel",
       "description": "Interaktiva spel och scenarion.",
-      "preview": "assets/thumbs/video_icon.png",
+      "preview": "assets/thumbs/game_icon.png",
       "items": [
         {
           "id": "shootdontshoot",
