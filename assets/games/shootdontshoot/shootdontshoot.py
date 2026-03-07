@@ -55,8 +55,7 @@ class ShootDontShootGame:
         self.font_small = pygame.font.Font(None, 42)
         self.font_markera = pygame.font.Font(None, 64)
 
-        self.background = self._load_scaled_background()
-        self.mask = self._load_mask()
+        self.background, self.mask = self._load_background_and_mask()
 
         self.hotspots = self._extract_hotspots(self.mask)
         self.characters = self._load_characters()
@@ -186,24 +185,48 @@ class ShootDontShootGame:
             self._draw_markera_text(screen)
 
     # ---------- assets ----------
-    def _load_scaled_background(self) -> pygame.Surface:
-        backgrounds = sorted(
-            p for p in self.game_root.glob("b*.png")
+    def _load_background_and_mask(self) -> tuple[pygame.Surface, pygame.Surface]:
+        pair = self._choose_background_mask_pair()
+
+        bg = pygame.image.load(str(pair["background"])).convert()
+        mask = pygame.image.load(str(pair["mask"])).convert_alpha()
+
+        scaled_bg = pygame.transform.smoothscale(bg, (self.viewport.w, self.viewport.h))
+        scaled_mask = pygame.transform.smoothscale(mask, (self.viewport.w, self.viewport.h))
+        return scaled_bg, scaled_mask
+
+    def _choose_background_mask_pair(self) -> dict[str, Path]:
+        backgrounds = {
+            p.stem[1:]: p
+            for p in sorted(self.game_root.glob("b*.png"))
             if p.stem[1:].isdigit()
+        }
+        masks = {
+            p.stem[1:]: p
+            for p in sorted(self.game_root.glob("m*.png"))
+            if p.stem[1:].isdigit()
+        }
+
+        common_ids = sorted(set(backgrounds) & set(masks), key=int)
+        if common_ids:
+            chosen_id = random.choice(common_ids)
+            return {
+                "background": backgrounds[chosen_id],
+                "mask": masks[chosen_id],
+            }
+
+        fallback_bg = self.game_root / "b1.png"
+        fallback_mask = self.game_root / "m1.png"
+
+        if fallback_bg.exists() and fallback_mask.exists():
+            return {
+                "background": fallback_bg,
+                "mask": fallback_mask,
+            }
+
+        raise FileNotFoundError(
+            "No valid background/mask pairs found. Expected matching files like b1.png + m1.png, b2.png + m2.png, etc."
         )
-
-        if not backgrounds:
-            bg_path = self.game_root / "b1.png"
-        else:
-            bg_path = random.choice(backgrounds)
-
-        bg = pygame.image.load(str(bg_path)).convert()
-        return pygame.transform.smoothscale(bg, (self.viewport.w, self.viewport.h))
-
-    def _load_mask(self) -> pygame.Surface:
-        mask_path = self.game_root / "m1.png"
-        img = pygame.image.load(str(mask_path)).convert_alpha()
-        return pygame.transform.smoothscale(img, (self.viewport.w, self.viewport.h))
 
     def _load_characters(self) -> list[dict]:
         out: list[dict] = []
