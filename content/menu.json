@@ -18,7 +18,7 @@
           "title": "Hitta snipern",
           "description": "En dold sniper",
           "path": "assets/images/sniper_woods.png",
-          "preview": "assets/images/sniper_woods.png",
+          "preview": "assets/thumbs/spotthesniper.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
@@ -28,7 +28,27 @@
           "title": "Hitta snipern 2",
           "description": "En dold sniper",
           "path": "assets/images/sniper_woods2.png",
-          "preview": "assets/images/sniper_woods2.png",
+          "preview": "assets/thumbs/spotthesniper.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "img_sniper3",
+          "type": "image",
+          "title": "Hitta snipern 3",
+          "description": "En dold sniper",
+          "path": "assets/images/sniper_building.png",
+          "preview": "assets/thumbs/spotthesniper.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },		
+        {
+          "id": "img_sniper2",
+          "type": "image",
+          "title": "Putin och Trump",
+          "description": "Amerikansk patron ur",
+          "path": "assets/images/pt.jpg",
+          "preview": "assets/images/pt.jpg",
           "fit": "contain",
           "bg_color": [0, 0, 0]
         }

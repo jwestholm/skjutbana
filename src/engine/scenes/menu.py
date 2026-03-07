@@ -176,7 +176,7 @@ class MenuScene(Scene):
 
     def _entry_label(self, entry: _BackEntry | MenuNode) -> str:
         if isinstance(entry, _BackEntry):
-            return "< Tillbaka"
+            return " Tillbaka"
 
         if isinstance(entry, MenuFolder):
             return f"{entry.title}"
