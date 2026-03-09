@@ -7,20 +7,26 @@ import pygame
 from config import SCREEN_WIDTH, SCREEN_HEIGHT
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import (
+    clear_camera_calibration,
+    load_camera_calibration,
     load_scanport_norm,
     load_viewport_rect,
+    save_camera_calibration,
     save_scanport_norm,
     scanport_norm_to_screen_rect,
     screen_rect_to_scanport_norm,
 )
-
 
 ORANGE = (255, 140, 0)
 GREEN = (0, 255, 0)
 WHITE = (240, 240, 240)
 SOFT_WHITE = (210, 210, 210)
 RED = (255, 120, 120)
+BLACK = (0, 0, 0)
 PANEL_BG = (0, 0, 0, 165)
+
+CALIBRATION_MARKER_RADIUS = 24
+CALIBRATION_MARKER_THICKNESS = 5
 
 
 def _draw_dashed_line(
@@ -74,18 +80,63 @@ def _clamp_rect_to_screen(rect: pygame.Rect) -> pygame.Rect:
     return rect
 
 
+def _rect_to_corner_points(rect: pygame.Rect) -> np.ndarray:
+    return np.array(
+        [
+            [float(rect.left), float(rect.top)],
+            [float(rect.right), float(rect.top)],
+            [float(rect.right), float(rect.bottom)],
+            [float(rect.left), float(rect.bottom)],
+        ],
+        dtype=np.float32,
+    )
+
+
+def _normalize_points(points: np.ndarray) -> list[list[float]]:
+    out: list[list[float]] = []
+    for x, y in points:
+        out.append([float(x) / max(1, SCREEN_WIDTH), float(y) / max(1, SCREEN_HEIGHT)])
+    return out
+
+
+def _draw_crosshair(
+    surface: pygame.Surface,
+    color: tuple[int, int, int],
+    center: tuple[int, int],
+    radius: int = CALIBRATION_MARKER_RADIUS,
+    thickness: int = CALIBRATION_MARKER_THICKNESS,
+) -> None:
+    x, y = center
+    pygame.draw.circle(surface, color, center, radius, thickness)
+    pygame.draw.line(surface, color, (x - radius - 8, y), (x + radius + 8, y), thickness)
+    pygame.draw.line(surface, color, (x, y - radius - 8), (x, y + radius + 8), thickness)
+
+
+def _sort_points_clockwise(points: np.ndarray) -> np.ndarray:
+    pts = np.array(points, dtype=np.float32)
+    sums = pts.sum(axis=1)
+    diffs = np.diff(pts, axis=1).reshape(-1)
+
+    top_left = pts[np.argmin(sums)]
+    bottom_right = pts[np.argmax(sums)]
+    top_right = pts[np.argmin(diffs)]
+    bottom_left = pts[np.argmax(diffs)]
+
+    return np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.float32)
+
+
 class CameraTestScene(Scene):
     """
-    Scanport-kalibrering / kameratest.
+    Scanport-kalibrering + automatisk hörnkalibrering.
 
     Kontroller:
-    - Pilar = flytta
+    - Pilar = flytta scanport
     - + / - = skala proportionellt
-    - SHIFT+B = öka bredd
-    - B = minska bredd
-    - SHIFT+H = öka höjd
-    - H = minska höjd
-    - ENTER = spara
+    - SHIFT+B / B = öka / minska bredd
+    - SHIFT+H / H = öka / minska höjd
+    - ENTER = spara scanport
+    - SPACE = starta hörnkalibrering
+    - C = radera sparad hörnkalibrering
     - ESC = tillbaka
     """
 
@@ -95,18 +146,25 @@ class CameraTestScene(Scene):
 
         self.cap: cv2.VideoCapture | None = None
         self.last_frame: pygame.Surface | None = None
+        self.last_frame_rgb: np.ndarray | None = None
         self.error_message: str | None = None
+        self.status_message: str = ""
 
         self.font = None
         self.small = None
         self.tiny = None
 
-        self.viewport = None
-        self.original_rect = None
-        self.rect = None
+        self.viewport: pygame.Rect | None = None
+        self.rect: pygame.Rect | None = None
 
         self.move_step = 10
         self.size_step = 20
+
+        self.calibration_mode = False
+        self.calibration_frames_needed = 5
+        self.calibration_hits = 0
+        self.detected_points: np.ndarray | None = None
+        self.calibration_data: dict | None = None
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 42)
@@ -114,13 +172,23 @@ class CameraTestScene(Scene):
         self.tiny = pygame.font.Font(None, 24)
 
         self.error_message = None
+        self.status_message = ""
         self.last_frame = None
+        self.last_frame_rgb = None
+        self.calibration_mode = False
+        self.calibration_hits = 0
+        self.detected_points = None
 
         self.viewport = load_viewport_rect()
-
         scanport = load_scanport_norm()
-        self.original_rect = scanport_norm_to_screen_rect(scanport)
-        self.rect = self.original_rect.copy()
+        self.rect = scanport_norm_to_screen_rect(scanport)
+        self.calibration_data = load_camera_calibration()
+
+        if self.calibration_data and self.calibration_data.get("camera_points_norm"):
+            pts = []
+            for x, y in self.calibration_data["camera_points_norm"]:
+                pts.append([x * SCREEN_WIDTH, y * SCREEN_HEIGHT])
+            self.detected_points = np.array(pts, dtype=np.float32)
 
         self.cap = cv2.VideoCapture(self.camera_index)
         if not self.cap or not self.cap.isOpened():
@@ -132,6 +200,11 @@ class CameraTestScene(Scene):
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
+        if self.calibration_data and self.calibration_data.get("is_calibrated"):
+            self.status_message = "Kalibrering hittad."
+        else:
+            self.status_message = "Ingen hörnkalibrering sparad."
 
     def on_exit(self) -> None:
         if self.cap:
@@ -147,6 +220,8 @@ class CameraTestScene(Scene):
             return None
 
         if event.key == pygame.K_ESCAPE:
+            self.calibration_mode = False
+            self.calibration_hits = 0
             return self._go_back()
 
         if self.rect is None:
@@ -154,10 +229,29 @@ class CameraTestScene(Scene):
 
         mods = pygame.key.get_mods()
 
-        if event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
+        if event.key == pygame.K_SPACE:
+            if self.cap is not None:
+                self.calibration_mode = True
+                self.calibration_hits = 0
+                self.detected_points = None
+                self.status_message = "Visar kalibreringsmönster och söker hörn..."
+            return None
+
+        if self.calibration_mode:
+            return None
+
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             x, y, w, h = screen_rect_to_scanport_norm(self.rect)
             save_scanport_norm(x, y, w, h)
-            return self._go_back()
+            self.status_message = "Scanport sparad."
+            return None
+
+        if event.key == pygame.K_c:
+            clear_camera_calibration()
+            self.calibration_data = None
+            self.detected_points = None
+            self.status_message = "Sparad hörnkalibrering raderad."
+            return None
 
         if event.key == pygame.K_LEFT:
             self.rect.x -= self.move_step
@@ -167,20 +261,15 @@ class CameraTestScene(Scene):
             self.rect.y -= self.move_step
         elif event.key == pygame.K_DOWN:
             self.rect.y += self.move_step
-
         elif event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
             self.rect.inflate_ip(self.size_step, self.size_step)
-            self.rect.center = self.original_rect.center if mods & pygame.KMOD_CTRL else self.rect.center
-
         elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
             self.rect.inflate_ip(-self.size_step, -self.size_step)
-
         elif event.key == pygame.K_b:
             if mods & pygame.KMOD_SHIFT:
                 self.rect.w += self.size_step
             else:
                 self.rect.w -= self.size_step
-
         elif event.key == pygame.K_h:
             if mods & pygame.KMOD_SHIFT:
                 self.rect.h += self.size_step
@@ -190,19 +279,101 @@ class CameraTestScene(Scene):
         self.rect = _clamp_rect_to_screen(self.rect)
         return None
 
-    def update(self, dt: float):
+    def _read_camera(self) -> None:
         if not self.cap:
-            return None
+            return
 
         ok, frame_bgr = self.cap.read()
         if not ok:
             self.error_message = "Kunde inte läsa bild från kameran."
-            return None
+            return
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        frame_rgb = cv2.resize(frame_rgb, (SCREEN_WIDTH, SCREEN_HEIGHT), interpolation=cv2.INTER_LINEAR)
-        frame_rgb = np.transpose(frame_rgb, (1, 0, 2))
-        self.last_frame = pygame.surfarray.make_surface(frame_rgb).convert()
+        frame_rgb = cv2.resize(
+            frame_rgb,
+            (SCREEN_WIDTH, SCREEN_HEIGHT),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        self.last_frame_rgb = frame_rgb
+        frame_surface = np.transpose(frame_rgb, (1, 0, 2))
+        self.last_frame = pygame.surfarray.make_surface(frame_surface).convert()
+
+    def _detect_calibration_points(self) -> np.ndarray | None:
+        if self.last_frame_rgb is None or self.rect is None:
+            return None
+
+        x1, y1, w, h = self.rect.x, self.rect.y, self.rect.w, self.rect.h
+        if w <= 0 or h <= 0:
+            return None
+
+        roi = self.last_frame_rgb[y1:y1 + h, x1:x1 + w]
+        if roi.size == 0:
+            return None
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+        _, thresh = cv2.threshold(gray, 235, 255, cv2.THRESH_BINARY)
+
+        kernel = np.ones((3, 3), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        thresh = cv2.dilate(thresh, kernel, iterations=1)
+
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        centers: list[list[float]] = []
+        min_area = 80.0
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+
+            moments = cv2.moments(contour)
+            if moments["m00"] == 0:
+                continue
+
+            cx = (moments["m10"] / moments["m00"]) + x1
+            cy = (moments["m01"] / moments["m00"]) + y1
+            centers.append([float(cx), float(cy)])
+
+        if len(centers) != 4:
+            return None
+
+        return _sort_points_clockwise(np.array(centers, dtype=np.float32))
+
+    def _save_detected_calibration(self, camera_points: np.ndarray) -> None:
+        assert self.viewport is not None
+
+        viewport_points = _rect_to_corner_points(self.viewport)
+        homography, _ = cv2.findHomography(camera_points, viewport_points)
+        if homography is None:
+            self.status_message = "Kunde inte räkna ut transformeringen."
+            return
+
+        self.calibration_data = {
+            "is_calibrated": True,
+            "camera_points_norm": _normalize_points(camera_points),
+            "viewport_points": viewport_points.tolist(),
+            "homography": homography.tolist(),
+        }
+        save_camera_calibration(self.calibration_data)
+        self.detected_points = camera_points.copy()
+        self.status_message = "Kalibrering klar och sparad."
+        self.calibration_mode = False
+        self.calibration_hits = 0
+
+    def update(self, dt: float):
+        self._read_camera()
+
+        if self.calibration_mode and self.last_frame_rgb is not None:
+            points = self._detect_calibration_points()
+            if points is None:
+                self.calibration_hits = 0
+            else:
+                self.detected_points = points
+                self.calibration_hits += 1
+                if self.calibration_hits >= self.calibration_frames_needed:
+                    self._save_detected_calibration(points)
+
         return None
 
     def _draw_overlay(self, screen: pygame.Surface) -> None:
@@ -217,43 +388,90 @@ class CameraTestScene(Scene):
         pygame.draw.rect(screen, ORANGE, self.rect, width=4)
         _draw_dashed_rect(screen, GREEN, self.viewport, width=2, dash=12, gap=8)
 
+        if self.detected_points is not None:
+            for point in self.detected_points:
+                px, py = int(point[0]), int(point[1])
+                pygame.draw.circle(screen, WHITE, (px, py), 10, 3)
+
     def _draw_info_panel(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((760, 215), pygame.SRCALPHA)
+        panel = pygame.Surface((890, 270), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (20, 20))
 
         lines = [
-            ("Justera scanport", self.font, WHITE),
+            ("Justera scanport och kalibrera kamerahörn", self.font, WHITE),
             ("Orange ram = scanport som analyseras", self.small, WHITE),
             ("Grön streckad ram = viewport / projicerad spelyta", self.small, WHITE),
-            ("Pilar: flytta", self.tiny, SOFT_WHITE),
+            ("Pilar: flytta scanport", self.tiny, SOFT_WHITE),
             ("+ / - : öka eller minska proportionellt", self.tiny, SOFT_WHITE),
             ("SHIFT+B / B : öka eller minska bredd", self.tiny, SOFT_WHITE),
             ("SHIFT+H / H : öka eller minska höjd", self.tiny, SOFT_WHITE),
-            ("ENTER: spara    ESC: tillbaka", self.tiny, SOFT_WHITE),
+            ("ENTER: spara scanport", self.tiny, SOFT_WHITE),
+            ("SPACE: visa hörnmarkeringar och kalibrera transform", self.tiny, SOFT_WHITE),
+            ("C: radera sparad hörnkalibrering", self.tiny, SOFT_WHITE),
+            ("ESC: tillbaka till menyn", self.tiny, SOFT_WHITE),
         ]
 
         y = 32
         for text, font, color in lines:
             surf = font.render(text, True, color)
             screen.blit(surf, (36, y))
-            y += surf.get_height() + 6
+            y += surf.get_height() + 5
 
     def _draw_status(self, screen: pygame.Surface) -> None:
-        if self.error_message:
-            msg = self.small.render(self.error_message, True, RED)
-            screen.blit(msg, (24, SCREEN_HEIGHT - 36))
-            return
+        status_lines: list[tuple[str, tuple[int, int, int]]] = []
 
-        if self.rect is not None:
-            txt = (
-                f"Scanport px: x={self.rect.x} y={self.rect.y} "
-                f"w={self.rect.w} h={self.rect.h}"
-            )
-            surf = self.tiny.render(txt, True, WHITE)
-            screen.blit(surf, (24, SCREEN_HEIGHT - 36))
+        if self.error_message:
+            status_lines.append((self.error_message, RED))
+        else:
+            if self.rect is not None:
+                status_lines.append(
+                    (
+                        f"Scanport px: x={self.rect.x} y={self.rect.y} w={self.rect.w} h={self.rect.h}",
+                        WHITE,
+                    )
+                )
+
+            if self.calibration_mode:
+                status_lines.append(
+                    ("Kalibrering pågår: visa tavlan stilla tills fyra hörn hittas.", WHITE)
+                )
+            elif self.calibration_data and self.calibration_data.get("is_calibrated"):
+                status_lines.append(("Status: kalibrerad", WHITE))
+            else:
+                status_lines.append(("Status: ej kalibrerad", RED))
+
+            if self.status_message:
+                status_lines.append((self.status_message, SOFT_WHITE))
+
+        y = SCREEN_HEIGHT - (len(status_lines) * 28) - 12
+        for text, color in status_lines:
+            surf = self.tiny.render(text, True, color)
+            screen.blit(surf, (24, y))
+            y += 28
+
+    def _draw_calibration_pattern(self, screen: pygame.Surface) -> None:
+        assert self.viewport is not None
+
+        screen.fill(BLACK)
+
+        points = [
+            (self.viewport.left, self.viewport.top),
+            (self.viewport.right, self.viewport.top),
+            (self.viewport.right, self.viewport.bottom),
+            (self.viewport.left, self.viewport.bottom),
+        ]
+        for point in points:
+            _draw_crosshair(screen, WHITE, point)
+
+        caption = self.small.render("Kalibrering pågår - hittar hörnmarkeringar...", True, WHITE)
+        screen.blit(caption, (24, 24))
 
     def render(self, screen: pygame.Surface) -> None:
+        if self.calibration_mode:
+            self._draw_calibration_pattern(screen)
+            return
+
         screen.fill(self.bg_color)
 
         if self.last_frame is not None:

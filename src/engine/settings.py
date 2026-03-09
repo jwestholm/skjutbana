@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pygame
 
@@ -15,7 +16,7 @@ def _settings_path() -> Path:
     return path
 
 
-def _load_settings_data() -> dict:
+def _load_settings_data() -> dict[str, Any]:
     path = _settings_path()
     if path.exists():
         try:
@@ -27,7 +28,7 @@ def _load_settings_data() -> dict:
     return {}
 
 
-def _save_settings_data(data: dict) -> None:
+def _save_settings_data(data: dict[str, Any]) -> None:
     path = _settings_path()
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -36,7 +37,6 @@ def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
     min_w, min_h = 200, 200
     rect.w = max(min_w, rect.w)
     rect.h = max(min_h, rect.h)
-
     rect.x = max(0, min(rect.x, config.SCREEN_WIDTH - rect.w))
     rect.y = max(0, min(rect.y, config.SCREEN_HEIGHT - rect.h))
     return rect
@@ -48,16 +48,14 @@ def _clamp_scanport_norm(x: float, y: float, w: float, h: float) -> tuple[float,
 
     w = max(min_w, min(1.0, float(w)))
     h = max(min_h, min(1.0, float(h)))
-
     x = max(0.0, min(float(x), 1.0 - w))
     y = max(0.0, min(float(y), 1.0 - h))
-
     return (x, y, w, h)
 
 
 def load_viewport_rect() -> pygame.Rect:
     data = _load_settings_data()
-    vp = data.get("viewport", None)
+    vp = data.get("viewport")
 
     if isinstance(vp, list) and len(vp) == 4:
         try:
@@ -79,7 +77,7 @@ def save_viewport_rect(rect: pygame.Rect) -> None:
 
 def load_scanport_norm() -> tuple[float, float, float, float]:
     data = _load_settings_data()
-    sp = data.get("scanport", None)
+    sp = data.get("scanport")
 
     if isinstance(sp, list) and len(sp) == 4:
         try:
@@ -142,3 +140,24 @@ def scanport_norm_to_frame_rect(
     rect.x = max(0, min(rect.x, frame_width - rect.w))
     rect.y = max(0, min(rect.y, frame_height - rect.h))
     return rect
+
+
+def load_camera_calibration() -> dict[str, Any] | None:
+    data = _load_settings_data()
+    calibration = data.get("camera_calibration")
+    if isinstance(calibration, dict):
+        return calibration
+    return None
+
+
+def save_camera_calibration(calibration: dict[str, Any]) -> None:
+    data = _load_settings_data()
+    data["camera_calibration"] = calibration
+    _save_settings_data(data)
+
+
+def clear_camera_calibration() -> None:
+    data = _load_settings_data()
+    if "camera_calibration" in data:
+        del data["camera_calibration"]
+        _save_settings_data(data)
