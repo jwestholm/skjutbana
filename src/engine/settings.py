@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pygame
 
@@ -10,183 +9,108 @@ import config
 
 
 def _settings_path() -> Path:
-    settings_path = getattr(config, "SETTINGS_PATH", "content/settings.json")
-    path = Path(settings_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return path
+    return Path(getattr(config, "SETTINGS_PATH", "content/settings.json"))
 
 
-def _load_settings_data() -> dict[str, Any]:
+def _load_settings_dict() -> dict:
     path = _settings_path()
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
+    if not path.exists():
+        return {}
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
     return {}
 
 
-def _save_settings_data(data: dict[str, Any]) -> None:
+def _save_settings_dict(data: dict) -> None:
     path = _settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
     min_w, min_h = 200, 200
+
     rect.w = max(min_w, rect.w)
     rect.h = max(min_h, rect.h)
+
     rect.x = max(0, min(rect.x, config.SCREEN_WIDTH - rect.w))
     rect.y = max(0, min(rect.y, config.SCREEN_HEIGHT - rect.h))
     return rect
 
 
-def _clamp_scanport_norm(x: float, y: float, w: float, h: float) -> tuple[float, float, float, float]:
-    min_w = 100 / max(1, config.SCREEN_WIDTH)
-    min_h = 100 / max(1, config.SCREEN_HEIGHT)
+def _sanitize_scanport(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 50, 50
 
-    w = max(min_w, min(1.0, float(w)))
-    h = max(min_h, min(1.0, float(h)))
-    x = max(0.0, min(float(x), 1.0 - w))
-    y = max(0.0, min(float(y), 1.0 - h))
-    return (x, y, w, h)
+    rect.x = max(0, rect.x)
+    rect.y = max(0, rect.y)
+    rect.w = max(min_w, rect.w)
+    rect.h = max(min_h, rect.h)
+    return rect
+
+
+def _rect_from_value(value) -> pygame.Rect | None:
+    if isinstance(value, list) and len(value) == 4:
+        try:
+            return pygame.Rect(
+                int(value[0]),
+                int(value[1]),
+                int(value[2]),
+                int(value[3]),
+            )
+        except Exception:
+            return None
+    return None
+
+
+def _rect_to_list(rect: pygame.Rect) -> list[int]:
+    return [int(rect.x), int(rect.y), int(rect.w), int(rect.h)]
 
 
 def load_viewport_rect() -> pygame.Rect:
-    data = _load_settings_data()
-    vp = data.get("viewport")
-
-    if isinstance(vp, list) and len(vp) == 4:
-        try:
-            rect = pygame.Rect(int(vp[0]), int(vp[1]), int(vp[2]), int(vp[3]))
-            return _clamp_viewport(rect)
-        except Exception:
-            pass
+    data = _load_settings_dict()
+    rect = _rect_from_value(data.get("viewport"))
+    if rect is not None:
+        return _clamp_viewport(rect)
 
     x, y, w, h = config.DEFAULT_VIEWPORT
     return _clamp_viewport(pygame.Rect(x, y, w, h))
 
 
 def save_viewport_rect(rect: pygame.Rect) -> None:
-    rect = _clamp_viewport(rect.copy())
-    data = _load_settings_data()
-    data["viewport"] = [rect.x, rect.y, rect.w, rect.h]
-    _save_settings_data(data)
+    data = _load_settings_dict()
+    data["viewport"] = _rect_to_list(_clamp_viewport(rect.copy()))
+    _save_settings_dict(data)
 
 
-def load_scanport_norm() -> tuple[float, float, float, float]:
-    data = _load_settings_data()
-    sp = data.get("scanport")
-
-    if isinstance(sp, list) and len(sp) == 4:
-        try:
-            return _clamp_scanport_norm(
-                float(sp[0]),
-                float(sp[1]),
-                float(sp[2]),
-                float(sp[3]),
-            )
-        except Exception:
-            pass
-
-    return _clamp_scanport_norm(0.10, 0.10, 0.80, 0.80)
+def load_scanport_rect() -> pygame.Rect | None:
+    data = _load_settings_dict()
+    rect = _rect_from_value(data.get("scanport"))
+    if rect is None:
+        return None
+    return _sanitize_scanport(rect)
 
 
-def save_scanport_norm(x: float, y: float, w: float, h: float) -> None:
-    x, y, w, h = _clamp_scanport_norm(x, y, w, h)
-    data = _load_settings_data()
-    data["scanport"] = [x, y, w, h]
-    _save_settings_data(data)
+def save_scanport_rect(rect: pygame.Rect) -> None:
+    data = _load_settings_dict()
+    data["scanport"] = _rect_to_list(_sanitize_scanport(rect.copy()))
+    _save_settings_dict(data)
 
 
-def scanport_norm_to_screen_rect(
-    scanport: tuple[float, float, float, float],
-) -> pygame.Rect:
-    x, y, w, h = scanport
-    rect = pygame.Rect(
-        int(round(x * config.SCREEN_WIDTH)),
-        int(round(y * config.SCREEN_HEIGHT)),
-        int(round(w * config.SCREEN_WIDTH)),
-        int(round(h * config.SCREEN_HEIGHT)),
-    )
-    return _clamp_viewport(rect)
-
-
-def screen_rect_to_scanport_norm(rect: pygame.Rect) -> tuple[float, float, float, float]:
-    x = rect.x / max(1, config.SCREEN_WIDTH)
-    y = rect.y / max(1, config.SCREEN_HEIGHT)
-    w = rect.w / max(1, config.SCREEN_WIDTH)
-    h = rect.h / max(1, config.SCREEN_HEIGHT)
-    return _clamp_scanport_norm(x, y, w, h)
-
-
-def scanport_norm_to_frame_rect(
-    scanport: tuple[float, float, float, float],
-    frame_width: int,
-    frame_height: int,
-) -> pygame.Rect:
-    x, y, w, h = scanport
-    rect = pygame.Rect(
-        int(round(x * frame_width)),
-        int(round(y * frame_height)),
-        int(round(w * frame_width)),
-        int(round(h * frame_height)),
-    )
-
-    min_w, min_h = 20, 20
-    rect.w = max(min_w, min(rect.w, frame_width))
-    rect.h = max(min_h, min(rect.h, frame_height))
-    rect.x = max(0, min(rect.x, frame_width - rect.w))
-    rect.y = max(0, min(rect.y, frame_height - rect.h))
-    return rect
-
-
-def load_camera_calibration() -> dict[str, Any] | None:
-    data = _load_settings_data()
+def load_camera_calibration() -> dict | None:
+    data = _load_settings_dict()
     calibration = data.get("camera_calibration")
     if isinstance(calibration, dict):
         return calibration
     return None
 
 
-def save_camera_calibration(calibration: dict[str, Any]) -> None:
-    data = _load_settings_data()
+def save_camera_calibration(calibration: dict) -> None:
+    data = _load_settings_dict()
     data["camera_calibration"] = calibration
-    _save_settings_data(data)
-
-
-def clear_camera_calibration() -> None:
-    data = _load_settings_data()
-    if "camera_calibration" in data:
-        del data["camera_calibration"]
-        _save_settings_data(data)
-
-
-def load_visual_hits_enabled() -> bool:
-    data = _load_settings_data()
-    value = data.get("visual_hits_enabled", True)
-    return bool(value)
-
-
-def save_visual_hits_enabled(enabled: bool) -> None:
-    data = _load_settings_data()
-    data["visual_hits_enabled"] = bool(enabled)
-    _save_settings_data(data)
-
-
-def load_visual_hits_mode() -> str:
-    data = _load_settings_data()
-    mode = str(data.get("visual_hits_mode", "fade")).strip().lower()
-    if mode not in ("fade", "persistent"):
-        mode = "fade"
-    return mode
-
-
-def save_visual_hits_mode(mode: str) -> None:
-    mode = str(mode).strip().lower()
-    if mode not in ("fade", "persistent"):
-        mode = "fade"
-    data = _load_settings_data()
-    data["visual_hits_mode"] = mode
-    _save_settings_data(data)
+    _save_settings_dict(data)

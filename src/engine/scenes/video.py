@@ -30,6 +30,8 @@ def _fit_size(src_w: int, src_h: int, dst_w: int, dst_h: int, mode: str) -> tupl
 
 
 class VideoScene(Scene):
+    wants_hit_scanning = True
+
     def __init__(self, movie_path: str, fit: str = "stretch", bg_color=(0, 0, 0)) -> None:
         self.movie_path = movie_path
         self.fit = (fit or "stretch").lower().strip()
@@ -42,7 +44,6 @@ class VideoScene(Scene):
         self.offset_x = 0
         self.offset_y = 0
         self.zoom = 1.0
-
         self.move_step = 20
         self.zoom_step = 0.05
         self.min_zoom = 0.25
@@ -50,12 +51,9 @@ class VideoScene(Scene):
 
     def on_enter(self) -> None:
         self.viewport = load_viewport_rect()
-
         self.offset_x = 0
         self.offset_y = 0
         self.zoom = 1.0
-
-        # target_size=None => behåll original ratio, skala i render istället
         self.player = VideoPlayer(self.movie_path, target_size=None)
 
     def on_exit(self) -> None:
@@ -64,8 +62,10 @@ class VideoScene(Scene):
 
     def _clamp_offset(self) -> None:
         assert self.viewport is not None
+
         max_x = self.viewport.w * 2
         max_y = self.viewport.h * 2
+
         self.offset_x = max(-max_x, min(self.offset_x, max_x))
         self.offset_y = max(-max_y, min(self.offset_y, max_y))
 
@@ -85,7 +85,6 @@ class VideoScene(Scene):
         moved = False
         zoomed = False
 
-        # pan: WASD + pilar
         if event.key in (pygame.K_LEFT, pygame.K_a):
             self.offset_x -= self.move_step
             moved = True
@@ -98,16 +97,12 @@ class VideoScene(Scene):
         elif event.key in (pygame.K_DOWN, pygame.K_s):
             self.offset_y += self.move_step
             moved = True
-
-        # zoom: +/-
         elif event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
             self.zoom = min(self.max_zoom, self.zoom + self.zoom_step)
             zoomed = True
         elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
             self.zoom = max(self.min_zoom, self.zoom - self.zoom_step)
             zoomed = True
-
-        # reset
         elif event.key == pygame.K_r:
             self.offset_x = 0
             self.offset_y = 0

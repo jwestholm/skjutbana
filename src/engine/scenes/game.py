@@ -8,10 +8,11 @@ from src.engine.settings import load_viewport_rect
 
 
 class GameScene(Scene):
+    wants_hit_scanning = True
+
     def __init__(self, game_root: str, script_path: str) -> None:
         self.game_root = game_root
         self.script_path = script_path
-
         self.viewport = None
         self.game = None
 
@@ -19,7 +20,6 @@ class GameScene(Scene):
         self.viewport = load_viewport_rect()
 
         module = load_game_module(self.script_path)
-
         if not hasattr(module, "create_game"):
             raise AttributeError(
                 f"{self.script_path} must define create_game(game_root, viewport)"

@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import pygame
 
 
@@ -11,6 +13,10 @@ class SceneSwitch:
 
 class Scene:
     """Bas-klass för alla scener."""
+
+    wants_hit_scanning: bool = False
+    wants_camera_preview: bool = False
+
     def on_enter(self) -> None:
         pass
 
