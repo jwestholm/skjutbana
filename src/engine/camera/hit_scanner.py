@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import cv2
@@ -30,13 +31,19 @@ class HoleTrack:
 
 class HitScanner:
     """
-    Visuell träffscanner.
+    Visuell träffscanner för projicerad skjutbana.
 
-    Viktiga designval:
+    Design:
     - analyserar bara scanport
     - warpar scanport -> viewport/board-plan
+    - bygger en korttidsreferens i board-plan
+    - räknar förändringskarta + mörk/hål-karta
     - emitterar ENDAST via hit_input.push_camera_hit(...)
-    - har ARMING-fas för att bygga baslinje över redan befintliga hål
+
+    Mål:
+    - hitta en ny lokal förändring
+    - som är mörk/hål-liknande
+    - som blir kvar på samma plats
     """
 
     STATE_OFF = "OFF"
@@ -47,17 +54,38 @@ class HitScanner:
         self.enabled = False
         self.state = self.STATE_OFF
 
-        self.arm_duration_s = 0.75
+        # State / timing
+        self.arm_duration_s = 1.20
         self.min_confirm_frames = 3
-        self.match_radius_px = 18.0
-        self.duplicate_radius_px = 26.0
-        self.max_track_idle_s = 0.35
+        self.max_track_idle_s = 0.45
         self.global_emit_cooldown_s = 0.18
-        self.min_score_threshold = 18.0
-
-        self.arm_until_ts = 0.0
         self.last_emit_ts = 0.0
+        self.arm_until_ts = 0.0
 
+        # Tracking / duplicate
+        self.match_radius_px = 20.0
+        self.duplicate_radius_px = 28.0
+
+        # History / reference
+        self.history_size = 12
+        self.reference_stride = 2
+        self.board_history: deque[np.ndarray] = deque(maxlen=self.history_size)
+
+        # Thresholds / filter
+        self.min_combined_threshold = 26.0
+        self.min_change_threshold = 8.0
+        self.min_area = 10.0
+        self.max_area = 420.0
+        self.min_radius = 2.0
+        self.max_radius = 18.0
+        self.min_circularity = 0.18
+        self.border_margin = 6
+
+        # Weights
+        self.change_weight = 0.58
+        self.dark_weight = 0.42
+
+        # Runtime state
         self.tracks: list[HoleTrack] = []
         self.known_holes: list[tuple[float, float, float]] = []
 
@@ -66,29 +94,45 @@ class HitScanner:
         self.last_candidates: list[dict[str, float]] = []
         self.last_stable_tracks: list[HoleTrack] = []
         self.last_board_size: tuple[int, int] = (1, 1)
+        self.last_threshold_value: float = 0.0
+        self.last_change_threshold_value: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def enable(self) -> None:
         self.enabled = True
         self.state = self.STATE_ARMING
         self.arm_until_ts = time.time() + self.arm_duration_s
         self.last_emit_ts = 0.0
+
         self.tracks.clear()
         self.known_holes.clear()
+        self.board_history.clear()
+
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
         self.last_board_size = (1, 1)
+        self.last_threshold_value = 0.0
+        self.last_change_threshold_value = 0.0
         self.last_status = "arming"
 
     def disable(self) -> None:
         self.enabled = False
         self.state = self.STATE_OFF
+
         self.tracks.clear()
         self.known_holes.clear()
+        self.board_history.clear()
+
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
         self.last_board_size = (1, 1)
+        self.last_threshold_value = 0.0
+        self.last_change_threshold_value = 0.0
         self.last_status = "off"
 
     def scene_rearmed(self) -> None:
@@ -120,9 +164,25 @@ class HitScanner:
         gray, board_to_crop_matrix, scanport = prepared
         self.last_board_size = (gray.shape[1], gray.shape[0])
 
-        candidates = self._detect_candidates(gray, board_to_crop_matrix, scanport)
+        self.board_history.append(gray.copy())
 
         now = time.time()
+
+        # Vi behöver några frames innan vi kan bygga referens.
+        if len(self.board_history) < max(4, self.reference_stride + 2):
+            self.last_status = f"arming history={len(self.board_history)}"
+            self.last_candidates = []
+            self.last_stable_tracks = []
+            return
+
+        reference_gray = self._build_reference_image()
+        candidates = self._detect_candidates(
+            gray=gray,
+            reference_gray=reference_gray,
+            board_to_crop_matrix=board_to_crop_matrix,
+            scanport=scanport,
+        )
+
         self._drop_stale_tracks(now)
         self._ingest_candidates(candidates, now)
 
@@ -145,6 +205,7 @@ class HitScanner:
         ]
 
         if self.state == self.STATE_ARMING:
+            # Allt som redan finns under armning betraktas som befintliga hål.
             for track in stable_tracks:
                 self._remember_known_hole(track.board_x, track.board_y, track.best_score)
                 track.emitted = True
@@ -154,7 +215,9 @@ class HitScanner:
                 self.tracks.clear()
                 self.last_status = "active"
             else:
-                self.last_status = "arming"
+                self.last_status = (
+                    f"arming hist={len(self.board_history)} cand={len(candidates)}"
+                )
             return
 
         if self.state != self.STATE_ACTIVE:
@@ -179,13 +242,17 @@ class HitScanner:
             track.emitted = True
             emitted_now += 1
 
-        self.last_status = f"active candidates={len(candidates)} tracks={len(self.tracks)} emitted={emitted_now}"
+        self.last_status = (
+            f"active cand={len(candidates)} stable={len(stable_tracks)} emit={emitted_now}"
+        )
 
     def get_status_lines(self) -> list[str]:
         return [
             f"HitScanner state: {self.state}",
             f"Known holes: {len(self.known_holes)}",
             f"Tracks: {len(self.tracks)}",
+            f"Thr combined: {self.last_threshold_value:.1f}",
+            f"Thr change: {self.last_change_threshold_value:.1f}",
             f"Status: {self.last_status}",
         ]
 
@@ -214,10 +281,17 @@ class HitScanner:
             ],
             "known_holes": list(self.known_holes),
             "board_size": self.last_board_size,
+            "threshold_value": self.last_threshold_value,
+            "change_threshold_value": self.last_change_threshold_value,
         }
 
+    # ------------------------------------------------------------------
+    # Board preparation
+    # ------------------------------------------------------------------
+
     def _prepare_board_view(
-        self, frame_bgr: np.ndarray
+        self,
+        frame_bgr: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, object] | None:
         calibration = load_camera_calibration()
         if not calibration:
@@ -252,7 +326,7 @@ class HitScanner:
         if w <= 1 or h <= 1:
             return None
 
-        crop = frame_bgr[y : y + h, x : x + w]
+        crop = frame_bgr[y:y + h, x:x + w]
         if crop.size == 0:
             return None
 
@@ -302,30 +376,102 @@ class HitScanner:
 
         return gray, board_to_crop, scanport
 
+    # ------------------------------------------------------------------
+    # Reference model
+    # ------------------------------------------------------------------
+
+    def _build_reference_image(self) -> np.ndarray:
+        """
+        Bygger en robust referens från tidigare frames.
+        Vi använder äldre frames, inte allra senaste, så att ett nytt hål
+        inte direkt skrivs in i referensen.
+        """
+        hist = list(self.board_history)
+        if len(hist) <= self.reference_stride:
+            return hist[-1]
+
+        usable = hist[:-self.reference_stride]
+        if len(usable) == 1:
+            return usable[0]
+
+        stack = np.stack(usable, axis=0).astype(np.uint8)
+        reference = np.median(stack, axis=0).astype(np.uint8)
+        return reference
+
+    # ------------------------------------------------------------------
+    # Candidate detection
+    # ------------------------------------------------------------------
+
     def _detect_candidates(
         self,
         gray: np.ndarray,
+        reference_gray: np.ndarray,
         board_to_crop_matrix: np.ndarray,
         scanport,
     ) -> list[dict[str, float]]:
-        gray_blur = cv2.GaussianBlur(gray, (0, 0), 1.2)
-        local_mean = cv2.GaussianBlur(gray_blur, (0, 0), 9.0)
+        gray_blur = cv2.GaussianBlur(gray, (0, 0), 1.1)
+        ref_blur = cv2.GaussianBlur(reference_gray, (0, 0), 1.1)
 
+        # 1) Förändringskarta - bara mörkare förändringar är intressanta.
+        dark_change = cv2.subtract(ref_blur, gray_blur)
+
+        # 2) Hål-liknande mörk lokal struktur i nuvarande frame.
+        local_mean = cv2.GaussianBlur(gray_blur, (0, 0), 8.0)
         darkness = cv2.subtract(local_mean, gray_blur)
 
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         blackhat = cv2.morphologyEx(gray_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
 
-        score = cv2.addWeighted(darkness, 0.65, blackhat, 0.35, 0.0)
+        dark_score = cv2.addWeighted(darkness, 0.62, blackhat, 0.38, 0.0)
 
-        mu, sigma = cv2.meanStdDev(score)
-        threshold_value = max(
-            self.min_score_threshold,
-            float(mu[0][0] + 2.2 * sigma[0][0]),
+        # 3) Ta bort svagt globalt flimmer / mycket små variationer.
+        change_mu, change_sigma = cv2.meanStdDev(dark_change)
+        change_threshold = max(
+            self.min_change_threshold,
+            float(change_mu[0][0] + 1.7 * change_sigma[0][0]),
+        )
+        self.last_change_threshold_value = change_threshold
+
+        _, change_mask = cv2.threshold(
+            dark_change,
+            change_threshold,
+            255,
+            cv2.THRESH_BINARY,
         )
 
-        _, mask = cv2.threshold(score, threshold_value, 255, cv2.THRESH_BINARY)
+        change_mask = cv2.morphologyEx(
+            change_mask,
+            cv2.MORPH_OPEN,
+            np.ones((3, 3), dtype=np.uint8),
+        )
 
+        # 4) Kombinera förändring + mörk/hål-score
+        combined = cv2.addWeighted(
+            dark_change,
+            self.change_weight,
+            dark_score,
+            self.dark_weight,
+            0.0,
+        )
+
+        comb_mu, comb_sigma = cv2.meanStdDev(combined)
+        combined_threshold = max(
+            self.min_combined_threshold,
+            float(comb_mu[0][0] + 2.0 * comb_sigma[0][0]),
+        )
+        self.last_threshold_value = combined_threshold
+
+        _, combined_mask = cv2.threshold(
+            combined,
+            combined_threshold,
+            255,
+            cv2.THRESH_BINARY,
+        )
+
+        # Kräver både förändring och hål-liknande score.
+        mask = cv2.bitwise_and(combined_mask, change_mask)
+
+        # Stabilisera blobbar.
         mask = cv2.morphologyEx(
             mask,
             cv2.MORPH_OPEN,
@@ -337,21 +483,30 @@ class HitScanner:
             np.ones((5, 5), dtype=np.uint8),
         )
 
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
 
         height, width = gray.shape[:2]
         candidates: list[dict[str, float]] = []
 
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < 8 or area > 280:
+            if area < self.min_area or area > self.max_area:
                 continue
 
             (cx, cy), radius = cv2.minEnclosingCircle(contour)
-            if radius < 2.0 or radius > 14.0:
+            if radius < self.min_radius or radius > self.max_radius:
                 continue
 
-            if cx < 6 or cy < 6 or cx > width - 6 or cy > height - 6:
+            if (
+                cx < self.border_margin
+                or cy < self.border_margin
+                or cx > width - self.border_margin
+                or cy > height - self.border_margin
+            ):
                 continue
 
             perimeter = cv2.arcLength(contour, True)
@@ -359,12 +514,21 @@ class HitScanner:
                 continue
 
             circularity = 4.0 * np.pi * area / (perimeter * perimeter)
-            if circularity < 0.22:
+            if circularity < self.min_circularity:
                 continue
 
             ix = int(round(cx))
             iy = int(round(cy))
-            score_value = float(score[iy, ix])
+            ix = max(0, min(ix, width - 1))
+            iy = max(0, min(iy, height - 1))
+
+            change_value = float(dark_change[iy, ix])
+            dark_value = float(dark_score[iy, ix])
+            combined_value = float(combined[iy, ix])
+
+            # Extra skydd: kräver både verklig förändring och hål-liknande mörker
+            if change_value < self.last_change_threshold_value:
+                continue
 
             crop_point = cv2.perspectiveTransform(
                 np.array([[[cx, cy]]], dtype=np.float32),
@@ -383,13 +547,26 @@ class HitScanner:
                     "board_y": float(cy),
                     "camera_x": camera_x,
                     "camera_y": camera_y,
-                    "score": score_value,
+                    "score": combined_value,
+                    "change_score": change_value,
+                    "dark_score": dark_value,
+                    "area": float(area),
+                    "radius": float(radius),
+                    "circularity": float(circularity),
                 }
             )
 
-        self.debug_frames["score"] = score
+        self.debug_frames["reference_gray"] = reference_gray
+        self.debug_frames["change"] = dark_change
+        self.debug_frames["dark_score"] = dark_score
+        self.debug_frames["score"] = combined
         self.debug_frames["mask"] = mask
+
         return candidates
+
+    # ------------------------------------------------------------------
+    # Tracking
+    # ------------------------------------------------------------------
 
     def _drop_stale_tracks(self, now: float) -> None:
         self.tracks = [
@@ -427,7 +604,7 @@ class HitScanner:
                 )
                 continue
 
-            alpha = 0.65
+            alpha = 0.60
             best_track.board_x = alpha * best_track.board_x + (1.0 - alpha) * candidate["board_x"]
             best_track.board_y = alpha * best_track.board_y + (1.0 - alpha) * candidate["board_y"]
             best_track.camera_x = alpha * best_track.camera_x + (1.0 - alpha) * candidate["camera_x"]
@@ -441,10 +618,14 @@ class HitScanner:
         for track in self.tracks:
             if track.hits < self.min_confirm_frames:
                 continue
-            if now - track.last_seen > 0.12:
+            if now - track.last_seen > 0.14:
                 continue
             stable.append(track)
         return stable
+
+    # ------------------------------------------------------------------
+    # Known hole memory
+    # ------------------------------------------------------------------
 
     def _remember_known_hole(self, board_x: float, board_y: float, score: float) -> None:
         if self._is_duplicate(board_x, board_y):
