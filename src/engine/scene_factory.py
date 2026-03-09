@@ -36,5 +36,5 @@ def build_scene_from_item(item: MenuItem):
     if item.type == "visual_hits_settings":
         from src.engine.scenes.visual_hits_settings import VisualHitsSettingsScene
         return _wrap(VisualHitsSettingsScene(bg_color=item.bg_color))
-
+    
     raise ValueError(f"Unknown item type: {item.type}")
