@@ -30,20 +30,29 @@ PANEL_BG = (0, 0, 0, 165)
 CYAN = (100, 220, 255)
 YELLOW = (255, 220, 80)
 
-ARUCO_IDS = [10, 11, 12, 13]  # TL, TR, BR, BL
-ARUCO_LABELS = ["TL", "TR", "BR", "BL"]
-ARUCO_SIZE = 120
-ARUCO_MARGIN = 30
-
-DETECTION_STABLE_FRAMES = 10
 SCANPORT_SHADE_ALPHA = 120
+
+MARKER_RADIUS = 22
+MARKER_THICKNESS = 5
+MARKER_ARM = 34
+
+# Hur många update-cykler vi väntar i varje steg
+PHASE_SETTLE_FRAMES = 6
+PHASE_CAPTURE_FRAMES = 3
+
+# Trösklar för differensdetektion
+DIFF_THRESHOLD = 35
+MIN_BLOB_AREA = 40
 
 
 @dataclass
-class MarkerDetection:
-    marker_id: int
-    center: tuple[float, float]
-    corners: np.ndarray  # shape (4, 2)
+class CalibrationState:
+    active: bool = False
+    corner_index: int = 0          # 0=TL,1=TR,2=BR,3=BL
+    phase: str = "off_settle"      # off_settle, off_capture, on_settle, on_capture, done
+    frame_counter: int = 0
+    off_frame: np.ndarray | None = None
+    on_frame: np.ndarray | None = None
 
 
 def _draw_dashed_line(
@@ -100,10 +109,10 @@ def _clamp_rect_to_screen(rect: pygame.Rect) -> pygame.Rect:
 def _rect_to_corner_points(rect: pygame.Rect) -> np.ndarray:
     return np.array(
         [
-            [float(rect.left), float(rect.top)],        # TL
-            [float(rect.right), float(rect.top)],       # TR
-            [float(rect.right), float(rect.bottom)],    # BR
-            [float(rect.left), float(rect.bottom)],     # BL
+            [float(rect.left), float(rect.top)],
+            [float(rect.right), float(rect.top)],
+            [float(rect.right), float(rect.bottom)],
+            [float(rect.left), float(rect.bottom)],
         ],
         dtype=np.float32,
     )
@@ -124,7 +133,7 @@ def _to_int_pos(p: tuple[float, float]) -> tuple[int, int]:
     return int(round(p[0])), int(round(p[1]))
 
 
-def _corner_targets_from_rect(rect: pygame.Rect) -> list[tuple[float, float]]:
+def _expected_corner_positions(rect: pygame.Rect) -> list[tuple[float, float]]:
     return [
         (float(rect.left), float(rect.top)),
         (float(rect.right), float(rect.top)),
@@ -133,9 +142,23 @@ def _corner_targets_from_rect(rect: pygame.Rect) -> list[tuple[float, float]]:
     ]
 
 
+def _draw_crosshair(
+    surface: pygame.Surface,
+    center: tuple[int, int],
+    color: tuple[int, int, int],
+    radius: int = MARKER_RADIUS,
+    arm: int = MARKER_ARM,
+    thickness: int = MARKER_THICKNESS,
+) -> None:
+    x, y = center
+    pygame.draw.circle(surface, color, center, radius, thickness)
+    pygame.draw.line(surface, color, (x - arm, y), (x + arm, y), thickness)
+    pygame.draw.line(surface, color, (x, y - arm), (x, y + arm), thickness)
+
+
 class CameraTestScene(Scene):
     """
-    Scanport-kalibrering + automatisk viewport-kalibrering med ArUco-markörer.
+    Scanport-kalibrering + automatisk hörnkalibrering via bilddifferens.
 
     Kontroller:
     - Pilar = flytta scanport
@@ -143,8 +166,8 @@ class CameraTestScene(Scene):
     - SHIFT+B / B = öka / minska bredd
     - SHIFT+H / H = öka / minska höjd
     - ENTER = spara scanport
-    - SPACE = starta / stoppa automatisk kalibrering i viewporten
-    - C = radera sparad hörnkalibrering
+    - SPACE = starta / avbryt automatisk kalibrering
+    - C = radera sparad kalibrering
     - ESC = tillbaka till menyn
     """
 
@@ -170,15 +193,9 @@ class CameraTestScene(Scene):
         self.move_step = 10
         self.size_step = 20
 
-        self.show_calibration_pattern = False
-        self.calibration_stable_hits = 0
-        self.detected_points: np.ndarray | None = None
-        self.detected_marker_centers: dict[int, tuple[float, float]] = {}
-        self.aruco_available = hasattr(cv2, "aruco")
-
-        self.aruco_dict = None
-        self.aruco_detector = None
-        self.marker_surfaces: dict[int, pygame.Surface] = {}
+        self.calibration = CalibrationState()
+        self.detected_points: list[tuple[float, float]] = []
+        self.last_diff_debug: np.ndarray | None = None
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 42)
@@ -189,9 +206,9 @@ class CameraTestScene(Scene):
         self.status_message = ""
         self.last_frame = None
         self.last_frame_rgb = None
-        self.show_calibration_pattern = False
-        self.calibration_stable_hits = 0
-        self.detected_marker_centers = {}
+        self.calibration = CalibrationState()
+        self.detected_points = []
+        self.last_diff_debug = None
 
         self.viewport = load_viewport_rect()
         scanport = load_scanport_norm()
@@ -201,11 +218,10 @@ class CameraTestScene(Scene):
         if self.calibration_data and self.calibration_data.get("camera_points_norm"):
             pts = []
             for x, y in self.calibration_data["camera_points_norm"]:
-                pts.append([x * SCREEN_WIDTH, y * SCREEN_HEIGHT])
-            self.detected_points = np.array(pts, dtype=np.float32)
+                pts.append((x * SCREEN_WIDTH, y * SCREEN_HEIGHT))
+            self.detected_points = pts
             self.status_message = "Kalibrering hittad."
         else:
-            self.detected_points = None
             self.status_message = "Ingen hörnkalibrering sparad."
 
         self.cap = cv2.VideoCapture(self.camera_index)
@@ -219,12 +235,6 @@ class CameraTestScene(Scene):
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-        if not self.aruco_available:
-            self.error_message = "OpenCV saknar cv2.aruco. Installera opencv-contrib-python."
-            return
-
-        self._init_aruco()
-
     def on_exit(self) -> None:
         if self.cap:
             self.cap.release()
@@ -233,43 +243,6 @@ class CameraTestScene(Scene):
     def _go_back(self):
         from src.engine.scenes.menu import MenuScene
         return SceneSwitch(MenuScene())
-
-    def _init_aruco(self) -> None:
-        # Kompatibel med flera OpenCV-versioner
-        if hasattr(cv2.aruco, "getPredefinedDictionary"):
-            self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        else:
-            self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_50)
-
-        if hasattr(cv2.aruco, "DetectorParameters"):
-            params = cv2.aruco.DetectorParameters()
-        else:
-            params = cv2.aruco.DetectorParameters_create()
-
-        if hasattr(cv2.aruco, "ArucoDetector"):
-            self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, params)
-        else:
-            self.aruco_detector = None
-
-        self.marker_surfaces = {}
-        for marker_id in ARUCO_IDS:
-            marker_img = self._generate_aruco_marker(marker_id, ARUCO_SIZE)
-            marker_rgb = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2RGB)
-            marker_surface = pygame.image.frombuffer(
-                marker_rgb.tobytes(),
-                (marker_rgb.shape[1], marker_rgb.shape[0]),
-                "RGB",
-            ).convert()
-            self.marker_surfaces[marker_id] = marker_surface
-
-    def _generate_aruco_marker(self, marker_id: int, size: int) -> np.ndarray:
-        if hasattr(cv2.aruco, "generateImageMarker"):
-            img = np.zeros((size, size), dtype=np.uint8)
-            cv2.aruco.generateImageMarker(self.aruco_dict, marker_id, size, img, 1)
-            return img
-        img = np.zeros((size, size), dtype=np.uint8)
-        cv2.aruco.drawMarker(self.aruco_dict, marker_id, size, img, 1)
-        return img
 
     def _save_scanport_only(self) -> None:
         assert self.rect is not None
@@ -296,11 +269,22 @@ class CameraTestScene(Scene):
             "camera_points_norm": _normalize_points(camera_points),
             "viewport_points": viewport_points.tolist(),
             "homography": homography.tolist(),
-            "marker_ids": ARUCO_IDS,
+            "method": "difference_blink",
         }
         save_camera_calibration(self.calibration_data)
-        self.detected_points = camera_points.copy()
+        self.detected_points = [(float(x), float(y)) for x, y in camera_points]
         self.status_message = "Kalibrering klar och sparad."
+
+    def _start_calibration(self) -> None:
+        self.calibration = CalibrationState(active=True, corner_index=0, phase="off_settle", frame_counter=0)
+        self.detected_points = []
+        self.last_diff_debug = None
+        self.status_message = "Kalibrering startad."
+
+    def _abort_calibration(self) -> None:
+        self.calibration = CalibrationState()
+        self.last_diff_debug = None
+        self.status_message = "Kalibrering avbruten."
 
     def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN:
@@ -321,25 +305,18 @@ class CameraTestScene(Scene):
         if event.key == pygame.K_c:
             clear_camera_calibration()
             self.calibration_data = None
-            self.detected_points = None
-            self.detected_marker_centers = {}
+            self.detected_points = []
             self.status_message = "Sparad kalibrering raderad."
             return None
 
         if event.key == pygame.K_SPACE:
-            self.show_calibration_pattern = not self.show_calibration_pattern
-            self.calibration_stable_hits = 0
-            self.detected_marker_centers = {}
-            if self.show_calibration_pattern:
-                self.status_message = (
-                    "Kalibrering aktiv: visar ArUco-markörer i viewporten och söker närmaste instans i varje hörn."
-                )
+            if self.calibration.active:
+                self._abort_calibration()
             else:
-                self.status_message = "Kalibrering stoppad."
+                self._start_calibration()
             return None
 
-        if self.show_calibration_pattern:
-            # Lås scanportjustering medan kalibreringen visas
+        if self.calibration.active:
             return None
 
         if event.key == pygame.K_LEFT:
@@ -387,81 +364,121 @@ class CameraTestScene(Scene):
         frame_surface = np.transpose(frame_rgb, (1, 0, 2))
         self.last_frame = pygame.surfarray.make_surface(frame_surface).convert()
 
-    def _detect_aruco_markers(self) -> list[MarkerDetection]:
-        if self.last_frame_rgb is None:
-            return []
-
-        gray = cv2.cvtColor(self.last_frame_rgb, cv2.COLOR_RGB2GRAY)
-
-        if self.aruco_detector is not None:
-            corners, ids, _ = self.aruco_detector.detectMarkers(gray)
-        else:
-            corners, ids, _ = cv2.aruco.detectMarkers(gray, self.aruco_dict)
-
-        if ids is None or len(ids) == 0:
-            return []
-
-        detections: list[MarkerDetection] = []
-        for idx, marker_id in enumerate(ids.flatten().tolist()):
-            pts = np.array(corners[idx], dtype=np.float32).reshape(4, 2)
-            cx = float(np.mean(pts[:, 0]))
-            cy = float(np.mean(pts[:, 1]))
-            detections.append(
-                MarkerDetection(
-                    marker_id=int(marker_id),
-                    center=(cx, cy),
-                    corners=pts,
-                )
-            )
-        return detections
-
-    def _select_best_corner_instances(
-        self,
-        detections: list[MarkerDetection],
-    ) -> np.ndarray | None:
+    def _current_corner_target(self) -> tuple[float, float]:
         assert self.viewport is not None
-        targets = _corner_targets_from_rect(self.viewport)
+        return _expected_corner_positions(self.viewport)[self.calibration.corner_index]
 
-        selected_points: list[list[float]] = []
-        selected_debug: dict[int, tuple[float, float]] = {}
+    def _diff_find_marker(self, off_frame: np.ndarray, on_frame: np.ndarray) -> tuple[float, float] | None:
+        assert self.rect is not None
+        target = self._current_corner_target()
 
-        for marker_id, target in zip(ARUCO_IDS, targets):
-            candidates = [d for d in detections if d.marker_id == marker_id]
-            if not candidates:
-                return None
+        diff = cv2.absdiff(on_frame, off_frame)
+        diff_gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
 
-            best = min(candidates, key=lambda d: _distance(d.center, target))
-            selected_points.append([best.center[0], best.center[1]])
-            selected_debug[marker_id] = best.center
+        x, y, w, h = self.rect.x, self.rect.y, self.rect.w, self.rect.h
+        roi = diff_gray[y:y + h, x:x + w]
+        if roi.size == 0:
+            return None
 
-        self.detected_marker_centers = selected_debug
-        return np.array(selected_points, dtype=np.float32)
+        _, thresh = cv2.threshold(roi, DIFF_THRESHOLD, 255, cv2.THRESH_BINARY)
+        kernel = np.ones((3, 3), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        thresh = cv2.dilate(thresh, kernel, iterations=2)
+        self.last_diff_debug = thresh.copy()
 
-    def _update_auto_calibration(self) -> None:
-        if not self.show_calibration_pattern:
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates: list[tuple[float, tuple[float, float]]] = []
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < MIN_BLOB_AREA:
+                continue
+
+            m = cv2.moments(contour)
+            if m["m00"] == 0:
+                continue
+
+            cx = (m["m10"] / m["m00"]) + x
+            cy = (m["m01"] / m["m00"]) + y
+
+            d = _distance((cx, cy), target)
+            candidates.append((d, (float(cx), float(cy))))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    def _advance_phase(self) -> None:
+        c = self.calibration
+
+        if c.phase == "off_settle":
+            c.phase = "off_capture"
+        elif c.phase == "off_capture":
+            c.phase = "on_settle"
+        elif c.phase == "on_settle":
+            c.phase = "on_capture"
+        elif c.phase == "on_capture":
+            if c.off_frame is not None and c.on_frame is not None:
+                point = self._diff_find_marker(c.off_frame, c.on_frame)
+                if point is None:
+                    self.status_message = f"Kunde inte hitta hörn {c.corner_index + 1}. Försök igen."
+                    self._abort_calibration()
+                    return
+
+                self.detected_points.append(point)
+
+            if c.corner_index >= 3:
+                camera_points = np.array(self.detected_points, dtype=np.float32)
+                self._save_calibration(camera_points)
+                self.calibration = CalibrationState()
+            else:
+                c.corner_index += 1
+                c.phase = "off_settle"
+                c.frame_counter = 0
+                c.off_frame = None
+                c.on_frame = None
+                self.status_message = f"Hittade hörn {c.corner_index} / 4. Fortsätter..."
+                return
+
+        c.frame_counter = 0
+
+    def _update_calibration(self) -> None:
+        if not self.calibration.active or self.last_frame_rgb is None:
             return
 
-        detections = self._detect_aruco_markers()
-        points = self._select_best_corner_instances(detections)
+        c = self.calibration
+        c.frame_counter += 1
 
-        if points is None:
-            self.calibration_stable_hits = 0
+        if c.phase == "off_settle":
+            if c.frame_counter >= PHASE_SETTLE_FRAMES:
+                self._advance_phase()
             return
 
-        self.detected_points = points
-        self.calibration_stable_hits += 1
+        if c.phase == "off_capture":
+            if c.frame_counter >= PHASE_CAPTURE_FRAMES:
+                c.off_frame = self.last_frame_rgb.copy()
+                self._advance_phase()
+            return
 
-        if self.calibration_stable_hits >= DETECTION_STABLE_FRAMES:
-            self._save_calibration(points)
-            self.show_calibration_pattern = False
-            self.calibration_stable_hits = 0
+        if c.phase == "on_settle":
+            if c.frame_counter >= PHASE_SETTLE_FRAMES:
+                self._advance_phase()
+            return
+
+        if c.phase == "on_capture":
+            if c.frame_counter >= PHASE_CAPTURE_FRAMES:
+                c.on_frame = self.last_frame_rgb.copy()
+                self._advance_phase()
+            return
 
     def update(self, dt: float):
         self._read_camera()
         if self.error_message:
             return None
 
-        self._update_auto_calibration()
+        self._update_calibration()
         return None
 
     def _draw_live_overlay(self, screen: pygame.Surface) -> None:
@@ -476,68 +493,56 @@ class CameraTestScene(Scene):
         pygame.draw.rect(screen, ORANGE, self.rect, width=4)
         _draw_dashed_rect(screen, GREEN, self.viewport, width=2, dash=12, gap=8)
 
-        if self.detected_points is not None:
-            for idx, point in enumerate(self.detected_points):
-                px, py = _to_int_pos((float(point[0]), float(point[1])))
-                pygame.draw.circle(screen, CYAN, (px, py), 10, 3)
-                label = self.tiny.render(ARUCO_LABELS[idx], True, CYAN)
-                screen.blit(label, (px + 12, py - 10))
+        for idx, point in enumerate(self.detected_points):
+            px, py = _to_int_pos(point)
+            pygame.draw.circle(screen, CYAN, (px, py), 10, 3)
+            label = self.tiny.render(str(idx + 1), True, CYAN)
+            screen.blit(label, (px + 12, py - 10))
 
     def _draw_calibration_pattern(self, screen: pygame.Surface) -> None:
         assert self.viewport is not None
 
-        # Behåll livebild som bakgrund men rita markörerna i viewporten
         if self.last_frame is not None:
             screen.blit(self.last_frame, (0, 0))
         else:
             screen.fill(self.bg_color)
 
-        # Dämpa allt utanför viewporten för att göra kalibreringen tydligare
         shade = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        shade.fill((0, 0, 0, 185))
+        shade.fill((0, 0, 0, 190))
         pygame.draw.rect(shade, (0, 0, 0, 0), self.viewport)
         screen.blit(shade, (0, 0))
 
         pygame.draw.rect(screen, WHITE, self.viewport, width=2)
 
-        marker_positions = [
-            (self.viewport.left + ARUCO_MARGIN, self.viewport.top + ARUCO_MARGIN),
-            (self.viewport.right - ARUCO_MARGIN - ARUCO_SIZE, self.viewport.top + ARUCO_MARGIN),
-            (self.viewport.right - ARUCO_MARGIN - ARUCO_SIZE, self.viewport.bottom - ARUCO_MARGIN - ARUCO_SIZE),
-            (self.viewport.left + ARUCO_MARGIN, self.viewport.bottom - ARUCO_MARGIN - ARUCO_SIZE),
-        ]
+        # Visa bara EN aktiv blinkmarkör åt gången
+        expected = _expected_corner_positions(self.viewport)
+        for idx, pt in enumerate(expected):
+            if idx < len(self.detected_points):
+                pygame.draw.circle(screen, CYAN, _to_int_pos(pt), 10, 2)
 
-        for marker_id, pos in zip(ARUCO_IDS, marker_positions):
-            surface = self.marker_surfaces[marker_id]
-            screen.blit(surface, pos)
+        if self.calibration.active:
+            current = _to_int_pos(expected[self.calibration.corner_index])
 
-        # Centermarkör bara som visuell referens
-        pygame.draw.circle(screen, YELLOW, self.viewport.center, 18, 3)
-        pygame.draw.line(
-            screen,
-            YELLOW,
-            (self.viewport.centerx - 26, self.viewport.centery),
-            (self.viewport.centerx + 26, self.viewport.centery),
-            3,
-        )
-        pygame.draw.line(
-            screen,
-            YELLOW,
-            (self.viewport.centerx, self.viewport.centery - 26),
-            (self.viewport.centerx, self.viewport.centery + 26),
-            3,
-        )
+            # markören ska bara visas i on_settle / on_capture
+            if self.calibration.phase in ("on_settle", "on_capture"):
+                _draw_crosshair(screen, current, WHITE)
 
-        # Visar hittade punkter under pågående kalibrering
-        if self.detected_points is not None:
-            for idx, point in enumerate(self.detected_points):
-                px, py = _to_int_pos((float(point[0]), float(point[1])))
-                pygame.draw.circle(screen, CYAN, (px, py), 12, 3)
-                label = self.tiny.render(ARUCO_LABELS[idx], True, CYAN)
-                screen.blit(label, (px + 12, py - 10))
+            label = self.small.render(
+                f"Kalibrerar hörn {self.calibration.corner_index + 1} av 4",
+                True,
+                WHITE,
+            )
+            screen.blit(label, (24, 24))
+
+            info = self.tiny.render(
+                "Systemet blinkar markören och letar efter den förändring som uppstår i kamerabilden.",
+                True,
+                SOFT_WHITE,
+            )
+            screen.blit(info, (24, 56))
 
     def _draw_info_panel(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((1020, 300), pygame.SRCALPHA)
+        panel = pygame.Surface((980, 300), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (20, 20))
 
@@ -545,9 +550,9 @@ class CameraTestScene(Scene):
             ("Justera scanport och kalibrera kamerahörn", self.font, WHITE),
             ("Orange ram = scanport som analyseras", self.small, WHITE),
             ("Grön streckad ram = viewport / projicerad spelyta", self.small, WHITE),
-            ("SPACE: visa ArUco-markörer i viewporten och kör automatisk kalibrering", self.tiny, SOFT_WHITE),
-            ("Systemet väljer närmaste instans av varje marker-ID i respektive hörn", self.tiny, SOFT_WHITE),
-            ("Detta hanterar spegel-/loop-effekten bättre än vanliga kryss", self.tiny, SOFT_WHITE),
+            ("SPACE: starta automatisk kalibrering med blinkande hörnmarkörer", self.tiny, SOFT_WHITE),
+            ("Kalibreringen visar EN markör i taget i viewporten och jämför av/på-bild", self.tiny, SOFT_WHITE),
+            ("Detta fungerar bättre än QR/Aruco i rekursiv projektorbild", self.tiny, SOFT_WHITE),
             ("Pilar: flytta scanport", self.tiny, SOFT_WHITE),
             ("+ / - : öka eller minska proportionellt", self.tiny, SOFT_WHITE),
             ("SHIFT+B / B : öka eller minska bredd", self.tiny, SOFT_WHITE),
@@ -582,20 +587,13 @@ class CameraTestScene(Scene):
             else:
                 status_lines.append(("Status: ej kalibrerad", RED))
 
-            if self.show_calibration_pattern:
+            if self.calibration.active:
                 status_lines.append(
                     (
-                        f"Kalibrering pågår... stabila träffar: {self.calibration_stable_hits}/{DETECTION_STABLE_FRAMES}",
+                        f"Kalibrering pågår: hörn {self.calibration.corner_index + 1}/4, fas={self.calibration.phase}",
                         SOFT_WHITE,
                     )
                 )
-
-            if self.detected_marker_centers:
-                ids_text = ", ".join(
-                    f"{marker_id}:{int(pos[0])},{int(pos[1])}"
-                    for marker_id, pos in sorted(self.detected_marker_centers.items())
-                )
-                status_lines.append((f"Hittade markörer: {ids_text}", SOFT_WHITE))
 
             if self.status_message:
                 status_lines.append((self.status_message, SOFT_WHITE))
@@ -612,7 +610,7 @@ class CameraTestScene(Scene):
         if self.last_frame is not None:
             screen.blit(self.last_frame, (0, 0))
 
-        if self.show_calibration_pattern:
+        if self.calibration.active:
             self._draw_calibration_pattern(screen)
         else:
             if self.rect is not None and self.viewport is not None:
