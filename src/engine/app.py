@@ -3,6 +3,7 @@ from __future__ import annotations
 import pygame
 
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.camera.hit_scanner import hit_scanner
 from src.engine.scenes.loading import LoadingScene
@@ -20,6 +21,7 @@ class App:
         self.running = True
 
         camera_manager.start()
+        audio_peak_detector.start()
 
         self.scene = LoadingScene()
         self.scene.on_enter()
@@ -34,6 +36,7 @@ class App:
             dt = self.clock.tick(FPS) / 1000.0
 
             camera_manager.update()
+            audio_peak_detector.update()
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -60,6 +63,7 @@ class App:
 
         self.scene.on_exit()
         hit_scanner.disable()
+        audio_peak_detector.stop()
         camera_manager.stop()
         pygame.quit()
 
