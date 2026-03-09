@@ -5,6 +5,7 @@ import pygame
 from src.engine.scene import Scene
 from src.engine.visual.hit_visualizer import hit_visualizer
 from src.engine.visual.scanner_debug_overlay import scanner_debug_overlay
+from src.engine.visual.scanner_status_overlay import scanner_status_overlay
 from src.engine.input.hit_input import hit_input
 
 
@@ -45,3 +46,4 @@ class OverlayScene(Scene):
         self.inner.render(screen)
         hit_visualizer.render(screen)
         scanner_debug_overlay.render(screen)
+        scanner_status_overlay.render(screen)        
