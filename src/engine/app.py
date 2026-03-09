@@ -11,7 +11,9 @@ from src.engine.scenes.loading import LoadingScene
 class App:
     def __init__(self) -> None:
         pygame.init()
-        pygame.display.set_caption("Skjutbana")
+
+        self.base_caption = "Skjutbana"
+        pygame.display.set_caption(self.base_caption)
 
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.clock = pygame.time.Clock()
@@ -22,6 +24,7 @@ class App:
         self.scene = LoadingScene()
         self.scene.on_enter()
         self._sync_runtime_services(force=True)
+        self._update_window_caption()
 
     def quit(self) -> None:
         self.running = False
@@ -50,6 +53,7 @@ class App:
                 self._switch_to(switch.new_scene)
 
             hit_scanner.update(dt)
+            self._update_window_caption()
 
             self.scene.render(self.screen)
             pygame.display.flip()
@@ -68,8 +72,17 @@ class App:
         else:
             hit_scanner.disable()
 
+    def _update_window_caption(self) -> None:
+        if hit_scanner.enabled and hit_scanner.state != hit_scanner.STATE_OFF:
+            caption = f"{self.base_caption} (Scanning)"
+        else:
+            caption = self.base_caption
+
+        pygame.display.set_caption(caption)
+
     def _switch_to(self, new_scene) -> None:
         self.scene.on_exit()
         self.scene = new_scene
         self.scene.on_enter()
         self._sync_runtime_services(force=True)
+        self._update_window_caption()
