@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from src.engine.content_loader import MenuItem
 from src.engine.scenes.overlay_scene import OverlayScene
-
+from src.engine.scenes.scanport_preview import ScanportPreview
 
 def _wrap(scene):
     return OverlayScene(scene)
@@ -40,5 +40,8 @@ def build_scene_from_item(item: MenuItem):
     if item.type == "scanner_debug_settings":
         from src.engine.scenes.scanner_debug_settings import ScannerDebugSettingsScene
         return ScannerDebugSettingsScene(bg_color=item.bg_color)
+    
+    if item.type == "scanport_preview":
+        return ScanportPreview()        
 
     raise ValueError(f"Unknown item type: {item.type}")

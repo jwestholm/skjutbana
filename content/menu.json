@@ -262,7 +262,17 @@
           "preview": "assets/settings.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        }
+        },
+        {
+          "id": "viewportvie",
+          "type": "scanport_preview",
+          "title": "Kolla Scanport",
+          "description": "Kontrollera vad kameran ser",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        }		
       ]
     }
   ]
