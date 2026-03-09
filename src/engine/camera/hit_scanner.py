@@ -29,16 +29,6 @@ class HoleTrack:
 
 
 class HitScanner:
-    """
-    Visuell träffscanner.
-
-    Viktiga designval:
-    - analyserar bara scanport
-    - warpar scanport -> viewport/board-plan
-    - emitterar ENDAST via hit_input.push_camera_hit(...)
-    - har ARMING-fas för att bygga baslinje över redan befintliga hål
-    """
-
     STATE_OFF = "OFF"
     STATE_ARMING = "ARMING"
     STATE_ACTIVE = "ACTIVE"
@@ -95,11 +85,13 @@ class HitScanner:
         frame = camera_manager.get_latest_frame()
         if frame is None:
             self.last_status = "no_frame"
+            self.debug_frames.clear()
             return
 
         prepared = self._prepare_board_view(frame)
         if prepared is None:
             self.last_status = "not_ready"
+            self.debug_frames.clear()
             return
 
         gray, board_to_crop_matrix, scanport = prepared
@@ -121,7 +113,7 @@ class HitScanner:
                 self.tracks.clear()
                 self.last_status = "active"
             else:
-                self.last_status = "arming"
+                self.last_status = f"arming candidates={len(candidates)} tracks={len(self.tracks)}"
             return
 
         if self.state != self.STATE_ACTIVE:
@@ -146,7 +138,10 @@ class HitScanner:
             track.emitted = True
             emitted_now += 1
 
-        self.last_status = f"active candidates={len(candidates)} tracks={len(self.tracks)} emitted={emitted_now}"
+        self.last_status = (
+            f"active candidates={len(candidates)} "
+            f"tracks={len(self.tracks)} emitted={emitted_now}"
+        )
 
     def get_status_lines(self) -> list[str]:
         return [
@@ -155,6 +150,9 @@ class HitScanner:
             f"Tracks: {len(self.tracks)}",
             f"Status: {self.last_status}",
         ]
+
+    def get_debug_frames(self) -> dict[str, np.ndarray]:
+        return dict(self.debug_frames)
 
     def _prepare_board_view(
         self, frame_bgr: np.ndarray

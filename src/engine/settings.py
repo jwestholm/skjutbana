@@ -131,13 +131,11 @@ def save_camera_calibration(calibration: dict) -> None:
 # -------------------------------------------------------------------
 # Visual hits settings
 # -------------------------------------------------------------------
-# Dessa funktioner finns för kompatibilitet med befintlig overlay/
-# visualizer-kod i projektet.
 
 def _default_visual_hits_dict() -> dict:
     return {
         "enabled": True,
-        "mode": "fade",          # "fade" eller "persistent"
+        "mode": "fade",
         "lifetime_ms": 900,
         "radius": 18,
     }
@@ -212,3 +210,43 @@ def load_visual_hits_radius() -> int:
 
 def save_visual_hits_radius(radius: int) -> None:
     save_visual_hits_settings({"radius": max(1, int(radius))})
+
+
+# -------------------------------------------------------------------
+# Scanner debug settings
+# -------------------------------------------------------------------
+
+def _default_scanner_debug_dict() -> dict:
+    return {
+        "enabled": False,
+    }
+
+
+def load_scanner_debug_settings() -> dict:
+    data = _load_settings_dict()
+    value = data.get("scanner_debug")
+    defaults = _default_scanner_debug_dict()
+
+    if not isinstance(value, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(value)
+    return merged
+
+
+def save_scanner_debug_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_scanner_debug_settings()
+    current.update(settings)
+    data["scanner_debug"] = current
+    _save_settings_dict(data)
+
+
+def load_scanner_debug_enabled() -> bool:
+    settings = load_scanner_debug_settings()
+    return bool(settings.get("enabled", False))
+
+
+def save_scanner_debug_enabled(enabled: bool) -> None:
+    save_scanner_debug_settings({"enabled": bool(enabled)})

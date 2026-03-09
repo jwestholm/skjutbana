@@ -23,26 +23,25 @@ class VisualHit:
 
 
 class HitVisualizer:
-
     COLOR_MOUSE = (255, 60, 60)
     COLOR_CAMERA = (60, 255, 60)
     COLOR_DEFAULT = (255, 255, 255)
 
     def __init__(self):
         self.hits: list[VisualHit] = []
-
         hit_input.subscribe(self._on_hit)
 
-    # --------------------------------------------------
-
     def clear(self):
-        """Rensa alla visualiserade träffar."""
         self.hits.clear()
 
-    # --------------------------------------------------
+    def reload_settings(self):
+        """
+        Kompatibilitet med settings-scenen.
+        Visualizern läser redan settings live, så detta behöver inte göra något.
+        """
+        return None
 
     def _on_hit(self, event: HitEvent):
-
         if not load_visual_hits_enabled():
             return
 
@@ -55,13 +54,10 @@ class HitVisualizer:
             )
         )
 
-    # --------------------------------------------------
-
     def update(self, dt: float):
         del dt
 
         mode = load_visual_hits_mode()
-
         if mode == "persistent":
             return
 
@@ -69,14 +65,12 @@ class HitVisualizer:
         now = time.time()
 
         self.hits = [
-            hit for hit in self.hits
+            hit
+            for hit in self.hits
             if now - hit.timestamp <= lifetime
         ]
 
-    # --------------------------------------------------
-
     def _color_for_source(self, source: str):
-
         if source == "mouse":
             return self.COLOR_MOUSE
 
@@ -85,17 +79,13 @@ class HitVisualizer:
 
         return self.COLOR_DEFAULT
 
-    # --------------------------------------------------
-
     def render(self, screen: pygame.Surface):
-
         if not load_visual_hits_enabled():
             return
 
         radius = load_visual_hits_radius()
 
         for hit in self.hits:
-
             color = self._color_for_source(hit.source)
 
             pygame.draw.circle(
