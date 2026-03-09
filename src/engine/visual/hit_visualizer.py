@@ -1,96 +1,110 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import pygame
 
-from src.engine.input.hit_input import HitEvent, hit_input
-from src.engine.settings import load_visual_hits_enabled, load_visual_hits_mode
+from src.engine.input.hit_input import hit_input, HitEvent
+from src.engine.settings import (
+    load_visual_hits_enabled,
+    load_visual_hits_mode,
+    load_visual_hits_lifetime_ms,
+    load_visual_hits_radius,
+)
 
 
 @dataclass
-class VisualMarker:
-
+class VisualHit:
     x: float
     y: float
-    age: float = 0.0
+    timestamp: float
+    source: str
 
 
 class HitVisualizer:
 
+    COLOR_MOUSE = (255, 60, 60)
+    COLOR_CAMERA = (60, 255, 60)
+    COLOR_DEFAULT = (255, 255, 255)
+
     def __init__(self):
+        self.hits: list[VisualHit] = []
 
-        self.enabled = load_visual_hits_enabled()
-        self.mode = load_visual_hits_mode()
+        hit_input.subscribe(self._on_hit)
 
-        self.duration = 2.5
-        self.markers: list[VisualMarker] = []
-
-        hit_input.subscribe(self.on_hit)
-
-    def reload_settings(self):
-
-        self.enabled = load_visual_hits_enabled()
-        self.mode = load_visual_hits_mode()
-
-    def on_hit(self, event: HitEvent):
-
-        self.reload_settings()
-
-        if not self.enabled:
-            return
-
-        self.markers.append(VisualMarker(event.screen_x, event.screen_y))
+    # --------------------------------------------------
 
     def clear(self):
+        """Rensa alla visualiserade träffar."""
+        self.hits.clear()
 
-        self.markers.clear()
+    # --------------------------------------------------
 
-    def update(self, dt):
+    def _on_hit(self, event: HitEvent):
 
-        if not self.enabled:
-            self.markers.clear()
+        if not load_visual_hits_enabled():
             return
 
-        if self.mode == "persistent":
+        self.hits.append(
+            VisualHit(
+                x=event.screen_x,
+                y=event.screen_y,
+                timestamp=time.time(),
+                source=event.source,
+            )
+        )
+
+    # --------------------------------------------------
+
+    def update(self, dt: float):
+        del dt
+
+        mode = load_visual_hits_mode()
+
+        if mode == "persistent":
             return
 
-        alive = []
+        lifetime = load_visual_hits_lifetime_ms() / 1000.0
+        now = time.time()
 
-        for m in self.markers:
+        self.hits = [
+            hit for hit in self.hits
+            if now - hit.timestamp <= lifetime
+        ]
 
-            m.age += dt
+    # --------------------------------------------------
 
-            if m.age < self.duration:
-                alive.append(m)
+    def _color_for_source(self, source: str):
 
-        self.markers = alive
+        if source == "mouse":
+            return self.COLOR_MOUSE
 
-    def render(self, screen):
+        if source == "camera":
+            return self.COLOR_CAMERA
 
-        if not self.enabled:
+        return self.COLOR_DEFAULT
+
+    # --------------------------------------------------
+
+    def render(self, screen: pygame.Surface):
+
+        if not load_visual_hits_enabled():
             return
 
-        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        radius = load_visual_hits_radius()
 
-        for m in self.markers:
+        for hit in self.hits:
 
-            alpha = 255
+            color = self._color_for_source(hit.source)
 
-            if self.mode == "fade":
-                t = min(1.0, m.age / self.duration)
-                alpha = int(255 * (1 - t))
-
-            color = (255, 60, 60, alpha)
-
-            x = int(m.x)
-            y = int(m.y)
-
-            pygame.draw.circle(overlay, color, (x, y), 12, 3)
-            pygame.draw.line(overlay, color, (x - 16, y), (x + 16, y), 3)
-            pygame.draw.line(overlay, color, (x, y - 16), (x, y + 16), 3)
-
-        screen.blit(overlay, (0, 0))
+            pygame.draw.circle(
+                screen,
+                color,
+                (int(hit.x), int(hit.y)),
+                radius,
+                3,
+            )
 
 
 hit_visualizer = HitVisualizer()
