@@ -232,7 +232,27 @@
 		  "preview": "assets/settings.png",
 		  "fit": "contain",
 		  "bg_color": [0, 0, 0]
-		}	
+		},
+		{
+		  "id": "transform_debug",
+		  "type": "transform_debug",
+		  "title": "Grid / transform-test",
+          "description": "Rutnätstest för träffkoordinater.\nMus och framtida kameraträffar använder samma hit-input.",
+		  "path": "",
+		  "preview": "assets/settings.png",
+		  "fit": "contain",
+		  "bg_color": [0,0,0]
+		},
+        {
+          "id": "visual_hits_settings",
+          "type": "visual_hits_settings",
+          "title": "Visuella träffar",
+          "description": "Slå av/på träffmarkeringar och välj fade eller persistent.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        }		
       ]
     }
   ]

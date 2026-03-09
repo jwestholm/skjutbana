@@ -1,27 +1,40 @@
 from __future__ import annotations
 
 from src.engine.content_loader import MenuItem
+from src.engine.scenes.overlay_scene import OverlayScene
+
+
+def _wrap(scene):
+    return OverlayScene(scene)
 
 
 def build_scene_from_item(item: MenuItem):
     if item.type == "video":
         from src.engine.scenes.video import VideoScene
-        return VideoScene(item.path, fit=item.fit, bg_color=item.bg_color)
+        return _wrap(VideoScene(item.path, fit=item.fit, bg_color=item.bg_color))
 
     if item.type == "image":
         from src.engine.scenes.image import ImageScene
-        return ImageScene(item.path, fit=item.fit, bg_color=item.bg_color)
+        return _wrap(ImageScene(item.path, fit=item.fit, bg_color=item.bg_color))
 
     if item.type == "settings":
         from src.engine.scenes.calibrate import CalibrateViewportScene
-        return CalibrateViewportScene()
+        return _wrap(CalibrateViewportScene())
 
     if item.type == "game":
         from src.engine.scenes.game import GameScene
-        return GameScene(game_root=item.path, script_path=item.script)
+        return _wrap(GameScene(game_root=item.path, script_path=item.script))
 
     if item.type == "camera_scanport":
         from src.engine.scenes.camera_test import CameraTestScene
-        return CameraTestScene(bg_color=item.bg_color)
+        return _wrap(CameraTestScene(bg_color=item.bg_color))
+
+    if item.type == "transform_debug":
+        from src.engine.scenes.transform_debug import TransformDebugScene
+        return _wrap(TransformDebugScene(bg_color=item.bg_color))
+
+    if item.type == "visual_hits_settings":
+        from src.engine.scenes.visual_hits_settings import VisualHitsSettingsScene
+        return _wrap(VisualHitsSettingsScene(bg_color=item.bg_color))
 
     raise ValueError(f"Unknown item type: {item.type}")

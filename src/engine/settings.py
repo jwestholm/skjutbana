@@ -161,3 +161,32 @@ def clear_camera_calibration() -> None:
     if "camera_calibration" in data:
         del data["camera_calibration"]
         _save_settings_data(data)
+
+
+def load_visual_hits_enabled() -> bool:
+    data = _load_settings_data()
+    value = data.get("visual_hits_enabled", True)
+    return bool(value)
+
+
+def save_visual_hits_enabled(enabled: bool) -> None:
+    data = _load_settings_data()
+    data["visual_hits_enabled"] = bool(enabled)
+    _save_settings_data(data)
+
+
+def load_visual_hits_mode() -> str:
+    data = _load_settings_data()
+    mode = str(data.get("visual_hits_mode", "fade")).strip().lower()
+    if mode not in ("fade", "persistent"):
+        mode = "fade"
+    return mode
+
+
+def save_visual_hits_mode(mode: str) -> None:
+    mode = str(mode).strip().lower()
+    if mode not in ("fade", "persistent"):
+        mode = "fade"
+    data = _load_settings_data()
+    data["visual_hits_mode"] = mode
+    _save_settings_data(data)
