@@ -10,33 +10,44 @@ from src.engine.settings import load_visual_hits_enabled, load_visual_hits_mode
 
 @dataclass
 class VisualMarker:
+
     x: float
     y: float
     age: float = 0.0
 
 
 class HitVisualizer:
-    def __init__(self) -> None:
+
+    def __init__(self):
+
         self.enabled = load_visual_hits_enabled()
         self.mode = load_visual_hits_mode()
-        self.duration_seconds = 2.5
+
+        self.duration = 2.5
         self.markers: list[VisualMarker] = []
+
         hit_input.subscribe(self.on_hit)
 
-    def reload_settings(self) -> None:
+    def reload_settings(self):
+
         self.enabled = load_visual_hits_enabled()
         self.mode = load_visual_hits_mode()
 
-    def on_hit(self, event: HitEvent) -> None:
+    def on_hit(self, event: HitEvent):
+
         self.reload_settings()
+
         if not self.enabled:
             return
-        self.markers.append(VisualMarker(x=event.screen_x, y=event.screen_y, age=0.0))
 
-    def clear(self) -> None:
+        self.markers.append(VisualMarker(event.screen_x, event.screen_y))
+
+    def clear(self):
+
         self.markers.clear()
 
-    def update(self, dt: float) -> None:
+    def update(self, dt):
+
         if not self.enabled:
             self.markers.clear()
             return
@@ -44,35 +55,40 @@ class HitVisualizer:
         if self.mode == "persistent":
             return
 
-        survivors: list[VisualMarker] = []
-        for marker in self.markers:
-            marker.age += float(dt)
-            if marker.age <= self.duration_seconds:
-                survivors.append(marker)
-        self.markers = survivors
+        alive = []
 
-    def render(self, screen: pygame.Surface) -> None:
-        if not self.enabled or not self.markers:
+        for m in self.markers:
+
+            m.age += dt
+
+            if m.age < self.duration:
+                alive.append(m)
+
+        self.markers = alive
+
+    def render(self, screen):
+
+        if not self.enabled:
             return
 
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
-        for marker in self.markers:
+        for m in self.markers:
+
             alpha = 255
+
             if self.mode == "fade":
-                t = max(0.0, min(1.0, marker.age / self.duration_seconds))
-                alpha = int(255 * (1.0 - t))
+                t = min(1.0, m.age / self.duration)
+                alpha = int(255 * (1 - t))
 
-            color = (255, 70, 70, alpha)
-            outer = (255, 255, 255, max(0, alpha // 2))
+            color = (255, 60, 60, alpha)
 
-            x = int(round(marker.x))
-            y = int(round(marker.y))
+            x = int(m.x)
+            y = int(m.y)
 
-            pygame.draw.circle(overlay, outer, (x, y), 16, 1)
-            pygame.draw.circle(overlay, color, (x, y), 11, 3)
-            pygame.draw.line(overlay, color, (x - 18, y), (x + 18, y), 3)
-            pygame.draw.line(overlay, color, (x, y - 18), (x, y + 18), 3)
+            pygame.draw.circle(overlay, color, (x, y), 12, 3)
+            pygame.draw.line(overlay, color, (x - 16, y), (x + 16, y), 3)
+            pygame.draw.line(overlay, color, (x, y - 16), (x, y + 16), 3)
 
         screen.blit(overlay, (0, 0))
 

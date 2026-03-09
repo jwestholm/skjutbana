@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import time
-from collections import deque
 from dataclasses import dataclass
+from collections import deque
 from typing import Callable
 
 import cv2
@@ -24,98 +24,116 @@ class HitEvent:
 
 
 class HitInput:
-    def __init__(self) -> None:
+
+    def __init__(self):
+
         self.queue: deque[HitEvent] = deque()
         self.subscribers: list[Callable[[HitEvent], None]] = []
 
-    def subscribe(self, callback: Callable[[HitEvent], None]) -> None:
+        self.homography = None
+        self.inverse = None
+
+        self._load_calibration()
+
+    def _load_calibration(self):
+
+        data = load_camera_calibration()
+
+        if data and data.get("homography"):
+
+            H = np.array(data["homography"], dtype=np.float32)
+
+            self.homography = H
+            self.inverse = np.linalg.inv(H).astype(np.float32)
+
+    def subscribe(self, callback):
+
         if callback not in self.subscribers:
             self.subscribers.append(callback)
 
-    def unsubscribe(self, callback: Callable[[HitEvent], None]) -> None:
+    def unsubscribe(self, callback):
+
         if callback in self.subscribers:
             self.subscribers.remove(callback)
 
-    def _load_homography(self) -> tuple[np.ndarray | None, np.ndarray | None]:
-        data = load_camera_calibration()
-        if not data or not data.get("homography"):
-            return None, None
+    def _transform(self, matrix, x, y):
+
+        p = np.array([[[x, y]]], dtype=np.float32)
 
         try:
-            homography = np.array(data["homography"], dtype=np.float32)
-            inverse = np.linalg.inv(homography).astype(np.float32)
-            return homography, inverse
-        except Exception:
-            return None, None
-
-    def _transform(self, matrix: np.ndarray, x: float, y: float) -> tuple[float, float] | None:
-        point = np.array([[[x, y]]], dtype=np.float32)
-        try:
-            result = cv2.perspectiveTransform(point, matrix)
-            return float(result[0, 0, 0]), float(result[0, 0, 1])
+            r = cv2.perspectiveTransform(p, matrix)
+            return float(r[0, 0, 0]), float(r[0, 0, 1])
         except Exception:
             return None
 
-    def _notify(self, event: HitEvent) -> None:
+    def _notify(self, event: HitEvent):
+
         self.queue.append(event)
-        for callback in list(self.subscribers):
+
+        for cb in list(self.subscribers):
             try:
-                callback(event)
+                cb(event)
             except Exception:
                 pass
 
-    def push_mouse_hit(self, screen_x: float, screen_y: float) -> None:
-        homography, inverse = self._load_homography()
+    def push_mouse_hit(self, screen_x, screen_y):
+
         viewport = load_viewport_rect()
 
-        game_x = float(screen_x - viewport.x)
-        game_y = float(screen_y - viewport.y)
+        game_x = screen_x - viewport.x
+        game_y = screen_y - viewport.y
 
-        camera_point = None
-        if inverse is not None:
-            camera_point = self._transform(inverse, float(screen_x), float(screen_y))
+        camera = None
 
-        if camera_point is None:
-            camera_point = (float(screen_x), float(screen_y))
+        if self.inverse is not None:
+            camera = self._transform(self.inverse, screen_x, screen_y)
+
+        if camera is None:
+            camera = (screen_x, screen_y)
 
         event = HitEvent(
             source="mouse",
-            screen_x=float(screen_x),
-            screen_y=float(screen_y),
+            screen_x=screen_x,
+            screen_y=screen_y,
             game_x=game_x,
             game_y=game_y,
-            camera_x=float(camera_point[0]),
-            camera_y=float(camera_point[1]),
+            camera_x=camera[0],
+            camera_y=camera[1],
             timestamp=time.time(),
         )
+
         self._notify(event)
 
-    def push_camera_hit(self, camera_x: float, camera_y: float) -> None:
-        homography, _ = self._load_homography()
+    def push_camera_hit(self, camera_x, camera_y):
+
         viewport = load_viewport_rect()
 
-        screen_point = None
-        if homography is not None:
-            screen_point = self._transform(homography, float(camera_x), float(camera_y))
+        screen = None
 
-        if screen_point is None:
-            screen_point = (float(camera_x), float(camera_y))
+        if self.homography is not None:
+            screen = self._transform(self.homography, camera_x, camera_y)
+
+        if screen is None:
+            screen = (camera_x, camera_y)
 
         event = HitEvent(
             source="camera",
-            screen_x=float(screen_point[0]),
-            screen_y=float(screen_point[1]),
-            game_x=float(screen_point[0] - viewport.x),
-            game_y=float(screen_point[1] - viewport.y),
-            camera_x=float(camera_x),
-            camera_y=float(camera_y),
+            screen_x=screen[0],
+            screen_y=screen[1],
+            game_x=screen[0] - viewport.x,
+            game_y=screen[1] - viewport.y,
+            camera_x=camera_x,
+            camera_y=camera_y,
             timestamp=time.time(),
         )
+
         self._notify(event)
 
-    def poll(self) -> HitEvent | None:
+    def poll(self):
+
         if not self.queue:
             return None
+
         return self.queue.popleft()
 
 
