@@ -42,12 +42,11 @@ class CameraTestScene(Scene):
     """
     Justera scanport ovanpå live-kamerabild.
 
-    Den här scenen ska ENDAST hantera kamerans analysyta.
-    Den ska inte försöka visa viewport eller tidigare homography.
-
     Kontroller:
-    - Pilar: flytta scanport
-    - +/-: ändra storlek på scanport
+    - Pilar: flytta
+    - A / D: minska / öka bredd
+    - W / S: minska / öka höjd
+    - SHIFT + tangenter: finjustera med 1 px
     - ENTER: spara
     - ESC: tillbaka utan att spara
     """
@@ -70,7 +69,8 @@ class CameraTestScene(Scene):
         self.tiny = None
 
         self.move_step = 10
-        self.size_step = 20
+        self.size_step = 10
+        self.fine_step = 1
 
     def on_enter(self) -> None:
         self.original_scanport = load_scanport_rect()
@@ -93,28 +93,39 @@ class CameraTestScene(Scene):
             from src.engine.scenes.menu import MenuScene
             return SceneSwitch(MenuScene())
 
-        if self.scanport is None:
-            return None
-
         if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-            save_scanport_rect(self.scanport)
+            if self.scanport is not None:
+                save_scanport_rect(self.scanport)
             from src.engine.scenes.menu import MenuScene
             return SceneSwitch(MenuScene())
 
+        if self.scanport is None:
+            return None
+
+        mods = pygame.key.get_mods()
+        fine = bool(mods & pygame.KMOD_SHIFT)
+
+        move_step = self.fine_step if fine else self.move_step
+        size_step = self.fine_step if fine else self.size_step
+
         if event.key == pygame.K_LEFT:
-            self.scanport.x -= self.move_step
+            self.scanport.x -= move_step
         elif event.key == pygame.K_RIGHT:
-            self.scanport.x += self.move_step
+            self.scanport.x += move_step
         elif event.key == pygame.K_UP:
-            self.scanport.y -= self.move_step
+            self.scanport.y -= move_step
         elif event.key == pygame.K_DOWN:
-            self.scanport.y += self.move_step
-        elif event.key in (pygame.K_PLUS, pygame.K_KP_PLUS, pygame.K_EQUALS):
-            self.scanport.w += self.size_step
-            self.scanport.h += self.size_step
-        elif event.key in (pygame.K_MINUS, pygame.K_KP_MINUS):
-            self.scanport.w -= self.size_step
-            self.scanport.h -= self.size_step
+            self.scanport.y += move_step
+        elif event.key == pygame.K_a:
+            self.scanport.w -= size_step
+        elif event.key == pygame.K_d:
+            self.scanport.w += size_step
+        elif event.key == pygame.K_w:
+            self.scanport.h -= size_step
+        elif event.key == pygame.K_s:
+            self.scanport.h += size_step
+        else:
+            return None
 
         self._clamp_scanport_to_frame()
         return None
@@ -155,8 +166,8 @@ class CameraTestScene(Scene):
 
         frame_h, frame_w = self.last_frame_bgr.shape[:2]
 
-        self.scanport.w = max(50, min(self.scanport.w, frame_w))
-        self.scanport.h = max(50, min(self.scanport.h, frame_h))
+        self.scanport.w = max(20, min(self.scanport.w, frame_w))
+        self.scanport.h = max(20, min(self.scanport.h, frame_h))
 
         self.scanport.x = max(0, min(self.scanport.x, frame_w - self.scanport.w))
         self.scanport.y = max(0, min(self.scanport.y, frame_h - self.scanport.h))
@@ -200,20 +211,20 @@ class CameraTestScene(Scene):
             pygame.draw.rect(screen, ORANGE, scanport_draw, 3)
 
     def _render_header(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((SCREEN_WIDTH, 110), pygame.SRCALPHA)
+        panel = pygame.Surface((SCREEN_WIDTH, 118), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (0, 0))
 
         title = self.font.render("Justera scanport", True, WHITE)
         screen.blit(title, (28, 18))
 
-        hint = "Pilar: flytta | +/-: storlek | ENTER: spara | ESC: tillbaka"
-        hint_surf = self.small.render(hint, True, SOFT_WHITE)
-        screen.blit(hint_surf, (28, 62))
+        hint1 = "Pilar: flytta | A/D: bredd | W/S: höjd | SHIFT: finjustera"
+        hint1_surf = self.small.render(hint1, True, SOFT_WHITE)
+        screen.blit(hint1_surf, (28, 62))
 
-        legend = "Orange ram = kamerans analysyta"
-        legend_surf = self.tiny.render(legend, True, SOFT_WHITE)
-        screen.blit(legend_surf, (28, 90))
+        hint2 = "ENTER: spara | ESC: tillbaka | Orange ram = kamerans analysyta"
+        hint2_surf = self.tiny.render(hint2, True, SOFT_WHITE)
+        screen.blit(hint2_surf, (28, 92))
 
     def _render_footer(self, screen: pygame.Surface) -> None:
         panel_h = 70
