@@ -22,11 +22,12 @@ GREEN = (0, 255, 0)
 WHITE = (240, 240, 240)
 SOFT_WHITE = (210, 210, 210)
 RED = (255, 120, 120)
+YELLOW = (255, 220, 80)
 BLACK = (0, 0, 0)
 PANEL_BG = (0, 0, 0, 165)
 
-CALIBRATION_MARKER_RADIUS = 24
-CALIBRATION_MARKER_THICKNESS = 5
+CALIBRATION_MARKER_RADIUS = 28
+CALIBRATION_MARKER_THICKNESS = 6
 
 
 def _draw_dashed_line(
@@ -108,26 +109,13 @@ def _draw_crosshair(
 ) -> None:
     x, y = center
     pygame.draw.circle(surface, color, center, radius, thickness)
-    pygame.draw.line(surface, color, (x - radius - 8, y), (x + radius + 8, y), thickness)
-    pygame.draw.line(surface, color, (x, y - radius - 8), (x, y + radius + 8), thickness)
-
-
-def _sort_points_clockwise(points: np.ndarray) -> np.ndarray:
-    pts = np.array(points, dtype=np.float32)
-    sums = pts.sum(axis=1)
-    diffs = np.diff(pts, axis=1).reshape(-1)
-
-    top_left = pts[np.argmin(sums)]
-    bottom_right = pts[np.argmax(sums)]
-    top_right = pts[np.argmin(diffs)]
-    bottom_left = pts[np.argmax(diffs)]
-
-    return np.array([top_left, top_right, bottom_right, bottom_left], dtype=np.float32)
+    pygame.draw.line(surface, color, (x - radius - 10, y), (x + radius + 10, y), thickness)
+    pygame.draw.line(surface, color, (x, y - radius - 10), (x, y + radius + 10), thickness)
 
 
 class CameraTestScene(Scene):
     """
-    Scanport-kalibrering + automatisk hörnkalibrering.
+    Scanport-kalibrering + sekventiell hörnkalibrering.
 
     Kontroller:
     - Pilar = flytta scanport
@@ -147,6 +135,7 @@ class CameraTestScene(Scene):
         self.cap: cv2.VideoCapture | None = None
         self.last_frame: pygame.Surface | None = None
         self.last_frame_rgb: np.ndarray | None = None
+
         self.error_message: str | None = None
         self.status_message: str = ""
 
@@ -161,9 +150,12 @@ class CameraTestScene(Scene):
         self.size_step = 20
 
         self.calibration_mode = False
-        self.calibration_frames_needed = 5
+        self.calibration_index = 0
+        self.calibration_frames_needed = 6
         self.calibration_hits = 0
+        self.current_detected_point: tuple[float, float] | None = None
         self.detected_points: np.ndarray | None = None
+        self.calibration_points: list[list[float]] = []
         self.calibration_data: dict | None = None
 
     def on_enter(self) -> None:
@@ -175,9 +167,12 @@ class CameraTestScene(Scene):
         self.status_message = ""
         self.last_frame = None
         self.last_frame_rgb = None
+
         self.calibration_mode = False
+        self.calibration_index = 0
         self.calibration_hits = 0
-        self.detected_points = None
+        self.current_detected_point = None
+        self.calibration_points = []
 
         self.viewport = load_viewport_rect()
         scanport = load_scanport_norm()
@@ -189,6 +184,8 @@ class CameraTestScene(Scene):
             for x, y in self.calibration_data["camera_points_norm"]:
                 pts.append([x * SCREEN_WIDTH, y * SCREEN_HEIGHT])
             self.detected_points = np.array(pts, dtype=np.float32)
+        else:
+            self.detected_points = None
 
         self.cap = cv2.VideoCapture(self.camera_index)
         if not self.cap or not self.cap.isOpened():
@@ -215,13 +212,30 @@ class CameraTestScene(Scene):
         from src.engine.scenes.menu import MenuScene
         return SceneSwitch(MenuScene())
 
+    def _start_corner_calibration(self) -> None:
+        self.calibration_mode = True
+        self.calibration_index = 0
+        self.calibration_hits = 0
+        self.current_detected_point = None
+        self.calibration_points = []
+        self.status_message = "Kalibrering startad. Söker hörn 1 av 4..."
+
+    def _abort_corner_calibration(self) -> None:
+        self.calibration_mode = False
+        self.calibration_index = 0
+        self.calibration_hits = 0
+        self.current_detected_point = None
+        self.calibration_points = []
+        self.status_message = "Kalibrering avbruten."
+
     def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN:
             return None
 
         if event.key == pygame.K_ESCAPE:
-            self.calibration_mode = False
-            self.calibration_hits = 0
+            if self.calibration_mode:
+                self._abort_corner_calibration()
+                return None
             return self._go_back()
 
         if self.rect is None:
@@ -231,10 +245,7 @@ class CameraTestScene(Scene):
 
         if event.key == pygame.K_SPACE:
             if self.cap is not None:
-                self.calibration_mode = True
-                self.calibration_hits = 0
-                self.detected_points = None
-                self.status_message = "Visar kalibreringsmönster och söker hörn..."
+                self._start_corner_calibration()
             return None
 
         if self.calibration_mode:
@@ -298,7 +309,18 @@ class CameraTestScene(Scene):
         frame_surface = np.transpose(frame_rgb, (1, 0, 2))
         self.last_frame = pygame.surfarray.make_surface(frame_surface).convert()
 
-    def _detect_calibration_points(self) -> np.ndarray | None:
+    def _get_calibration_marker_position(self) -> tuple[int, int]:
+        assert self.viewport is not None
+
+        points = [
+            (self.viewport.left, self.viewport.top),
+            (self.viewport.right, self.viewport.top),
+            (self.viewport.right, self.viewport.bottom),
+            (self.viewport.left, self.viewport.bottom),
+        ]
+        return points[self.calibration_index]
+
+    def _detect_single_marker(self) -> tuple[float, float] | None:
         if self.last_frame_rgb is None or self.rect is None:
             return None
 
@@ -311,34 +333,37 @@ class CameraTestScene(Scene):
             return None
 
         gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
-        _, thresh = cv2.threshold(gray, 235, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY)
 
         kernel = np.ones((3, 3), np.uint8)
         thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
         thresh = cv2.dilate(thresh, kernel, iterations=1)
 
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
 
-        centers: list[list[float]] = []
-        min_area = 80.0
+        best_contour = None
+        best_area = 0.0
 
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < min_area:
+            if area < 60:
                 continue
+            if area > best_area:
+                best_area = area
+                best_contour = contour
 
-            moments = cv2.moments(contour)
-            if moments["m00"] == 0:
-                continue
-
-            cx = (moments["m10"] / moments["m00"]) + x1
-            cy = (moments["m01"] / moments["m00"]) + y1
-            centers.append([float(cx), float(cy)])
-
-        if len(centers) != 4:
+        if best_contour is None:
             return None
 
-        return _sort_points_clockwise(np.array(centers, dtype=np.float32))
+        moments = cv2.moments(best_contour)
+        if moments["m00"] == 0:
+            return None
+
+        cx = (moments["m10"] / moments["m00"]) + x1
+        cy = (moments["m01"] / moments["m00"]) + y1
+        return (float(cx), float(cy))
 
     def _save_detected_calibration(self, camera_points: np.ndarray) -> None:
         assert self.viewport is not None
@@ -357,22 +382,42 @@ class CameraTestScene(Scene):
         }
         save_camera_calibration(self.calibration_data)
         self.detected_points = camera_points.copy()
-        self.status_message = "Kalibrering klar och sparad."
         self.calibration_mode = False
         self.calibration_hits = 0
+        self.current_detected_point = None
+        self.status_message = "Kalibrering klar och sparad."
+
+    def _update_corner_calibration(self) -> None:
+        point = self._detect_single_marker()
+
+        if point is None:
+            self.calibration_hits = 0
+            self.current_detected_point = None
+            return
+
+        self.current_detected_point = point
+        self.calibration_hits += 1
+
+        if self.calibration_hits < self.calibration_frames_needed:
+            return
+
+        self.calibration_points.append([point[0], point[1]])
+        self.calibration_hits = 0
+        self.current_detected_point = None
+
+        if self.calibration_index < 3:
+            self.calibration_index += 1
+            self.status_message = f"Kalibrering: hörn {self.calibration_index + 1} av 4..."
+            return
+
+        camera_points = np.array(self.calibration_points, dtype=np.float32)
+        self._save_detected_calibration(camera_points)
 
     def update(self, dt: float):
         self._read_camera()
 
         if self.calibration_mode and self.last_frame_rgb is not None:
-            points = self._detect_calibration_points()
-            if points is None:
-                self.calibration_hits = 0
-            else:
-                self.detected_points = points
-                self.calibration_hits += 1
-                if self.calibration_hits >= self.calibration_frames_needed:
-                    self._save_detected_calibration(points)
+            self._update_corner_calibration()
 
         return None
 
@@ -389,12 +434,14 @@ class CameraTestScene(Scene):
         _draw_dashed_rect(screen, GREEN, self.viewport, width=2, dash=12, gap=8)
 
         if self.detected_points is not None:
-            for point in self.detected_points:
+            for idx, point in enumerate(self.detected_points):
                 px, py = int(point[0]), int(point[1])
                 pygame.draw.circle(screen, WHITE, (px, py), 10, 3)
+                label = self.tiny.render(str(idx + 1), True, YELLOW)
+                screen.blit(label, (px + 12, py - 10))
 
     def _draw_info_panel(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((890, 270), pygame.SRCALPHA)
+        panel = pygame.Surface((900, 290), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (20, 20))
 
@@ -407,7 +454,7 @@ class CameraTestScene(Scene):
             ("SHIFT+B / B : öka eller minska bredd", self.tiny, SOFT_WHITE),
             ("SHIFT+H / H : öka eller minska höjd", self.tiny, SOFT_WHITE),
             ("ENTER: spara scanport", self.tiny, SOFT_WHITE),
-            ("SPACE: visa hörnmarkeringar och kalibrera transform", self.tiny, SOFT_WHITE),
+            ("SPACE: starta automatisk hörnkalibrering", self.tiny, SOFT_WHITE),
             ("C: radera sparad hörnkalibrering", self.tiny, SOFT_WHITE),
             ("ESC: tillbaka till menyn", self.tiny, SOFT_WHITE),
         ]
@@ -434,7 +481,7 @@ class CameraTestScene(Scene):
 
             if self.calibration_mode:
                 status_lines.append(
-                    ("Kalibrering pågår: visa tavlan stilla tills fyra hörn hittas.", WHITE)
+                    (f"Kalibrering pågår: hörn {self.calibration_index + 1} av 4", WHITE)
                 )
             elif self.calibration_data and self.calibration_data.get("is_calibrated"):
                 status_lines.append(("Status: kalibrerad", WHITE))
@@ -455,17 +502,26 @@ class CameraTestScene(Scene):
 
         screen.fill(BLACK)
 
-        points = [
-            (self.viewport.left, self.viewport.top),
-            (self.viewport.right, self.viewport.top),
-            (self.viewport.right, self.viewport.bottom),
-            (self.viewport.left, self.viewport.bottom),
-        ]
-        for point in points:
-            _draw_crosshair(screen, WHITE, point)
+        point = self._get_calibration_marker_position()
+        _draw_crosshair(screen, WHITE, point)
 
-        caption = self.small.render("Kalibrering pågår - hittar hörnmarkeringar...", True, WHITE)
-        screen.blit(caption, (24, 24))
+        title = self.small.render(
+            f"Kalibrering pågår - visar hörn {self.calibration_index + 1} av 4",
+            True,
+            WHITE,
+        )
+        screen.blit(title, (24, 24))
+
+        info = self.tiny.render(
+            "Håll tavlan stilla tills markeringen registrerats. ESC avbryter.",
+            True,
+            SOFT_WHITE,
+        )
+        screen.blit(info, (24, 56))
+
+        if self.current_detected_point is not None:
+            px, py = int(self.current_detected_point[0]), int(self.current_detected_point[1])
+            pygame.draw.circle(screen, YELLOW, (px, py), 12, 3)
 
     def render(self, screen: pygame.Surface) -> None:
         if self.calibration_mode:
