@@ -20,8 +20,8 @@ def build_scene_from_item(item: MenuItem):
         from src.engine.scenes.game import GameScene
         return GameScene(game_root=item.path, script_path=item.script)
 
-    if item.type == "camera_test":
+    if item.type == "camera_scanport":
         from src.engine.scenes.camera_test import CameraTestScene
-        return CameraTestScene(fit=item.fit, bg_color=item.bg_color)
+        return CameraTestScene(bg_color=item.bg_color)
 
     raise ValueError(f"Unknown item type: {item.type}")

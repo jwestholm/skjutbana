@@ -224,10 +224,10 @@
           "bg_color": [0, 0, 0]
         },
 		{
-		  "id": "camera_check",
-		  "type": "camera_test",
-		  "title": "Kontrollera kamera",
-		  "description": "Visar livebild från USB-kameran. ESC = tillbaka.",
+		  "id": "scanport_calibration",
+		  "type": "camera_scanport",
+		  "title": "Justera scanport",
+		  "description": "Kalibrera kamerans analysyta.\nOrange ram = scanport, grön streckad ram = viewport.\nENTER sparar, ESC går tillbaka.",
 		  "path": "",
 		  "preview": "assets/settings.png",
 		  "fit": "contain",
