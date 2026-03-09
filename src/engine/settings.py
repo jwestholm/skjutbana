@@ -250,3 +250,47 @@ def load_scanner_debug_overlay_enabled() -> bool:
 
 def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
     save_scanner_debug_overlay_settings({"enabled": bool(enabled)})
+
+
+# -------------------------------------------------------------------
+# Audio peak settings
+# -------------------------------------------------------------------
+
+def _default_audio_peak_dict() -> dict:
+    return {
+        "threshold": 0.10,
+    }
+
+
+def load_audio_peak_settings() -> dict:
+    data = _load_settings_dict()
+    value = data.get("audio_peak")
+    defaults = _default_audio_peak_dict()
+
+    if not isinstance(value, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(value)
+    return merged
+
+
+def save_audio_peak_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_audio_peak_settings()
+    current.update(settings)
+    data["audio_peak"] = current
+    _save_settings_dict(data)
+
+
+def load_audio_peak_threshold() -> float:
+    settings = load_audio_peak_settings()
+    try:
+        value = float(settings.get("threshold", 0.10))
+    except Exception:
+        value = 0.10
+    return max(0.005, min(0.95, value))
+
+
+def save_audio_peak_threshold(threshold: float) -> None:
+    save_audio_peak_settings({"threshold": max(0.005, min(0.95, float(threshold)))})

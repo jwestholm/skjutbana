@@ -272,7 +272,17 @@
           "preview": "assets/settings.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        }		
+        },
+		{
+		  "id": "audio_peak_settings",
+		  "type": "audio_peak_settings",
+		  "title": "Ljud-peak / mikrofon",
+		  "description": "Visa ljudkurva live och justera peaknivån för skott-trigger.",
+		  "path": "",
+		  "preview": "assets/settings.png",
+		  "fit": "contain",
+		  "bg_color": [0, 0, 0]
+		}		
       ]
     }
   ]

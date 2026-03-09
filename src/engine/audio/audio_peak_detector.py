@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import queue
 import shutil
 import subprocess
 import threading
@@ -10,6 +8,11 @@ from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
+
+from src.engine.settings import (
+    load_audio_peak_threshold,
+    save_audio_peak_threshold,
+)
 
 
 @dataclass
@@ -52,11 +55,12 @@ class AudioPeakDetector:
         self.last_peak_value = 0.0
 
         self.noise_floor = 0.01
-        self.min_abs_peak = 0.10
+        self.min_abs_peak = load_audio_peak_threshold()
         self.peak_ratio = 3.2
         self.cooldown_s = 0.20
 
         self._events: deque[AudioPeakEvent] = deque(maxlen=100)
+        self._sample_history: deque[float] = deque(maxlen=self.sample_rate * 2)
         self._lock = threading.Lock()
 
     def start(self) -> bool:
@@ -68,6 +72,8 @@ class AudioPeakDetector:
             self.enabled = False
             self.running = False
             return False
+
+        self.min_abs_peak = load_audio_peak_threshold()
 
         self.last_error = ""
         self.enabled = True
@@ -93,10 +99,6 @@ class AudioPeakDetector:
             self.thread = None
 
     def update(self) -> None:
-        """
-        Håller API:t enkelt för app-loopen.
-        Själva inspelningen sker i bakgrundstråd.
-        """
         return None
 
     def get_events_since(self, since_ts: float) -> list[AudioPeakEvent]:
@@ -114,6 +116,7 @@ class AudioPeakDetector:
             f"Audio backend: {self.backend_name}",
             f"Audio peak: {self.last_peak_value:.3f} | rms: {self.last_rms:.3f}",
             f"Noise floor: {self.noise_floor:.3f}",
+            f"Peak threshold: {self.min_abs_peak:.3f}",
         ]
         if self.last_peak_ts > 0:
             age = time.time() - self.last_peak_ts
@@ -122,20 +125,72 @@ class AudioPeakDetector:
             lines.append(f"Audio error: {self.last_error}")
         return lines
 
+    def get_waveform_snapshot(self, max_points: int = 1200) -> np.ndarray:
+        with self._lock:
+            if not self._sample_history:
+                return np.zeros(max_points, dtype=np.float32)
+            arr = np.array(self._sample_history, dtype=np.float32)
+
+        if arr.size <= max_points:
+            return arr
+
+        idx = np.linspace(0, arr.size - 1, max_points).astype(np.int32)
+        return arr[idx]
+
+    def get_peak_threshold(self) -> float:
+        return float(self.min_abs_peak)
+
+    def set_peak_threshold(self, value: float, persist: bool = True) -> None:
+        self.min_abs_peak = float(max(0.005, min(0.95, value)))
+        if persist:
+            save_audio_peak_threshold(self.min_abs_peak)
+
     # ------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------
 
     def _thread_main(self) -> None:
         backends = [
-            ("pulse", ["ffmpeg", "-hide_banner", "-loglevel", "error",
-                       "-f", "pulse", "-i", "default",
-                       "-ac", str(self.channels), "-ar", str(self.sample_rate),
-                       "-f", "s16le", "-"]),
-            ("alsa", ["ffmpeg", "-hide_banner", "-loglevel", "error",
-                      "-f", "alsa", "-i", "default",
-                      "-ac", str(self.channels), "-ar", str(self.sample_rate),
-                      "-f", "s16le", "-"]),
+            (
+                "pulse",
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "pulse",
+                    "-i",
+                    "default",
+                    "-ac",
+                    str(self.channels),
+                    "-ar",
+                    str(self.sample_rate),
+                    "-f",
+                    "s16le",
+                    "-",
+                ],
+            ),
+            (
+                "alsa",
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "alsa",
+                    "-i",
+                    "default",
+                    "-ac",
+                    str(self.channels),
+                    "-ar",
+                    str(self.sample_rate),
+                    "-f",
+                    "s16le",
+                    "-",
+                ],
+            ),
         ]
 
         started = False
@@ -156,7 +211,6 @@ class AudioPeakDetector:
                 self.proc = None
                 continue
 
-            # prova läsa lite data
             try:
                 bytes_needed = self.chunk_samples * 2
                 chunk = self.proc.stdout.read(bytes_needed) if self.proc.stdout else b""
@@ -219,9 +273,11 @@ class AudioPeakDetector:
         self.last_peak_value = peak
         self.last_rms = rms
 
-        # uppdatera noise floor försiktigt
         alpha = 0.03
         self.noise_floor = (1.0 - alpha) * self.noise_floor + alpha * rms
+
+        with self._lock:
+            self._sample_history.extend(float(x) for x in data.tolist())
 
         now = time.time()
 

@@ -45,4 +45,8 @@ def build_scene_from_item(item: MenuItem):
         from src.engine.scenes.scanner_debug_settings import ScannerDebugSettingsScene
         return ScannerDebugSettingsScene(bg_color=item.bg_color)
 
+    if item.type == "audio_peak_settings":
+        from src.engine.scenes.audio_peak_settings import AudioPeakSettingsScene
+        return AudioPeakSettingsScene(bg_color=item.bg_color)
+
     raise ValueError(f"Unknown item type: {item.type}")
