@@ -29,6 +29,16 @@ class HoleTrack:
 
 
 class HitScanner:
+    """
+    Visuell träffscanner.
+
+    Viktiga designval:
+    - analyserar bara scanport
+    - warpar scanport -> viewport/board-plan
+    - emitterar ENDAST via hit_input.push_camera_hit(...)
+    - har ARMING-fas för att bygga baslinje över redan befintliga hål
+    """
+
     STATE_OFF = "OFF"
     STATE_ARMING = "ARMING"
     STATE_ACTIVE = "ACTIVE"
@@ -53,6 +63,9 @@ class HitScanner:
 
         self.last_status: str = "off"
         self.debug_frames: dict[str, np.ndarray] = {}
+        self.last_candidates: list[dict[str, float]] = []
+        self.last_stable_tracks: list[HoleTrack] = []
+        self.last_board_size: tuple[int, int] = (1, 1)
 
     def enable(self) -> None:
         self.enabled = True
@@ -62,6 +75,9 @@ class HitScanner:
         self.tracks.clear()
         self.known_holes.clear()
         self.debug_frames.clear()
+        self.last_candidates = []
+        self.last_stable_tracks = []
+        self.last_board_size = (1, 1)
         self.last_status = "arming"
 
     def disable(self) -> None:
@@ -70,6 +86,9 @@ class HitScanner:
         self.tracks.clear()
         self.known_holes.clear()
         self.debug_frames.clear()
+        self.last_candidates = []
+        self.last_stable_tracks = []
+        self.last_board_size = (1, 1)
         self.last_status = "off"
 
     def scene_rearmed(self) -> None:
@@ -80,21 +99,27 @@ class HitScanner:
         del dt
 
         if not self.enabled or self.state == self.STATE_OFF:
+            self.last_candidates = []
+            self.last_stable_tracks = []
             return
 
         frame = camera_manager.get_latest_frame()
         if frame is None:
             self.last_status = "no_frame"
-            self.debug_frames.clear()
+            self.last_candidates = []
+            self.last_stable_tracks = []
             return
 
         prepared = self._prepare_board_view(frame)
         if prepared is None:
             self.last_status = "not_ready"
-            self.debug_frames.clear()
+            self.last_candidates = []
+            self.last_stable_tracks = []
             return
 
         gray, board_to_crop_matrix, scanport = prepared
+        self.last_board_size = (gray.shape[1], gray.shape[0])
+
         candidates = self._detect_candidates(gray, board_to_crop_matrix, scanport)
 
         now = time.time()
@@ -102,6 +127,22 @@ class HitScanner:
         self._ingest_candidates(candidates, now)
 
         stable_tracks = self._get_stable_tracks(now)
+
+        self.last_candidates = [dict(item) for item in candidates]
+        self.last_stable_tracks = [
+            HoleTrack(
+                board_x=t.board_x,
+                board_y=t.board_y,
+                camera_x=t.camera_x,
+                camera_y=t.camera_y,
+                created_at=t.created_at,
+                last_seen=t.last_seen,
+                hits=t.hits,
+                best_score=t.best_score,
+                emitted=t.emitted,
+            )
+            for t in stable_tracks
+        ]
 
         if self.state == self.STATE_ARMING:
             for track in stable_tracks:
@@ -113,7 +154,7 @@ class HitScanner:
                 self.tracks.clear()
                 self.last_status = "active"
             else:
-                self.last_status = f"arming candidates={len(candidates)} tracks={len(self.tracks)}"
+                self.last_status = "arming"
             return
 
         if self.state != self.STATE_ACTIVE:
@@ -138,10 +179,7 @@ class HitScanner:
             track.emitted = True
             emitted_now += 1
 
-        self.last_status = (
-            f"active candidates={len(candidates)} "
-            f"tracks={len(self.tracks)} emitted={emitted_now}"
-        )
+        self.last_status = f"active candidates={len(candidates)} tracks={len(self.tracks)} emitted={emitted_now}"
 
     def get_status_lines(self) -> list[str]:
         return [
@@ -151,8 +189,32 @@ class HitScanner:
             f"Status: {self.last_status}",
         ]
 
-    def get_debug_frames(self) -> dict[str, np.ndarray]:
-        return dict(self.debug_frames)
+    def get_debug_snapshot(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "state": self.state,
+            "last_status": self.last_status,
+            "known_holes_count": len(self.known_holes),
+            "tracks_count": len(self.tracks),
+            "candidates_count": len(self.last_candidates),
+            "stable_tracks_count": len(self.last_stable_tracks),
+            "debug_frames": dict(self.debug_frames),
+            "candidates": [dict(item) for item in self.last_candidates],
+            "stable_tracks": [
+                {
+                    "board_x": t.board_x,
+                    "board_y": t.board_y,
+                    "camera_x": t.camera_x,
+                    "camera_y": t.camera_y,
+                    "hits": t.hits,
+                    "score": t.best_score,
+                    "emitted": t.emitted,
+                }
+                for t in self.last_stable_tracks
+            ],
+            "known_holes": list(self.known_holes),
+            "board_size": self.last_board_size,
+        }
 
     def _prepare_board_view(
         self, frame_bgr: np.ndarray

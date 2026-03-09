@@ -41,7 +41,7 @@
           "preview": "assets/thumbs/spotthesniper.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        },		
+        },
         {
           "id": "img_sniper2",
           "type": "image",
@@ -156,7 +156,7 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
+        {
           "id": "zombie1",
           "type": "video",
           "title": "Zombie",
@@ -166,7 +166,7 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
+        {
           "id": "battlefield",
           "type": "video",
           "title": "Slagfält",
@@ -176,7 +176,7 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
+        {
           "id": "soldiers",
           "type": "video",
           "title": "Soldater",
@@ -185,7 +185,7 @@
           "preview": "assets/thumbs/soldiers.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        }			
+        }
       ]
     },
     {
@@ -223,26 +223,26 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
-		  "id": "scanport_calibration",
-		  "type": "camera_scanport",
-		  "title": "Justera scanport",
-		  "description": "Kalibrera kamerans analysyta.\nOrange ram = scanport, grön streckad ram = viewport.\nENTER sparar, ESC går tillbaka.",
-		  "path": "",
-		  "preview": "assets/settings.png",
-		  "fit": "contain",
-		  "bg_color": [0, 0, 0]
-		},
-		{
-		  "id": "transform_debug",
-		  "type": "transform_debug",
-		  "title": "Grid / transform-test",
+        {
+          "id": "scanport_calibration",
+          "type": "camera_scanport",
+          "title": "Justera scanport",
+          "description": "Kalibrera kamerans analysyta.\nOrange ram = scanport, grön streckad ram = viewport.\nENTER sparar, ESC går tillbaka.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "transform_debug",
+          "type": "transform_debug",
+          "title": "Grid / transform-test",
           "description": "Rutnätstest för träffkoordinater.\nMus och framtida kameraträffar använder samma hit-input.",
-		  "path": "",
-		  "preview": "assets/settings.png",
-		  "fit": "contain",
-		  "bg_color": [0,0,0]
-		},
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
         {
           "id": "visual_hits_settings",
           "type": "visual_hits_settings",
@@ -252,7 +252,17 @@
           "preview": "assets/settings.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
-        }		
+        },
+        {
+          "id": "scanner_debug_settings",
+          "type": "scanner_debug_settings",
+          "title": "Scanner debug overlay",
+          "description": "Slå av/på scanner-debug som visar crop, warped board, score map och mask.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        }
       ]
     }
   ]

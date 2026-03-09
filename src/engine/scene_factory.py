@@ -5,12 +5,10 @@ from src.engine.scenes.overlay_scene import OverlayScene
 
 
 def _wrap(scene):
-
     return OverlayScene(scene)
 
 
 def build_scene_from_item(item: MenuItem):
-
     if item.type == "video":
         from src.engine.scenes.video import VideoScene
         return _wrap(VideoScene(item.path, fit=item.fit, bg_color=item.bg_color))
@@ -38,5 +36,9 @@ def build_scene_from_item(item: MenuItem):
     if item.type == "visual_hits_settings":
         from src.engine.scenes.visual_hits_settings import VisualHitsSettingsScene
         return VisualHitsSettingsScene(bg_color=item.bg_color)
+
+    if item.type == "scanner_debug_settings":
+        from src.engine.scenes.scanner_debug_settings import ScannerDebugSettingsScene
+        return ScannerDebugSettingsScene(bg_color=item.bg_color)
 
     raise ValueError(f"Unknown item type: {item.type}")

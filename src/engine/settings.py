@@ -213,7 +213,7 @@ def save_visual_hits_radius(radius: int) -> None:
 
 
 # -------------------------------------------------------------------
-# Scanner debug settings
+# Scanner debug overlay settings
 # -------------------------------------------------------------------
 
 def _default_scanner_debug_dict() -> dict:
@@ -222,9 +222,9 @@ def _default_scanner_debug_dict() -> dict:
     }
 
 
-def load_scanner_debug_settings() -> dict:
+def load_scanner_debug_overlay_settings() -> dict:
     data = _load_settings_dict()
-    value = data.get("scanner_debug")
+    value = data.get("scanner_debug_overlay")
     defaults = _default_scanner_debug_dict()
 
     if not isinstance(value, dict):
@@ -235,18 +235,18 @@ def load_scanner_debug_settings() -> dict:
     return merged
 
 
-def save_scanner_debug_settings(settings: dict) -> None:
+def save_scanner_debug_overlay_settings(settings: dict) -> None:
     data = _load_settings_dict()
-    current = load_scanner_debug_settings()
+    current = load_scanner_debug_overlay_settings()
     current.update(settings)
-    data["scanner_debug"] = current
+    data["scanner_debug_overlay"] = current
     _save_settings_dict(data)
 
 
-def load_scanner_debug_enabled() -> bool:
-    settings = load_scanner_debug_settings()
+def load_scanner_debug_overlay_enabled() -> bool:
+    settings = load_scanner_debug_overlay_settings()
     return bool(settings.get("enabled", False))
 
 
-def save_scanner_debug_enabled(enabled: bool) -> None:
-    save_scanner_debug_settings({"enabled": bool(enabled)})
+def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
+    save_scanner_debug_overlay_settings({"enabled": bool(enabled)})

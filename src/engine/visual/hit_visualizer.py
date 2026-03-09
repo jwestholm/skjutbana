@@ -31,15 +31,15 @@ class HitVisualizer:
         self.hits: list[VisualHit] = []
         hit_input.subscribe(self._on_hit)
 
-    def clear(self):
-        self.hits.clear()
-
     def reload_settings(self):
         """
-        Kompatibilitet med settings-scenen.
-        Visualizern läser redan settings live, så detta behöver inte göra något.
+        Behålls för kompatibilitet med befintliga settings-scener.
+        Inställningarna läses dynamiskt i render/update.
         """
         return None
+
+    def clear(self):
+        self.hits.clear()
 
     def _on_hit(self, event: HitEvent):
         if not load_visual_hits_enabled():
@@ -65,8 +65,7 @@ class HitVisualizer:
         now = time.time()
 
         self.hits = [
-            hit
-            for hit in self.hits
+            hit for hit in self.hits
             if now - hit.timestamp <= lifetime
         ]
 
@@ -85,16 +84,26 @@ class HitVisualizer:
 
         radius = load_visual_hits_radius()
 
+        overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+
         for hit in self.hits:
             color = self._color_for_source(hit.source)
+            rgba = (color[0], color[1], color[2], 255)
+
+            x = int(hit.x)
+            y = int(hit.y)
 
             pygame.draw.circle(
-                screen,
-                color,
-                (int(hit.x), int(hit.y)),
+                overlay,
+                rgba,
+                (x, y),
                 radius,
                 3,
             )
+            pygame.draw.line(overlay, rgba, (x - radius - 4, y), (x + radius + 4, y), 2)
+            pygame.draw.line(overlay, rgba, (x, y - radius - 4), (x, y + radius + 4), 2)
+
+        screen.blit(overlay, (0, 0))
 
 
 hit_visualizer = HitVisualizer()
