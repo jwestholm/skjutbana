@@ -169,10 +169,19 @@ class TransformDebugScene(Scene):
                 )
             )
 
-        y = screen.get_height() - (len(lines) * 28) - 12
+        panel_width = 820
+        panel_height = (len(lines) * 28) + 20
+        panel_x = 20
+        panel_y = screen.get_height() - panel_height - 20
+
+        panel = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        panel.fill(PANEL_BG)
+        screen.blit(panel, (panel_x, panel_y))
+
+        y = panel_y + 10
         for text, color in lines:
             surf = self.tiny.render(text, True, color)
-            screen.blit(surf, (24, y))
+            screen.blit(surf, (panel_x + 16, y))
             y += 28
 
     def render(self, screen: pygame.Surface) -> None:
@@ -180,22 +189,6 @@ class TransformDebugScene(Scene):
 
         if self.viewport and self.grid_surface:
             screen.blit(self.grid_surface, self.viewport.topleft)
-
-            pygame.draw.circle(screen, YELLOW, self.viewport.center, 14, 2)
-            pygame.draw.line(
-                screen,
-                YELLOW,
-                (self.viewport.centerx - 22, self.viewport.centery),
-                (self.viewport.centerx + 22, self.viewport.centery),
-                2,
-            )
-            pygame.draw.line(
-                screen,
-                YELLOW,
-                (self.viewport.centerx, self.viewport.centery - 22),
-                (self.viewport.centerx, self.viewport.centery + 22),
-                2,
-            )
 
         self._draw_info(screen)
         self._draw_status(screen)
