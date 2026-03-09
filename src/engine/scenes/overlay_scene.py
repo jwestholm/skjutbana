@@ -46,4 +46,4 @@ class OverlayScene(Scene):
         self.inner.render(screen)
         hit_visualizer.render(screen)
         scanner_debug_overlay.render(screen)
-        scanner_status_overlay.render(screen)        
+        scanner_status_overlay.render(screen)
