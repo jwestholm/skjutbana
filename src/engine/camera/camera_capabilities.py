@@ -106,17 +106,18 @@ def probe_camera_capabilities(cap: cv2.VideoCapture) -> CameraCapabilities:
 
 def apply_preferred_camera_settings(
     cap: cv2.VideoCapture,
-    preferred_width: int = 1920,
-    preferred_height: int = 1080,
+    preferred_width: int = 3840,
+    preferred_height: int = 2160,
     preferred_fps: int = 30,
 ) -> dict[str, bool]:
     """
-    Best effort. Vi försöker stabilisera bilden men antar inte att
-    någon specifik kamera eller backend stöder allt.
+    Best effort.
+    Vi försöker köra kameran i 3840x2160 först.
+    Om kameran/backend inte stöder det kommer faktiskt negotiated läge
+    att synas via probe_camera_capabilities().
     """
     results: dict[str, bool] = {}
 
-    # Försök välja MJPG när det går. Det brukar hjälpa vissa USB-kameror.
     try:
         mjpg = cv2.VideoWriter_fourcc(*"MJPG")
         results["fourcc_mjpg"] = _safe_set(cap, cv2.CAP_PROP_FOURCC, mjpg)
@@ -127,11 +128,8 @@ def apply_preferred_camera_settings(
     results["height"] = _safe_set(cap, cv2.CAP_PROP_FRAME_HEIGHT, preferred_height)
     results["fps"] = _safe_set(cap, cv2.CAP_PROP_FPS, preferred_fps)
 
-    # Autofunktioner kan ge falska visuella förändringar.
-    # Vi försöker stänga av dem, men det är backend-beroende om det fungerar.
     results["auto_wb_off"] = _safe_set(cap, cv2.CAP_PROP_AUTO_WB, 0)
 
-    # Fokus: försök stänga av AF först, sätt sedan fokus om möjligt.
     autofocus_prop = getattr(cv2, "CAP_PROP_AUTOFOCUS", None)
     if autofocus_prop is not None:
         results["autofocus_off"] = _safe_set(cap, autofocus_prop, 0)
@@ -140,8 +138,6 @@ def apply_preferred_camera_settings(
 
     results["focus"] = _safe_set(cap, cv2.CAP_PROP_FOCUS, 0)
 
-    # Auto exposure beter sig olika mellan backends.
-    # Vi provar några vanliga varianter utan att förutsätta vad som fungerar.
     ok_manual = _safe_set(cap, cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
     ok_manual_alt = _safe_set(cap, cv2.CAP_PROP_AUTO_EXPOSURE, 1.0)
     results["auto_exposure_manual"] = ok_manual or ok_manual_alt

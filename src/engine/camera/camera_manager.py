@@ -23,8 +23,8 @@ class CameraManager:
     def __init__(
         self,
         camera_index: int = 0,
-        preferred_width: int = 1920,
-        preferred_height: int = 1080,
+        preferred_width: int = 3840,
+        preferred_height: int = 2160,
         preferred_fps: int = 30,
     ) -> None:
         self.camera_index = camera_index
@@ -93,6 +93,9 @@ class CameraManager:
         self.latest_frame = CameraFrame(frame_bgr=frame_bgr, timestamp=time.time())
         self.last_error = None
 
+        # Uppdatera faktiskt negotiated capture-läge när kameran väl levererar frames.
+        self.capabilities = probe_camera_capabilities(self.cap)
+
     def get_latest_frame(self) -> np.ndarray | None:
         if self.latest_frame is None:
             return None
@@ -107,7 +110,12 @@ class CameraManager:
         lines: list[str] = []
 
         if self.capabilities is not None:
-            lines.extend(self.capabilities.summary_lines())
+            lines.append(
+                f"Kamera: {self.capabilities.width}x{self.capabilities.height} @ {self.capabilities.fps:.1f} fps"
+            )
+            lines.append(
+                f"Backend: {self.capabilities.backend_name} | FOURCC: {self.capabilities.fourcc}"
+            )
 
         if self.property_apply_result:
             applied = ", ".join(
@@ -118,9 +126,6 @@ class CameraManager:
 
         if self.last_error:
             lines.append(f"Fel: {self.last_error}")
-
-        if self.latest_frame is not None:
-            lines.append(f"Senaste frame-ts: {self.latest_frame.timestamp:.3f}")
 
         return lines
 

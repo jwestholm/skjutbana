@@ -1,190 +1,100 @@
 from __future__ import annotations
 
-import time
-from collections import deque
-import numpy as np
 import cv2
+import numpy as np
+import pygame
 
 from src.engine.camera.camera_manager import camera_manager
-from src.engine.input.hit_input import hit_input
-from src.engine.settings import (
-    load_scanport_rect,
-    load_camera_calibration
-)
+from src.engine.scene import Scene, SceneSwitch
+from src.engine.settings import load_scanport_rect
 
 
-class HitScanner:
+WHITE = (240, 240, 240)
+SOFT_WHITE = (210, 210, 210)
+PANEL_BG = (0, 0, 0, 150)
 
-    STATE_OFF = "OFF"
-    STATE_ARMING = "ARMING"
-    STATE_ACTIVE = "ACTIVE"
 
-    def __init__(self):
+class ScanportPreview(Scene):
+    """
+    Visar exakt det scannern ser:
+    - rå scanport cropad från kamerabilden
+    - uppskalad till hela skärmen
 
-        self.enabled = False
-        self.state = self.STATE_OFF
+    ESC = tillbaka till menyn
+    """
 
-        self.history = deque(maxlen=10)
+    wants_camera_preview = True
 
-        self.arm_time = 1.5
-        self.arm_until = 0
+    def __init__(self, bg_color=(0, 0, 0)) -> None:
+        self.bg_color = tuple(bg_color)
+        self.font = None
+        self.small = None
 
-        self.tracks = []
-        self.known = []
+    def on_enter(self) -> None:
+        self.font = pygame.font.Font(None, 36)
+        self.small = pygame.font.Font(None, 26)
+        camera_manager.start()
 
-        self.last_candidates = []
-        self.last_stable = []
+    def on_exit(self) -> None:
+        pass
 
-    def enable(self):
+    def handle_event(self, event: pygame.event.Event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            from src.engine.scenes.menu import MenuScene
+            return SceneSwitch(MenuScene())
+        return None
 
-        self.enabled = True
-        self.state = self.STATE_ARMING
-        self.arm_until = time.time() + self.arm_time
+    def update(self, dt: float):
+        del dt
+        return None
 
-        self.history.clear()
-        self.tracks.clear()
-        self.known.clear()
+    def render(self, screen: pygame.Surface) -> None:
+        screen.fill(self.bg_color)
 
-    def disable(self):
-
-        self.enabled = False
-        self.state = self.STATE_OFF
-
-    def update(self, dt):
-
-        if not self.enabled:
-            return
-
-        frame = camera_manager.get_latest_frame()
-
-        if frame is None:
-            return
-
+        frame_bgr = camera_manager.get_latest_frame()
         scanport = load_scanport_rect()
 
-        crop = frame[
-            scanport.y:scanport.y + scanport.h,
-            scanport.x:scanport.x + scanport.w
-        ]
+        if frame_bgr is not None and scanport is not None:
+            frame_h, frame_w = frame_bgr.shape[:2]
 
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            x = max(0, int(scanport.x))
+            y = max(0, int(scanport.y))
+            w = max(1, int(scanport.w))
+            h = max(1, int(scanport.h))
 
-        self.history.append(gray)
+            if x < frame_w and y < frame_h:
+                w = min(w, frame_w - x)
+                h = min(h, frame_h - y)
 
-        if len(self.history) < 5:
-            return
+                crop = frame_bgr[y:y + h, x:x + w]
 
-        reference = np.median(
-            np.stack(list(self.history)[:-2]),
-            axis=0
-        ).astype(np.uint8)
+                if crop.size > 0:
+                    crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+                    crop_rgb = np.transpose(crop_rgb, (1, 0, 2))
+                    surf = pygame.surfarray.make_surface(crop_rgb).convert()
+                    surf = pygame.transform.smoothscale(surf, screen.get_size())
+                    screen.blit(surf, (0, 0))
 
-        change = cv2.subtract(reference, gray)
+        panel = pygame.Surface((820, 90), pygame.SRCALPHA)
+        panel.fill(PANEL_BG)
+        screen.blit(panel, (20, 20))
 
-        blur = cv2.GaussianBlur(gray, (0,0), 2)
+        title = self.font.render("Kolla Scanport", True, WHITE)
+        screen.blit(title, (35, 30))
 
-        local = cv2.GaussianBlur(blur, (0,0), 9)
+        status_lines = []
+        status_lines.extend(camera_manager.get_status_lines())
 
-        dark = cv2.subtract(local, blur)
-
-        score = cv2.addWeighted(change, 0.7, dark, 0.3, 0)
-
-        _, mask = cv2.threshold(score, 20, 255, cv2.THRESH_BINARY)
-
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3,3)))
-
-        contours,_ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        candidates = []
-
-        for c in contours:
-
-            area = cv2.contourArea(c)
-
-            if area < 6 or area > 80:
-                continue
-
-            (x,y),r = cv2.minEnclosingCircle(c)
-
-            candidates.append((x,y))
-
-        self.last_candidates = candidates
-
-        now = time.time()
-
-        new_tracks = []
-
-        for x,y in candidates:
-
-            found = None
-
-            for t in self.tracks:
-
-                if np.hypot(x - t[0], y - t[1]) < 12:
-                    found = t
-                    break
-
-            if found:
-
-                found[2] += 1
-                found[3] = now
-                new_tracks.append(found)
-
-            else:
-
-                new_tracks.append([x,y,1,now])
-
-        self.tracks = [
-            t for t in new_tracks
-            if now - t[3] < 0.5
-        ]
-
-        stable = [t for t in self.tracks if t[2] >= 3]
-
-        self.last_stable = stable
-
-        if self.state == self.STATE_ARMING:
-
-            if now > self.arm_until:
-                self.state = self.STATE_ACTIVE
-                self.tracks.clear()
-
-            return
-
-        if self.state != self.STATE_ACTIVE:
-            return
-
-        calibration = load_camera_calibration()
-
-        if not calibration:
-            return
-
-        H = np.array(calibration["homography"], dtype=np.float32)
-
-        for t in stable:
-
-            x,y = t[0],t[1]
-
-            pt = np.array([[[x + scanport.x, y + scanport.y]]], dtype=np.float32)
-
-            screen = cv2.perspectiveTransform(pt, H)[0][0]
-
-            hit_input.push_camera_hit(
-                float(screen[0]),
-                float(screen[1])
+        if scanport is not None:
+            status_lines.append(
+                f"Scanport: x={scanport.x} y={scanport.y} w={scanport.w} h={scanport.h}"
             )
 
-            self.known.append((x,y))
+        y = 60
+        for line in status_lines[:2]:
+            txt = self.small.render(line, True, SOFT_WHITE)
+            screen.blit(txt, (240, y))
+            y += 24
 
-    def get_debug_snapshot(self):
-
-        return {
-            "state": self.state,
-            "enabled": self.enabled,
-            "candidates_count": len(self.last_candidates),
-            "stable_tracks_count": len(self.last_stable),
-            "known_holes_count": len(self.known)
-        }
-
-
-hit_scanner = HitScanner()
+        hint = self.small.render("ESC: tillbaka", True, SOFT_WHITE)
+        screen.blit(hint, (35, 62))
