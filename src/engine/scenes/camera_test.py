@@ -7,19 +7,12 @@ import pygame
 from config import SCREEN_WIDTH, SCREEN_HEIGHT
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.scene import Scene, SceneSwitch
-from src.engine.settings import (
-    load_camera_calibration,
-    load_scanport_rect,
-    load_viewport_rect,
-    save_scanport_rect,
-)
+from src.engine.settings import load_scanport_rect, save_scanport_rect
 
 
 WHITE = (240, 240, 240)
 SOFT_WHITE = (205, 205, 205)
 ORANGE = (255, 165, 0)
-GREEN = (80, 255, 120)
-RED = (255, 100, 100)
 PANEL_BG = (0, 0, 0, 140)
 
 
@@ -49,15 +42,14 @@ class CameraTestScene(Scene):
     """
     Justera scanport ovanpå live-kamerabild.
 
+    Den här scenen ska ENDAST hantera kamerans analysyta.
+    Den ska inte försöka visa viewport eller tidigare homography.
+
     Kontroller:
     - Pilar: flytta scanport
     - +/-: ändra storlek på scanport
     - ENTER: spara
     - ESC: tillbaka utan att spara
-
-    Overlay:
-    - Orange ram = scanport
-    - Grön streckad polygon = viewport projicerad tillbaka till kamerabilden
     """
 
     wants_camera_preview = True
@@ -66,9 +58,8 @@ class CameraTestScene(Scene):
         self.fit = (fit or "contain").lower().strip()
         self.bg_color = tuple(bg_color)
 
-        self.viewport = None
-        self.scanport = None
-        self.original_scanport = None
+        self.scanport: pygame.Rect | None = None
+        self.original_scanport: pygame.Rect | None = None
 
         self.last_frame_bgr: np.ndarray | None = None
         self.last_frame_surface: pygame.Surface | None = None
@@ -82,7 +73,6 @@ class CameraTestScene(Scene):
         self.size_step = 20
 
     def on_enter(self) -> None:
-        self.viewport = load_viewport_rect()
         self.original_scanport = load_scanport_rect()
         self.scanport = self.original_scanport.copy() if self.original_scanport else None
 
@@ -202,18 +192,15 @@ class CameraTestScene(Scene):
         self.frame_draw_rect = pygame.Rect(x, y, draw_w, draw_h)
         screen.blit(frame, (x, y))
 
-        # Scanport
         if self.scanport is not None and self.last_frame_bgr is not None:
-            scanport_draw = self._camera_rect_to_screen_rect(self.scanport, self.last_frame_bgr.shape[:2])
+            scanport_draw = self._camera_rect_to_screen_rect(
+                self.scanport,
+                self.last_frame_bgr.shape[:2],
+            )
             pygame.draw.rect(screen, ORANGE, scanport_draw, 3)
 
-        # Viewport projicerad tillbaka till kamerabilden
-        viewport_poly = self._get_viewport_polygon_in_camera_screen()
-        if viewport_poly:
-            self._draw_dashed_polygon(screen, viewport_poly, GREEN, dash_len=12, gap_len=8, width=2)
-
     def _render_header(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((SCREEN_WIDTH, 118), pygame.SRCALPHA)
+        panel = pygame.Surface((SCREEN_WIDTH, 110), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (0, 0))
 
@@ -224,17 +211,17 @@ class CameraTestScene(Scene):
         hint_surf = self.small.render(hint, True, SOFT_WHITE)
         screen.blit(hint_surf, (28, 62))
 
-        legend = "Orange = scanport | Grön streckad = viewport projicerad till kamerabilden"
+        legend = "Orange ram = kamerans analysyta"
         legend_surf = self.tiny.render(legend, True, SOFT_WHITE)
         screen.blit(legend_surf, (28, 90))
 
     def _render_footer(self, screen: pygame.Surface) -> None:
-        panel_h = 92
+        panel_h = 70
         panel = pygame.Surface((SCREEN_WIDTH, panel_h), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (0, SCREEN_HEIGHT - panel_h))
 
-        y = SCREEN_HEIGHT - panel_h + 12
+        y = SCREEN_HEIGHT - panel_h + 18
 
         if self.scanport is not None:
             scan_text = (
@@ -246,86 +233,6 @@ class CameraTestScene(Scene):
 
         scan_surf = self.small.render(scan_text, True, ORANGE)
         screen.blit(scan_surf, (28, y))
-        y += 28
-
-        if self.viewport is not None:
-            viewport_text = (
-                f"Viewport: x={self.viewport.x} y={self.viewport.y} "
-                f"w={self.viewport.w} h={self.viewport.h}"
-            )
-            viewport_surf = self.small.render(viewport_text, True, GREEN)
-            screen.blit(viewport_surf, (28, y))
-
-        if self._has_valid_calibration():
-            cal_text = "Kalibrering: OK"
-            cal_color = GREEN
-        else:
-            cal_text = "Kalibrering: saknas eller är ogiltig"
-            cal_color = RED
-
-        cal_surf = self.small.render(cal_text, True, cal_color)
-        cal_x = SCREEN_WIDTH - cal_surf.get_width() - 28
-        screen.blit(cal_surf, (cal_x, SCREEN_HEIGHT - panel_h + 12))
-
-    def _has_valid_calibration(self) -> bool:
-        calibration = load_camera_calibration()
-        if not isinstance(calibration, dict):
-            return False
-
-        homography = calibration.get("homography")
-        if not isinstance(homography, list):
-            return False
-
-        try:
-            H = np.array(homography, dtype=np.float32)
-            return H.shape == (3, 3)
-        except Exception:
-            return False
-
-    def _get_viewport_polygon_in_camera_screen(self) -> list[tuple[int, int]] | None:
-        if self.last_frame_bgr is None or self.frame_draw_rect is None or self.viewport is None:
-            return None
-
-        calibration = load_camera_calibration()
-        if not calibration or "homography" not in calibration:
-            return None
-
-        try:
-            H_camera_to_screen = np.array(calibration["homography"], dtype=np.float32)
-            if H_camera_to_screen.shape != (3, 3):
-                return None
-            H_screen_to_camera = np.linalg.inv(H_camera_to_screen).astype(np.float32)
-        except Exception:
-            return None
-
-        vx = float(self.viewport.x)
-        vy = float(self.viewport.y)
-        vw = float(self.viewport.w)
-        vh = float(self.viewport.h)
-
-        screen_pts = np.array(
-            [[
-                [vx, vy],
-                [vx + vw, vy],
-                [vx + vw, vy + vh],
-                [vx, vy + vh],
-            ]],
-            dtype=np.float32,
-        )
-
-        try:
-            camera_pts = cv2.perspectiveTransform(screen_pts, H_screen_to_camera)[0]
-        except Exception:
-            return None
-
-        frame_h, frame_w = self.last_frame_bgr.shape[:2]
-        out: list[tuple[int, int]] = []
-
-        for cx, cy in camera_pts:
-            sx, sy = self._camera_point_to_screen_point(float(cx), float(cy), frame_w, frame_h)
-            out.append((sx, sy))
-
-        return out
 
     def _camera_rect_to_screen_rect(
         self,
@@ -354,58 +261,3 @@ class CameraTestScene(Scene):
         sx = self.frame_draw_rect.x + int(round((cx / frame_w) * self.frame_draw_rect.w))
         sy = self.frame_draw_rect.y + int(round((cy / frame_h) * self.frame_draw_rect.h))
         return sx, sy
-
-    def _draw_dashed_polygon(
-        self,
-        screen: pygame.Surface,
-        points: list[tuple[int, int]],
-        color: tuple[int, int, int],
-        dash_len: int = 10,
-        gap_len: int = 6,
-        width: int = 2,
-    ) -> None:
-        if len(points) < 2:
-            return
-
-        pts = points + [points[0]]
-        for i in range(len(pts) - 1):
-            self._draw_dashed_line(screen, pts[i], pts[i + 1], color, dash_len, gap_len, width)
-
-    def _draw_dashed_line(
-        self,
-        screen: pygame.Surface,
-        start: tuple[int, int],
-        end: tuple[int, int],
-        color: tuple[int, int, int],
-        dash_len: int,
-        gap_len: int,
-        width: int,
-    ) -> None:
-        x1, y1 = start
-        x2, y2 = end
-
-        dx = x2 - x1
-        dy = y2 - y1
-        length = float(np.hypot(dx, dy))
-        if length <= 0.0:
-            return
-
-        step = dash_len + gap_len
-        count = int(length // step) + 1
-
-        ux = dx / length
-        uy = dy / length
-
-        for i in range(count):
-            seg_start = i * step
-            seg_end = min(seg_start + dash_len, length)
-
-            if seg_start >= length:
-                break
-
-            ax = int(round(x1 + ux * seg_start))
-            ay = int(round(y1 + uy * seg_start))
-            bx = int(round(x1 + ux * seg_end))
-            by = int(round(y1 + uy * seg_end))
-
-            pygame.draw.line(screen, color, (ax, ay), (bx, by), width)

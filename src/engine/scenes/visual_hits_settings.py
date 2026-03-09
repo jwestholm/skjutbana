@@ -5,13 +5,12 @@ import pygame
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import (
     load_visual_hits_enabled,
-    load_visual_hits_mode,
     save_visual_hits_enabled,
+    load_visual_hits_mode,
     save_visual_hits_mode,
-    load_scanner_debug_enabled,
-    save_scanner_debug_enabled,
+    load_visual_hits_lifetime_ms,
+    save_visual_hits_lifetime_ms,
 )
-from src.engine.visual.hit_visualizer import hit_visualizer
 
 
 WHITE = (240, 240, 240)
@@ -22,15 +21,6 @@ PANEL_BG = (0, 0, 0, 165)
 
 
 class VisualHitsSettingsScene(Scene):
-    """
-    Inställningar för visuella träffar och scanner-debug.
-
-    Kontroller:
-    - ENTER / SPACE = slå av / på visuella träffar
-    - M = byt läge fade / persistent
-    - D = slå av / på scanner debug overlay
-    - ESC = tillbaka
-    """
 
     def __init__(self, bg_color=(0, 0, 0)) -> None:
         self.bg_color = bg_color
@@ -40,7 +30,7 @@ class VisualHitsSettingsScene(Scene):
 
         self.enabled = True
         self.mode = "fade"
-        self.scanner_debug_enabled = False
+        self.lifetime = 900
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 42)
@@ -49,19 +39,19 @@ class VisualHitsSettingsScene(Scene):
 
         self.enabled = load_visual_hits_enabled()
         self.mode = load_visual_hits_mode()
-        self.scanner_debug_enabled = load_scanner_debug_enabled()
+        self.lifetime = load_visual_hits_lifetime_ms()
 
     def _go_back(self):
         from src.engine.scenes.menu import MenuScene
         return SceneSwitch(MenuScene())
 
-    def _save(self) -> None:
+    def _save(self):
         save_visual_hits_enabled(self.enabled)
         save_visual_hits_mode(self.mode)
-        save_scanner_debug_enabled(self.scanner_debug_enabled)
-        hit_visualizer.reload_settings()
+        save_visual_hits_lifetime_ms(self.lifetime)
 
     def handle_event(self, event: pygame.event.Event):
+
         if event.type != pygame.KEYDOWN:
             return None
 
@@ -69,62 +59,55 @@ class VisualHitsSettingsScene(Scene):
             self._save()
             return self._go_back()
 
-        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+        if event.key in (pygame.K_RETURN, pygame.K_SPACE):
             self.enabled = not self.enabled
-            self._save()
-            return None
 
         if event.key == pygame.K_m:
             self.mode = "persistent" if self.mode == "fade" else "fade"
-            self._save()
-            return None
 
-        if event.key == pygame.K_d:
-            self.scanner_debug_enabled = not self.scanner_debug_enabled
-            self._save()
-            return None
+        if event.key == pygame.K_UP:
+            self.lifetime += 100
+
+        if event.key == pygame.K_DOWN:
+            self.lifetime = max(100, self.lifetime - 100)
 
         return None
 
     def update(self, dt: float):
         return None
 
-    def render(self, screen: pygame.Surface) -> None:
+    def render(self, screen: pygame.Surface):
+
         screen.fill(self.bg_color)
 
-        panel = pygame.Surface((980, 360), pygame.SRCALPHA)
+        panel = pygame.Surface((960, 360), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (40, 40))
 
-        title = self.font.render("Visuella träffar / scanner debug", True, WHITE)
+        title = self.font.render("Visuella träffar", True, WHITE)
         screen.blit(title, (60, 60))
 
         state_color = GREEN if self.enabled else RED
         state_text = "PÅ" if self.enabled else "AV"
-        state = self.small.render(f"Visuella träffar: {state_text}", True, state_color)
-        screen.blit(state, (60, 118))
 
-        mode = self.small.render(f"Läge: {self.mode}", True, WHITE)
-        screen.blit(mode, (60, 154))
+        line1 = self.small.render(f"Status: {state_text}", True, state_color)
+        screen.blit(line1, (60, 120))
 
-        debug_color = GREEN if self.scanner_debug_enabled else RED
-        debug_text = "PÅ" if self.scanner_debug_enabled else "AV"
-        debug = self.small.render(f"Scanner debug overlay: {debug_text}", True, debug_color)
-        screen.blit(debug, (60, 190))
+        line2 = self.small.render(f"Mode: {self.mode}", True, SOFT_WHITE)
+        screen.blit(line2, (60, 160))
 
-        lines = [
-            "ENTER / SPACE: slå av eller på visuella träffar",
-            "M: växla mellan fade och persistent",
-            "D: slå av eller på scanner debug overlay",
-            "fade = träffmarkering tonar bort efter några sekunder",
-            "persistent = träffmarkeringar ligger kvar tills du lämnar innehållet",
-            "scanner debug overlay visar scanport crop, warped board, score och mask",
-            "overlayn visas ovanpå innehållsscener som använder OverlayScene",
-            "ESC: tillbaka",
+        line3 = self.small.render(f"Fade tid: {self.lifetime} ms", True, SOFT_WHITE)
+        screen.blit(line3, (60, 200))
+
+        help_lines = [
+            "ENTER / SPACE = slå av/på",
+            "M = växla fade / persistent",
+            "UP / DOWN = ändra fade tid",
+            "ESC = tillbaka"
         ]
 
-        y = 238
-        for line in lines:
+        y = 260
+        for line in help_lines:
             surf = self.tiny.render(line, True, SOFT_WHITE)
             screen.blit(surf, (60, y))
-            y += 24
+            y += 26
