@@ -8,7 +8,11 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from src.engine.settings import load_camera_calibration, load_viewport_rect
+from src.engine.settings import (
+    load_camera_calibration,
+    load_scanport_rect,
+    load_viewport_rect,
+)
 
 
 @dataclass
@@ -46,6 +50,9 @@ class HitInput:
                 self.inverse = np.linalg.inv(H).astype(np.float32)
             except Exception:
                 self.inverse = None
+        else:
+            self.homography = None
+            self.inverse = None
 
     def reload_calibration(self):
         self.homography = None
@@ -109,13 +116,42 @@ class HitInput:
         )
         self._notify(event)
 
+    def _camera_to_screen_via_scanport(self, camera_x: float, camera_y: float):
+        scanport = load_scanport_rect()
+        viewport = load_viewport_rect()
+
+        if scanport is None:
+            return None
+
+        if scanport.w <= 0 or scanport.h <= 0:
+            return None
+
+        local_x = float(camera_x - scanport.x)
+        local_y = float(camera_y - scanport.y)
+
+        norm_x = local_x / float(scanport.w)
+        norm_y = local_y / float(scanport.h)
+
+        screen_x = float(viewport.x + norm_x * viewport.w)
+        screen_y = float(viewport.y + norm_y * viewport.h)
+
+        return (screen_x, screen_y)
+
     def push_camera_hit(self, camera_x, camera_y):
         viewport = load_viewport_rect()
 
-        screen = None
-        if self.homography is not None:
+        # Primär väg:
+        # full kamera -> scanport local -> normalized -> viewport
+        screen = self._camera_to_screen_via_scanport(
+            float(camera_x),
+            float(camera_y),
+        )
+
+        # Fallback till homography om scanport-vägen inte kan användas
+        if screen is None and self.homography is not None:
             screen = self._transform(self.homography, camera_x, camera_y)
 
+        # Sista fallback: använd kamerakoordinaten direkt
         if screen is None:
             screen = (float(camera_x), float(camera_y))
 
