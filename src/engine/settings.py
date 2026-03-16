@@ -259,6 +259,7 @@ def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
 def _default_audio_peak_dict() -> dict:
     return {
         "threshold": 0.10,
+        "show_status_overlay": True,
     }
 
 
@@ -294,3 +295,12 @@ def load_audio_peak_threshold() -> float:
 
 def save_audio_peak_threshold(threshold: float) -> None:
     save_audio_peak_settings({"threshold": max(0.005, min(0.95, float(threshold)))})
+
+
+def load_audio_status_overlay_enabled() -> bool:
+    settings = load_audio_peak_settings()
+    return bool(settings.get("show_status_overlay", True))
+
+
+def save_audio_status_overlay_enabled(enabled: bool) -> None:
+    save_audio_peak_settings({"show_status_overlay": bool(enabled)})

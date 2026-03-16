@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
+
 import pygame
 
 from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.hit_scanner import hit_scanner
+from src.engine.settings import load_audio_status_overlay_enabled
 
 
 WHITE = (240, 240, 240)
@@ -18,6 +21,9 @@ class ScannerStatusOverlay:
         self.font = None
 
     def render(self, screen):
+        if not load_audio_status_overlay_enabled():
+            return
+
         if not hit_scanner.enabled:
             return
 
@@ -58,5 +64,4 @@ class ScannerStatusOverlay:
         screen.blit(panel, (10, 10))
 
 
-import time
 scanner_status_overlay = ScannerStatusOverlay()

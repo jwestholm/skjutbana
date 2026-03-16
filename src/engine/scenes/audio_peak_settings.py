@@ -5,6 +5,10 @@ import numpy as np
 
 from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.scene import Scene, SceneSwitch
+from src.engine.settings import (
+    load_audio_status_overlay_enabled,
+    save_audio_status_overlay_enabled,
+)
 
 
 WHITE = (240, 240, 240)
@@ -12,6 +16,7 @@ SOFT_WHITE = (210, 210, 210)
 GREEN = (120, 255, 120)
 RED = (255, 120, 120)
 GRAY = (120, 120, 120)
+YELLOW = (255, 220, 100)
 PANEL_BG = (0, 0, 0, 170)
 
 
@@ -22,7 +27,8 @@ class AudioPeakSettingsScene(Scene):
     Kontroller:
     - LEFT / RIGHT: sänk / höj threshold
     - SHIFT + LEFT / RIGHT: finjustera
-    - R: återställ till 0.10
+    - O: slå av / på status-overlay för ljud/skott/scanner
+    - R: återställ threshold till 0.10
     - ESC: tillbaka
     """
 
@@ -31,11 +37,13 @@ class AudioPeakSettingsScene(Scene):
         self.font = None
         self.small = None
         self.tiny = None
+        self.show_overlay = True
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 42)
         self.small = pygame.font.Font(None, 28)
         self.tiny = pygame.font.Font(None, 22)
+        self.show_overlay = load_audio_status_overlay_enabled()
 
         audio_peak_detector.start()
 
@@ -62,6 +70,9 @@ class AudioPeakSettingsScene(Scene):
             audio_peak_detector.set_peak_threshold(threshold + step)
         elif event.key == pygame.K_r:
             audio_peak_detector.set_peak_threshold(0.10)
+        elif event.key == pygame.K_o:
+            self.show_overlay = not self.show_overlay
+            save_audio_status_overlay_enabled(self.show_overlay)
 
         return None
 
@@ -75,19 +86,29 @@ class AudioPeakSettingsScene(Scene):
         waveform = audio_peak_detector.get_waveform_snapshot(max_points=max(400, screen.get_width() - 80))
         threshold = audio_peak_detector.get_peak_threshold()
 
-        title_panel = pygame.Surface((screen.get_width() - 40, 110), pygame.SRCALPHA)
+        title_panel = pygame.Surface((screen.get_width() - 40, 120), pygame.SRCALPHA)
         title_panel.fill(PANEL_BG)
         screen.blit(title_panel, (20, 20))
 
         title = self.font.render("Ljud-peak / mikrofon", True, WHITE)
         screen.blit(title, (35, 32))
 
+        overlay_text = "PÅ" if self.show_overlay else "AV"
+        overlay_color = GREEN if self.show_overlay else RED
+
         hint = self.small.render(
-            "LEFT/RIGHT: threshold  |  SHIFT: finjustera  |  R: reset  |  ESC: tillbaka",
+            "LEFT/RIGHT: threshold | SHIFT: finjustera | O: overlay av/på | R: reset | ESC: tillbaka",
             True,
             SOFT_WHITE,
         )
         screen.blit(hint, (35, 70))
+
+        overlay_line = self.tiny.render(
+            f"Status-overlay: {overlay_text}",
+            True,
+            overlay_color,
+        )
+        screen.blit(overlay_line, (35, 98))
 
         graph_rect = pygame.Rect(40, 150, screen.get_width() - 80, screen.get_height() - 260)
         pygame.draw.rect(screen, (30, 30, 30), graph_rect)
@@ -96,7 +117,6 @@ class AudioPeakSettingsScene(Scene):
         mid_y = graph_rect.centery
         pygame.draw.line(screen, GRAY, (graph_rect.left, mid_y), (graph_rect.right, mid_y), 1)
 
-        # threshold-linjer (positiv och negativ eftersom waveform är signerad)
         thr_px = int(threshold * (graph_rect.height * 0.45))
         top_thr_y = mid_y - thr_px
         bot_thr_y = mid_y + thr_px
@@ -135,7 +155,7 @@ class AudioPeakSettingsScene(Scene):
             line2 = self.tiny.render(
                 "Tips: skjut eller knacka nära mikrofonen och justera så peaks går över röd nivå.",
                 True,
-                SOFT_WHITE,
+                YELLOW,
             )
         screen.blit(line2, (35, screen.get_height() - 58))
 
