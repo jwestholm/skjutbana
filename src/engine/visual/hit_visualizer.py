@@ -24,7 +24,7 @@ class VisualHit:
 
 class HitVisualizer:
     COLOR_MOUSE = (255, 60, 60)
-    COLOR_CAMERA = (60, 255, 60)
+    COLOR_CAMERA = (0, 200, 255)
     COLOR_DEFAULT = (255, 255, 255)
 
     def __init__(self):
@@ -63,7 +63,6 @@ class HitVisualizer:
 
         lifetime = load_visual_hits_lifetime_ms() / 1000.0
         now = time.time()
-
         self.hits = [
             hit for hit in self.hits
             if now - hit.timestamp <= lifetime
@@ -72,10 +71,8 @@ class HitVisualizer:
     def _color_for_source(self, source: str):
         if source == "mouse":
             return self.COLOR_MOUSE
-
         if source == "camera":
             return self.COLOR_CAMERA
-
         return self.COLOR_DEFAULT
 
     def render(self, screen: pygame.Surface):
@@ -83,13 +80,11 @@ class HitVisualizer:
             return
 
         radius = load_visual_hits_radius()
-
         overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
         for hit in self.hits:
             color = self._color_for_source(hit.source)
             rgba = (color[0], color[1], color[2], 255)
-
             x = int(hit.x)
             y = int(hit.y)
 
@@ -100,8 +95,20 @@ class HitVisualizer:
                 radius,
                 3,
             )
-            pygame.draw.line(overlay, rgba, (x - radius - 4, y), (x + radius + 4, y), 2)
-            pygame.draw.line(overlay, rgba, (x, y - radius - 4), (x, y + radius + 4), 2)
+            pygame.draw.line(
+                overlay,
+                rgba,
+                (x - radius - 4, y),
+                (x + radius + 4, y),
+                2,
+            )
+            pygame.draw.line(
+                overlay,
+                rgba,
+                (x, y - radius - 4),
+                (x, y + radius + 4),
+                2,
+            )
 
         screen.blit(overlay, (0, 0))
 
