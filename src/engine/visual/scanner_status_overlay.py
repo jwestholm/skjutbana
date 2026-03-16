@@ -20,7 +20,6 @@ RED = (255, 120, 120)
 CYAN = (0, 200, 255)
 YELLOW = (255, 220, 80)
 SOFT = (190, 190, 190)
-ORANGE = (255, 170, 80)
 PANEL_BG = (0, 0, 0, 160)
 
 
@@ -32,7 +31,7 @@ class ScannerStatusOverlay:
         return "yes" if value else "no"
 
     def _render_panel(self, screen, lines, panel_x=10, panel_y=10):
-        panel_width = 760
+        panel_width = 840
         panel_height = len(lines) * 22 + 18
 
         panel = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
@@ -47,8 +46,6 @@ class ScannerStatusOverlay:
         screen.blit(panel, (panel_x, panel_y))
 
     def render(self, screen):
-        # Viktigt: detta ska styras av scanner debug overlay,
-        # inte av audio status overlay.
         if not load_scanner_debug_overlay_enabled():
             return
 
@@ -100,23 +97,45 @@ class ScannerStatusOverlay:
                 YELLOW,
             )
         )
+
         if scanport is None:
             lines.append(("scanport: none", RED))
         else:
             lines.append(
                 (
-                    f"scanport(full camera): x={scanport.x} y={scanport.y} "
-                    f"w={scanport.w} h={scanport.h}",
+                    f"scanport(full camera): x={scanport.x} y={scanport.y} w={scanport.w} h={scanport.h}",
                     YELLOW,
                 )
             )
+
         lines.append(
             (
-                f"content rect: x={content_rect.x} y={content_rect.y} "
-                f"w={content_rect.w} h={content_rect.h}",
+                f"content rect: x={content_rect.x} y={content_rect.y} w={content_rect.w} h={content_rect.h}",
                 YELLOW,
             )
         )
+
+        best = snap.get("best_candidate")
+        if best is not None:
+            lines.append(("", WHITE))
+            lines.append(("BEST CANDIDATE", GREEN))
+            lines.append(
+                (
+                    f"score={best.get('score', 0.0):.1f} "
+                    f"center={best.get('center_darkening', 0.0):.1f} "
+                    f"onset={best.get('onset_darkening', 0.0):.1f} "
+                    f"late={best.get('late_darkening', 0.0):.1f}",
+                    GREEN,
+                )
+            )
+            lines.append(
+                (
+                    f"persist={best.get('persistent_count', 0.0):.0f} "
+                    f"rehit={int(best.get('is_rehit', 0.0))} "
+                    f"known_gain={best.get('known_gain', 0.0):.1f}",
+                    GREEN,
+                )
+            )
 
         lines.append(("", WHITE))
         lines.append(("LAST CAMERA HIT", CYAN))
@@ -126,49 +145,17 @@ class ScannerStatusOverlay:
 
         if cam is None:
             lines.append(("full camera: none", SOFT))
-            lines.append(("scanport local: none", SOFT))
             lines.append(("screen(app): none", SOFT))
             lines.append(("viewport local: none", SOFT))
             lines.append(("content local: none", SOFT))
             lines.append(("content normalized: none", SOFT))
         else:
-            full_camera_x = cam.camera_x
-            full_camera_y = cam.camera_y
-
             lines.append(
                 (
-                    f"full camera: x={full_camera_x:.1f} y={full_camera_y:.1f}",
+                    f"full camera: x={cam.camera_x:.1f} y={cam.camera_y:.1f}",
                     CYAN,
                 )
             )
-
-            if scanport is None:
-                lines.append(("scanport local: scanport missing", RED))
-                inside_scanport = False
-            else:
-                scanport_local_x = full_camera_x - scanport.x
-                scanport_local_y = full_camera_y - scanport.y
-                inside_scanport = (
-                    0.0 <= scanport_local_x < float(scanport.w)
-                    and 0.0 <= scanport_local_y < float(scanport.h)
-                )
-                scanport_color = CYAN if inside_scanport else ORANGE
-                lines.append(
-                    (
-                        f"scanport local: x={scanport_local_x:.1f} y={scanport_local_y:.1f} "
-                        f"in_scanport={self._fmt_bool(inside_scanport)}",
-                        scanport_color,
-                    )
-                )
-                if scanport.w > 0 and scanport.h > 0:
-                    scan_norm_x = scanport_local_x / float(scanport.w)
-                    scan_norm_y = scanport_local_y / float(scanport.h)
-                    lines.append(
-                        (
-                            f"scanport normalized: x={scan_norm_x:.4f} y={scan_norm_y:.4f}",
-                            SOFT,
-                        )
-                    )
 
             inside_viewport = (
                 viewport.x <= cam.screen_x < (viewport.x + viewport.w)
@@ -180,32 +167,33 @@ class ScannerStatusOverlay:
                 and content_rect.y <= cam.screen_y < (content_rect.y + content_rect.h)
             )
 
-            screen_color = CYAN if inside_viewport else RED
-            content_color = CYAN if inside_content else RED
-
             lines.append(
                 (
                     f"screen(app): x={cam.screen_x:.1f} y={cam.screen_y:.1f} "
                     f"in_viewport={self._fmt_bool(inside_viewport)}",
-                    screen_color,
+                    CYAN if inside_viewport else RED,
                 )
             )
+
+            viewport_x = getattr(cam, "viewport_x", getattr(cam, "game_x", 0.0))
+            viewport_y = getattr(cam, "viewport_y", getattr(cam, "game_y", 0.0))
+            lines.append((f"viewport local: x={viewport_x:.1f} y={viewport_y:.1f}", SOFT))
+
+            content_x = getattr(cam, "content_x", getattr(cam, "game_x", 0.0))
+            content_y = getattr(cam, "content_y", getattr(cam, "game_y", 0.0))
+            content_norm_x = getattr(cam, "content_norm_x", 0.0)
+            content_norm_y = getattr(cam, "content_norm_y", 0.0)
+
             lines.append(
                 (
-                    f"viewport local: x={cam.viewport_x:.1f} y={cam.viewport_y:.1f}",
-                    SOFT,
-                )
-            )
-            lines.append(
-                (
-                    f"content local: x={cam.content_x:.1f} y={cam.content_y:.1f} "
+                    f"content local: x={content_x:.1f} y={content_y:.1f} "
                     f"in_content={self._fmt_bool(inside_content)}",
-                    content_color,
+                    CYAN if inside_content else RED,
                 )
             )
             lines.append(
                 (
-                    f"content normalized: x={cam.content_norm_x:.4f} y={cam.content_norm_y:.4f}",
+                    f"content normalized: x={content_norm_x:.4f} y={content_norm_y:.4f}",
                     SOFT,
                 )
             )
@@ -223,7 +211,6 @@ class ScannerStatusOverlay:
 
         lines.append(("", WHITE))
         lines.append(("LAST HIT EVENT", YELLOW))
-
         last_hit = hit_input.last_hit
         if last_hit is None:
             lines.append(("source: none", SOFT))
