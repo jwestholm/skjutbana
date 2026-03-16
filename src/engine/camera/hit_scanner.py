@@ -10,7 +10,7 @@ import numpy as np
 from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.input.hit_input import hit_input
-from src.engine.settings import load_camera_calibration, load_scanport_rect
+from src.engine.settings import load_scanport_rect
 
 
 @dataclass
@@ -41,14 +41,17 @@ class HitScanner:
     """
     Audio-assisterad träffscanner.
 
-    Viktiga designval:
-    - analyserar ENDAST rå scanport (ingen warp i detektionen)
-    - ljudpeak öppnar extra noggrant triggerfönster
-    - bygger pre/post-referenser runt peak
-    - letar efter ny mörk, lokal och persistent förändring
-    - transformerar först EFTER bekräftelse via hit_input.push_camera_hit(camera_x, camera_y)
+    Designmål:
+    - analysera ENDAST när audio trigger säger att ett skott sannolikt gått av
+    - jämför stabil referens före skott med stabil referens efter skott
+    - hitta små, mörka, permanenta förändringar i rå scanport
+    - fungera först på vit/stillastående yta innan vi optimerar för video/spel
 
-    Detta är avsiktligt mer konservativt än tidigare blob-sökning.
+    Den här versionen är medvetet mer tolerant än den tidigare:
+    - lägre trösklar
+    - temporal vote-map från flera post-frames
+    - lokal bakgrundsnormalisering
+    - mindre aggressiv patch-verifiering
     """
 
     STATE_OFF = "OFF"
@@ -63,48 +66,47 @@ class HitScanner:
         self.arm_duration_s = 1.0
         self.arm_until_ts = 0.0
         self.last_emit_ts = 0.0
-        self.global_emit_cooldown_s = 0.25
+        self.global_emit_cooldown_s = 0.20
 
         self.last_audio_event_ts = 0.0
         self.audio_event_count = 0
         self._audio_subscribed = False
 
         # scanport frame-buffer
-        self.frame_history: deque[ScanportFrame] = deque(maxlen=90)  # ca 3 sek vid 30 fps
-        self.trigger_windows: deque[TriggerWindow] = deque(maxlen=20)
+        self.frame_history: deque[ScanportFrame] = deque(maxlen=180)  # ~6 sek vid 30 fps
+        self.trigger_windows: deque[TriggerWindow] = deque(maxlen=32)
 
         # tidsfönster runt ljudpeak
-        self.pre_start_s = 0.18
+        self.pre_start_s = 0.22
         self.pre_end_s = 0.03
-        self.post_start_s = 0.04
-        self.post_end_s = 0.22
-        self.analysis_lag_s = 0.24  # vänta tills post-window finns inspelat
+        self.post_start_s = 0.05
+        self.post_end_s = 0.30
+        self.analysis_lag_s = 0.34
 
-        # kandidatfilter
-        self.min_area = 6.0
-        self.max_area = 90.0
-        self.min_radius = 1.4
-        self.max_radius = 8.0
-        self.min_circularity = 0.10
-        self.border_margin = 4
-        self.min_change_threshold = 10.0
-        self.min_combined_threshold = 18.0
+        # kandidatfilter - mer tolerant för vit yta
+        self.min_area = 3.0
+        self.max_area = 160.0
+        self.min_radius = 1.0
+        self.max_radius = 10.0
+        self.min_circularity = 0.03
+        self.border_margin = 3
 
-        # patch-verifiering
-        self.patch_radius = 7  # 15x15 patch
+        # adaptiva thresholdgolv
+        self.min_change_threshold = 4.0
+        self.min_combined_threshold = 8.0
+        self.min_vote_threshold = 1.0
+
+        # patch-verifiering - medvetet mildare nu
+        self.patch_radius = 7
         self.inner_radius = 2
         self.outer_radius = 6
-        self.min_center_darkening = 10.0
-        self.min_local_contrast_gain = 8.0
-        self.min_persistent_post_frames = 2
+        self.min_center_darkening = 4.0
+        self.min_local_contrast_gain = 1.5
+        self.min_persistent_post_frames = 1
 
-        # tracking / duplicate
-        self.match_radius_px = 12.0
-        self.duplicate_radius_px = 20.0
-        self.max_track_idle_s = 0.40
-        self.min_confirm_frames = 1  # varje trigger-window är redan strikt; 1 räcker där
+        # duplicate suppression
+        self.duplicate_radius_px = 18.0
 
-        self.tracks: list[HoleTrack] = []
         self.known_holes: list[tuple[float, float, float]] = []
 
         # debug
@@ -114,6 +116,8 @@ class HitScanner:
         self.last_stable_tracks: list[HoleTrack] = []
         self.last_threshold_value: float = 0.0
         self.last_change_threshold_value: float = 0.0
+        self.last_vote_threshold_value: float = 0.0
+        self.last_window_debug: dict[str, float] = {}
 
     # ------------------------------------------------------------
     # Public API
@@ -133,13 +137,14 @@ class HitScanner:
 
         self.frame_history.clear()
         self.trigger_windows.clear()
-        self.tracks.clear()
         self.known_holes.clear()
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
         self.last_threshold_value = 0.0
         self.last_change_threshold_value = 0.0
+        self.last_vote_threshold_value = 0.0
+        self.last_window_debug = {}
         self.last_status = "arming"
 
     def disable(self) -> None:
@@ -152,13 +157,14 @@ class HitScanner:
 
         self.frame_history.clear()
         self.trigger_windows.clear()
-        self.tracks.clear()
         self.known_holes.clear()
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
         self.last_threshold_value = 0.0
         self.last_change_threshold_value = 0.0
+        self.last_vote_threshold_value = 0.0
+        self.last_window_debug = {}
         self.audio_event_count = 0
         self.last_status = "off"
 
@@ -182,8 +188,6 @@ class HitScanner:
 
         now = time.time()
         self.frame_history.append(ScanportFrame(timestamp=now, gray=scanport_gray))
-
-        # håll några debug-bilder levande
         self.debug_frames["scanport_gray"] = scanport_gray
 
         if self.state == self.STATE_ARMING:
@@ -201,7 +205,6 @@ class HitScanner:
         candidates_for_debug: list[dict[str, float]] = []
         stable_for_debug: list[HoleTrack] = []
 
-        # processa trigger-fönster som nu har tillräckligt med efter-data
         for tw in list(self.trigger_windows):
             if tw.processed:
                 continue
@@ -236,8 +239,12 @@ class HitScanner:
                 track.emitted = True
                 emitted_now += 1
 
-        self.last_candidates = candidates_for_debug
-        self.last_stable_tracks = stable_for_debug
+        # håll bara de starkaste kandidaterna i debug, så overlay blir läsbar
+        candidates_for_debug.sort(key=lambda c: c.get("score", 0.0), reverse=True)
+        stable_for_debug.sort(key=lambda t: t.best_score, reverse=True)
+
+        self.last_candidates = candidates_for_debug[:12]
+        self.last_stable_tracks = stable_for_debug[:6]
         self.last_status = (
             f"active peaks={self.audio_event_count} windows={len(self.trigger_windows)} "
             f"cand={len(candidates_for_debug)} stable={len(stable_for_debug)} emit={emitted_now}"
@@ -251,7 +258,6 @@ class HitScanner:
             "audio_event_count": self.audio_event_count,
             "pending_trigger_windows": len(self.trigger_windows),
             "known_holes_count": len(self.known_holes),
-            "tracks_count": len(self.tracks),
             "candidates_count": len(self.last_candidates),
             "stable_tracks_count": len(self.last_stable_tracks),
             "debug_frames": dict(self.debug_frames),
@@ -269,6 +275,8 @@ class HitScanner:
             "known_holes": list(self.known_holes),
             "threshold_value": self.last_threshold_value,
             "change_threshold_value": self.last_change_threshold_value,
+            "vote_threshold_value": self.last_vote_threshold_value,
+            "window_debug": dict(self.last_window_debug),
         }
 
     def get_status_lines(self) -> list[str]:
@@ -279,6 +287,7 @@ class HitScanner:
             f"Known holes: {len(self.known_holes)}",
             f"Thr combined: {self.last_threshold_value:.1f}",
             f"Thr change: {self.last_change_threshold_value:.1f}",
+            f"Thr vote: {self.last_vote_threshold_value:.1f}",
             f"Status: {self.last_status}",
         ]
 
@@ -332,15 +341,14 @@ class HitScanner:
         if crop.size == 0:
             return None
 
-        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        return gray
+        return cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
 
     def _process_trigger_window(
         self,
         peak_ts: float,
     ) -> tuple[list[dict[str, float]], list[HoleTrack]] | None:
-        pre_frames = []
-        post_frames = []
+        pre_frames: list[np.ndarray] = []
+        post_frames: list[np.ndarray] = []
 
         for fr in self.frame_history:
             dt = fr.timestamp - peak_ts
@@ -349,11 +357,23 @@ class HitScanner:
             if self.post_start_s <= dt <= self.post_end_s:
                 post_frames.append(fr.gray)
 
-        if len(pre_frames) < 2 or len(post_frames) < 3:
+        self.last_window_debug = {
+            "pre_count": float(len(pre_frames)),
+            "post_count": float(len(post_frames)),
+            "peak_ts": float(peak_ts),
+        }
+
+        if len(pre_frames) < 3 or len(post_frames) < 3:
+            self.last_status = (
+                f"window_not_ready pre={len(pre_frames)} post={len(post_frames)}"
+            )
             return None
 
-        pre_ref = np.median(np.stack(pre_frames, axis=0), axis=0).astype(np.uint8)
-        post_ref = np.median(np.stack(post_frames, axis=0), axis=0).astype(np.uint8)
+        pre_stack = np.stack(pre_frames, axis=0)
+        post_stack = np.stack(post_frames, axis=0)
+
+        pre_ref = np.median(pre_stack, axis=0).astype(np.uint8)
+        post_ref = np.median(post_stack, axis=0).astype(np.uint8)
 
         candidates = self._detect_candidates(pre_ref, post_ref, post_frames)
         stable_tracks = self._build_tracks_from_candidates(candidates, peak_ts)
@@ -369,69 +389,90 @@ class HitScanner:
         post_ref: np.ndarray,
         post_frames: list[np.ndarray],
     ) -> list[dict[str, float]]:
-        pre_blur = cv2.GaussianBlur(pre_ref, (0, 0), 1.0)
-        post_blur = cv2.GaussianBlur(post_ref, (0, 0), 1.0)
+        pre_f = pre_ref.astype(np.float32)
+        post_f = post_ref.astype(np.float32)
 
-        # ny mörkare förändring
-        delta_dark = cv2.subtract(pre_blur, post_blur)
+        # lätt blur för att minska sensorbrus
+        pre_blur = cv2.GaussianBlur(pre_f, (0, 0), 0.9)
+        post_blur = cv2.GaussianBlur(post_f, (0, 0), 0.9)
 
-        # lokal mörkerförstärkning i efter-bilden
-        local_mean = cv2.GaussianBlur(post_blur, (0, 0), 7.0)
-        darkness = cv2.subtract(local_mean, post_blur)
+        # ny mörk förändring mellan före och efter
+        delta_dark = np.clip(pre_blur - post_blur, 0.0, 255.0)
 
-        blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-        blackhat = cv2.morphologyEx(post_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
-        dark_score = cv2.addWeighted(darkness, 0.60, blackhat, 0.40, 0.0)
+        # lokal bakgrundsnormalisering: punkt som är mörkare än sin närmiljö
+        local_mean = cv2.GaussianBlur(post_blur, (0, 0), 6.0)
+        local_dark = np.clip(local_mean - post_blur, 0.0, 255.0)
 
-        change_mu, change_sigma = cv2.meanStdDev(delta_dark)
+        # top-hat/blackhat-liknande förstärkning av små mörka detaljer
+        post_u8 = np.clip(post_blur, 0, 255).astype(np.uint8)
+        blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        blackhat = cv2.morphologyEx(post_u8, cv2.MORPH_BLACKHAT, blackhat_kernel).astype(
+            np.float32
+        )
+
+        # temporal vote: hur många post-frames visar mörkning på samma pixel?
+        per_frame_threshold = max(
+            2.0,
+            float(np.mean(delta_dark) + 0.50 * np.std(delta_dark)),
+        )
+
+        vote_count = np.zeros_like(pre_f, dtype=np.float32)
+        for fr in post_frames:
+            fr_f = cv2.GaussianBlur(fr.astype(np.float32), (0, 0), 0.9)
+            frame_delta = np.clip(pre_blur - fr_f, 0.0, 255.0)
+            vote_count += (frame_delta >= per_frame_threshold).astype(np.float32)
+
+        if len(post_frames) > 0:
+            vote_norm = (vote_count / float(len(post_frames))) * 255.0
+        else:
+            vote_norm = vote_count
+
+        # kombinera flera signaler
+        combined = (
+            0.50 * delta_dark
+            + 0.22 * local_dark
+            + 0.13 * blackhat
+            + 0.15 * vote_norm
+        )
+
+        # adaptiva thresholds med lägre golv
+        delta_mu = float(np.mean(delta_dark))
+        delta_sigma = float(np.std(delta_dark))
         change_threshold = max(
             self.min_change_threshold,
-            float(change_mu[0][0] + 2.0 * change_sigma[0][0]),
+            delta_mu + 1.35 * delta_sigma,
         )
         self.last_change_threshold_value = change_threshold
 
-        _, change_mask = cv2.threshold(
-            delta_dark,
-            change_threshold,
-            255,
-            cv2.THRESH_BINARY,
-        )
-
-        combined = cv2.addWeighted(
-            delta_dark,
-            0.72,
-            dark_score,
-            0.28,
-            0.0,
-        )
-
-        comb_mu, comb_sigma = cv2.meanStdDev(combined)
+        comb_mu = float(np.mean(combined))
+        comb_sigma = float(np.std(combined))
         combined_threshold = max(
             self.min_combined_threshold,
-            float(comb_mu[0][0] + 2.1 * comb_sigma[0][0]),
+            comb_mu + 1.45 * comb_sigma,
         )
         self.last_threshold_value = combined_threshold
 
-        _, combined_mask = cv2.threshold(
-            combined,
-            combined_threshold,
-            255,
-            cv2.THRESH_BINARY,
+        vote_mu = float(np.mean(vote_norm))
+        vote_sigma = float(np.std(vote_norm))
+        vote_threshold = max(
+            self.min_vote_threshold,
+            vote_mu + 0.80 * vote_sigma,
         )
+        self.last_vote_threshold_value = vote_threshold
 
+        change_mask = (delta_dark >= change_threshold).astype(np.uint8) * 255
+        combined_mask = (combined >= combined_threshold).astype(np.uint8) * 255
+        vote_mask = (vote_norm >= vote_threshold).astype(np.uint8) * 255
+
+        # kräv tydlig ändring + tillräcklig total score, men vote-mask får stärka små hål
         mask = cv2.bitwise_and(change_mask, combined_mask)
+        mask = cv2.bitwise_or(mask, cv2.bitwise_and(change_mask, vote_mask))
 
-        mask = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_OPEN,
-            np.ones((3, 3), dtype=np.uint8),
-        )
-
-        mask = cv2.morphologyEx(
-            mask,
-            cv2.MORPH_CLOSE,
-            np.ones((3, 3), dtype=np.uint8),
-        )
+        # städa brus men låt små hål överleva
+        kernel_open = np.ones((2, 2), dtype=np.uint8)
+        kernel_close = np.ones((3, 3), dtype=np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
 
         contours, _ = cv2.findContours(
             mask,
@@ -441,9 +482,12 @@ class HitScanner:
 
         h, w = post_ref.shape[:2]
         out: list[dict[str, float]] = []
+        scanport = load_scanport_rect()
+        if scanport is None:
+            return out
 
         for contour in contours:
-            area = cv2.contourArea(contour)
+            area = float(cv2.contourArea(contour))
             if area < self.min_area or area > self.max_area:
                 continue
 
@@ -459,11 +503,11 @@ class HitScanner:
             ):
                 continue
 
-            perimeter = cv2.arcLength(contour, True)
-            if perimeter <= 0:
+            perimeter = float(cv2.arcLength(contour, True))
+            if perimeter <= 0.0:
                 continue
 
-            circularity = 4.0 * np.pi * area / (perimeter * perimeter)
+            circularity = float(4.0 * np.pi * area / (perimeter * perimeter))
             if circularity < self.min_circularity:
                 continue
 
@@ -472,9 +516,8 @@ class HitScanner:
 
             delta_value = float(delta_dark[iy, ix])
             combined_value = float(combined[iy, ix])
-
-            if delta_value < self.last_change_threshold_value:
-                continue
+            vote_value = float(vote_norm[iy, ix])
+            local_dark_value = float(local_dark[iy, ix])
 
             patch_ok, center_darkening, contrast_gain, persistent_count = self._verify_patch(
                 x=ix,
@@ -487,28 +530,41 @@ class HitScanner:
             if not patch_ok:
                 continue
 
-            scanport = load_scanport_rect()
             camera_x = float(ix + scanport.x)
             camera_y = float(iy + scanport.y)
+
+            score = (
+                combined_value
+                + 0.30 * vote_value
+                + 0.20 * center_darkening
+                + 0.10 * local_dark_value
+            )
 
             out.append(
                 {
                     "camera_x": camera_x,
                     "camera_y": camera_y,
-                    "score": combined_value,
+                    "score": float(score),
                     "delta_score": delta_value,
+                    "combined_value": combined_value,
+                    "vote_value": vote_value,
+                    "local_dark_value": local_dark_value,
                     "center_darkening": center_darkening,
                     "contrast_gain": contrast_gain,
-                    "persistent_count": persistent_count,
-                    "area": float(area),
+                    "persistent_count": float(persistent_count),
+                    "area": area,
                     "radius": float(radius),
-                    "circularity": float(circularity),
+                    "circularity": circularity,
                 }
             )
 
-        self.debug_frames["delta_dark"] = delta_dark
-        self.debug_frames["dark_score"] = dark_score
-        self.debug_frames["score"] = combined
+        out.sort(key=lambda c: c["score"], reverse=True)
+
+        self.debug_frames["delta_dark"] = np.clip(delta_dark, 0, 255).astype(np.uint8)
+        self.debug_frames["local_dark"] = np.clip(local_dark, 0, 255).astype(np.uint8)
+        self.debug_frames["blackhat"] = np.clip(blackhat, 0, 255).astype(np.uint8)
+        self.debug_frames["vote_norm"] = np.clip(vote_norm, 0, 255).astype(np.uint8)
+        self.debug_frames["score"] = np.clip(combined, 0, 255).astype(np.uint8)
         self.debug_frames["mask"] = mask
 
         return out
@@ -529,8 +585,8 @@ class HitScanner:
         y0 = max(0, y - r)
         y1 = min(h, y + r + 1)
 
-        pre_patch = pre_ref[y0:y1, x0:x1]
-        post_patch = post_ref[y0:y1, x0:x1]
+        pre_patch = pre_ref[y0:y1, x0:x1].astype(np.float32)
+        post_patch = post_ref[y0:y1, x0:x1].astype(np.float32)
 
         ph, pw = pre_patch.shape[:2]
         if ph < 5 or pw < 5:
@@ -557,24 +613,38 @@ class HitScanner:
         post_local_contrast = post_ring - post_center
         contrast_gain = post_local_contrast - pre_local_contrast
 
+        # mildare grundkrav
         if center_darkening < self.min_center_darkening:
             return False, center_darkening, contrast_gain, 0
 
-        if contrast_gain < self.min_local_contrast_gain:
-            return False, center_darkening, contrast_gain, 0
-
         persistent_count = 0
+        best_frame_darkening = 0.0
 
         for fr in post_frames:
-            patch = fr[y0:y1, x0:x1]
+            patch = fr[y0:y1, x0:x1].astype(np.float32)
             if patch.shape != post_patch.shape:
                 continue
 
             fr_center = float(np.mean(patch[inner_mask]))
-            if (pre_center - fr_center) >= (self.min_center_darkening * 0.7):
+            fr_darkening = pre_center - fr_center
+            best_frame_darkening = max(best_frame_darkening, fr_darkening)
+
+            if fr_darkening >= (self.min_center_darkening * 0.75):
                 persistent_count += 1
 
-        if persistent_count < self.min_persistent_post_frames:
+        # släpp igenom om antingen flera frames bekräftar eller ett riktigt tydligt post-frame finns
+        persistent_ok = (
+            persistent_count >= self.min_persistent_post_frames
+            or best_frame_darkening >= (self.min_center_darkening + 2.0)
+        )
+
+        if not persistent_ok:
+            return False, center_darkening, contrast_gain, persistent_count
+
+        # lokal kontrast ska helst öka, men behöver inte vara jättestark på vit yta
+        if contrast_gain < self.min_local_contrast_gain and center_darkening < (
+            self.min_center_darkening + 2.5
+        ):
             return False, center_darkening, contrast_gain, persistent_count
 
         return True, center_darkening, contrast_gain, persistent_count
@@ -586,7 +656,7 @@ class HitScanner:
     ) -> list[HoleTrack]:
         stable: list[HoleTrack] = []
 
-        for c in candidates:
+        for c in candidates[:3]:
             stable.append(
                 HoleTrack(
                     camera_x=c["camera_x"],
@@ -594,7 +664,7 @@ class HitScanner:
                     created_at=peak_ts,
                     last_seen=peak_ts,
                     hits=1,
-                    best_score=c["score"],
+                    best_score=float(c["score"]),
                     emitted=False,
                 )
             )
