@@ -8,7 +8,7 @@ from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.hit_scanner import hit_scanner
 from src.engine.input.hit_input import hit_input
 from src.engine.settings import (
-    load_audio_status_overlay_enabled,
+    load_scanner_debug_overlay_enabled,
     load_scanport_rect,
     load_viewport_rect,
 )
@@ -46,7 +46,8 @@ class ScannerStatusOverlay:
         screen.blit(panel, (panel_x, panel_y))
 
     def render(self, screen):
-        if not load_audio_status_overlay_enabled():
+        # 🔴 viktigt: rita inget om debug overlay är av
+        if not load_scanner_debug_overlay_enabled():
             return
 
         if not hit_scanner.enabled:
@@ -82,12 +83,6 @@ class ScannerStatusOverlay:
             (audio_line, audio_color),
         ]
 
-        window_debug = snap.get("window_debug") or {}
-        if window_debug:
-            pre_count = int(window_debug.get("pre_count", 0))
-            post_count = int(window_debug.get("post_count", 0))
-            lines.append((f"Window pre/post: {pre_count}/{post_count}", SOFT))
-
         lines.append(("", WHITE))
         lines.append(("VIEWPORT / SCANPORT", YELLOW))
         lines.append(
@@ -102,7 +97,8 @@ class ScannerStatusOverlay:
         else:
             lines.append(
                 (
-                    f"scanport(full camera): x={scanport.x} y={scanport.y} w={scanport.w} h={scanport.h}",
+                    f"scanport(full camera): x={scanport.x} y={scanport.y} "
+                    f"w={scanport.w} h={scanport.h}",
                     YELLOW,
                 )
             )
@@ -111,113 +107,30 @@ class ScannerStatusOverlay:
         lines.append(("LAST CAMERA HIT", CYAN))
 
         cam = hit_input.last_camera_hit
-        camera_ring_visible = False
 
         if cam is None:
             lines.append(("full camera: none", SOFT))
-            lines.append(("scanport local: none", SOFT))
             lines.append(("screen(viewport): none", SOFT))
             lines.append(("game(content): none", SOFT))
         else:
-            full_camera_x = cam.camera_x
-            full_camera_y = cam.camera_y
-
             lines.append(
                 (
-                    f"full camera: x={full_camera_x:.1f} y={full_camera_y:.1f}",
+                    f"full camera: x={cam.camera_x:.1f} y={cam.camera_y:.1f}",
                     CYAN,
                 )
             )
 
-            if scanport is None:
-                lines.append(("scanport local: scanport missing", RED))
-                scanport_local_x = None
-                scanport_local_y = None
-                inside_scanport = False
-            else:
-                scanport_local_x = full_camera_x - scanport.x
-                scanport_local_y = full_camera_y - scanport.y
-
-                inside_scanport = (
-                    0.0 <= scanport_local_x < float(scanport.w)
-                    and 0.0 <= scanport_local_y < float(scanport.h)
-                )
-
-                scanport_color = CYAN if inside_scanport else ORANGE
-                lines.append(
-                    (
-                        f"scanport local: x={scanport_local_x:.1f} y={scanport_local_y:.1f} "
-                        f"in_scanport={self._fmt_bool(inside_scanport)}",
-                        scanport_color,
-                    )
-                )
-
-            inside_viewport = (
-                viewport.x <= cam.screen_x < (viewport.x + viewport.w)
-                and viewport.y <= cam.screen_y < (viewport.y + viewport.h)
-            )
-
-            inside_content = (
-                0.0 <= cam.game_x < float(viewport.w)
-                and 0.0 <= cam.game_y < float(viewport.h)
-            )
-
-            screen_color = CYAN if inside_viewport else RED
-            game_color = CYAN if inside_content else RED
-
             lines.append(
                 (
-                    f"screen(viewport): x={cam.screen_x:.1f} y={cam.screen_y:.1f} "
-                    f"in_viewport={self._fmt_bool(inside_viewport)}",
-                    screen_color,
+                    f"screen(viewport): x={cam.screen_x:.1f} y={cam.screen_y:.1f}",
+                    CYAN,
                 )
-            )
-            lines.append(
-                (
-                    f"game(content): x={cam.game_x:.1f} y={cam.game_y:.1f} "
-                    f"in_content={self._fmt_bool(inside_content)}",
-                    game_color,
-                )
-            )
-
-            if viewport.w > 0 and viewport.h > 0:
-                norm_x = cam.game_x / float(viewport.w)
-                norm_y = cam.game_y / float(viewport.h)
-                lines.append(
-                    (
-                        f"game normalized: x={norm_x:.4f} y={norm_y:.4f}",
-                        SOFT,
-                    )
-                )
-
-            dx = cam.screen_x - viewport.x
-            dy = cam.screen_y - viewport.y
-            lines.append(
-                (
-                    f"screen minus viewport offset: dx={dx:.1f} dy={dy:.1f}",
-                    SOFT,
-                )
-            )
-
-            if scanport is not None and scanport.w > 0 and scanport.h > 0:
-                scan_norm_x = (full_camera_x - scanport.x) / float(scanport.w)
-                scan_norm_y = (full_camera_y - scanport.y) / float(scanport.h)
-                lines.append(
-                    (
-                        f"scanport normalized: x={scan_norm_x:.4f} y={scan_norm_y:.4f}",
-                        SOFT,
-                    )
-                )
-
-            camera_ring_visible = (
-                0 <= int(round(cam.screen_x)) < screen.get_width()
-                and 0 <= int(round(cam.screen_y)) < screen.get_height()
             )
 
             lines.append(
                 (
-                    f"ring visible on display: {self._fmt_bool(camera_ring_visible)}",
-                    GREEN if camera_ring_visible else RED,
+                    f"game(content): x={cam.game_x:.1f} y={cam.game_y:.1f}",
+                    CYAN,
                 )
             )
 
@@ -232,15 +145,17 @@ class ScannerStatusOverlay:
             lines.append((f"source: {last_hit.source}", YELLOW))
             lines.append((f"age: {age:.2f}s", SOFT))
 
-        self._render_panel(screen, lines, 10, 10)
+        self._render_panel(screen, lines)
 
-        if cam is not None and camera_ring_visible:
+        # Rita blå ring på senaste camera hit
+        if cam is not None:
             x = int(round(cam.screen_x))
             y = int(round(cam.screen_y))
 
-            pygame.draw.circle(screen, CYAN, (x, y), 20, 3)
-            pygame.draw.line(screen, CYAN, (x - 30, y), (x + 30, y), 2)
-            pygame.draw.line(screen, CYAN, (x, y - 30), (x, y + 30), 2)
+            if 0 <= x < screen.get_width() and 0 <= y < screen.get_height():
+                pygame.draw.circle(screen, CYAN, (x, y), 20, 3)
+                pygame.draw.line(screen, CYAN, (x - 30, y), (x + 30, y), 2)
+                pygame.draw.line(screen, CYAN, (x, y - 30), (x, y + 30), 2)
 
 
 scanner_status_overlay = ScannerStatusOverlay()
