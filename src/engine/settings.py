@@ -16,14 +16,12 @@ def _load_settings_dict() -> dict:
     path = _settings_path()
     if not path.exists():
         return {}
-
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return data
     except Exception:
         pass
-
     return {}
 
 
@@ -53,10 +51,8 @@ def _rect_to_list(rect: pygame.Rect) -> list[int]:
 
 def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
     min_w, min_h = 200, 200
-
     rect.w = max(min_w, rect.w)
     rect.h = max(min_h, rect.h)
-
     rect.x = max(0, min(rect.x, config.SCREEN_WIDTH - rect.w))
     rect.y = max(0, min(rect.y, config.SCREEN_HEIGHT - rect.h))
     return rect
@@ -64,11 +60,19 @@ def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
 
 def _sanitize_scanport(rect: pygame.Rect) -> pygame.Rect:
     min_w, min_h = 50, 50
-
     rect.x = max(0, rect.x)
     rect.y = max(0, rect.y)
     rect.w = max(min_w, rect.w)
     rect.h = max(min_h, rect.h)
+    return rect
+
+
+def _sanitize_content_rect(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 1, 1
+    rect.w = max(min_w, rect.w)
+    rect.h = max(min_h, rect.h)
+    rect.x = max(0, rect.x)
+    rect.y = max(0, rect.y)
     return rect
 
 
@@ -81,7 +85,6 @@ def load_viewport_rect() -> pygame.Rect:
     rect = _rect_from_value(data.get("viewport"))
     if rect is not None:
         return _clamp_viewport(rect)
-
     x, y, w, h = config.DEFAULT_VIEWPORT
     return _clamp_viewport(pygame.Rect(x, y, w, h))
 
@@ -108,6 +111,36 @@ def save_scanport_rect(rect: pygame.Rect) -> None:
     data = _load_settings_dict()
     data["scanport"] = _rect_to_list(_sanitize_scanport(rect.copy()))
     _save_settings_dict(data)
+
+
+# -------------------------------------------------------------------
+# Content rect
+# -------------------------------------------------------------------
+
+def load_content_rect() -> pygame.Rect:
+    """
+    Rektangeln där själva bilden/videon/tavlan faktiskt visas i appen.
+    Om ingen content_rect finns sparad används viewporten som fallback.
+    """
+    data = _load_settings_dict()
+    rect = _rect_from_value(data.get("content_rect"))
+    if rect is not None:
+        return _sanitize_content_rect(rect)
+
+    return load_viewport_rect().copy()
+
+
+def save_content_rect(rect: pygame.Rect) -> None:
+    data = _load_settings_dict()
+    data["content_rect"] = _rect_to_list(_sanitize_content_rect(rect.copy()))
+    _save_settings_dict(data)
+
+
+def clear_content_rect() -> None:
+    data = _load_settings_dict()
+    if "content_rect" in data:
+        del data["content_rect"]
+        _save_settings_dict(data)
 
 
 # -------------------------------------------------------------------
@@ -145,10 +178,8 @@ def load_visual_hits_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("visual_hits")
     defaults = _default_visual_hits_dict()
-
     if not isinstance(value, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -226,10 +257,8 @@ def load_scanner_debug_overlay_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("scanner_debug_overlay")
     defaults = _default_scanner_debug_dict()
-
     if not isinstance(value, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -267,10 +296,8 @@ def load_audio_peak_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("audio_peak")
     defaults = _default_audio_peak_dict()
-
     if not isinstance(value, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(value)
     return merged

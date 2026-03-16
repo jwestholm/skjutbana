@@ -10,6 +10,7 @@ import numpy as np
 
 from src.engine.settings import (
     load_camera_calibration,
+    load_content_rect,
     load_scanport_rect,
     load_viewport_rect,
 )
@@ -20,10 +21,19 @@ class HitEvent:
     source: str
     screen_x: float
     screen_y: float
-    game_x: float
-    game_y: float
+
+    viewport_x: float
+    viewport_y: float
+
+    content_x: float
+    content_y: float
+
+    content_norm_x: float
+    content_norm_y: float
+
     camera_x: float
     camera_y: float
+
     timestamp: float
 
 
@@ -75,46 +85,34 @@ class HitInput:
         except Exception:
             return None
 
-    def _notify(self, event: HitEvent):
-        self.last_hit = event
-
-        if event.source == "mouse":
-            self.last_mouse_hit = event
-        elif event.source == "camera":
-            self.last_camera_hit = event
-
-        self.queue.append(event)
-
-        for cb in list(self.subscribers):
-            try:
-                cb(event)
-            except Exception:
-                pass
-
-    def push_mouse_hit(self, screen_x, screen_y):
+    def _screen_to_spaces(self, screen_x: float, screen_y: float):
         viewport = load_viewport_rect()
+        content_rect = load_content_rect()
 
-        game_x = float(screen_x - viewport.x)
-        game_y = float(screen_y - viewport.y)
+        viewport_x = float(screen_x - viewport.x)
+        viewport_y = float(screen_y - viewport.y)
 
-        camera = None
-        if self.inverse is not None:
-            camera = self._transform(self.inverse, screen_x, screen_y)
+        content_x = float(screen_x - content_rect.x)
+        content_y = float(screen_y - content_rect.y)
 
-        if camera is None:
-            camera = (float(screen_x), float(screen_y))
+        if content_rect.w > 0:
+            content_norm_x = content_x / float(content_rect.w)
+        else:
+            content_norm_x = 0.0
 
-        event = HitEvent(
-            source="mouse",
-            screen_x=float(screen_x),
-            screen_y=float(screen_y),
-            game_x=game_x,
-            game_y=game_y,
-            camera_x=float(camera[0]),
-            camera_y=float(camera[1]),
-            timestamp=time.time(),
+        if content_rect.h > 0:
+            content_norm_y = content_y / float(content_rect.h)
+        else:
+            content_norm_y = 0.0
+
+        return (
+            viewport_x,
+            viewport_y,
+            content_x,
+            content_y,
+            content_norm_x,
+            content_norm_y,
         )
-        self._notify(event)
 
     def _camera_to_screen_via_scanport(self, camera_x: float, camera_y: float):
         scanport = load_scanport_rect()
@@ -137,35 +135,98 @@ class HitInput:
 
         return (screen_x, screen_y)
 
+    def _notify(self, event: HitEvent):
+        self.last_hit = event
+
+        if event.source == "mouse":
+            self.last_mouse_hit = event
+        elif event.source == "camera":
+            self.last_camera_hit = event
+
+        self.queue.append(event)
+
+        for cb in list(self.subscribers):
+            try:
+                cb(event)
+            except Exception:
+                pass
+
+    def push_mouse_hit(self, screen_x, screen_y):
+        screen_x = float(screen_x)
+        screen_y = float(screen_y)
+
+        camera = None
+        if self.inverse is not None:
+            camera = self._transform(self.inverse, screen_x, screen_y)
+
+        if camera is None:
+            camera = (screen_x, screen_y)
+
+        (
+            viewport_x,
+            viewport_y,
+            content_x,
+            content_y,
+            content_norm_x,
+            content_norm_y,
+        ) = self._screen_to_spaces(screen_x, screen_y)
+
+        event = HitEvent(
+            source="mouse",
+            screen_x=screen_x,
+            screen_y=screen_y,
+            viewport_x=viewport_x,
+            viewport_y=viewport_y,
+            content_x=content_x,
+            content_y=content_y,
+            content_norm_x=content_norm_x,
+            content_norm_y=content_norm_y,
+            camera_x=float(camera[0]),
+            camera_y=float(camera[1]),
+            timestamp=time.time(),
+        )
+        self._notify(event)
+
     def push_camera_hit(self, camera_x, camera_y):
-        viewport = load_viewport_rect()
+        camera_x = float(camera_x)
+        camera_y = float(camera_y)
 
         # Primär väg:
         # full kamera -> scanport local -> normalized -> viewport
-        screen = self._camera_to_screen_via_scanport(
-            float(camera_x),
-            float(camera_y),
-        )
+        screen = self._camera_to_screen_via_scanport(camera_x, camera_y)
 
         # Fallback till homography om scanport-vägen inte kan användas
         if screen is None and self.homography is not None:
             screen = self._transform(self.homography, camera_x, camera_y)
 
-        # Sista fallback: använd kamerakoordinaten direkt
+        # Sista fallback
         if screen is None:
-            screen = (float(camera_x), float(camera_y))
+            screen = (camera_x, camera_y)
 
         screen_x = float(screen[0])
         screen_y = float(screen[1])
+
+        (
+            viewport_x,
+            viewport_y,
+            content_x,
+            content_y,
+            content_norm_x,
+            content_norm_y,
+        ) = self._screen_to_spaces(screen_x, screen_y)
 
         event = HitEvent(
             source="camera",
             screen_x=screen_x,
             screen_y=screen_y,
-            game_x=float(screen_x - viewport.x),
-            game_y=float(screen_y - viewport.y),
-            camera_x=float(camera_x),
-            camera_y=float(camera_y),
+            viewport_x=viewport_x,
+            viewport_y=viewport_y,
+            content_x=content_x,
+            content_y=content_y,
+            content_norm_x=content_norm_x,
+            content_norm_y=content_norm_y,
+            camera_x=camera_x,
+            camera_y=camera_y,
             timestamp=time.time(),
         )
         self._notify(event)
