@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from collections import deque
+from dataclasses import dataclass
 from typing import Callable
 
 import cv2
@@ -27,6 +27,7 @@ class HitInput:
     def __init__(self):
         self.queue: deque[HitEvent] = deque()
         self.subscribers: list[Callable[[HitEvent], None]] = []
+
         self.homography = None
         self.inverse = None
 
@@ -85,21 +86,23 @@ class HitInput:
 
     def push_mouse_hit(self, screen_x, screen_y):
         viewport = load_viewport_rect()
-        game_x = screen_x - viewport.x
-        game_y = screen_y - viewport.y
+
+        game_x = float(screen_x - viewport.x)
+        game_y = float(screen_y - viewport.y)
 
         camera = None
         if self.inverse is not None:
             camera = self._transform(self.inverse, screen_x, screen_y)
+
         if camera is None:
-            camera = (screen_x, screen_y)
+            camera = (float(screen_x), float(screen_y))
 
         event = HitEvent(
             source="mouse",
             screen_x=float(screen_x),
             screen_y=float(screen_y),
-            game_x=float(game_x),
-            game_y=float(game_y),
+            game_x=game_x,
+            game_y=game_y,
             camera_x=float(camera[0]),
             camera_y=float(camera[1]),
             timestamp=time.time(),
@@ -112,15 +115,19 @@ class HitInput:
         screen = None
         if self.homography is not None:
             screen = self._transform(self.homography, camera_x, camera_y)
+
         if screen is None:
-            screen = (camera_x, camera_y)
+            screen = (float(camera_x), float(camera_y))
+
+        screen_x = float(screen[0])
+        screen_y = float(screen[1])
 
         event = HitEvent(
             source="camera",
-            screen_x=float(screen[0]),
-            screen_y=float(screen[1]),
-            game_x=float(screen[0] - viewport.x),
-            game_y=float(screen[1] - viewport.y),
+            screen_x=screen_x,
+            screen_y=screen_y,
+            game_x=float(screen_x - viewport.x),
+            game_y=float(screen_y - viewport.y),
             camera_x=float(camera_x),
             camera_y=float(camera_y),
             timestamp=time.time(),
