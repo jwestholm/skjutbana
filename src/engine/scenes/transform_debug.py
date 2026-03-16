@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
+
 import pygame
 
+from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
 from src.engine.input.hit_input import HitEvent, hit_input
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import load_camera_calibration, load_viewport_rect
-
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -15,6 +17,8 @@ DARK = (120, 120, 120)
 RED = (255, 60, 60)
 CYAN = (80, 220, 255)
 YELLOW = (255, 220, 80)
+GREEN = (120, 255, 120)
+SOFT_WHITE = (220, 220, 220)
 PANEL_BG = (0, 0, 0, 170)
 
 
@@ -24,21 +28,29 @@ class TransformDebugScene(Scene):
 
     Kontroller:
     - Mus vänsterknapp i viewporten = simulera träff via global hit_input
-    - C = rensa senaste träffinfo
+    - C = rensa senaste träffinfo + audio-info
     - ESC = tillbaka
+
+    Nytt:
+    - subscribar på globalt audio peak-event
+    - visar senaste hörda skott/peak i debugpanelen
     """
 
     def __init__(self, bg_color=(0, 0, 0)) -> None:
         self.bg_color = bg_color
         self.viewport = None
         self.grid_surface = None
-
         self.font = None
         self.small = None
         self.tiny = None
 
         self.last_hit: HitEvent | None = None
         self.status_message = ""
+
+        self.audio_peak_count = 0
+        self.last_audio_event: AudioPeakEvent | None = None
+        self.last_audio_message = "Inget audio-peak ännu."
+        self._audio_subscribed = False
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 42)
@@ -47,14 +59,33 @@ class TransformDebugScene(Scene):
 
         self.viewport = load_viewport_rect()
         self.grid_surface = self._build_grid(self.viewport.w, self.viewport.h)
-
         self.last_hit = None
+
+        self.audio_peak_count = 0
+        self.last_audio_event = None
+        self.last_audio_message = "Inget audio-peak ännu."
 
         calibration = load_camera_calibration()
         if calibration and calibration.get("is_calibrated"):
             self.status_message = "Kamerakalibrering hittad."
         else:
             self.status_message = "Ingen kamerakalibrering hittad. Mus-test fungerar ändå."
+
+        if not self._audio_subscribed:
+            audio_peak_detector.subscribe(self._on_audio_peak)
+            self._audio_subscribed = True
+
+    def on_exit(self) -> None:
+        if self._audio_subscribed:
+            audio_peak_detector.unsubscribe(self._on_audio_peak)
+            self._audio_subscribed = False
+
+    def _on_audio_peak(self, ev: AudioPeakEvent) -> None:
+        self.audio_peak_count += 1
+        self.last_audio_event = ev
+        self.last_audio_message = (
+            f"[AUDIO SHOT] peak={ev.peak:.3f} rms={ev.rms:.3f} ts={ev.timestamp:.3f}"
+        )
 
     def _build_grid(self, width: int, height: int) -> pygame.Surface:
         surface = pygame.Surface((width, height))
@@ -93,14 +124,19 @@ class TransformDebugScene(Scene):
 
     def _go_back(self):
         from src.engine.scenes.menu import MenuScene
+
         return SceneSwitch(MenuScene())
 
     def handle_event(self, event: pygame.event.Event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return self._go_back()
+
             if event.key == pygame.K_c:
                 self.last_hit = None
+                self.last_audio_event = None
+                self.audio_peak_count = 0
+                self.last_audio_message = "Audio-info rensad."
                 return None
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -110,23 +146,30 @@ class TransformDebugScene(Scene):
         return None
 
     def update(self, dt: float):
+        del dt
+
         hit = hit_input.poll()
         if hit is not None:
             self.last_hit = hit
+
         return None
 
     def _draw_info(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((980, 215), pygame.SRCALPHA)
+        panel = pygame.Surface((1060, 250), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (20, 20))
 
         lines = [
             ("Grid / transform-test", self.font, WHITE),
-            ("Rutnätet ritas exakt i viewporten: 10 px per ruta, kraftigare linjer varje 100 px.", self.small, WHITE),
+            (
+                "Rutnätet ritas exakt i viewporten: 10 px per ruta, kraftigare linjer varje 100 px.",
+                self.small,
+                WHITE,
+            ),
             ("Klick i viewporten simulerar en träff via global hit_input.", self.tiny, WHITE),
-            ("I framtiden ska kameran skicka in samma typ av träff-event.", self.tiny, WHITE),
-            ("Visuella träffar visas av global hit visualizer om den är påslagen.", self.tiny, WHITE),
-            ("C = rensa senaste träffinfo    ESC = tillbaka", self.tiny, WHITE),
+            ("Global audio peak-listener är aktiv i denna scen.", self.tiny, GREEN),
+            ("Samma audio-event kan nu användas av debug, scanner och andra lyssnare.", self.tiny, WHITE),
+            ("C = rensa senaste träffinfo/audio-info   ESC = tillbaka", self.tiny, WHITE),
         ]
 
         y = 32
@@ -147,6 +190,21 @@ class TransformDebugScene(Scene):
             )
 
         lines.append((self.status_message, WHITE))
+        lines.append((f"Audio peaks hörda i scenen: {self.audio_peak_count}", GREEN))
+        lines.append((self.last_audio_message, GREEN if self.last_audio_event else SOFT_WHITE))
+
+        latest_global_audio = audio_peak_detector.get_latest_event()
+        if latest_global_audio is not None:
+            age = time.time() - latest_global_audio.timestamp
+            lines.append(
+                (
+                    f"Senaste globala audio-peak: peak={latest_global_audio.peak:.3f} "
+                    f"rms={latest_global_audio.rms:.3f} age={age:.2f}s",
+                    SOFT_WHITE,
+                )
+            )
+        else:
+            lines.append(("Senaste globala audio-peak: inget ännu", SOFT_WHITE))
 
         if self.last_hit is not None:
             lines.append((f"Senaste träffkälla: {self.last_hit.source}", YELLOW))
@@ -168,8 +226,10 @@ class TransformDebugScene(Scene):
                     WHITE,
                 )
             )
+        else:
+            lines.append(("Ingen hit registrerad ännu.", YELLOW))
 
-        panel_width = 820
+        panel_width = 1120
         panel_height = (len(lines) * 28) + 20
         panel_x = 20
         panel_y = screen.get_height() - panel_height - 20

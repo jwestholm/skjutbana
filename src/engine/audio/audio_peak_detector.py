@@ -6,6 +6,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 
@@ -35,6 +36,10 @@ class AudioPeakDetector:
     Syfte:
     - INTE att ensam avgöra träff
     - bara att öppna ett extra noggrant bildanalysfönster
+
+    Nytt:
+    - peak-events dispatchas nu som ett globalt pub/sub-event
+    - callbacks körs i main thread via update()
     """
 
     def __init__(self) -> None:
@@ -50,17 +55,21 @@ class AudioPeakDetector:
 
         self.backend_name = "none"
         self.last_error = ""
+
         self.last_peak_ts = 0.0
         self.last_rms = 0.0
         self.last_peak_value = 0.0
-
         self.noise_floor = 0.01
+
         self.min_abs_peak = load_audio_peak_threshold()
         self.peak_ratio = 3.2
         self.cooldown_s = 0.20
 
         self._events: deque[AudioPeakEvent] = deque(maxlen=100)
+        self._pending_dispatch: deque[AudioPeakEvent] = deque()
         self._sample_history: deque[float] = deque(maxlen=self.sample_rate * 2)
+
+        self._subscribers: list[Callable[[AudioPeakEvent], None]] = []
         self._lock = threading.Lock()
 
     def start(self) -> bool:
@@ -74,10 +83,14 @@ class AudioPeakDetector:
             return False
 
         self.min_abs_peak = load_audio_peak_threshold()
-
         self.last_error = ""
         self.enabled = True
         self.running = True
+
+        with self._lock:
+            self._events.clear()
+            self._pending_dispatch.clear()
+            self._sample_history.clear()
 
         self.thread = threading.Thread(target=self._thread_main, daemon=True)
         self.thread.start()
@@ -98,8 +111,36 @@ class AudioPeakDetector:
             self.thread.join(timeout=1.0)
             self.thread = None
 
+        with self._lock:
+            self._pending_dispatch.clear()
+
     def update(self) -> None:
-        return None
+        """
+        Dispatcha väntande audio peak-events i main thread.
+        Detta gör att subscribers (debug UI, scanner, osv) inte körs från audio-tråden.
+        """
+        with self._lock:
+            pending_events = list(self._pending_dispatch)
+            self._pending_dispatch.clear()
+            subscribers = list(self._subscribers)
+
+        for ev in pending_events:
+            for callback in subscribers:
+                try:
+                    callback(ev)
+                except Exception:
+                    # Låt aldrig en trasig subscriber stoppa resten av systemet
+                    pass
+
+    def subscribe(self, callback: Callable[[AudioPeakEvent], None]) -> None:
+        with self._lock:
+            if callback not in self._subscribers:
+                self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: Callable[[AudioPeakEvent], None]) -> None:
+        with self._lock:
+            if callback in self._subscribers:
+                self._subscribers.remove(callback)
 
     def get_events_since(self, since_ts: float) -> list[AudioPeakEvent]:
         with self._lock:
@@ -112,23 +153,33 @@ class AudioPeakDetector:
             return self._events[-1]
 
     def get_status_lines(self) -> list[str]:
+        with self._lock:
+            subscriber_count = len(self._subscribers)
+            pending_count = len(self._pending_dispatch)
+
         lines = [
             f"Audio backend: {self.backend_name}",
             f"Audio peak: {self.last_peak_value:.3f} | rms: {self.last_rms:.3f}",
             f"Noise floor: {self.noise_floor:.3f}",
             f"Peak threshold: {self.min_abs_peak:.3f}",
+            f"Audio listeners: {subscriber_count}",
+            f"Pending peak events: {pending_count}",
         ]
+
         if self.last_peak_ts > 0:
             age = time.time() - self.last_peak_ts
             lines.append(f"Last peak: {age:.2f}s ago")
+
         if self.last_error:
             lines.append(f"Audio error: {self.last_error}")
+
         return lines
 
     def get_waveform_snapshot(self, max_points: int = 1200) -> np.ndarray:
         with self._lock:
             if not self._sample_history:
                 return np.zeros(max_points, dtype=np.float32)
+
             arr = np.array(self._sample_history, dtype=np.float32)
 
         if arr.size <= max_points:
@@ -290,8 +341,10 @@ class AudioPeakDetector:
         if is_peak:
             self.last_peak_ts = now
             ev = AudioPeakEvent(timestamp=now, peak=peak, rms=rms)
+
             with self._lock:
                 self._events.append(ev)
+                self._pending_dispatch.append(ev)
 
 
 audio_peak_detector = AudioPeakDetector()

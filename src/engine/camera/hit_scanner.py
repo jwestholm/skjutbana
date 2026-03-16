@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-from src.engine.audio.audio_peak_detector import audio_peak_detector
+from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.input.hit_input import hit_input
 from src.engine.settings import load_camera_calibration, load_scanport_rect
@@ -64,7 +64,10 @@ class HitScanner:
         self.arm_until_ts = 0.0
         self.last_emit_ts = 0.0
         self.global_emit_cooldown_s = 0.25
+
         self.last_audio_event_ts = 0.0
+        self.audio_event_count = 0
+        self._audio_subscribed = False
 
         # scanport frame-buffer
         self.frame_history: deque[ScanportFrame] = deque(maxlen=90)  # ca 3 sek vid 30 fps
@@ -84,12 +87,11 @@ class HitScanner:
         self.max_radius = 8.0
         self.min_circularity = 0.10
         self.border_margin = 4
-
         self.min_change_threshold = 10.0
         self.min_combined_threshold = 18.0
 
         # patch-verifiering
-        self.patch_radius = 7           # 15x15 patch
+        self.patch_radius = 7  # 15x15 patch
         self.inner_radius = 2
         self.outer_radius = 6
         self.min_center_darkening = 10.0
@@ -123,12 +125,16 @@ class HitScanner:
         self.arm_until_ts = time.time() + self.arm_duration_s
         self.last_emit_ts = 0.0
         self.last_audio_event_ts = 0.0
+        self.audio_event_count = 0
+
+        if not self._audio_subscribed:
+            audio_peak_detector.subscribe(self._on_audio_peak)
+            self._audio_subscribed = True
 
         self.frame_history.clear()
         self.trigger_windows.clear()
         self.tracks.clear()
         self.known_holes.clear()
-
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
@@ -140,16 +146,20 @@ class HitScanner:
         self.enabled = False
         self.state = self.STATE_OFF
 
+        if self._audio_subscribed:
+            audio_peak_detector.unsubscribe(self._on_audio_peak)
+            self._audio_subscribed = False
+
         self.frame_history.clear()
         self.trigger_windows.clear()
         self.tracks.clear()
         self.known_holes.clear()
-
         self.debug_frames.clear()
         self.last_candidates = []
         self.last_stable_tracks = []
         self.last_threshold_value = 0.0
         self.last_change_threshold_value = 0.0
+        self.audio_event_count = 0
         self.last_status = "off"
 
     def update(self, dt: float) -> None:
@@ -186,17 +196,6 @@ class HitScanner:
 
         if self.state != self.STATE_ACTIVE:
             return
-
-        # plocka in nya audio peaks
-        for ev in audio_peak_detector.get_events_since(self.last_audio_event_ts):
-            self.last_audio_event_ts = max(self.last_audio_event_ts, ev.timestamp)
-            self.trigger_windows.append(
-                TriggerWindow(
-                    peak_ts=ev.timestamp,
-                    processed=False,
-                    created_at=now,
-                )
-            )
 
         emitted_now = 0
         candidates_for_debug: list[dict[str, float]] = []
@@ -239,10 +238,9 @@ class HitScanner:
 
         self.last_candidates = candidates_for_debug
         self.last_stable_tracks = stable_for_debug
-
         self.last_status = (
-            f"active audio={len(self.trigger_windows)} cand={len(candidates_for_debug)} "
-            f"stable={len(stable_for_debug)} emit={emitted_now}"
+            f"active peaks={self.audio_event_count} windows={len(self.trigger_windows)} "
+            f"cand={len(candidates_for_debug)} stable={len(stable_for_debug)} emit={emitted_now}"
         )
 
     def get_debug_snapshot(self) -> dict:
@@ -250,6 +248,8 @@ class HitScanner:
             "enabled": self.enabled,
             "state": self.state,
             "last_status": self.last_status,
+            "audio_event_count": self.audio_event_count,
+            "pending_trigger_windows": len(self.trigger_windows),
             "known_holes_count": len(self.known_holes),
             "tracks_count": len(self.tracks),
             "candidates_count": len(self.last_candidates),
@@ -274,11 +274,35 @@ class HitScanner:
     def get_status_lines(self) -> list[str]:
         return [
             f"HitScanner state: {self.state}",
+            f"Audio peaks heard: {self.audio_event_count}",
+            f"Trigger windows: {len(self.trigger_windows)}",
             f"Known holes: {len(self.known_holes)}",
             f"Thr combined: {self.last_threshold_value:.1f}",
             f"Thr change: {self.last_change_threshold_value:.1f}",
             f"Status: {self.last_status}",
         ]
+
+    # ------------------------------------------------------------
+    # Audio event listener
+    # ------------------------------------------------------------
+
+    def _on_audio_peak(self, ev: AudioPeakEvent) -> None:
+        self.last_audio_event_ts = max(self.last_audio_event_ts, ev.timestamp)
+        self.audio_event_count += 1
+
+        if not self.enabled:
+            return
+
+        if self.state != self.STATE_ACTIVE:
+            return
+
+        self.trigger_windows.append(
+            TriggerWindow(
+                peak_ts=ev.timestamp,
+                processed=False,
+                created_at=time.time(),
+            )
+        )
 
     # ------------------------------------------------------------
     # Core processing
@@ -290,7 +314,6 @@ class HitScanner:
             return None
 
         h, w = frame_bgr.shape[:2]
-
         x = max(0, int(scanport.x))
         y = max(0, int(scanport.y))
         sw = max(1, int(scanport.w))
@@ -301,10 +324,11 @@ class HitScanner:
 
         sw = min(sw, w - x)
         sh = min(sh, h - y)
+
         if sw <= 1 or sh <= 1:
             return None
 
-        crop = frame_bgr[y:y + sh, x:x + sw]
+        crop = frame_bgr[y : y + sh, x : x + sw]
         if crop.size == 0:
             return None
 
@@ -320,10 +344,8 @@ class HitScanner:
 
         for fr in self.frame_history:
             dt = fr.timestamp - peak_ts
-
             if -self.pre_start_s <= dt <= -self.pre_end_s:
                 pre_frames.append(fr.gray)
-
             if self.post_start_s <= dt <= self.post_end_s:
                 post_frames.append(fr.gray)
 
@@ -359,7 +381,6 @@ class HitScanner:
 
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         blackhat = cv2.morphologyEx(post_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
-
         dark_score = cv2.addWeighted(darkness, 0.60, blackhat, 0.40, 0.0)
 
         change_mu, change_sigma = cv2.meanStdDev(delta_dark)
@@ -405,6 +426,7 @@ class HitScanner:
             cv2.MORPH_OPEN,
             np.ones((3, 3), dtype=np.uint8),
         )
+
         mask = cv2.morphologyEx(
             mask,
             cv2.MORPH_CLOSE,
@@ -461,6 +483,7 @@ class HitScanner:
                 post_ref=post_ref,
                 post_frames=post_frames,
             )
+
             if not patch_ok:
                 continue
 
@@ -518,8 +541,8 @@ class HitScanner:
         cy = y - y0
         dist2 = (xx - cx) ** 2 + (yy - cy) ** 2
 
-        inner_mask = dist2 <= (self.inner_radius ** 2)
-        outer_mask = (dist2 > (self.inner_radius ** 2)) & (dist2 <= (self.outer_radius ** 2))
+        inner_mask = dist2 <= (self.inner_radius**2)
+        outer_mask = (dist2 > (self.inner_radius**2)) & (dist2 <= (self.outer_radius**2))
 
         if not np.any(inner_mask) or not np.any(outer_mask):
             return False, 0.0, 0.0, 0
@@ -541,10 +564,12 @@ class HitScanner:
             return False, center_darkening, contrast_gain, 0
 
         persistent_count = 0
+
         for fr in post_frames:
             patch = fr[y0:y1, x0:x1]
             if patch.shape != post_patch.shape:
                 continue
+
             fr_center = float(np.mean(patch[inner_mask]))
             if (pre_center - fr_center) >= (self.min_center_darkening * 0.7):
                 persistent_count += 1
@@ -583,6 +608,7 @@ class HitScanner:
     def _remember_known_hole(self, camera_x: float, camera_y: float, score: float) -> None:
         if self._is_duplicate(camera_x, camera_y):
             return
+
         self.known_holes.append((camera_x, camera_y, score))
 
     def _is_duplicate(self, camera_x: float, camera_y: float) -> bool:
