@@ -31,7 +31,7 @@ class ScannerStatusOverlay:
         return "yes" if value else "no"
 
     def _render_panel(self, screen, lines, panel_x=10, panel_y=10):
-        panel_width = 840
+        panel_width = 860
         panel_height = len(lines) * 22 + 18
 
         panel = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
@@ -83,37 +83,20 @@ class ScannerStatusOverlay:
             (audio_line, audio_color),
         ]
 
-        window_debug = snap.get("window_debug") or {}
-        if window_debug:
-            pre_count = int(window_debug.get("pre_count", 0))
-            post_count = int(window_debug.get("post_count", 0))
-            lines.append((f"Window pre/post: {pre_count}/{post_count}", SOFT))
+        wd = snap.get("window_debug") or {}
+        if wd:
+            lines.append((f"Window pre/post: {int(wd.get('pre_count', 0))}/{int(wd.get('post_count', 0))}", SOFT))
 
         lines.append(("", WHITE))
         lines.append(("VIEWPORT / SCANPORT / CONTENT", YELLOW))
-        lines.append(
-            (
-                f"viewport: x={viewport.x} y={viewport.y} w={viewport.w} h={viewport.h}",
-                YELLOW,
-            )
-        )
+        lines.append((f"viewport: x={viewport.x} y={viewport.y} w={viewport.w} h={viewport.h}", YELLOW))
 
         if scanport is None:
             lines.append(("scanport: none", RED))
         else:
-            lines.append(
-                (
-                    f"scanport(full camera): x={scanport.x} y={scanport.y} w={scanport.w} h={scanport.h}",
-                    YELLOW,
-                )
-            )
+            lines.append((f"scanport(full camera): x={scanport.x} y={scanport.y} w={scanport.w} h={scanport.h}", YELLOW))
 
-        lines.append(
-            (
-                f"content rect: x={content_rect.x} y={content_rect.y} w={content_rect.w} h={content_rect.h}",
-                YELLOW,
-            )
-        )
+        lines.append((f"content rect: x={content_rect.x} y={content_rect.y} w={content_rect.w} h={content_rect.h}", YELLOW))
 
         best = snap.get("best_candidate")
         if best is not None:
@@ -150,18 +133,12 @@ class ScannerStatusOverlay:
             lines.append(("content local: none", SOFT))
             lines.append(("content normalized: none", SOFT))
         else:
-            lines.append(
-                (
-                    f"full camera: x={cam.camera_x:.1f} y={cam.camera_y:.1f}",
-                    CYAN,
-                )
-            )
+            lines.append((f"full camera: x={cam.camera_x:.1f} y={cam.camera_y:.1f}", CYAN))
 
             inside_viewport = (
                 viewport.x <= cam.screen_x < (viewport.x + viewport.w)
                 and viewport.y <= cam.screen_y < (viewport.y + viewport.h)
             )
-
             inside_content = (
                 content_rect.x <= cam.screen_x < (content_rect.x + content_rect.w)
                 and content_rect.y <= cam.screen_y < (content_rect.y + content_rect.h)
@@ -174,29 +151,15 @@ class ScannerStatusOverlay:
                     CYAN if inside_viewport else RED,
                 )
             )
-
-            viewport_x = getattr(cam, "viewport_x", getattr(cam, "game_x", 0.0))
-            viewport_y = getattr(cam, "viewport_y", getattr(cam, "game_y", 0.0))
-            lines.append((f"viewport local: x={viewport_x:.1f} y={viewport_y:.1f}", SOFT))
-
-            content_x = getattr(cam, "content_x", getattr(cam, "game_x", 0.0))
-            content_y = getattr(cam, "content_y", getattr(cam, "game_y", 0.0))
-            content_norm_x = getattr(cam, "content_norm_x", 0.0)
-            content_norm_y = getattr(cam, "content_norm_y", 0.0)
-
+            lines.append((f"viewport local: x={cam.viewport_x:.1f} y={cam.viewport_y:.1f}", SOFT))
             lines.append(
                 (
-                    f"content local: x={content_x:.1f} y={content_y:.1f} "
+                    f"content local: x={cam.content_x:.1f} y={cam.content_y:.1f} "
                     f"in_content={self._fmt_bool(inside_content)}",
                     CYAN if inside_content else RED,
                 )
             )
-            lines.append(
-                (
-                    f"content normalized: x={content_norm_x:.4f} y={content_norm_y:.4f}",
-                    SOFT,
-                )
-            )
+            lines.append((f"content normalized: x={cam.content_norm_x:.4f} y={cam.content_norm_y:.4f}", SOFT))
 
             camera_ring_visible = (
                 0 <= int(round(cam.screen_x)) < screen.get_width()

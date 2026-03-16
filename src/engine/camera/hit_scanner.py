@@ -11,6 +11,7 @@ from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_dete
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.input.hit_input import hit_input
 from src.engine.settings import (
+    load_content_rect,
     load_scanport_rect,
     load_scanner_debug_overlay_enabled,
     load_viewport_rect,
@@ -42,21 +43,6 @@ class HoleTrack:
 
 
 class HitScanner:
-    """
-    Robust audio-assisterad träffscanner.
-
-    Mål:
-    - Ett skott -> max en vinnare
-    - Gamla hål ignoreras normalt
-    - Hål-i-hål tillåts om förändringen är tydligt starkare än tidigare
-    - Tejp/projektor/brus ska få svårt att vinna
-
-    Viktigt:
-    - Detektion sker i scanporten
-    - Punkten som skickas vidare är full-kamera-koordinat
-    - Mapping till viewport/content sker i hit_input
-    """
-
     STATE_OFF = "OFF"
     STATE_ARMING = "ARMING"
     STATE_ACTIVE = "ACTIVE"
@@ -69,22 +55,21 @@ class HitScanner:
         self.arm_until_ts = 0.0
 
         self.last_emit_ts = 0.0
-        self.global_emit_cooldown_s = 0.18
+        self.global_emit_cooldown_s = 0.16
 
         self.last_audio_event_ts = 0.0
         self.audio_event_count = 0
         self._audio_subscribed = False
 
-        # Historik
         self.frame_history: deque[ScanportFrame] = deque(maxlen=240)
         self.trigger_windows: deque[TriggerWindow] = deque(maxlen=48)
 
-        # Tidsfönster runt peak
+        # Tid kring audio peak
         self.pre_start_s = 0.28
         self.pre_end_s = 0.05
         self.post_start_s = 0.03
-        self.post_end_s = 0.40
-        self.analysis_lag_s = 0.42
+        self.post_end_s = 0.42
+        self.analysis_lag_s = 0.44
 
         # Kandidatfilter
         self.min_area = 3.0
@@ -94,7 +79,7 @@ class HitScanner:
         self.min_circularity = 0.015
         self.border_margin = 3
 
-        # Tröskelgolv
+        # Trösklar
         self.min_change_threshold = 4.0
         self.min_combined_threshold = 8.0
         self.min_vote_threshold = 1.0
@@ -111,9 +96,11 @@ class HitScanner:
         self.min_persistent_post_frames = 2
 
         # Kända hål / re-hit
-        self.duplicate_radius_px = 22.0
+        self.duplicate_radius_px = 20.0
         self.rehit_gain_required = 4.0
         self.max_known_holes = 256
+
+        self.known_holes: list[dict[str, float]] = []
 
         # Debug
         self.last_status = "off"
@@ -125,9 +112,6 @@ class HitScanner:
         self.last_vote_threshold_value: float = 0.0
         self.last_window_debug: dict[str, float] = {}
         self.last_best_candidate: dict[str, float] | None = None
-
-        # Kända hål lagras som dictar för att kunna jämföra styrka vid re-hit
-        self.known_holes: list[dict[str, float]] = []
 
     # ------------------------------------------------------------
     # Public API
@@ -226,7 +210,6 @@ class HitScanner:
                 continue
 
             best_candidate, candidates, stable_tracks = result
-
             candidates_for_debug.extend(candidates)
             stable_for_debug.extend(stable_tracks)
             self.last_best_candidate = best_candidate
@@ -238,10 +221,7 @@ class HitScanner:
                 self.last_status = "emit_cooldown"
                 continue
 
-            hit_input.push_camera_hit(
-                best_candidate["camera_x"],
-                best_candidate["camera_y"],
-            )
+            hit_input.push_camera_hit(best_candidate["camera_x"], best_candidate["camera_y"])
             self.last_emit_ts = now
             self._remember_known_hole(best_candidate)
             emitted_now += 1
@@ -321,7 +301,7 @@ class HitScanner:
         )
 
     # ------------------------------------------------------------
-    # Core processing
+    # Core
     # ------------------------------------------------------------
 
     def _extract_scanport_gray(self, frame_bgr: np.ndarray) -> np.ndarray | None:
@@ -344,7 +324,7 @@ class HitScanner:
         if sw <= 1 or sh <= 1:
             return None
 
-        crop = frame_bgr[y : y + sh, x : x + sw]
+        crop = frame_bgr[y:y + sh, x:x + sw]
         if crop.size == 0:
             return None
 
@@ -374,13 +354,9 @@ class HitScanner:
             self.last_status = f"window_not_ready pre={len(pre_frames)} post={len(post_frames)}"
             return None
 
-        pre_stack = np.stack(pre_frames, axis=0)
-        post_stack = np.stack(post_frames, axis=0)
+        pre_ref = np.median(np.stack(pre_frames, axis=0), axis=0).astype(np.uint8)
+        post_ref = np.median(np.stack(post_frames, axis=0), axis=0).astype(np.uint8)
 
-        pre_ref = np.median(pre_stack, axis=0).astype(np.uint8)
-        post_ref = np.median(post_stack, axis=0).astype(np.uint8)
-
-        # Tidig och sen post för onset/persistence
         early_count = max(2, min(4, len(post_frames) // 2))
         late_count = max(2, min(4, len(post_frames) // 2))
 
@@ -398,10 +374,45 @@ class HitScanner:
 
         return best_candidate, candidates, stable_tracks
 
-    def _make_ignore_mask(self, shape: tuple[int, int]) -> np.ndarray:
+    def _scanport_mask_from_content(self, shape: tuple[int, int]) -> np.ndarray:
         """
-        Ignore-mask i scanport-lokal koordinat.
-        Just nu maskar vi bort vänster debugpanel om scanner debug overlay är på.
+        Bygg mask i scanport-lokal koordinat som motsvarar content_rect inne i viewporten.
+        """
+        h, w = shape
+        mask = np.zeros((h, w), dtype=np.uint8)
+
+        viewport = load_viewport_rect()
+        content = load_content_rect()
+
+        if viewport.w <= 0 or viewport.h <= 0:
+            mask[:, :] = 255
+            return mask
+
+        rx0 = (content.x - viewport.x) / float(viewport.w)
+        ry0 = (content.y - viewport.y) / float(viewport.h)
+        rx1 = (content.x + content.w - viewport.x) / float(viewport.w)
+        ry1 = (content.y + content.h - viewport.y) / float(viewport.h)
+
+        x0 = int(round(rx0 * w))
+        y0 = int(round(ry0 * h))
+        x1 = int(round(rx1 * w))
+        y1 = int(round(ry1 * h))
+
+        x0 = max(0, min(w, x0))
+        x1 = max(0, min(w, x1))
+        y0 = max(0, min(h, y0))
+        y1 = max(0, min(h, y1))
+
+        if x1 <= x0 or y1 <= y0:
+            mask[:, :] = 255
+            return mask
+
+        mask[y0:y1, x0:x1] = 255
+        return mask
+
+    def _ignore_mask(self, shape: tuple[int, int]) -> np.ndarray:
+        """
+        Ignorera vänster debugpanel om den projiceras.
         """
         h, w = shape
         mask = np.ones((h, w), dtype=np.uint8) * 255
@@ -410,30 +421,26 @@ class HitScanner:
             return mask
 
         viewport = load_viewport_rect()
-        scanport = load_scanport_rect()
-        if scanport is None or viewport.w <= 0 or viewport.h <= 0:
+        if viewport.w <= 0 or viewport.h <= 0:
             return mask
 
-        # ScannerStatusOverlay panel approx:
-        # x=10, y=10, w≈760, h dynamisk.
-        # Vi maskar konservativt en vänsterpanelzon i viewport-koordinater.
-        panel_rects_viewport = [
-            pygame_rect_like(10, 10, min(760, viewport.w), min(520, viewport.h))
-        ]
+        panel_x = 10
+        panel_y = 10
+        panel_w = min(840, viewport.w)
+        panel_h = min(560, viewport.h)
 
-        for rect in panel_rects_viewport:
-            x0 = int(round((rect.x / float(viewport.w)) * w))
-            y0 = int(round((rect.y / float(viewport.h)) * h))
-            x1 = int(round(((rect.x + rect.w) / float(viewport.w)) * w))
-            y1 = int(round(((rect.y + rect.h) / float(viewport.h)) * h))
+        x0 = int(round((panel_x / float(viewport.w)) * w))
+        y0 = int(round((panel_y / float(viewport.h)) * h))
+        x1 = int(round(((panel_x + panel_w) / float(viewport.w)) * w))
+        y1 = int(round(((panel_y + panel_h) / float(viewport.h)) * h))
 
-            x0 = max(0, min(w, x0))
-            x1 = max(0, min(w, x1))
-            y0 = max(0, min(h, y0))
-            y1 = max(0, min(h, y1))
+        x0 = max(0, min(w, x0))
+        x1 = max(0, min(w, x1))
+        y0 = max(0, min(h, y0))
+        y1 = max(0, min(h, y1))
 
-            if x1 > x0 and y1 > y0:
-                mask[y0:y1, x0:x1] = 0
+        if x1 > x0 and y1 > y0:
+            mask[y0:y1, x0:x1] = 0
 
         return mask
 
@@ -466,9 +473,9 @@ class HitScanner:
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
         blackhat = cv2.morphologyEx(post_u8, cv2.MORPH_BLACKHAT, blackhat_kernel).astype(np.float32)
 
-        # Temporal vote: hur ofta mörkningen syns i post-fönstret
         base_threshold = max(2.0, float(np.mean(delta_dark) + 0.45 * np.std(delta_dark)))
         vote_count = np.zeros_like(pre_f, dtype=np.float32)
+
         for fr in post_frames:
             fr_f = cv2.GaussianBlur(fr.astype(np.float32), (0, 0), 0.9)
             frame_delta = np.clip(pre_blur - fr_f, 0.0, 255.0)
@@ -511,8 +518,10 @@ class HitScanner:
         mask = cv2.bitwise_and(mask, late_mask)
         mask = cv2.bitwise_or(mask, cv2.bitwise_and(change_mask, vote_mask))
 
-        # Ignore UI-zoner om debug overlay projiceras
-        ignore_mask = self._make_ignore_mask(mask.shape)
+        content_mask = self._scanport_mask_from_content(mask.shape)
+        ignore_mask = self._ignore_mask(mask.shape)
+
+        mask = cv2.bitwise_and(mask, content_mask)
         mask = cv2.bitwise_and(mask, ignore_mask)
 
         kernel_open = np.ones((2, 2), dtype=np.uint8)
@@ -571,12 +580,12 @@ class HitScanner:
             camera_x = float(ix + scanport.x)
             camera_y = float(iy + scanport.y)
 
-            # Hantera gamla hål / hål-i-hål
-            known = self._find_nearest_known_hole(camera_x, camera_y)
+            nearest = self._find_nearest_known_hole(camera_x, camera_y)
             known_gain = 0.0
             is_rehit = False
-            if known is not None:
-                known_gain = patch["center_darkening"] - known.get("center_darkening", 0.0)
+
+            if nearest is not None:
+                known_gain = patch["center_darkening"] - nearest.get("center_darkening", 0.0)
                 if known_gain < self.rehit_gain_required:
                     continue
                 is_rehit = True
@@ -616,7 +625,9 @@ class HitScanner:
                 }
             )
 
+        # sortering + enkel NMS så samma skott inte ger flera nästan-identiska kandidater
         out.sort(key=lambda c: c["score"], reverse=True)
+        out = self._non_max_suppress(out, radius_px=26.0)
 
         self.debug_frames["delta_dark"] = np.clip(delta_dark, 0, 255).astype(np.uint8)
         self.debug_frames["onset_dark"] = np.clip(onset_dark, 0, 255).astype(np.uint8)
@@ -625,8 +636,9 @@ class HitScanner:
         self.debug_frames["blackhat"] = np.clip(blackhat, 0, 255).astype(np.uint8)
         self.debug_frames["vote_norm"] = np.clip(vote_norm, 0, 255).astype(np.uint8)
         self.debug_frames["score"] = np.clip(combined, 0, 255).astype(np.uint8)
-        self.debug_frames["mask"] = mask
+        self.debug_frames["content_mask"] = content_mask
         self.debug_frames["ignore_mask"] = ignore_mask
+        self.debug_frames["mask"] = mask
 
         return out
 
@@ -720,11 +732,26 @@ class HitScanner:
             "persistent_count": float(persistent_count),
         }
 
+    def _non_max_suppress(self, candidates: list[dict[str, float]], radius_px: float) -> list[dict[str, float]]:
+        if not candidates:
+            return []
+
+        kept: list[dict[str, float]] = []
+
+        for cand in candidates:
+            keep = True
+            for prev in kept:
+                if np.hypot(cand["camera_x"] - prev["camera_x"], cand["camera_y"] - prev["camera_y"]) <= radius_px:
+                    keep = False
+                    break
+            if keep:
+                kept.append(cand)
+
+        return kept
+
     def _pick_best_candidate(self, candidates: list[dict[str, float]]) -> dict[str, float] | None:
         if not candidates:
             return None
-
-        # Kandidaterna är redan sorterade på score fallande.
         return candidates[0]
 
     def _build_tracks_from_candidates(
@@ -750,7 +777,7 @@ class HitScanner:
         return stable
 
     # ------------------------------------------------------------
-    # Known holes / duplicate / re-hit
+    # Known holes
     # ------------------------------------------------------------
 
     def _find_nearest_known_hole(self, camera_x: float, camera_y: float) -> dict[str, float] | None:
@@ -758,9 +785,7 @@ class HitScanner:
         best_dist = None
 
         for hole in self.known_holes:
-            dx = camera_x - hole["camera_x"]
-            dy = camera_y - hole["camera_y"]
-            dist = float(np.hypot(dx, dy))
+            dist = float(np.hypot(camera_x - hole["camera_x"], camera_y - hole["camera_y"]))
             if dist <= self.duplicate_radius_px:
                 if best is None or dist < best_dist:
                     best = hole
@@ -771,12 +796,10 @@ class HitScanner:
     def _remember_known_hole(self, candidate: dict[str, float]) -> None:
         camera_x = float(candidate["camera_x"])
         camera_y = float(candidate["camera_y"])
-
-        existing = self._find_nearest_known_hole(camera_x, camera_y)
         now = time.time()
 
+        existing = self._find_nearest_known_hole(camera_x, camera_y)
         if existing is not None:
-            # Hål-i-hål eller uppdaterad styrka
             existing["camera_x"] = camera_x
             existing["camera_y"] = camera_y
             existing["score"] = max(existing.get("score", 0.0), float(candidate["score"]))
@@ -801,17 +824,6 @@ class HitScanner:
 
         if len(self.known_holes) > self.max_known_holes:
             self.known_holes = self.known_holes[-self.max_known_holes:]
-
-
-def pygame_rect_like(x: int, y: int, w: int, h: int):
-    class _R:
-        def __init__(self, x, y, w, h):
-            self.x = x
-            self.y = y
-            self.w = w
-            self.h = h
-
-    return _R(x, y, w, h)
 
 
 hit_scanner = HitScanner()

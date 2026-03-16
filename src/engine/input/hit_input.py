@@ -19,18 +19,22 @@ from src.engine.settings import (
 @dataclass
 class HitEvent:
     source: str
+
+    # App/screen space
     screen_x: float
     screen_y: float
 
+    # Viewport-local
     viewport_x: float
     viewport_y: float
 
+    # Content-local (bild/video/tavla inne i viewport/app)
     content_x: float
     content_y: float
-
     content_norm_x: float
     content_norm_y: float
 
+    # Kamera/full-frame
     camera_x: float
     camera_y: float
 
@@ -115,13 +119,14 @@ class HitInput:
         )
 
     def _camera_to_screen_via_scanport(self, camera_x: float, camera_y: float):
+        """
+        Primär mapping:
+        full kamera -> scanport-lokal -> normalized -> viewport.
+        """
         scanport = load_scanport_rect()
         viewport = load_viewport_rect()
 
-        if scanport is None:
-            return None
-
-        if scanport.w <= 0 or scanport.h <= 0:
+        if scanport is None or scanport.w <= 0 or scanport.h <= 0:
             return None
 
         local_x = float(camera_x - scanport.x)
@@ -132,8 +137,7 @@ class HitInput:
 
         screen_x = float(viewport.x + norm_x * viewport.w)
         screen_y = float(viewport.y + norm_y * viewport.h)
-
-        return (screen_x, screen_y)
+        return screen_x, screen_y
 
     def _notify(self, event: HitEvent):
         self.last_hit = event
@@ -191,15 +195,14 @@ class HitInput:
         camera_x = float(camera_x)
         camera_y = float(camera_y)
 
-        # Primär väg:
-        # full kamera -> scanport local -> normalized -> viewport
+        # 1) Primär väg: scanport -> viewport
         screen = self._camera_to_screen_via_scanport(camera_x, camera_y)
 
-        # Fallback till homography om scanport-vägen inte kan användas
+        # 2) Fallback: homography
         if screen is None and self.homography is not None:
             screen = self._transform(self.homography, camera_x, camera_y)
 
-        # Sista fallback
+        # 3) Sista fallback
         if screen is None:
             screen = (camera_x, camera_y)
 
