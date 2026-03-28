@@ -8,9 +8,9 @@ import pygame
 from src.engine.range_projection import (
     RangeProjectionGeometry,
     clamp_distance_m,
-    depth_ratio,
+    figure_foot_y_px,
+    figure_top_y_px,
     projected_lateral_offset_px,
-    projected_target_height_px,
 )
 from src.engine.settings import load_range_projection_settings
 
@@ -30,15 +30,12 @@ class RangeTargetState:
 
 class RangeTargetGame:
     """
-    Helfigur på avstånd, kalibrerad mot just denna bakgrund.
+    Helfigur baserad på fysisk projektion:
 
-    Kontroller:
-    - LEFT / RIGHT -> flytta figur i sidled
-    - UP           -> närmare
-    - DOWN         -> längre bort
-    - SHIFT        -> snabbare rörelse när hålls inne
-    - SPACE        -> visa/dölj HUD
-    - R            -> återställ
+    - origo = tavlan / väggen
+    - viewportens nederkant ligger på en fysisk höjd över mark
+    - gubben står på marken
+    - sidled skalas med djup
     """
 
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
@@ -48,42 +45,19 @@ class RangeTargetGame:
 
         self.max_distance_m = 600.0
 
-        # Kontinuerlig rörelse när tangenter hålls inne
         self.distance_speed_mps = 18.0
         self.distance_speed_fast_mps = 60.0
         self.lateral_speed_mps = 1.2
         self.lateral_speed_fast_mps = 3.5
 
-        # Verklig figurhöjd
         self.target_real_height_cm = 180.0
-
-        # Om PNG:n inte är helt centrerad kan denna trimmas lite
         self.target_anchor_x_norm = 0.5
 
-        # Visuell tuning:
-        # 1.0 = ren fysisk grund
-        # lite lägre multiplier och exponent < 1 gör att den känns mindre "sprite-zoomig"
-        self.visual_scale_multiplier = 0.88
-        self.visual_scale_exponent = 0.90
+        # Finjustera vägens mitt här om den känns lite fel
+        self.center_x_norm = 0.548
 
-        # Kalibrerad bana i bakgrunden.
-        # Format: (distance_m, x_norm, y_norm)
-        # x_norm/y_norm är fotpunktens position i viewporten.
-        self.ground_path = [
-            (6.3,   0.545, 0.965),
-            (12.0,  0.545, 0.930),
-            (20.0,  0.546, 0.890),
-            (34.0,  0.547, 0.825),
-            (50.0,  0.548, 0.765),
-            (75.0,  0.549, 0.700),
-            (100.0, 0.551, 0.650),
-            (125.0, 0.552, 0.610),
-            (150.0, 0.553, 0.580),
-            (200.0, 0.554, 0.545),
-            (300.0, 0.555, 0.500),
-            (450.0, 0.556, 0.465),
-            (600.0, 0.557, 0.445),
-        ]
+        # Liten visuell trim vid behov
+        self.visual_scale_multiplier = 1.0
 
         self.background_surface: pygame.Surface | None = None
         self.background_scaled: pygame.Surface | None = None
@@ -93,10 +67,6 @@ class RangeTargetGame:
         self.small_font: pygame.font.Font | None = None
 
         self._load_assets()
-
-    # ------------------------------------------------------------
-    # Assets
-    # ------------------------------------------------------------
 
     def _load_assets(self) -> None:
         bg_path = self.game_root / "background.png"
@@ -121,10 +91,6 @@ class RangeTargetGame:
             (self.viewport.w, self.viewport.h),
         )
 
-    # ------------------------------------------------------------
-    # Scene hooks
-    # ------------------------------------------------------------
-
     def on_enter(self) -> None:
         if self.font is None:
             self.font = pygame.font.Font(None, 40)
@@ -137,10 +103,6 @@ class RangeTargetGame:
     def on_exit(self) -> None:
         pass
 
-    # ------------------------------------------------------------
-    # Geometry / settings
-    # ------------------------------------------------------------
-
     def _geometry(self) -> RangeProjectionGeometry:
         settings = load_range_projection_settings()
         return RangeProjectionGeometry(
@@ -150,6 +112,9 @@ class RangeTargetGame:
             ),
             viewport_physical_height_cm=float(
                 settings.get("viewport_physical_height_cm", 50.0)
+            ),
+            viewport_bottom_world_cm=float(
+                settings.get("viewport_bottom_world_cm", 105.0)
             ),
         )
 
@@ -164,40 +129,28 @@ class RangeTargetGame:
         )
         return projected_h_cm <= geometry.viewport_physical_height_cm
 
-    # ------------------------------------------------------------
-    # Path helpers
-    # ------------------------------------------------------------
+    def _target_height_px(self) -> int:
+        geometry = self._geometry()
 
-    def _sample_ground_path(self, distance_m: float) -> tuple[float, float]:
-        """
-        Returnerar fotpunktens x_norm, y_norm längs den kalibrerade banan.
-        """
-        pts = self.ground_path
-        d = float(distance_m)
+        top_y = figure_top_y_px(
+            figure_height_cm=self.target_real_height_cm,
+            virtual_distance_m=self.state.distance_m,
+            viewport=self.viewport,
+            geometry=geometry,
+        )
+        foot_y = figure_foot_y_px(
+            virtual_distance_m=self.state.distance_m,
+            viewport=self.viewport,
+            geometry=geometry,
+        )
 
-        if d <= pts[0][0]:
-            return pts[0][1], pts[0][2]
-        if d >= pts[-1][0]:
-            return pts[-1][1], pts[-1][2]
-
-        for i in range(len(pts) - 1):
-            d0, x0, y0 = pts[i]
-            d1, x1, y1 = pts[i + 1]
-            if d0 <= d <= d1:
-                t = (d - d0) / (d1 - d0)
-                x = x0 + (x1 - x0) * t
-                y = y0 + (y1 - y0) * t
-                return x, y
-
-        return pts[-1][1], pts[-1][2]
+        h = (foot_y - top_y) * self.visual_scale_multiplier
+        return max(2, int(round(h)))
 
     def _foot_position_px(self) -> tuple[float, float]:
         geometry = self._geometry()
 
-        x_norm, y_norm = self._sample_ground_path(self.state.distance_m)
-
-        base_x = self.viewport.x + (x_norm * self.viewport.w)
-        base_y = self.viewport.y + (y_norm * self.viewport.h)
+        base_x = self.viewport.x + (self.center_x_norm * self.viewport.w)
 
         lateral_px = projected_lateral_offset_px(
             world_lateral_offset_m=self.state.lateral_offset_m,
@@ -206,30 +159,13 @@ class RangeTargetGame:
             geometry=geometry,
         )
 
-        return base_x + lateral_px, base_y
-
-    def _target_height_px(self) -> int:
-        geometry = self._geometry()
-
-        base_h = projected_target_height_px(
-            real_height_cm=self.target_real_height_cm,
+        foot_x = base_x + lateral_px
+        foot_y = figure_foot_y_px(
             virtual_distance_m=self.state.distance_m,
             viewport=self.viewport,
             geometry=geometry,
         )
-
-        ratio = depth_ratio(
-            virtual_distance_m=self.state.distance_m,
-            wall_distance_m=geometry.wall_distance_m,
-        )
-
-        # Samma när-känsla vid ratio=1, men lugnare avtagande längre bort
-        tuned_h = base_h * self.visual_scale_multiplier * (ratio ** (self.visual_scale_exponent - 1.0))
-        return max(2, int(round(tuned_h)))
-
-    # ------------------------------------------------------------
-    # Input
-    # ------------------------------------------------------------
+        return foot_x, foot_y
 
     def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN:
@@ -245,10 +181,6 @@ class RangeTargetGame:
             return None
 
         return None
-
-    # ------------------------------------------------------------
-    # Update
-    # ------------------------------------------------------------
 
     def update(self, dt: float):
         keys = pygame.key.get_pressed()
@@ -276,10 +208,6 @@ class RangeTargetGame:
         )
 
         return None
-
-    # ------------------------------------------------------------
-    # Render
-    # ------------------------------------------------------------
 
     def _render_background(self, screen: pygame.Surface) -> None:
         if self.background_scaled is None:
@@ -321,7 +249,7 @@ class RangeTargetGame:
         geometry = self._geometry()
         fits = self._target_fits_height_at_distance(self.state.distance_m)
 
-        panel = pygame.Surface((380, 128), pygame.SRCALPHA)
+        panel = pygame.Surface((430, 138), pygame.SRCALPHA)
         panel.fill(HUD_BG)
 
         distance_text = self.font.render(
@@ -347,10 +275,21 @@ class RangeTargetGame:
         )
         panel.blit(setup_text, (18, 72))
 
-        fit_msg = "Helfigur får plats" if fits else "Helfigur får ej plats vid detta avstånd"
+        edge_text = self.small_font.render(
+            f"Viewport underkant: {geometry.viewport_bottom_world_cm:.0f} cm över mark",
+            True,
+            SOFT,
+        )
+        panel.blit(edge_text, (18, 94))
+
+        fit_msg = (
+            "Helfigur får plats"
+            if fits
+            else "Helfigur får ej plats vid detta avstånd"
+        )
         fit_color = SOFT if fits else WARN
         fit_text = self.small_font.render(fit_msg, True, fit_color)
-        panel.blit(fit_text, (18, 96))
+        panel.blit(fit_text, (18, 116))
 
         screen.blit(panel, (self.viewport.x + 16, self.viewport.y + 16))
 

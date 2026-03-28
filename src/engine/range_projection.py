@@ -10,6 +10,7 @@ class RangeProjectionGeometry:
     wall_distance_m: float
     viewport_physical_width_cm: float
     viewport_physical_height_cm: float
+    viewport_bottom_world_cm: float
 
 
 def clamp_distance_m(
@@ -32,12 +33,6 @@ def depth_ratio(
     virtual_distance_m: float,
     wall_distance_m: float,
 ) -> float:
-    """
-    Gemensam djupfaktor för hela projektionen.
-
-    Vid distance == wall_distance blir ratio == 1.0
-    Vid större avstånd går ratio asymptotiskt mot 0.
-    """
     z = _safe_distance_m(virtual_distance_m)
     wall = _safe_wall_distance_m(wall_distance_m)
     return wall / z
@@ -48,10 +43,6 @@ def projected_size_on_wall_cm(
     virtual_distance_m: float,
     wall_distance_m: float,
 ) -> float:
-    """
-    Likformiga trianglar:
-    size_on_wall = real_size * wall_distance / virtual_distance
-    """
     return float(real_size_cm) * depth_ratio(
         virtual_distance_m=virtual_distance_m,
         wall_distance_m=wall_distance_m,
@@ -74,6 +65,13 @@ def cm_to_viewport_px_y(
 ) -> float:
     viewport_physical_height_cm = max(0.01, float(viewport_physical_height_cm))
     return (float(size_cm) / viewport_physical_height_cm) * viewport.h
+
+
+def viewport_top_world_cm(geometry: RangeProjectionGeometry) -> float:
+    return (
+        float(geometry.viewport_bottom_world_cm)
+        + float(geometry.viewport_physical_height_cm)
+    )
 
 
 def projected_target_height_px(
@@ -100,9 +98,6 @@ def projected_lateral_offset_px(
     viewport: pygame.Rect,
     geometry: RangeProjectionGeometry,
 ) -> float:
-    """
-    Sidled följer samma djupfaktor som storleken.
-    """
     offset_on_wall_cm = projected_size_on_wall_cm(
         real_size_cm=float(world_lateral_offset_m) * 100.0,
         virtual_distance_m=virtual_distance_m,
@@ -115,49 +110,69 @@ def projected_lateral_offset_px(
     )
 
 
-def projected_ground_anchor_y_px(
-    distance_m: float,
-    viewport: pygame.Rect,
+def project_world_height_to_wall_cm(
+    world_height_cm: float,
+    virtual_distance_m: float,
     geometry: RangeProjectionGeometry,
-    *,
-    near_ground_y_norm: float = 0.94,
-    horizon_y_norm: float = 0.43,
 ) -> float:
-    """
-    Fotpunkten rör sig mot horisonten med samma depth_ratio som resten.
-
-    Detta är mer sammanhållet än att interpolera mellan ett near- och far-läge
-    med en separat kurva.
-    """
-    ratio = depth_ratio(
-        virtual_distance_m=distance_m,
+    return projected_size_on_wall_cm(
+        real_size_cm=world_height_cm,
+        virtual_distance_m=virtual_distance_m,
         wall_distance_m=geometry.wall_distance_m,
     )
-    ratio = max(0.0, min(1.0, ratio))
 
-    y_norm = horizon_y_norm + (near_ground_y_norm - horizon_y_norm) * ratio
+
+def world_height_to_screen_y_px(
+    world_height_cm: float,
+    virtual_distance_m: float,
+    viewport: pygame.Rect,
+    geometry: RangeProjectionGeometry,
+) -> float:
+    """
+    Mappar en världshöjd över mark till en pixel-y inne i viewportens
+    fysiska intervall på väggen.
+
+    Exempel:
+    - viewport_bottom_world_cm = 105
+    - viewport_physical_height_cm = 70
+    Då motsvarar viewporten vägghöjderna 105..175 cm över mark.
+    """
+    wall_height_cm = project_world_height_to_wall_cm(
+        world_height_cm=world_height_cm,
+        virtual_distance_m=virtual_distance_m,
+        geometry=geometry,
+    )
+
+    bottom_cm = float(geometry.viewport_bottom_world_cm)
+    top_cm = viewport_top_world_cm(geometry)
+    span_cm = max(0.01, top_cm - bottom_cm)
+
+    y_norm = 1.0 - ((wall_height_cm - bottom_cm) / span_cm)
     return viewport.y + (y_norm * viewport.h)
 
 
-def projected_centerline_x_px(
-    distance_m: float,
+def figure_top_y_px(
+    figure_height_cm: float,
+    virtual_distance_m: float,
     viewport: pygame.Rect,
     geometry: RangeProjectionGeometry,
-    *,
-    near_center_x_norm: float = 0.56,
-    vanishing_x_norm: float = 0.52,
 ) -> float:
-    """
-    Baslinjen som figuren rör sig längs i bakgrunden.
-
-    Vid nära håll ligger den vid near_center_x_norm.
-    På långt håll konvergerar den mot vanishing_x_norm.
-    """
-    ratio = depth_ratio(
-        virtual_distance_m=distance_m,
-        wall_distance_m=geometry.wall_distance_m,
+    return world_height_to_screen_y_px(
+        world_height_cm=figure_height_cm,
+        virtual_distance_m=virtual_distance_m,
+        viewport=viewport,
+        geometry=geometry,
     )
-    ratio = max(0.0, min(1.0, ratio))
 
-    x_norm = vanishing_x_norm + (near_center_x_norm - vanishing_x_norm) * ratio
-    return viewport.x + (x_norm * viewport.w)
+
+def figure_foot_y_px(
+    virtual_distance_m: float,
+    viewport: pygame.Rect,
+    geometry: RangeProjectionGeometry,
+) -> float:
+    return world_height_to_screen_y_px(
+        world_height_cm=0.0,
+        virtual_distance_m=virtual_distance_m,
+        viewport=viewport,
+        geometry=geometry,
+    )

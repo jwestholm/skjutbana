@@ -113,7 +113,6 @@ def save_viewport_rect(rect: pygame.Rect) -> None:
 def load_scanport_rect() -> pygame.Rect | None:
     data = _load_settings_dict()
 
-    # Stöd både äldre "scanport" och nyare "scanport_rect"
     rect = _rect_from_value(data.get("scanport"))
     if rect is None:
         rect = _rect_from_value(data.get("scanport_rect"))
@@ -137,12 +136,7 @@ def save_scanport_rect(rect: pygame.Rect) -> None:
 # --------------------------------------------------------------------
 
 def load_content_rect() -> pygame.Rect:
-    """
-    Rektangeln där själva bilden/videon/tavlan faktiskt visas i appen.
-    Om ingen content_rect finns sparad används viewporten som fallback.
-    """
-    data = _load_settings_dict()
-    rect = _rect_from_value(data.get("content_rect"))
+    rect = _rect_from_value(_load_settings_dict().get("content_rect"))
     if rect is not None:
         return _sanitize_content_rect(rect)
 
@@ -167,8 +161,7 @@ def clear_content_rect() -> None:
 # --------------------------------------------------------------------
 
 def load_camera_calibration() -> dict | None:
-    data = _load_settings_dict()
-    calibration = data.get("camera_calibration")
+    calibration = _load_settings_dict().get("camera_calibration")
     if isinstance(calibration, dict):
         return calibration
     return None
@@ -215,8 +208,7 @@ def save_visual_hits_settings(settings: dict) -> None:
 
 
 def load_visual_hits_enabled() -> bool:
-    settings = load_visual_hits_settings()
-    return bool(settings.get("enabled", True))
+    return bool(load_visual_hits_settings().get("enabled", True))
 
 
 def save_visual_hits_enabled(enabled: bool) -> None:
@@ -224,8 +216,7 @@ def save_visual_hits_enabled(enabled: bool) -> None:
 
 
 def load_visual_hits_mode() -> str:
-    settings = load_visual_hits_settings()
-    mode = str(settings.get("mode", "fade")).strip().lower()
+    mode = str(load_visual_hits_settings().get("mode", "fade")).strip().lower()
     if mode not in ("fade", "persistent"):
         mode = "fade"
     return mode
@@ -239,9 +230,8 @@ def save_visual_hits_mode(mode: str) -> None:
 
 
 def load_visual_hits_lifetime_ms() -> int:
-    settings = load_visual_hits_settings()
     try:
-        value = int(settings.get("lifetime_ms", 900))
+        value = int(load_visual_hits_settings().get("lifetime_ms", 900))
     except Exception:
         value = 900
     return max(0, value)
@@ -252,9 +242,8 @@ def save_visual_hits_lifetime_ms(lifetime_ms: int) -> None:
 
 
 def load_visual_hits_radius() -> int:
-    settings = load_visual_hits_settings()
     try:
-        value = int(settings.get("radius", 18))
+        value = int(load_visual_hits_settings().get("radius", 18))
     except Exception:
         value = 18
     return max(1, value)
@@ -269,9 +258,7 @@ def save_visual_hits_radius(radius: int) -> None:
 # --------------------------------------------------------------------
 
 def _default_scanner_debug_dict() -> dict:
-    return {
-        "enabled": False,
-    }
+    return {"enabled": False}
 
 
 def load_scanner_debug_overlay_settings() -> dict:
@@ -296,8 +283,7 @@ def save_scanner_debug_overlay_settings(settings: dict) -> None:
 
 
 def load_scanner_debug_overlay_enabled() -> bool:
-    settings = load_scanner_debug_overlay_settings()
-    return bool(settings.get("enabled", False))
+    return bool(load_scanner_debug_overlay_settings().get("enabled", False))
 
 
 def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
@@ -321,7 +307,6 @@ def load_audio_peak_settings() -> dict:
     defaults = _default_audio_peak_dict()
 
     if not isinstance(value, dict):
-        # Bakåtkompatibilitet med den nyare förenklade varianten
         merged = defaults.copy()
         if "audio_peak_threshold" in data:
             try:
@@ -341,7 +326,6 @@ def save_audio_peak_settings(settings: dict) -> None:
     current.update(settings)
     data["audio_peak"] = current
 
-    # Håll även den förenklade nyckeln uppdaterad för kompatibilitet
     if "threshold" in current:
         data["audio_peak_threshold"] = float(current["threshold"])
 
@@ -349,12 +333,10 @@ def save_audio_peak_settings(settings: dict) -> None:
 
 
 def load_audio_peak_threshold() -> float:
-    settings = load_audio_peak_settings()
     try:
-        value = float(settings.get("threshold", 0.10))
+        value = float(load_audio_peak_settings().get("threshold", 0.10))
     except Exception:
         value = 0.10
-
     return max(0.005, min(0.95, value))
 
 
@@ -365,8 +347,7 @@ def save_audio_peak_threshold(threshold: float) -> None:
 
 
 def load_audio_status_overlay_enabled() -> bool:
-    settings = load_audio_peak_settings()
-    return bool(settings.get("show_status_overlay", True))
+    return bool(load_audio_peak_settings().get("show_status_overlay", True))
 
 
 def save_audio_status_overlay_enabled(enabled: bool) -> None:
@@ -382,6 +363,7 @@ def _default_range_projection_settings() -> dict:
         "wall_distance_m": 6.0,
         "viewport_physical_width_cm": 100.0,
         "viewport_physical_height_cm": 50.0,
+        "viewport_bottom_world_cm": 105.0,
     }
 
 
@@ -407,9 +389,8 @@ def save_range_projection_settings(settings: dict) -> None:
 
 
 def load_wall_distance_m() -> float:
-    settings = load_range_projection_settings()
     try:
-        value = float(settings.get("wall_distance_m", 6.0))
+        value = float(load_range_projection_settings().get("wall_distance_m", 6.0))
     except Exception:
         value = 6.0
     return max(0.1, value)
@@ -420,9 +401,10 @@ def save_wall_distance_m(value: float) -> None:
 
 
 def load_viewport_physical_width_cm() -> float:
-    settings = load_range_projection_settings()
     try:
-        value = float(settings.get("viewport_physical_width_cm", 100.0))
+        value = float(
+            load_range_projection_settings().get("viewport_physical_width_cm", 100.0)
+        )
     except Exception:
         value = 100.0
     return max(1.0, value)
@@ -435,9 +417,10 @@ def save_viewport_physical_width_cm(value: float) -> None:
 
 
 def load_viewport_physical_height_cm() -> float:
-    settings = load_range_projection_settings()
     try:
-        value = float(settings.get("viewport_physical_height_cm", 50.0))
+        value = float(
+            load_range_projection_settings().get("viewport_physical_height_cm", 50.0)
+        )
     except Exception:
         value = 50.0
     return max(1.0, value)
@@ -446,4 +429,20 @@ def load_viewport_physical_height_cm() -> float:
 def save_viewport_physical_height_cm(value: float) -> None:
     save_range_projection_settings(
         {"viewport_physical_height_cm": max(1.0, float(value))}
+    )
+
+
+def load_viewport_bottom_world_cm() -> float:
+    try:
+        value = float(
+            load_range_projection_settings().get("viewport_bottom_world_cm", 105.0)
+        )
+    except Exception:
+        value = 105.0
+    return max(-500.0, min(500.0, value))
+
+
+def save_viewport_bottom_world_cm(value: float) -> None:
+    save_range_projection_settings(
+        {"viewport_bottom_world_cm": max(-500.0, min(500.0, float(value)))}
     )
