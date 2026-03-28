@@ -41,8 +41,8 @@ def _save_settings_dict(data: dict) -> None:
 # Viewport
 # --------------------------------------------------------------------
 
-def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
-    min_w, min_h = 200, 200
+def _clamp_rect(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 50, 50
 
     rect.w = max(min_w, rect.w)
     rect.h = max(min_h, rect.h)
@@ -57,19 +57,43 @@ def load_viewport_rect() -> pygame.Rect:
 
     if isinstance(vp, list) and len(vp) == 4:
         try:
-            rect = pygame.Rect(*map(int, vp))
-            return _clamp_viewport(rect)
+            return _clamp_rect(pygame.Rect(*map(int, vp)))
         except Exception:
             pass
 
     x, y, w, h = config.DEFAULT_VIEWPORT
-    return _clamp_viewport(pygame.Rect(x, y, w, h))
+    return _clamp_rect(pygame.Rect(x, y, w, h))
 
 
 def save_viewport_rect(rect: pygame.Rect) -> None:
-    rect = _clamp_viewport(rect.copy())
+    rect = _clamp_rect(rect.copy())
     data = _load_settings_dict()
     data["viewport"] = [rect.x, rect.y, rect.w, rect.h]
+    _save_settings_dict(data)
+
+
+# --------------------------------------------------------------------
+# Content Rect (NY – fixar ditt fel)
+# --------------------------------------------------------------------
+
+def load_content_rect() -> pygame.Rect:
+    data = _load_settings_dict()
+    cr = data.get("content_rect")
+
+    if isinstance(cr, list) and len(cr) == 4:
+        try:
+            return _clamp_rect(pygame.Rect(*map(int, cr)))
+        except Exception:
+            pass
+
+    # fallback = hela skärmen
+    return pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+
+
+def save_content_rect(rect: pygame.Rect) -> None:
+    rect = _clamp_rect(rect.copy())
+    data = _load_settings_dict()
+    data["content_rect"] = [rect.x, rect.y, rect.w, rect.h]
     _save_settings_dict(data)
 
 
