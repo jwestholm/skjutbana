@@ -8,6 +8,10 @@ import pygame
 import config
 
 
+# --------------------------------------------------------------------
+# Core IO
+# --------------------------------------------------------------------
+
 def _settings_path() -> Path:
     return Path(getattr(config, "SETTINGS_PATH", "content/settings.json"))
 
@@ -33,6 +37,10 @@ def _save_settings_dict(data: dict) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+# --------------------------------------------------------------------
+# Viewport
+# --------------------------------------------------------------------
+
 def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
     min_w, min_h = 200, 200
 
@@ -45,11 +53,11 @@ def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
 
 def load_viewport_rect() -> pygame.Rect:
     data = _load_settings_dict()
-    vp = data.get("viewport", None)
+    vp = data.get("viewport")
 
     if isinstance(vp, list) and len(vp) == 4:
         try:
-            rect = pygame.Rect(int(vp[0]), int(vp[1]), int(vp[2]), int(vp[3]))
+            rect = pygame.Rect(*map(int, vp))
             return _clamp_viewport(rect)
         except Exception:
             pass
@@ -66,29 +74,37 @@ def save_viewport_rect(rect: pygame.Rect) -> None:
 
 
 # --------------------------------------------------------------------
-# Audio peak settings
+# Audio Peak
 # --------------------------------------------------------------------
 
 def load_audio_peak_threshold() -> float:
     data = _load_settings_dict()
-
-    try:
-        value = float(data.get("audio_peak_threshold", 0.12))
-    except Exception:
-        value = 0.12
-
-    return max(0.005, min(0.95, value))
+    return float(data.get("audio_peak_threshold", 0.12))
 
 
 def save_audio_peak_threshold(value: float) -> None:
     data = _load_settings_dict()
-    clamped = max(0.005, min(0.95, float(value)))
-    data["audio_peak_threshold"] = clamped
+    data["audio_peak_threshold"] = float(value)
     _save_settings_dict(data)
 
 
 # --------------------------------------------------------------------
-# Range / distance projection settings
+# Camera Calibration
+# --------------------------------------------------------------------
+
+def load_camera_calibration() -> dict:
+    data = _load_settings_dict()
+    return data.get("camera_calibration", {})
+
+
+def save_camera_calibration(calibration: dict) -> None:
+    data = _load_settings_dict()
+    data["camera_calibration"] = calibration
+    _save_settings_dict(data)
+
+
+# --------------------------------------------------------------------
+# Range Projection
 # --------------------------------------------------------------------
 
 def _default_range_projection_settings() -> dict:
@@ -121,49 +137,24 @@ def save_range_projection_settings(settings: dict) -> None:
 
 
 def load_wall_distance_m() -> float:
-    settings = load_range_projection_settings()
-
-    try:
-        value = float(settings.get("wall_distance_m", 6.0))
-    except Exception:
-        value = 6.0
-
-    return max(0.1, value)
+    return float(load_range_projection_settings().get("wall_distance_m", 6.0))
 
 
 def save_wall_distance_m(value: float) -> None:
-    save_range_projection_settings({"wall_distance_m": max(0.1, float(value))})
+    save_range_projection_settings({"wall_distance_m": float(value)})
 
 
 def load_viewport_physical_width_cm() -> float:
-    settings = load_range_projection_settings()
-
-    try:
-        value = float(settings.get("viewport_physical_width_cm", 100.0))
-    except Exception:
-        value = 100.0
-
-    return max(1.0, value)
+    return float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
 
 
 def save_viewport_physical_width_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_width_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_width_cm": float(value)})
 
 
 def load_viewport_physical_height_cm() -> float:
-    settings = load_range_projection_settings()
-
-    try:
-        value = float(settings.get("viewport_physical_height_cm", 50.0))
-    except Exception:
-        value = 50.0
-
-    return max(1.0, value)
+    return float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
 
 
 def save_viewport_physical_height_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_height_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_height_cm": float(value)})
