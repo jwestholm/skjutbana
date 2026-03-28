@@ -3,7 +3,6 @@ from __future__ import annotations
 from src.engine.content_loader import MenuItem
 from src.engine.scenes.overlay_scene import OverlayScene
 
-
 def _wrap(scene):
     return OverlayScene(scene)
 
@@ -48,5 +47,9 @@ def build_scene_from_item(item: MenuItem):
     if item.type == "audio_peak_settings":
         from src.engine.scenes.audio_peak_settings import AudioPeakSettingsScene
         return AudioPeakSettingsScene(bg_color=item.bg_color)
+
+    if scene_type == "physical_setup_settings":
+        from src.engine.scenes.physical_setup_settings import PhysicalSetupSettingsScene
+        return PhysicalSetupSettingsScene()
 
     raise ValueError(f"Unknown item type: {item.type}")
