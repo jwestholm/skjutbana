@@ -13,12 +13,12 @@ from src.engine.settings import (
 )
 from src.engine.scenes.menu import MenuScene
 
-
 WHITE = (240, 240, 240)
 SOFT = (190, 190, 190)
 YELLOW = (255, 220, 80)
 GREEN = (120, 255, 120)
 RED = (255, 120, 120)
+
 PANEL_BG = (0, 0, 0, 170)
 HILITE_BG = (255, 255, 255, 28)
 
@@ -33,11 +33,11 @@ class PhysicalSetupSettingsScene(Scene):
     - Viewportens verkliga höjd
 
     Kontroller:
-    - UP / DOWN      välj rad
-    - LEFT / RIGHT   minska / öka värde
-    - SHIFT          större steg
-    - R              återställ defaults
-    - ESC            tillbaka till menyn
+    - UP / DOWN välj rad
+    - LEFT / RIGHT minska / öka värde
+    - SHIFT större steg
+    - R återställ defaults
+    - ESC tillbaka till menyn
     """
 
     wants_hit_scanning = False
@@ -50,7 +50,6 @@ class PhysicalSetupSettingsScene(Scene):
 
         self.selected_index = 0
         self.status_message = ""
-
         self.fields: list[dict] = []
 
     # ------------------------------------------------------------
@@ -58,10 +57,9 @@ class PhysicalSetupSettingsScene(Scene):
     # ------------------------------------------------------------
 
     def on_enter(self) -> None:
-        self.font_title = pygame.font.Font(None, 52)
-        self.font_body = pygame.font.Font(None, 34)
-        self.font_small = pygame.font.Font(None, 26)
-
+        self.font_title = pygame.font.Font(None, 44)
+        self.font_body = pygame.font.Font(None, 30)
+        self.font_small = pygame.font.Font(None, 22)
         self._reload_fields()
         self.status_message = "Ändringarna sparas direkt."
 
@@ -118,16 +116,23 @@ class PhysicalSetupSettingsScene(Scene):
     def _adjust_selected(self, direction: int, large_step: bool) -> None:
         field = self._selected_field()
         step = field["large_step"] if large_step else field["small_step"]
+
         value = float(field["value"]) + (float(direction) * float(step))
         value = max(float(field["min"]), min(float(field["max"]), value))
+
         field["value"] = value
         field["save"](value)
-        self.status_message = f"Sparade: {field['label']} = {field['format'].format(value)} {field['unit']}"
+
+        self.status_message = (
+            f"Sparade: {field['label']} = "
+            f"{field['format'].format(value)} {field['unit']}"
+        )
 
     def _reset_defaults(self) -> None:
         for field in self.fields:
             field["value"] = float(field["default"])
             field["save"](field["value"])
+
         self.status_message = "Återställde fysisk setup till standardvärden."
         self._reload_fields()
 
@@ -184,64 +189,83 @@ class PhysicalSetupSettingsScene(Scene):
         if self.font_title is None or self.font_body is None or self.font_small is None:
             return
 
+        sw = screen.get_width()
+        sh = screen.get_height()
+
+        margin_x = 36
+        panel_x = margin_x
+        panel_y = 110
+        panel_w = min(720, sw - (margin_x * 2))
+        row_h = 58
+        panel_h = row_h * len(self.fields) + 20
+
         title = self.font_title.render("Fysisk setup", True, WHITE)
-        screen.blit(title, (48, 32))
+        screen.blit(title, (margin_x, 24))
 
         subtitle = self.font_small.render(
             "Globala motorinställningar för verklig skjutmiljö och projektion.",
             True,
             SOFT,
         )
-        screen.blit(subtitle, (50, 82))
-
-        panel_x = 44
-        panel_y = 128
-        panel_w = 820
-        row_h = 68
-        panel_h = row_h * len(self.fields) + 24
+        screen.blit(subtitle, (margin_x + 2, 66))
 
         panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (panel_x, panel_y))
 
         for i, field in enumerate(self.fields):
-            row_top = panel_y + 12 + i * row_h
+            row_top = panel_y + 10 + i * row_h
 
             if i == self.selected_index:
-                hilite = pygame.Surface((panel_w - 20, row_h - 8), pygame.SRCALPHA)
+                hilite = pygame.Surface((panel_w - 16, row_h - 6), pygame.SRCALPHA)
                 hilite.fill(HILITE_BG)
-                screen.blit(hilite, (panel_x + 10, row_top + 4))
+                screen.blit(hilite, (panel_x + 8, row_top + 3))
 
-            label_surf = self.font_body.render(field["label"], True, YELLOW if i == self.selected_index else WHITE)
-            screen.blit(label_surf, (panel_x + 18, row_top + 10))
+            label_color = YELLOW if i == self.selected_index else WHITE
+            label_surf = self.font_body.render(field["label"], True, label_color)
+            screen.blit(label_surf, (panel_x + 16, row_top + 8))
 
             value_text = f"{field['format'].format(field['value'])} {field['unit']}"
             value_surf = self.font_body.render(value_text, True, GREEN)
             value_rect = value_surf.get_rect()
-            value_rect.topright = (panel_x + panel_w - 18, row_top + 10)
+            value_rect.topright = (panel_x + panel_w - 16, row_top + 8)
             screen.blit(value_surf, value_rect)
 
             if i == self.selected_index:
-                hint = self.font_small.render("LEFT/RIGHT ändrar  •  SHIFT = större steg", True, SOFT)
-                screen.blit(hint, (panel_x + 18, row_top + 42))
+                hint = self.font_small.render(
+                    "LEFT/RIGHT ändrar  •  SHIFT = större steg",
+                    True,
+                    SOFT,
+                )
+                screen.blit(hint, (panel_x + 16, row_top + 34))
 
-        info_panel_y = panel_y + panel_h + 24
-        info_panel = pygame.Surface((820, 120), pygame.SRCALPHA)
+        info_panel_y = panel_y + panel_h + 18
+        info_panel_h = 100
+        info_panel = pygame.Surface((panel_w, info_panel_h), pygame.SRCALPHA)
         info_panel.fill(PANEL_BG)
-        screen.blit(info_panel, (44, info_panel_y))
+        screen.blit(info_panel, (panel_x, info_panel_y))
 
-        controls_1 = self.font_small.render("UP/DOWN = välj rad   LEFT/RIGHT = ändra värde", True, WHITE)
-        controls_2 = self.font_small.render("SHIFT = större steg   R = återställ standard   ESC = tillbaka", True, WHITE)
-        screen.blit(controls_1, (58, info_panel_y + 16))
-        screen.blit(controls_2, (58, info_panel_y + 44))
+        controls_1 = self.font_small.render(
+            "UP/DOWN = välj rad   LEFT/RIGHT = ändra värde",
+            True,
+            WHITE,
+        )
+        controls_2 = self.font_small.render(
+            "SHIFT = större steg   R = återställ standard   ESC = tillbaka",
+            True,
+            WHITE,
+        )
+
+        screen.blit(controls_1, (panel_x + 14, info_panel_y + 14))
+        screen.blit(controls_2, (panel_x + 14, info_panel_y + 38))
 
         status_color = GREEN if self.status_message else SOFT
         status = self.font_small.render(self.status_message or " ", True, status_color)
-        screen.blit(status, (58, info_panel_y + 80))
+        screen.blit(status, (panel_x + 14, info_panel_y + 66))
 
         footnote = self.font_small.render(
             "Används globalt av motorfunktioner som avståndsskalning och framtida ballistik.",
             True,
             SOFT,
         )
-        screen.blit(footnote, (48, screen.get_height() - 42))
+        screen.blit(footnote, (margin_x, sh - 34))
