@@ -41,32 +41,49 @@ def _save_settings_dict(data: dict) -> None:
 # Helpers
 # --------------------------------------------------------------------
 
-def _clamp_rect(rect: pygame.Rect) -> pygame.Rect:
-    rect.w = max(10, rect.w)
-    rect.h = max(10, rect.h)
+def _rect_from_value(value) -> pygame.Rect | None:
+    if isinstance(value, list) and len(value) == 4:
+        try:
+            return pygame.Rect(
+                int(value[0]),
+                int(value[1]),
+                int(value[2]),
+                int(value[3]),
+            )
+        except Exception:
+            return None
+    return None
+
+
+def _rect_to_list(rect: pygame.Rect) -> list[int]:
+    return [int(rect.x), int(rect.y), int(rect.w), int(rect.h)]
+
+
+def _clamp_viewport(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 200, 200
+    rect.w = max(min_w, rect.w)
+    rect.h = max(min_h, rect.h)
     rect.x = max(0, min(rect.x, config.SCREEN_WIDTH - rect.w))
     rect.y = max(0, min(rect.y, config.SCREEN_HEIGHT - rect.h))
     return rect
 
 
-def _load_rect(key: str, default: pygame.Rect) -> pygame.Rect:
-    data = _load_settings_dict()
-    raw = data.get(key)
-
-    if isinstance(raw, list) and len(raw) == 4:
-        try:
-            return _clamp_rect(pygame.Rect(*map(int, raw)))
-        except Exception:
-            pass
-
-    return default.copy()
+def _sanitize_scanport(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 50, 50
+    rect.x = max(0, rect.x)
+    rect.y = max(0, rect.y)
+    rect.w = max(min_w, rect.w)
+    rect.h = max(min_h, rect.h)
+    return rect
 
 
-def _save_rect(key: str, rect: pygame.Rect):
-    rect = _clamp_rect(rect.copy())
-    data = _load_settings_dict()
-    data[key] = [rect.x, rect.y, rect.w, rect.h]
-    _save_settings_dict(data)
+def _sanitize_content_rect(rect: pygame.Rect) -> pygame.Rect:
+    min_w, min_h = 1, 1
+    rect.w = max(min_w, rect.w)
+    rect.h = max(min_h, rect.h)
+    rect.x = max(0, rect.x)
+    rect.y = max(0, rect.y)
+    return rect
 
 
 # --------------------------------------------------------------------
@@ -74,79 +91,293 @@ def _save_rect(key: str, rect: pygame.Rect):
 # --------------------------------------------------------------------
 
 def load_viewport_rect() -> pygame.Rect:
+    data = _load_settings_dict()
+    rect = _rect_from_value(data.get("viewport"))
+    if rect is not None:
+        return _clamp_viewport(rect)
+
     x, y, w, h = config.DEFAULT_VIEWPORT
-    return _load_rect("viewport", pygame.Rect(x, y, w, h))
+    return _clamp_viewport(pygame.Rect(x, y, w, h))
 
 
-def save_viewport_rect(rect: pygame.Rect):
-    _save_rect("viewport", rect)
-
-
-# --------------------------------------------------------------------
-# Content Rect
-# --------------------------------------------------------------------
-
-def load_content_rect() -> pygame.Rect:
-    return _load_rect(
-        "content_rect",
-        pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
-    )
-
-
-def save_content_rect(rect: pygame.Rect):
-    _save_rect("content_rect", rect)
-
-
-# --------------------------------------------------------------------
-# Scanport Rect (NY – fixar ditt fel)
-# --------------------------------------------------------------------
-
-def load_scanport_rect() -> pygame.Rect:
-    return _load_rect(
-        "scanport_rect",
-        pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
-    )
-
-
-def save_scanport_rect(rect: pygame.Rect):
-    _save_rect("scanport_rect", rect)
-
-
-# --------------------------------------------------------------------
-# Audio Peak
-# --------------------------------------------------------------------
-
-def load_audio_peak_threshold() -> float:
+def save_viewport_rect(rect: pygame.Rect) -> None:
     data = _load_settings_dict()
-    return float(data.get("audio_peak_threshold", 0.12))
-
-
-def save_audio_peak_threshold(value: float):
-    data = _load_settings_dict()
-    data["audio_peak_threshold"] = float(value)
+    data["viewport"] = _rect_to_list(_clamp_viewport(rect.copy()))
     _save_settings_dict(data)
 
 
 # --------------------------------------------------------------------
-# Camera Calibration
+# Scanport
 # --------------------------------------------------------------------
 
-def load_camera_calibration() -> dict:
+def load_scanport_rect() -> pygame.Rect | None:
     data = _load_settings_dict()
-    return data.get("camera_calibration", {})
+
+    # Stöd både äldre "scanport" och nyare "scanport_rect"
+    rect = _rect_from_value(data.get("scanport"))
+    if rect is None:
+        rect = _rect_from_value(data.get("scanport_rect"))
+
+    if rect is None:
+        return None
+
+    return _sanitize_scanport(rect)
 
 
-def save_camera_calibration(calibration: dict):
+def save_scanport_rect(rect: pygame.Rect) -> None:
+    data = _load_settings_dict()
+    sanitized = _rect_to_list(_sanitize_scanport(rect.copy()))
+    data["scanport"] = sanitized
+    data["scanport_rect"] = sanitized
+    _save_settings_dict(data)
+
+
+# --------------------------------------------------------------------
+# Content rect
+# --------------------------------------------------------------------
+
+def load_content_rect() -> pygame.Rect:
+    """
+    Rektangeln där själva bilden/videon/tavlan faktiskt visas i appen.
+    Om ingen content_rect finns sparad används viewporten som fallback.
+    """
+    data = _load_settings_dict()
+    rect = _rect_from_value(data.get("content_rect"))
+    if rect is not None:
+        return _sanitize_content_rect(rect)
+
+    return load_viewport_rect().copy()
+
+
+def save_content_rect(rect: pygame.Rect) -> None:
+    data = _load_settings_dict()
+    data["content_rect"] = _rect_to_list(_sanitize_content_rect(rect.copy()))
+    _save_settings_dict(data)
+
+
+def clear_content_rect() -> None:
+    data = _load_settings_dict()
+    if "content_rect" in data:
+        del data["content_rect"]
+    _save_settings_dict(data)
+
+
+# --------------------------------------------------------------------
+# Camera calibration
+# --------------------------------------------------------------------
+
+def load_camera_calibration() -> dict | None:
+    data = _load_settings_dict()
+    calibration = data.get("camera_calibration")
+    if isinstance(calibration, dict):
+        return calibration
+    return None
+
+
+def save_camera_calibration(calibration: dict) -> None:
     data = _load_settings_dict()
     data["camera_calibration"] = calibration
     _save_settings_dict(data)
 
 
 # --------------------------------------------------------------------
-# Range Projection
+# Visual hits settings
 # --------------------------------------------------------------------
 
-def _default_range_projection_settings():
+def _default_visual_hits_dict() -> dict:
+    return {
+        "enabled": True,
+        "mode": "fade",
+        "lifetime_ms": 900,
+        "radius": 18,
+    }
+
+
+def load_visual_hits_settings() -> dict:
+    data = _load_settings_dict()
+    value = data.get("visual_hits")
+    defaults = _default_visual_hits_dict()
+
+    if not isinstance(value, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(value)
+    return merged
+
+
+def save_visual_hits_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_visual_hits_settings()
+    current.update(settings)
+    data["visual_hits"] = current
+    _save_settings_dict(data)
+
+
+def load_visual_hits_enabled() -> bool:
+    settings = load_visual_hits_settings()
+    return bool(settings.get("enabled", True))
+
+
+def save_visual_hits_enabled(enabled: bool) -> None:
+    save_visual_hits_settings({"enabled": bool(enabled)})
+
+
+def load_visual_hits_mode() -> str:
+    settings = load_visual_hits_settings()
+    mode = str(settings.get("mode", "fade")).strip().lower()
+    if mode not in ("fade", "persistent"):
+        mode = "fade"
+    return mode
+
+
+def save_visual_hits_mode(mode: str) -> None:
+    mode = str(mode).strip().lower()
+    if mode not in ("fade", "persistent"):
+        mode = "fade"
+    save_visual_hits_settings({"mode": mode})
+
+
+def load_visual_hits_lifetime_ms() -> int:
+    settings = load_visual_hits_settings()
+    try:
+        value = int(settings.get("lifetime_ms", 900))
+    except Exception:
+        value = 900
+    return max(0, value)
+
+
+def save_visual_hits_lifetime_ms(lifetime_ms: int) -> None:
+    save_visual_hits_settings({"lifetime_ms": max(0, int(lifetime_ms))})
+
+
+def load_visual_hits_radius() -> int:
+    settings = load_visual_hits_settings()
+    try:
+        value = int(settings.get("radius", 18))
+    except Exception:
+        value = 18
+    return max(1, value)
+
+
+def save_visual_hits_radius(radius: int) -> None:
+    save_visual_hits_settings({"radius": max(1, int(radius))})
+
+
+# --------------------------------------------------------------------
+# Scanner debug overlay settings
+# --------------------------------------------------------------------
+
+def _default_scanner_debug_dict() -> dict:
+    return {
+        "enabled": False,
+    }
+
+
+def load_scanner_debug_overlay_settings() -> dict:
+    data = _load_settings_dict()
+    value = data.get("scanner_debug_overlay")
+    defaults = _default_scanner_debug_dict()
+
+    if not isinstance(value, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(value)
+    return merged
+
+
+def save_scanner_debug_overlay_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_scanner_debug_overlay_settings()
+    current.update(settings)
+    data["scanner_debug_overlay"] = current
+    _save_settings_dict(data)
+
+
+def load_scanner_debug_overlay_enabled() -> bool:
+    settings = load_scanner_debug_overlay_settings()
+    return bool(settings.get("enabled", False))
+
+
+def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
+    save_scanner_debug_overlay_settings({"enabled": bool(enabled)})
+
+
+# --------------------------------------------------------------------
+# Audio peak settings
+# --------------------------------------------------------------------
+
+def _default_audio_peak_dict() -> dict:
+    return {
+        "threshold": 0.10,
+        "show_status_overlay": True,
+    }
+
+
+def load_audio_peak_settings() -> dict:
+    data = _load_settings_dict()
+    value = data.get("audio_peak")
+    defaults = _default_audio_peak_dict()
+
+    if not isinstance(value, dict):
+        # Bakåtkompatibilitet med den nyare förenklade varianten
+        merged = defaults.copy()
+        if "audio_peak_threshold" in data:
+            try:
+                merged["threshold"] = float(data["audio_peak_threshold"])
+            except Exception:
+                pass
+        return merged
+
+    merged = defaults.copy()
+    merged.update(value)
+    return merged
+
+
+def save_audio_peak_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_audio_peak_settings()
+    current.update(settings)
+    data["audio_peak"] = current
+
+    # Håll även den förenklade nyckeln uppdaterad för kompatibilitet
+    if "threshold" in current:
+        data["audio_peak_threshold"] = float(current["threshold"])
+
+    _save_settings_dict(data)
+
+
+def load_audio_peak_threshold() -> float:
+    settings = load_audio_peak_settings()
+    try:
+        value = float(settings.get("threshold", 0.10))
+    except Exception:
+        value = 0.10
+
+    return max(0.005, min(0.95, value))
+
+
+def save_audio_peak_threshold(threshold: float) -> None:
+    save_audio_peak_settings(
+        {"threshold": max(0.005, min(0.95, float(threshold)))}
+    )
+
+
+def load_audio_status_overlay_enabled() -> bool:
+    settings = load_audio_peak_settings()
+    return bool(settings.get("show_status_overlay", True))
+
+
+def save_audio_status_overlay_enabled(enabled: bool) -> None:
+    save_audio_peak_settings({"show_status_overlay": bool(enabled)})
+
+
+# --------------------------------------------------------------------
+# Range projection settings
+# --------------------------------------------------------------------
+
+def _default_range_projection_settings() -> dict:
     return {
         "wall_distance_m": 6.0,
         "viewport_physical_width_cm": 100.0,
@@ -154,7 +385,7 @@ def _default_range_projection_settings():
     }
 
 
-def load_range_projection_settings():
+def load_range_projection_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("range_projection", {})
     defaults = _default_range_projection_settings()
@@ -167,7 +398,7 @@ def load_range_projection_settings():
     return merged
 
 
-def save_range_projection_settings(settings: dict):
+def save_range_projection_settings(settings: dict) -> None:
     data = _load_settings_dict()
     current = load_range_projection_settings()
     current.update(settings)
@@ -175,25 +406,44 @@ def save_range_projection_settings(settings: dict):
     _save_settings_dict(data)
 
 
-def load_wall_distance_m():
-    return float(load_range_projection_settings().get("wall_distance_m", 6.0))
+def load_wall_distance_m() -> float:
+    settings = load_range_projection_settings()
+    try:
+        value = float(settings.get("wall_distance_m", 6.0))
+    except Exception:
+        value = 6.0
+    return max(0.1, value)
 
 
-def save_wall_distance_m(value):
-    save_range_projection_settings({"wall_distance_m": float(value)})
+def save_wall_distance_m(value: float) -> None:
+    save_range_projection_settings({"wall_distance_m": max(0.1, float(value))})
 
 
-def load_viewport_physical_width_cm():
-    return float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
+def load_viewport_physical_width_cm() -> float:
+    settings = load_range_projection_settings()
+    try:
+        value = float(settings.get("viewport_physical_width_cm", 100.0))
+    except Exception:
+        value = 100.0
+    return max(1.0, value)
 
 
-def save_viewport_physical_width_cm(value):
-    save_range_projection_settings({"viewport_physical_width_cm": float(value)})
+def save_viewport_physical_width_cm(value: float) -> None:
+    save_range_projection_settings(
+        {"viewport_physical_width_cm": max(1.0, float(value))}
+    )
 
 
-def load_viewport_physical_height_cm():
-    return float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
+def load_viewport_physical_height_cm() -> float:
+    settings = load_range_projection_settings()
+    try:
+        value = float(settings.get("viewport_physical_height_cm", 50.0))
+    except Exception:
+        value = 50.0
+    return max(1.0, value)
 
 
-def save_viewport_physical_height_cm(value):
-    save_range_projection_settings({"viewport_physical_height_cm": float(value)})
+def save_viewport_physical_height_cm(value: float) -> None:
+    save_range_projection_settings(
+        {"viewport_physical_height_cm": max(1.0, float(value))}
+    )
