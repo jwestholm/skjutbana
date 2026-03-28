@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -15,5 +16,16 @@ def load_game_module(script_path: str):
         raise ImportError(f"Could not load spec for game script: {script_path}")
 
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+
+    # Viktigt för dataclasses + future annotations:
+    # modulen måste finnas i sys.modules innan exec_module körs.
+    sys.modules[module_name] = module
+
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        # städa upp om importen misslyckas
+        sys.modules.pop(module_name, None)
+        raise
+
     return module
