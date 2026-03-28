@@ -8,6 +8,7 @@ import pygame
 from src.engine.range_projection import (
     RangeProjectionGeometry,
     clamp_distance_m,
+    projected_centerline_x_px,
     projected_ground_anchor_y_px,
     projected_lateral_offset_px,
     projected_target_height_px,
@@ -31,7 +32,7 @@ class RangeTargetState:
 
 class RangeTargetGame:
     """
-    Enkel version av "helfigur på avstånd".
+    Helfigur på avstånd med sammanhållen perspektivmodell.
 
     Kontroller:
     - LEFT / RIGHT -> flytta figur i sidled
@@ -53,12 +54,18 @@ class RangeTargetGame:
         self.lateral_step_m = 0.25
         self.lateral_step_large_m = 1.0
 
-        # Antagen verklig höjd på figuren
+        # Verklig figurhöjd
         self.target_real_height_cm = 180.0
 
-        # Horisontell ankarpunkt i target-bilden.
-        # 0.5 = mitt i bilden. Justera vid behov om PNG:n inte är perfekt centrerad.
+        # Om PNG:n inte är perfekt centrerad kan denna trimmas lite, t.ex. 0.49 / 0.51
         self.target_anchor_x_norm = 0.5
+
+        # Bakgrundens "perspektivkaraktär"
+        # Dessa två värden styr vilken bana figuren följer genom scenen.
+        self.near_center_x_norm = 0.56
+        self.vanishing_x_norm = 0.52
+        self.near_ground_y_norm = 0.94
+        self.horizon_y_norm = 0.43
 
         self.background_surface: pygame.Surface | None = None
         self.background_scaled: pygame.Surface | None = None
@@ -106,7 +113,6 @@ class RangeTargetGame:
         if self.small_font is None:
             self.small_font = pygame.font.Font(None, 24)
 
-        # Se till att startavståndet aldrig ligger innanför väggplanet.
         geometry = self._geometry()
         self.state.distance_m = max(self.state.distance_m, geometry.wall_distance_m)
 
@@ -130,7 +136,6 @@ class RangeTargetGame:
         )
 
     def _min_distance_m(self) -> float:
-        # Närmast = står vid väggen/projektionsplanet.
         geometry = self._geometry()
         return max(0.1, float(geometry.wall_distance_m))
 
@@ -152,7 +157,9 @@ class RangeTargetGame:
         mods = pygame.key.get_mods()
         large_step = bool(mods & pygame.KMOD_SHIFT)
 
-        distance_step = self.distance_step_large_m if large_step else self.distance_step_m
+        distance_step = (
+            self.distance_step_large_m if large_step else self.distance_step_m
+        )
         lateral_step = self.lateral_step_large_m if large_step else self.lateral_step_m
 
         if event.key == pygame.K_UP:
@@ -233,25 +240,31 @@ class RangeTargetGame:
             (target_w_px, target_h_px),
         )
 
-        offset_x_px = projected_lateral_offset_px(
+        base_center_x = projected_centerline_x_px(
+            distance_m=self.state.distance_m,
+            viewport=self.viewport,
+            geometry=geometry,
+            near_center_x_norm=self.near_center_x_norm,
+            vanishing_x_norm=self.vanishing_x_norm,
+        )
+
+        lateral_px = projected_lateral_offset_px(
             world_lateral_offset_m=self.state.lateral_offset_m,
             virtual_distance_m=self.state.distance_m,
             viewport=self.viewport,
             geometry=geometry,
         )
 
-        # Världsankare: figurens fötter står på markplanet.
-        foot_x = self.viewport.centerx + offset_x_px
+        foot_x = base_center_x + lateral_px
+
         foot_y = projected_ground_anchor_y_px(
             distance_m=self.state.distance_m,
             viewport=self.viewport,
-            min_distance_m=self._min_distance_m(),
-            max_distance_m=self.max_distance_m,
-            near_ground_y_norm=0.92,
-            far_ground_y_norm=0.58,
+            geometry=geometry,
+            near_ground_y_norm=self.near_ground_y_norm,
+            horizon_y_norm=self.horizon_y_norm,
         )
 
-        # Rita från definierad fotankare i bilden, inte bara bildens mitt.
         anchor_x_px = target_w_px * self.target_anchor_x_norm
 
         draw_x = int(round(foot_x - anchor_x_px))
