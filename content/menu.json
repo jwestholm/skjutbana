@@ -43,7 +43,7 @@
           "bg_color": [0, 0, 0]
         },
         {
-          "id": "img_sniper2",
+          "id": "img_putin_trump",
           "type": "image",
           "title": "Putin och Trump",
           "description": "Amerikansk patron ur",
@@ -205,13 +205,14 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
-		  "title": "Skjutbana – Helfigur",
-		  "type": "game",
-		  "preview": "assets/games/range_target/background.png",
-		  "script": "content/games/range_target_game.py",
-		  "path": "assets/games/range_target"
-		}
+        {
+          "id": "range_target_game",
+          "title": "Skjutbana – Helfigur",
+          "type": "game",
+          "preview": "assets/games/range_target/background.png",
+          "script": "content/games/range_target_game.py",
+          "path": "assets/games/range_target"
+        }
       ]
     },
     {
@@ -280,26 +281,26 @@
           "fit": "contain",
           "bg_color": [0, 0, 0]
         },
-		{
-		  "id": "audio_peak_settings",
-		  "type": "audio_peak_settings",
-		  "title": "Ljud-peak / mikrofon",
-		  "description": "Visa ljudkurva live och justera peaknivån för skott-trigger.",
-		  "path": "",
-		  "preview": "assets/settings.png",
-		  "fit": "contain",
-		  "bg_color": [0, 0, 0]
-		},
-		{
-		  "id": "physical_setup_settings",
-		  "type": "physical_setup_settings",
-		  "title": "Fysisk setup",
-		  "description": "Inställningar för väggens höjd och avstånd etc.",
-		  "path": "",
-		  "preview": "assets/settings.png",
-		  "fit": "contain",
-		  "bg_color": [0, 0, 0]
-		}		
+        {
+          "id": "audio_peak_settings",
+          "type": "audio_peak_settings",
+          "title": "Ljud-peak / mikrofon",
+          "description": "Visa ljudkurva live och justera peaknivån för skott-trigger.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "physical_setup_settings",
+          "type": "physical_setup_settings",
+          "title": "Fysisk setup",
+          "description": "Inställningar för väggens höjd och avstånd etc.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
+        }
       ]
     }
   ]
