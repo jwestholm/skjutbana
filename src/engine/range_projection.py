@@ -43,6 +43,10 @@ def projected_size_on_wall_cm(
     virtual_distance_m: float,
     wall_distance_m: float,
 ) -> float:
+    """
+    Likformiga trianglar:
+    size_on_wall = real_size * wall_distance / virtual_distance
+    """
     return float(real_size_cm) * depth_ratio(
         virtual_distance_m=virtual_distance_m,
         wall_distance_m=wall_distance_m,
@@ -65,13 +69,6 @@ def cm_to_viewport_px_y(
 ) -> float:
     viewport_physical_height_cm = max(0.01, float(viewport_physical_height_cm))
     return (float(size_cm) / viewport_physical_height_cm) * viewport.h
-
-
-def viewport_top_world_cm(geometry: RangeProjectionGeometry) -> float:
-    return (
-        float(geometry.viewport_bottom_world_cm)
-        + float(geometry.viewport_physical_height_cm)
-    )
 
 
 def projected_target_height_px(
@@ -98,6 +95,9 @@ def projected_lateral_offset_px(
     viewport: pygame.Rect,
     geometry: RangeProjectionGeometry,
 ) -> float:
+    """
+    Sidled följer samma djupfaktor som storleken.
+    """
     offset_on_wall_cm = projected_size_on_wall_cm(
         real_size_cm=float(world_lateral_offset_m) * 100.0,
         virtual_distance_m=virtual_distance_m,
@@ -110,69 +110,42 @@ def projected_lateral_offset_px(
     )
 
 
-def project_world_height_to_wall_cm(
-    world_height_cm: float,
-    virtual_distance_m: float,
-    geometry: RangeProjectionGeometry,
-) -> float:
-    return projected_size_on_wall_cm(
-        real_size_cm=world_height_cm,
-        virtual_distance_m=virtual_distance_m,
-        wall_distance_m=geometry.wall_distance_m,
-    )
-
-
-def world_height_to_screen_y_px(
-    world_height_cm: float,
-    virtual_distance_m: float,
-    viewport: pygame.Rect,
-    geometry: RangeProjectionGeometry,
-) -> float:
+def near_ground_anchor_y_norm(geometry: RangeProjectionGeometry) -> float:
     """
-    Mappar en världshöjd över mark till en pixel-y inne i viewportens
-    fysiska intervall på väggen.
+    Fotpunktens normerade y-läge vid väggplanet.
 
     Exempel:
-    - viewport_bottom_world_cm = 105
-    - viewport_physical_height_cm = 70
-    Då motsvarar viewporten vägghöjderna 105..175 cm över mark.
+    - viewport height = 70 cm
+    - viewport bottom = 105 cm över mark
+    Då ligger marken 105 cm under viewportens nederkant.
+    Det blir 105 / 70 = 1.5 viewport-höjder under bilden.
+    Fotpunkten blir alltså vid y_norm = 1.0 + 1.5 = 2.5
     """
-    wall_height_cm = project_world_height_to_wall_cm(
-        world_height_cm=world_height_cm,
-        virtual_distance_m=virtual_distance_m,
-        geometry=geometry,
+    return 1.0 + (
+        float(geometry.viewport_bottom_world_cm)
+        / max(0.01, float(geometry.viewport_physical_height_cm))
     )
 
-    bottom_cm = float(geometry.viewport_bottom_world_cm)
-    top_cm = viewport_top_world_cm(geometry)
-    span_cm = max(0.01, top_cm - bottom_cm)
 
-    y_norm = 1.0 - ((wall_height_cm - bottom_cm) / span_cm)
+def projected_ground_anchor_y_px(
+    distance_m: float,
+    viewport: pygame.Rect,
+    geometry: RangeProjectionGeometry,
+    *,
+    horizon_y_norm: float = 0.5,
+) -> float:
+    """
+    Fotpunkten följer markplanet:
+    - vid väggplanet ligger den på near_ground_anchor_y_norm(...)
+    - längre bort går den mot horisonten
+    """
+    ratio = depth_ratio(
+        virtual_distance_m=distance_m,
+        wall_distance_m=geometry.wall_distance_m,
+    )
+    ratio = max(0.0, min(1.0, ratio))
+
+    near_y = near_ground_anchor_y_norm(geometry)
+    y_norm = horizon_y_norm + (near_y - horizon_y_norm) * ratio
+
     return viewport.y + (y_norm * viewport.h)
-
-
-def figure_top_y_px(
-    figure_height_cm: float,
-    virtual_distance_m: float,
-    viewport: pygame.Rect,
-    geometry: RangeProjectionGeometry,
-) -> float:
-    return world_height_to_screen_y_px(
-        world_height_cm=figure_height_cm,
-        virtual_distance_m=virtual_distance_m,
-        viewport=viewport,
-        geometry=geometry,
-    )
-
-
-def figure_foot_y_px(
-    virtual_distance_m: float,
-    viewport: pygame.Rect,
-    geometry: RangeProjectionGeometry,
-) -> float:
-    return world_height_to_screen_y_px(
-        world_height_cm=0.0,
-        virtual_distance_m=virtual_distance_m,
-        viewport=viewport,
-        geometry=geometry,
-    )

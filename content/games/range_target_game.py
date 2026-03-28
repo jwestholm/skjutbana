@@ -8,9 +8,9 @@ import pygame
 from src.engine.range_projection import (
     RangeProjectionGeometry,
     clamp_distance_m,
-    figure_foot_y_px,
-    figure_top_y_px,
+    projected_ground_anchor_y_px,
     projected_lateral_offset_px,
+    projected_target_height_px,
 )
 from src.engine.settings import load_range_projection_settings
 
@@ -30,12 +30,13 @@ class RangeTargetState:
 
 class RangeTargetGame:
     """
-    Helfigur baserad på fysisk projektion:
+    Helfigur på avstånd.
 
-    - origo = tavlan / väggen
-    - viewportens nederkant ligger på en fysisk höjd över mark
-    - gubben står på marken
-    - sidled skalas med djup
+    Ny modell:
+    - storlek = fysisk projektion
+    - fotpunkt = ground-plane-perspektiv
+    - närläge styrs av viewport_bottom_world_cm
+    - horisonten ligger i mitten
     """
 
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
@@ -45,19 +46,27 @@ class RangeTargetGame:
 
         self.max_distance_m = 600.0
 
+        # Kontinuerlig rörelse när tangenter hålls nere
         self.distance_speed_mps = 18.0
         self.distance_speed_fast_mps = 60.0
         self.lateral_speed_mps = 1.2
         self.lateral_speed_fast_mps = 3.5
 
+        # Verklig figurhöjd
         self.target_real_height_cm = 180.0
+
+        # PNG är maskad utan extra luft över/under
         self.target_anchor_x_norm = 0.5
 
-        # Finjustera vägens mitt här om den känns lite fel
+        # Horisonten enligt din beskrivning
+        self.horizon_y_norm = 0.5
+
+        # Vägens mitt i bilden
         self.center_x_norm = 0.548
 
-        # Liten visuell trim vid behov
+        # Liten justering så den inte känns för hårt krympande
         self.visual_scale_multiplier = 1.0
+        self.visual_scale_exponent = 0.97
 
         self.background_surface: pygame.Surface | None = None
         self.background_scaled: pygame.Surface | None = None
@@ -67,6 +76,10 @@ class RangeTargetGame:
         self.small_font: pygame.font.Font | None = None
 
         self._load_assets()
+
+    # ------------------------------------------------------------
+    # Assets
+    # ------------------------------------------------------------
 
     def _load_assets(self) -> None:
         bg_path = self.game_root / "background.png"
@@ -91,6 +104,10 @@ class RangeTargetGame:
             (self.viewport.w, self.viewport.h),
         )
 
+    # ------------------------------------------------------------
+    # Scene hooks
+    # ------------------------------------------------------------
+
     def on_enter(self) -> None:
         if self.font is None:
             self.font = pygame.font.Font(None, 40)
@@ -102,6 +119,10 @@ class RangeTargetGame:
 
     def on_exit(self) -> None:
         pass
+
+    # ------------------------------------------------------------
+    # Geometry / settings
+    # ------------------------------------------------------------
 
     def _geometry(self) -> RangeProjectionGeometry:
         settings = load_range_projection_settings()
@@ -129,23 +150,28 @@ class RangeTargetGame:
         )
         return projected_h_cm <= geometry.viewport_physical_height_cm
 
+    # ------------------------------------------------------------
+    # Projection helpers
+    # ------------------------------------------------------------
+
     def _target_height_px(self) -> int:
         geometry = self._geometry()
 
-        top_y = figure_top_y_px(
-            figure_height_cm=self.target_real_height_cm,
-            virtual_distance_m=self.state.distance_m,
-            viewport=self.viewport,
-            geometry=geometry,
-        )
-        foot_y = figure_foot_y_px(
+        base_h = projected_target_height_px(
+            real_height_cm=self.target_real_height_cm,
             virtual_distance_m=self.state.distance_m,
             viewport=self.viewport,
             geometry=geometry,
         )
 
-        h = (foot_y - top_y) * self.visual_scale_multiplier
-        return max(2, int(round(h)))
+        ratio = geometry.wall_distance_m / max(0.01, self.state.distance_m)
+        tuned_h = (
+            base_h
+            * self.visual_scale_multiplier
+            * (ratio ** (self.visual_scale_exponent - 1.0))
+        )
+
+        return max(2, int(round(tuned_h)))
 
     def _foot_position_px(self) -> tuple[float, float]:
         geometry = self._geometry()
@@ -160,12 +186,19 @@ class RangeTargetGame:
         )
 
         foot_x = base_x + lateral_px
-        foot_y = figure_foot_y_px(
-            virtual_distance_m=self.state.distance_m,
+
+        foot_y = projected_ground_anchor_y_px(
+            distance_m=self.state.distance_m,
             viewport=self.viewport,
             geometry=geometry,
+            horizon_y_norm=self.horizon_y_norm,
         )
+
         return foot_x, foot_y
+
+    # ------------------------------------------------------------
+    # Input
+    # ------------------------------------------------------------
 
     def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN:
@@ -181,6 +214,10 @@ class RangeTargetGame:
             return None
 
         return None
+
+    # ------------------------------------------------------------
+    # Update
+    # ------------------------------------------------------------
 
     def update(self, dt: float):
         keys = pygame.key.get_pressed()
@@ -208,6 +245,10 @@ class RangeTargetGame:
         )
 
         return None
+
+    # ------------------------------------------------------------
+    # Render
+    # ------------------------------------------------------------
 
     def _render_background(self, screen: pygame.Surface) -> None:
         if self.background_scaled is None:
