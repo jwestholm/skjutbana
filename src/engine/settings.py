@@ -38,63 +38,78 @@ def _save_settings_dict(data: dict) -> None:
 
 
 # --------------------------------------------------------------------
-# Viewport
+# Helpers
 # --------------------------------------------------------------------
 
 def _clamp_rect(rect: pygame.Rect) -> pygame.Rect:
-    min_w, min_h = 50, 50
-
-    rect.w = max(min_w, rect.w)
-    rect.h = max(min_h, rect.h)
+    rect.w = max(10, rect.w)
+    rect.h = max(10, rect.h)
     rect.x = max(0, min(rect.x, config.SCREEN_WIDTH - rect.w))
     rect.y = max(0, min(rect.y, config.SCREEN_HEIGHT - rect.h))
     return rect
 
 
-def load_viewport_rect() -> pygame.Rect:
+def _load_rect(key: str, default: pygame.Rect) -> pygame.Rect:
     data = _load_settings_dict()
-    vp = data.get("viewport")
+    raw = data.get(key)
 
-    if isinstance(vp, list) and len(vp) == 4:
+    if isinstance(raw, list) and len(raw) == 4:
         try:
-            return _clamp_rect(pygame.Rect(*map(int, vp)))
+            return _clamp_rect(pygame.Rect(*map(int, raw)))
         except Exception:
             pass
 
-    x, y, w, h = config.DEFAULT_VIEWPORT
-    return _clamp_rect(pygame.Rect(x, y, w, h))
+    return default.copy()
 
 
-def save_viewport_rect(rect: pygame.Rect) -> None:
+def _save_rect(key: str, rect: pygame.Rect):
     rect = _clamp_rect(rect.copy())
     data = _load_settings_dict()
-    data["viewport"] = [rect.x, rect.y, rect.w, rect.h]
+    data[key] = [rect.x, rect.y, rect.w, rect.h]
     _save_settings_dict(data)
 
 
 # --------------------------------------------------------------------
-# Content Rect (NY – fixar ditt fel)
+# Viewport
+# --------------------------------------------------------------------
+
+def load_viewport_rect() -> pygame.Rect:
+    x, y, w, h = config.DEFAULT_VIEWPORT
+    return _load_rect("viewport", pygame.Rect(x, y, w, h))
+
+
+def save_viewport_rect(rect: pygame.Rect):
+    _save_rect("viewport", rect)
+
+
+# --------------------------------------------------------------------
+# Content Rect
 # --------------------------------------------------------------------
 
 def load_content_rect() -> pygame.Rect:
-    data = _load_settings_dict()
-    cr = data.get("content_rect")
-
-    if isinstance(cr, list) and len(cr) == 4:
-        try:
-            return _clamp_rect(pygame.Rect(*map(int, cr)))
-        except Exception:
-            pass
-
-    # fallback = hela skärmen
-    return pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+    return _load_rect(
+        "content_rect",
+        pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
+    )
 
 
-def save_content_rect(rect: pygame.Rect) -> None:
-    rect = _clamp_rect(rect.copy())
-    data = _load_settings_dict()
-    data["content_rect"] = [rect.x, rect.y, rect.w, rect.h]
-    _save_settings_dict(data)
+def save_content_rect(rect: pygame.Rect):
+    _save_rect("content_rect", rect)
+
+
+# --------------------------------------------------------------------
+# Scanport Rect (NY – fixar ditt fel)
+# --------------------------------------------------------------------
+
+def load_scanport_rect() -> pygame.Rect:
+    return _load_rect(
+        "scanport_rect",
+        pygame.Rect(0, 0, config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
+    )
+
+
+def save_scanport_rect(rect: pygame.Rect):
+    _save_rect("scanport_rect", rect)
 
 
 # --------------------------------------------------------------------
@@ -106,7 +121,7 @@ def load_audio_peak_threshold() -> float:
     return float(data.get("audio_peak_threshold", 0.12))
 
 
-def save_audio_peak_threshold(value: float) -> None:
+def save_audio_peak_threshold(value: float):
     data = _load_settings_dict()
     data["audio_peak_threshold"] = float(value)
     _save_settings_dict(data)
@@ -121,7 +136,7 @@ def load_camera_calibration() -> dict:
     return data.get("camera_calibration", {})
 
 
-def save_camera_calibration(calibration: dict) -> None:
+def save_camera_calibration(calibration: dict):
     data = _load_settings_dict()
     data["camera_calibration"] = calibration
     _save_settings_dict(data)
@@ -131,7 +146,7 @@ def save_camera_calibration(calibration: dict) -> None:
 # Range Projection
 # --------------------------------------------------------------------
 
-def _default_range_projection_settings() -> dict:
+def _default_range_projection_settings():
     return {
         "wall_distance_m": 6.0,
         "viewport_physical_width_cm": 100.0,
@@ -139,7 +154,7 @@ def _default_range_projection_settings() -> dict:
     }
 
 
-def load_range_projection_settings() -> dict:
+def load_range_projection_settings():
     data = _load_settings_dict()
     raw = data.get("range_projection", {})
     defaults = _default_range_projection_settings()
@@ -152,7 +167,7 @@ def load_range_projection_settings() -> dict:
     return merged
 
 
-def save_range_projection_settings(settings: dict) -> None:
+def save_range_projection_settings(settings: dict):
     data = _load_settings_dict()
     current = load_range_projection_settings()
     current.update(settings)
@@ -160,25 +175,25 @@ def save_range_projection_settings(settings: dict) -> None:
     _save_settings_dict(data)
 
 
-def load_wall_distance_m() -> float:
+def load_wall_distance_m():
     return float(load_range_projection_settings().get("wall_distance_m", 6.0))
 
 
-def save_wall_distance_m(value: float) -> None:
+def save_wall_distance_m(value):
     save_range_projection_settings({"wall_distance_m": float(value)})
 
 
-def load_viewport_physical_width_cm() -> float:
+def load_viewport_physical_width_cm():
     return float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
 
 
-def save_viewport_physical_width_cm(value: float) -> None:
+def save_viewport_physical_width_cm(value):
     save_range_projection_settings({"viewport_physical_width_cm": float(value)})
 
 
-def load_viewport_physical_height_cm() -> float:
+def load_viewport_physical_height_cm():
     return float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
 
 
-def save_viewport_physical_height_cm(value: float) -> None:
+def save_viewport_physical_height_cm(value):
     save_range_projection_settings({"viewport_physical_height_cm": float(value)})
