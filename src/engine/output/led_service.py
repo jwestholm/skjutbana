@@ -1,197 +1,199 @@
 from __future__ import annotations
 
+import atexit
 import logging
-from typing import Optional
+import threading
+import time
+from dataclasses import dataclass
+from queue import Empty, Queue
+from typing import Any
 
-from .led_types import LedConnectionConfig, RgbColor
+from .deltaco_tuya_driver import DeltacoTuyaDriver
+from .led_types import LedConnectionConfig, LedMode, RgbColor
 
 log = logging.getLogger(__name__)
 
-try:
-    import tinytuya
-except Exception:  # pragma: no cover
-    tinytuya = None
+
+@dataclass(slots=True)
+class _Command:
+    name: str
+    args: tuple[Any, ...] = ()
 
 
-class DeltacoTuyaDriver:
+class LedService:
     """
-    Deltaco SH-LS3M via generisk Tuya Device + DPS.
+    Motorns publika LED-API.
 
-    Viktigt för denna enhet:
-    - version 3.3 används
-    - färger styrs via DPS
-    - anslutning sker bara när ett kommando faktiskt skickas
+    Viktigt:
+    - start() startar bara worker-tråden
+    - ingen nätverksanslutning vid programstart
+    - anslutning sker först när ett LED-kommando skickas
     """
 
-    DPS_SWITCH = "20"   # switch_led
-    DPS_MODE = "21"     # work_mode
-    DPS_BRIGHT = "22"   # bright_value
-    DPS_TEMP = "23"     # temp_value
-    DPS_COLOUR = "24"   # colour_data
+    def __init__(self) -> None:
+        self.config = LedConnectionConfig()
+        self.driver = DeltacoTuyaDriver(self.config)
 
-    def __init__(self, config: LedConnectionConfig) -> None:
-        self.config = config
-        self._device: Optional["tinytuya.Device"] = None
+        self._queue: Queue[_Command] = Queue()
+        self._thread: threading.Thread | None = None
+        self._running = False
+        self._last_error = ""
+        self._lock = threading.Lock()
+
+        self._default_mode: LedMode = self.config.default_mode
+        self._default_colour = self.config.default_colour
+        self._default_brightness = self.config.default_brightness
+        self._default_temperature = self.config.default_temperature
 
     # ---------------------------------------------------------
-    # connection
+    # lifecycle
     # ---------------------------------------------------------
 
-    def connect(self) -> None:
-        if tinytuya is None:
-            raise RuntimeError("tinytuya saknas. Installera med: pip install tinytuya")
+    def configure(self, config: LedConnectionConfig) -> None:
+        with self._lock:
+            self.driver.disconnect()
+            self.config = config
+            self.driver = DeltacoTuyaDriver(self.config)
+            self._default_mode = config.default_mode
+            self._default_colour = config.default_colour
+            self._default_brightness = config.default_brightness
+            self._default_temperature = config.default_temperature
 
-        if not self.config.is_configured():
-            raise RuntimeError("LED config saknar device_id / ip_address / local_key")
-
-        if self._device is not None:
+    def start(self) -> None:
+        if self._running:
             return
 
-        version = float(self.config.version or 3.3)
+        self._last_error = ""
+        self._running = True
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
+        atexit.register(self.stop)
 
-        log.info(
-            "LED: ansluter till %s med version %.1f",
-            self.config.ip_address,
-            version,
-        )
-
-        device = tinytuya.Device(
-            self.config.device_id,
-            self.config.ip_address,
-            self.config.local_key,
-        )
-        device.set_version(version)
-
-        try:
-            device.set_socketPersistent(True)
-        except Exception:
-            pass
-
-        status = device.status()
-        if not status:
-            raise RuntimeError("Tom status från LED-enheten")
-
-        self._device = device
-        log.info("LED: ansluten OK")
-
-    def disconnect(self) -> None:
-        if self._device is None:
+    def stop(self) -> None:
+        if not self._running:
+            self.driver.disconnect()
             return
 
-        try:
-            try:
-                self._device.set_socketPersistent(False)
-            except Exception:
-                pass
-        finally:
-            self._device = None
+        self._running = False
+        self._queue.put(_Command("stop"))
 
-    def is_connected(self) -> bool:
-        return self._device is not None
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
 
-    # ---------------------------------------------------------
-    # helpers
-    # ---------------------------------------------------------
+        self.driver.disconnect()
 
-    def _ensure_device(self) -> bool:
-        if self._device is not None:
-            return True
-
-        try:
-            self.connect()
-            return self._device is not None
-        except Exception:
-            log.exception("LED: kunde inte ansluta")
-            self._device = None
-            return False
-
-    def _set_value(self, dps: str, value) -> None:
-        if self._device is None:
-            return
-        self._device.set_value(dps, value)
-
-    @staticmethod
-    def _rgb_to_tuya_hsv_hex(color: RgbColor) -> str:
-        """
-        Tuya colour_data-format: HHHHSSSSVVVV (hex)
-        H = 0..360
-        S = 0..1000
-        V = 0..1000
-        """
-        c = color.clamped()
-        r = c.r / 255.0
-        g = c.g / 255.0
-        b = c.b / 255.0
-
-        mx = max(r, g, b)
-        mn = min(r, g, b)
-        diff = mx - mn
-
-        if diff == 0:
-            h = 0
-        elif mx == r:
-            h = (60 * ((g - b) / diff) + 360) % 360
-        elif mx == g:
-            h = (60 * ((b - r) / diff) + 120) % 360
-        else:
-            h = (60 * ((r - g) / diff) + 240) % 360
-
-        s = 0 if mx == 0 else int(round((diff / mx) * 1000))
-        v = int(round(mx * 1000))
-
-        h_i = max(0, min(360, int(round(h))))
-        s_i = max(0, min(1000, s))
-        v_i = max(0, min(1000, v))
-
-        return f"{h_i:04x}{s_i:04x}{v_i:04x}"
+    def reload(self, config: LedConnectionConfig) -> None:
+        self.configure(config)
 
     # ---------------------------------------------------------
-    # public control
+    # status
+    # ---------------------------------------------------------
+
+    def is_running(self) -> bool:
+        return self._running
+
+    def is_available(self) -> bool:
+        return self.driver.is_connected()
+
+    def get_last_error(self) -> str:
+        return self._last_error
+
+    # ---------------------------------------------------------
+    # public API
     # ---------------------------------------------------------
 
     def turn_on(self) -> None:
-        if not self._ensure_device():
-            return
-        try:
-            self._set_value(self.DPS_SWITCH, True)
-        except Exception:
-            log.exception("LED: turn_on misslyckades")
-            self._device = None
+        self._queue.put(_Command("turn_on"))
 
     def turn_off(self) -> None:
-        if not self._ensure_device():
-            return
-        try:
-            self._set_value(self.DPS_SWITCH, False)
-        except Exception:
-            log.exception("LED: turn_off misslyckades")
-            self._device = None
+        self._queue.put(_Command("turn_off"))
 
     def show_color(self, color: RgbColor) -> None:
-        if not self._ensure_device():
+        self._queue.put(_Command("show_color", (color,)))
+
+    def show_white(self, brightness: int = 1000, temperature: int = 500) -> None:
+        self._queue.put(_Command("show_white", (brightness, temperature)))
+
+    def flash(self, color: RgbColor, duration_s: float = 0.10) -> None:
+        self._queue.put(_Command("flash", (color, float(duration_s))))
+
+    def restore_default(self) -> None:
+        self._queue.put(_Command("restore_default"))
+
+    def show_red(self) -> None:
+        self.show_color(RgbColor(255, 0, 0))
+
+    def show_green(self) -> None:
+        self.show_color(RgbColor(0, 255, 0))
+
+    def show_blue(self) -> None:
+        self.show_color(RgbColor(0, 0, 255))
+
+    # ---------------------------------------------------------
+    # worker
+    # ---------------------------------------------------------
+
+    def _worker(self) -> None:
+        while self._running:
+            try:
+                cmd = self._queue.get(timeout=0.25)
+            except Empty:
+                continue
+
+            if cmd.name == "stop":
+                break
+
+            try:
+                self._handle_command(cmd)
+                self._last_error = ""
+            except Exception as exc:
+                self._last_error = str(exc)
+                log.exception("LED command failed: %s", cmd.name)
+
+    def _handle_command(self, cmd: _Command) -> None:
+        if not self.config.enabled and cmd.name not in ("turn_off",):
             return
 
-        try:
-            colour_data = self._rgb_to_tuya_hsv_hex(color)
-            self._set_value(self.DPS_SWITCH, True)
-            self._set_value(self.DPS_MODE, "colour")
-            self._set_value(self.DPS_COLOUR, colour_data)
-        except Exception:
-            log.exception("LED: show_color misslyckades")
-            self._device = None
-
-    def show_white(self, brightness: int, temperature: int) -> None:
-        if not self._ensure_device():
+        if cmd.name == "turn_on":
+            self.driver.turn_on()
             return
 
-        brightness = max(10, min(1000, int(brightness)))
-        temperature = max(0, min(1000, int(temperature)))
+        if cmd.name == "turn_off":
+            self.driver.turn_off()
+            return
 
-        try:
-            self._set_value(self.DPS_SWITCH, True)
-            self._set_value(self.DPS_MODE, "white")
-            self._set_value(self.DPS_BRIGHT, brightness)
-            self._set_value(self.DPS_TEMP, temperature)
-        except Exception:
-            log.exception("LED: show_white misslyckades")
-            self._device = None
+        if cmd.name == "show_color":
+            (color,) = cmd.args
+            self.driver.show_color(color)
+            return
+
+        if cmd.name == "show_white":
+            brightness, temperature = cmd.args
+            self.driver.show_white(brightness, temperature)
+            return
+
+        if cmd.name == "restore_default":
+            self._apply_default()
+            return
+
+        if cmd.name == "flash":
+            color, duration_s = cmd.args
+            self.driver.show_color(color)
+            time.sleep(max(0.0, float(duration_s)))
+            self._apply_default()
+            return
+
+    def _apply_default(self) -> None:
+        if self._default_mode == "white":
+            self.driver.show_white(
+                brightness=self._default_brightness,
+                temperature=self._default_temperature,
+            )
+        elif self._default_mode == "colour":
+            self.driver.show_color(self._default_colour)
+        else:
+            self.driver.turn_off()
+
+
+led_service = LedService()
