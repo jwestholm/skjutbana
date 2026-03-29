@@ -9,17 +9,19 @@ log = logging.getLogger(__name__)
 
 try:
     import tinytuya
-except Exception:
+except Exception:  # pragma: no cover
     tinytuya = None
 
 
 class DeltacoTuyaDriver:
     """
-    Robust driver för Deltaco/Tuya LED.
+    Robust driver för Deltaco/Tuya LED-strip.
 
-    - Testar flera versioner automatiskt
-    - Skyddar mot None-device
-    - Ger tydlig debug output
+    Mål:
+    - tåla att enheten tappar anslutning
+    - testa flera protokollversioner
+    - inte krascha om white-mode saknas eller strular
+    - kunna falla tillbaka till RGB-vit när white-mode inte fungerar
     """
 
     def __init__(self, config: LedConnectionConfig) -> None:
@@ -28,51 +30,59 @@ class DeltacoTuyaDriver:
         self._connected_version: Optional[float] = None
 
     # ---------------------------------------------------------
-    # Connection
+    # connection
     # ---------------------------------------------------------
 
     def connect(self) -> None:
         if tinytuya is None:
-            raise RuntimeError("tinytuya saknas. Kör: pip install tinytuya")
+            raise RuntimeError("tinytuya saknas. Installera med: pip install tinytuya")
 
         if not self.config.is_configured():
-            raise RuntimeError("LED config saknar device_id / ip / key")
+            raise RuntimeError("LED config saknar device_id / ip_address / local_key")
 
-        versions_to_try = [
-            float(self.config.version),
-            3.3,
-            3.4,
-            3.5,
-        ]
+        versions_to_try = [float(self.config.version), 3.3, 3.4, 3.5]
+        seen = set()
 
-        log.info("LED: försöker ansluta till %s", self.config.ip_address)
+        last_error: Exception | None = None
 
-        for version in dict.fromkeys(versions_to_try):  # remove duplicates
+        for version in versions_to_try:
+            if version in seen:
+                continue
+            seen.add(version)
+
             try:
+                log.info(
+                    "LED: försöker ansluta till %s med version %.1f",
+                    self.config.ip_address,
+                    version,
+                )
+
                 device = tinytuya.BulbDevice(
                     self.config.device_id,
                     self.config.ip_address,
                     self.config.local_key,
                 )
-
                 device.set_version(version)
                 device.set_socketPersistent(True)
 
-                # 🔥 TESTA anslutning
                 status = device.status()
+                if not status:
+                    raise RuntimeError("Tom status från enheten")
 
-                if status:
-                    self._device = device
-                    self._connected_version = version
-                    log.info("LED: ansluten med version %s", version)
-                    return
+                self._device = device
+                self._connected_version = version
+                log.info("LED: ansluten med version %.1f", version)
+                return
 
             except Exception as exc:
-                log.warning("LED: version %s failade: %s", version, exc)
+                last_error = exc
+                log.warning("LED: version %.1f misslyckades: %s", version, exc)
 
-        # Om vi hamnar här → inget funkade
         self._device = None
-        raise RuntimeError("Kunde inte ansluta till LED (alla versioner misslyckades)")
+        self._connected_version = None
+        raise RuntimeError(
+            f"Kunde inte ansluta till LED-enheten. Sista fel: {last_error}"
+        )
 
     def disconnect(self) -> None:
         if self._device is None:
@@ -81,42 +91,66 @@ class DeltacoTuyaDriver:
         try:
             self._device.set_socketPersistent(False)
         except Exception:
-            log.exception("LED: kunde inte stänga socket")
-
-        self._device = None
+            log.exception("LED: kunde inte stänga persistent socket")
+        finally:
+            self._device = None
+            self._connected_version = None
 
     def is_connected(self) -> bool:
         return self._device is not None
 
     # ---------------------------------------------------------
-    # Internal safe call
+    # internal helpers
     # ---------------------------------------------------------
 
     def _ensure_device(self) -> bool:
-        if self._device is None:
-            log.warning("LED: device ej ansluten")
+        if self._device is not None:
+            return True
+
+        try:
+            self.connect()
+            return self._device is not None
+        except Exception:
+            log.exception("LED: återanslutning misslyckades")
+            self._device = None
             return False
-        return True
+
+    def _set_mode_if_supported(self, mode: str) -> None:
+        if self._device is None:
+            return
+
+        try:
+            maybe_result = self._device.set_mode(mode)
+            # vissa implementationer kan returnera None utan att det är ett problem
+            _ = maybe_result
+        except AttributeError:
+            log.info("LED: set_mode stöds inte av denna enhet, fortsätter ändå")
+        except Exception:
+            log.exception("LED: set_mode(%s) misslyckades", mode)
 
     # ---------------------------------------------------------
-    # Public control
+    # public control
     # ---------------------------------------------------------
 
     def turn_on(self) -> None:
         if not self._ensure_device():
             return
+
         try:
             self._device.set_status(True)
         except Exception:
-            log.exception("LED turn_on failed")
+            log.exception("LED: turn_on misslyckades")
+            self._device = None
 
     def turn_off(self) -> None:
         if not self._ensure_device():
             return
+
         try:
             self._device.set_status(False)
         except Exception:
-            log.exception("LED turn_off failed")
+            log.exception("LED: turn_off misslyckades")
+            self._device = None
 
     def show_color(self, color: RgbColor) -> None:
         if not self._ensure_device():
@@ -126,35 +160,42 @@ class DeltacoTuyaDriver:
 
         try:
             self._device.set_status(True)
-
-            # ⚠️ vissa enheter kräver inte set_mode
-            try:
-                self._device.set_mode("colour")
-            except Exception:
-                pass
-
+            self._set_mode_if_supported("colour")
             self._device.set_colour(c.r, c.g, c.b)
-
         except Exception:
-            log.exception("LED show_color failed")
+            log.exception("LED: show_color misslyckades")
+            self._device = None
 
     def show_white(self, brightness: int, temperature: int) -> None:
-        if not self._ensure_device():
-            return
-
+        """
+        Försöker äkta white-mode först.
+        Om enheten inte stöder det eller anslutningen beter sig konstigt,
+        faller vi tillbaka till vanlig RGB-vit.
+        """
         brightness = max(10, min(1000, int(brightness)))
         temperature = max(0, min(1000, int(temperature)))
 
+        if not self._ensure_device():
+            return
+
         try:
             self._device.set_status(True)
+            self._set_mode_if_supported("white")
 
-            # ⚠️ fallback om set_mode inte finns
-            try:
-                self._device.set_mode("white")
-            except Exception:
-                pass
+            # Vissa enheter har inte set_white alls, eller beter sig annorlunda
+            set_white_fn = getattr(self._device, "set_white", None)
+            if callable(set_white_fn):
+                set_white_fn(brightness, temperature)
+                return
 
-            self._device.set_white(brightness, temperature)
+            log.info("LED: set_white saknas, fallback till RGB-vit")
+            self.show_color(RgbColor(255, 255, 255))
 
         except Exception:
-            log.exception("LED show_white failed")
+            log.exception("LED: show_white misslyckades, fallback till RGB-vit")
+            # Tappa inte hela device direkt; prova fallback
+            try:
+                self.show_color(RgbColor(255, 255, 255))
+            except Exception:
+                log.exception("LED: fallback RGB-vit misslyckades")
+                self._device = None
