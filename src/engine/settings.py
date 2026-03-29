@@ -86,6 +86,25 @@ def _sanitize_content_rect(rect: pygame.Rect) -> pygame.Rect:
     return rect
 
 
+def _parse_bool(value, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return fallback
+
+
+def _parse_str(value, fallback: str = "") -> str:
+    if value is None:
+        return fallback
+    return str(value)
+
+
+def _parse_float(value, fallback: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return fallback
+
+
 # --------------------------------------------------------------------
 # Viewport
 # --------------------------------------------------------------------
@@ -446,3 +465,119 @@ def save_viewport_bottom_world_cm(value: float) -> None:
     save_range_projection_settings(
         {"viewport_bottom_world_cm": max(-500.0, min(500.0, float(value)))}
     )
+
+
+# --------------------------------------------------------------------
+# LED settings
+# --------------------------------------------------------------------
+
+def _default_led_settings() -> dict:
+    return {
+        "enabled": False,
+        "device_id": "",
+        "ip_address": "",
+        "local_key": "",
+        "version": 3.3,
+        "default_mode": "white",
+        "default_brightness": 700,
+        "default_temperature": 450,
+        "default_colour": [255, 255, 255],
+    }
+
+
+def load_led_settings() -> dict:
+    data = _load_settings_dict()
+    raw = data.get("led")
+    defaults = _default_led_settings()
+
+    if not isinstance(raw, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(raw)
+
+    merged["enabled"] = _parse_bool(merged.get("enabled"), False)
+    merged["device_id"] = _parse_str(merged.get("device_id"), "")
+    merged["ip_address"] = _parse_str(merged.get("ip_address"), "")
+    merged["local_key"] = _parse_str(merged.get("local_key"), "")
+    merged["version"] = max(3.1, min(3.5, _parse_float(merged.get("version"), 3.3)))
+
+    try:
+        brightness = int(merged.get("default_brightness", 700))
+    except Exception:
+        brightness = 700
+    merged["default_brightness"] = max(10, min(1000, brightness))
+
+    try:
+        temperature = int(merged.get("default_temperature", 450))
+    except Exception:
+        temperature = 450
+    merged["default_temperature"] = max(0, min(1000, temperature))
+
+    color = merged.get("default_colour", [255, 255, 255])
+    if not (isinstance(color, list) and len(color) == 3):
+        color = [255, 255, 255]
+    merged["default_colour"] = [
+        max(0, min(255, int(color[0]))),
+        max(0, min(255, int(color[1]))),
+        max(0, min(255, int(color[2]))),
+    ]
+
+    mode = str(merged.get("default_mode", "white")).strip().lower()
+    if mode not in ("off", "white", "colour"):
+        mode = "white"
+    merged["default_mode"] = mode
+
+    return merged
+
+
+def save_led_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_led_settings()
+    current.update(settings)
+    data["led"] = current
+    _save_settings_dict(data)
+
+
+def load_led_enabled() -> bool:
+    return bool(load_led_settings().get("enabled", False))
+
+
+def save_led_enabled(enabled: bool) -> None:
+    save_led_settings({"enabled": bool(enabled)})
+
+
+def load_led_device_id() -> str:
+    return str(load_led_settings().get("device_id", ""))
+
+
+def save_led_device_id(value: str) -> None:
+    save_led_settings({"device_id": str(value)})
+
+
+def load_led_ip_address() -> str:
+    return str(load_led_settings().get("ip_address", ""))
+
+
+def save_led_ip_address(value: str) -> None:
+    save_led_settings({"ip_address": str(value)})
+
+
+def load_led_local_key() -> str:
+    return str(load_led_settings().get("local_key", ""))
+
+
+def save_led_local_key(value: str) -> None:
+    save_led_settings({"local_key": str(value)})
+
+
+def load_led_version() -> float:
+    try:
+        value = float(load_led_settings().get("version", 3.3))
+    except Exception:
+        value = 3.3
+    return max(3.1, min(3.5, value))
+
+
+def save_led_version(value: float) -> None:
+    save_led_settings({"version": max(3.1, min(3.5, float(value)))})

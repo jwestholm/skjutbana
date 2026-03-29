@@ -6,7 +6,10 @@ from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.camera.hit_scanner import hit_scanner
+from src.engine.output.led_service import led_service
+from src.engine.output.led_types import LedConnectionConfig, RgbColor
 from src.engine.scenes.loading import LoadingScene
+from src.engine.settings import load_led_settings
 
 
 class App:
@@ -23,10 +26,30 @@ class App:
         camera_manager.start()
         audio_peak_detector.start()
 
+        self._init_led_runtime()
+
         self.scene = LoadingScene()
         self.scene.on_enter()
+
         self._sync_runtime_services(force=True)
         self._update_window_caption()
+
+    def _init_led_runtime(self) -> None:
+        led_data = load_led_settings()
+        config = LedConnectionConfig(
+            enabled=bool(led_data.get("enabled", False)),
+            device_id=str(led_data.get("device_id", "")),
+            ip_address=str(led_data.get("ip_address", "")),
+            local_key=str(led_data.get("local_key", "")),
+            version=float(led_data.get("version", 3.3)),
+            default_mode=str(led_data.get("default_mode", "white")),
+            default_brightness=int(led_data.get("default_brightness", 700)),
+            default_temperature=int(led_data.get("default_temperature", 450)),
+            default_colour=RgbColor(*led_data.get("default_colour", [255, 255, 255])),
+        )
+
+        led_service.configure(config)
+        led_service.start()
 
     def quit(self) -> None:
         self.running = False
@@ -63,6 +86,7 @@ class App:
 
         self.scene.on_exit()
         hit_scanner.disable()
+        led_service.stop()
         audio_peak_detector.stop()
         camera_manager.stop()
         pygame.quit()

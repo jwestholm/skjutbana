@@ -300,6 +300,16 @@
           "preview": "assets/settings.png",
           "fit": "contain",
           "bg_color": [0, 0, 0]
+        },
+        {
+          "id": "led_settings",
+          "type": "led_settings",
+          "title": "LED-list / Deltaco WiFi",
+          "description": "Ställ in Device ID, IP, Local key och testa blå, grön, röd, vit, av/på.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0]
         }
       ]
     }

@@ -53,4 +53,8 @@ def build_scene_from_item(item: MenuItem):
         from src.engine.scenes.physical_setup_settings import PhysicalSetupSettingsScene
         return PhysicalSetupSettingsScene()
 
+    if item.type == "led_settings":
+        from src.engine.scenes.led_settings import LedSettingsScene
+        return LedSettingsScene(bg_color=item.bg_color)
+
     raise ValueError(f"Unknown item type: {item.type}")
