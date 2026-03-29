@@ -19,23 +19,6 @@ PANEL_BG = (0, 0, 0, 170)
 
 
 class LedSettingsScene(Scene):
-    """
-    LED-inställningar för Deltaco/Tuya-list.
-
-    Kontroller:
-    - UP / DOWN: välj rad
-    - ENTER:
-        * toggle på Enabled
-        * börja/avsluta textredigering på textfält
-        * kör test på test-rader
-        * spara på Save-rad
-    - BACKSPACE: radera vid textredigering
-    - ESC:
-        * avbryt redigering om textfält aktivt
-        * annars spara + tillbaka till meny
-    - LEFT / RIGHT: ändra version
-    """
-
     def __init__(self, bg_color=(0, 0, 0)) -> None:
         self.bg_color = tuple(bg_color)
         self.font = None
@@ -67,15 +50,11 @@ class LedSettingsScene(Scene):
 
         self.selected_index = 0
         self.editing_field = None
-        self.status_text = "Konfigurera LED-listen och testa färgerna."
+        self.status_text = "Konfigurera LED-listen och testa röd, grön, blå, vit, av/på."
         self.status_color = SOFT_WHITE
 
     def on_exit(self) -> None:
         pass
-
-    # ---------------------------------------------------------
-    # navigation
-    # ---------------------------------------------------------
 
     def _rows(self) -> list[dict]:
         return [
@@ -88,7 +67,7 @@ class LedSettingsScene(Scene):
             {"kind": "action", "key": "test_green", "label": "Test: grön", "value": ""},
             {"kind": "action", "key": "test_red", "label": "Test: röd", "value": ""},
             {"kind": "action", "key": "test_white", "label": "Test: vit", "value": ""},
-            {"kind": "action", "key": "test_on", "label": "Test: på / default", "value": ""},
+            {"kind": "action", "key": "test_on", "label": "Test: på", "value": ""},
             {"kind": "action", "key": "test_off", "label": "Test: av", "value": ""},
             {"kind": "action", "key": "save_back", "label": "Spara och tillbaka", "value": ""},
         ]
@@ -121,10 +100,6 @@ class LedSettingsScene(Scene):
         from src.engine.scenes.menu import MenuScene
         return SceneSwitch(MenuScene())
 
-    # ---------------------------------------------------------
-    # config + runtime
-    # ---------------------------------------------------------
-
     def _build_config(self, force_enabled: bool | None = None) -> LedConnectionConfig:
         enabled = self.enabled if force_enabled is None else bool(force_enabled)
         return LedConnectionConfig(
@@ -133,9 +108,9 @@ class LedSettingsScene(Scene):
             ip_address=self.ip_address.strip(),
             local_key=self.local_key.strip(),
             version=float(self.version),
-            default_mode="white",
-            default_brightness=700,
-            default_temperature=450,
+            default_mode="colour",
+            default_brightness=1000,
+            default_temperature=500,
             default_colour=RgbColor(255, 255, 255),
         )
 
@@ -147,17 +122,18 @@ class LedSettingsScene(Scene):
                 "ip_address": self.ip_address.strip(),
                 "local_key": self.local_key.strip(),
                 "version": float(self.version),
+                "default_mode": "colour",
+                "default_brightness": 1000,
+                "default_temperature": 500,
+                "default_colour": [255, 255, 255],
             }
         )
         led_service.reload(self._build_config())
+        self._set_status("LED-inställningar sparade.", GREEN)
 
     def _set_status(self, text: str, color=SOFT_WHITE) -> None:
         self.status_text = text
         self.status_color = color
-
-    # ---------------------------------------------------------
-    # tests
-    # ---------------------------------------------------------
 
     def _run_test(self, action_key: str) -> None:
         config = self._build_config(force_enabled=True)
@@ -168,44 +144,35 @@ class LedSettingsScene(Scene):
 
         led_service.reload(config)
 
-        if led_service.get_last_error():
-            self._set_status(f"LED-fel: {led_service.get_last_error()}", RED)
-            return
-
         if action_key == "test_blue":
-            led_service.show_color(RgbColor(0, 0, 255))
+            led_service.show_blue()
             self._set_status("Skickade blå testfärg.", BLUE)
             return
 
         if action_key == "test_green":
-            led_service.show_color(RgbColor(0, 255, 0))
+            led_service.show_green()
             self._set_status("Skickade grön testfärg.", GREEN)
             return
 
         if action_key == "test_red":
-            led_service.show_color(RgbColor(255, 0, 0))
+            led_service.show_red()
             self._set_status("Skickade röd testfärg.", RED)
             return
 
         if action_key == "test_white":
-            led_service.show_white(1000, 450)
+            led_service.show_white(1000, 500)
             self._set_status("Skickade vit testfärg.", WHITE)
             return
 
         if action_key == "test_on":
             led_service.turn_on()
-            led_service.restore_default()
-            self._set_status("Skickade ON/default.", GREEN)
+            self._set_status("Skickade ON.", GREEN)
             return
 
         if action_key == "test_off":
             led_service.turn_off()
             self._set_status("Skickade OFF.", GRAY)
             return
-
-    # ---------------------------------------------------------
-    # input
-    # ---------------------------------------------------------
 
     def handle_event(self, event: pygame.event.Event):
         rows = self._rows()
@@ -254,18 +221,21 @@ class LedSettingsScene(Scene):
 
         if kind == "version":
             if event.key == pygame.K_LEFT:
-                self.version = max(3.1, round(self.version - 0.1, 1))
+                self.version = max(3.3, round(self.version - 0.1, 1))
                 self._set_status(f"Version satt till {self.version:.1f}", SOFT_WHITE)
                 return None
             if event.key == pygame.K_RIGHT:
-                self.version = min(3.5, round(self.version + 0.1, 1))
+                self.version = min(3.3, round(self.version + 0.1, 1))
                 self._set_status(f"Version satt till {self.version:.1f}", SOFT_WHITE)
                 return None
 
         if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
             if kind == "bool" and key == "enabled":
                 self.enabled = not self.enabled
-                self._set_status(f"LED {'aktiverad' if self.enabled else 'avstängd'} i config.", GREEN if self.enabled else YELLOW)
+                self._set_status(
+                    f"LED {'aktiverad' if self.enabled else 'avstängd'} i config.",
+                    GREEN if self.enabled else YELLOW,
+                )
                 return None
 
             if kind == "text":
@@ -286,10 +256,6 @@ class LedSettingsScene(Scene):
     def update(self, dt: float):
         del dt
         return None
-
-    # ---------------------------------------------------------
-    # render
-    # ---------------------------------------------------------
 
     def render(self, screen: pygame.Surface) -> None:
         screen.fill(self.bg_color)
@@ -319,11 +285,7 @@ class LedSettingsScene(Scene):
             label = row["label"]
             value = row["value"]
 
-            if row["kind"] in ("bool", "text", "version"):
-                text = f"{prefix}{label}: {value}"
-            else:
-                text = f"{prefix}{label}"
-
+            text = f"{prefix}{label}: {value}" if row["kind"] in ("bool", "text", "version") else f"{prefix}{label}"
             surf = self.small.render(text, True, color)
             screen.blit(surf, (70, y))
             y += 36
@@ -345,9 +307,9 @@ class LedSettingsScene(Scene):
 
         help_lines = [
             "Tips:",
-            "- Device ID / Local key hämtas från Tuya/TinyTuya-setup.",
+            "- Version ska vara 3.3 för din SH-LS3M.",
             "- IP-adressen ska vara LED-kontrollerns lokala LAN-adress.",
-            "- Testknapparna använder den inmatade konfigurationen direkt.",
+            "- Motorn kan sedan använda led_service.show_color()/flash()/turn_on()/turn_off().",
         ]
 
         y = info_y + 108

@@ -42,9 +42,9 @@ class App:
             ip_address=str(led_data.get("ip_address", "")),
             local_key=str(led_data.get("local_key", "")),
             version=float(led_data.get("version", 3.3)),
-            default_mode=str(led_data.get("default_mode", "white")),
-            default_brightness=int(led_data.get("default_brightness", 700)),
-            default_temperature=int(led_data.get("default_temperature", 450)),
+            default_mode=str(led_data.get("default_mode", "colour")),
+            default_brightness=int(led_data.get("default_brightness", 1000)),
+            default_temperature=int(led_data.get("default_temperature", 500)),
             default_colour=RgbColor(*led_data.get("default_colour", [255, 255, 255])),
         )
 

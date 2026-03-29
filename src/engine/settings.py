@@ -478,9 +478,9 @@ def _default_led_settings() -> dict:
         "ip_address": "",
         "local_key": "",
         "version": 3.3,
-        "default_mode": "white",
-        "default_brightness": 700,
-        "default_temperature": 450,
+        "default_mode": "colour",
+        "default_brightness": 1000,
+        "default_temperature": 500,
         "default_colour": [255, 255, 255],
     }
 
@@ -500,32 +500,35 @@ def load_led_settings() -> dict:
     merged["device_id"] = _parse_str(merged.get("device_id"), "")
     merged["ip_address"] = _parse_str(merged.get("ip_address"), "")
     merged["local_key"] = _parse_str(merged.get("local_key"), "")
-    merged["version"] = max(3.1, min(3.5, _parse_float(merged.get("version"), 3.3)))
+
+    # För SH-LS3M ska vi låsa till 3.3
+    merged["version"] = 3.3
 
     try:
-        brightness = int(merged.get("default_brightness", 700))
+        brightness = int(merged.get("default_brightness", 1000))
     except Exception:
-        brightness = 700
+        brightness = 1000
     merged["default_brightness"] = max(10, min(1000, brightness))
 
     try:
-        temperature = int(merged.get("default_temperature", 450))
+        temperature = int(merged.get("default_temperature", 500))
     except Exception:
-        temperature = 450
+        temperature = 500
     merged["default_temperature"] = max(0, min(1000, temperature))
 
     color = merged.get("default_colour", [255, 255, 255])
     if not (isinstance(color, list) and len(color) == 3):
         color = [255, 255, 255]
+
     merged["default_colour"] = [
         max(0, min(255, int(color[0]))),
         max(0, min(255, int(color[1]))),
         max(0, min(255, int(color[2]))),
     ]
 
-    mode = str(merged.get("default_mode", "white")).strip().lower()
+    mode = str(merged.get("default_mode", "colour")).strip().lower()
     if mode not in ("off", "white", "colour"):
-        mode = "white"
+        mode = "colour"
     merged["default_mode"] = mode
 
     return merged
@@ -535,6 +538,7 @@ def save_led_settings(settings: dict) -> None:
     data = _load_settings_dict()
     current = load_led_settings()
     current.update(settings)
+    current["version"] = 3.3
     data["led"] = current
     _save_settings_dict(data)
 
@@ -572,12 +576,9 @@ def save_led_local_key(value: str) -> None:
 
 
 def load_led_version() -> float:
-    try:
-        value = float(load_led_settings().get("version", 3.3))
-    except Exception:
-        value = 3.3
-    return max(3.1, min(3.5, value))
+    return 3.3
 
 
 def save_led_version(value: float) -> None:
-    save_led_settings({"version": max(3.1, min(3.5, float(value)))})
+    del value
+    save_led_settings({"version": 3.3})
