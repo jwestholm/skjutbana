@@ -3,7 +3,7 @@ import tinytuya
 d = tinytuya.BulbDevice(
     "bf0057a91523c3c56bxtc4",
     "192.168.0.211",
-    "DIN_LOCAL_KEY"
+    "G!sq8!*Kp(D;veY1"
 )
 
 # TESTA dessa en i taget
