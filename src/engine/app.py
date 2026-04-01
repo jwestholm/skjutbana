@@ -32,6 +32,7 @@ class App:
         self.scene.on_enter()
 
         self._sync_runtime_services(force=True)
+        self._apply_scene_led()
         self._update_window_caption()
 
     def _init_led_runtime(self) -> None:
@@ -48,8 +49,24 @@ class App:
             default_colour=RgbColor(*led_data.get("default_colour", [255, 255, 255])),
         )
 
-        led_service.configure(config)
-        led_service.start()
+        try:
+            led_service.configure(config)
+            led_service.start()
+        except Exception:
+            pass
+
+    def _apply_scene_led(self) -> None:
+        try:
+            scene_led_enabled = bool(getattr(self.scene, "scene_led_enabled", False))
+            scene_led_color = tuple(getattr(self.scene, "scene_led_color", (255, 255, 255)))
+
+            if scene_led_enabled:
+                led_service.show_color(RgbColor(*scene_led_color))
+            else:
+                led_service.turn_off()
+        except Exception:
+            # LED ska aldrig kunna krascha appen
+            pass
 
     def quit(self) -> None:
         self.running = False
@@ -86,7 +103,12 @@ class App:
 
         self.scene.on_exit()
         hit_scanner.disable()
-        led_service.stop()
+
+        try:
+            led_service.stop()
+        except Exception:
+            pass
+
         audio_peak_detector.stop()
         camera_manager.stop()
         pygame.quit()
@@ -113,4 +135,5 @@ class App:
         self.scene = new_scene
         self.scene.on_enter()
         self._sync_runtime_services(force=True)
+        self._apply_scene_led()
         self._update_window_caption()

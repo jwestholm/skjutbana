@@ -28,6 +28,7 @@ class LedService:
     - start() startar bara worker-tråden
     - ingen nätverksanslutning vid programstart
     - anslutning sker först när ett LED-kommando skickas
+    - LED-fel ska inte krascha resten av programmet
     """
 
     def __init__(self) -> None:
@@ -45,13 +46,13 @@ class LedService:
         self._default_brightness = self.config.default_brightness
         self._default_temperature = self.config.default_temperature
 
-    # ---------------------------------------------------------
-    # lifecycle
-    # ---------------------------------------------------------
-
     def configure(self, config: LedConnectionConfig) -> None:
         with self._lock:
-            self.driver.disconnect()
+            try:
+                self.driver.disconnect()
+            except Exception:
+                pass
+
             self.config = config
             self.driver = DeltacoTuyaDriver(self.config)
             self._default_mode = config.default_mode
@@ -71,7 +72,10 @@ class LedService:
 
     def stop(self) -> None:
         if not self._running:
-            self.driver.disconnect()
+            try:
+                self.driver.disconnect()
+            except Exception:
+                pass
             return
 
         self._running = False
@@ -81,27 +85,25 @@ class LedService:
             self._thread.join(timeout=1.0)
             self._thread = None
 
-        self.driver.disconnect()
+        try:
+            self.driver.disconnect()
+        except Exception:
+            pass
 
     def reload(self, config: LedConnectionConfig) -> None:
         self.configure(config)
-
-    # ---------------------------------------------------------
-    # status
-    # ---------------------------------------------------------
 
     def is_running(self) -> bool:
         return self._running
 
     def is_available(self) -> bool:
-        return self.driver.is_connected()
+        try:
+            return self.driver.is_connected()
+        except Exception:
+            return False
 
     def get_last_error(self) -> str:
         return self._last_error
-
-    # ---------------------------------------------------------
-    # public API
-    # ---------------------------------------------------------
 
     def turn_on(self) -> None:
         self._queue.put(_Command("turn_on"))
@@ -130,10 +132,6 @@ class LedService:
     def show_blue(self) -> None:
         self.show_color(RgbColor(0, 0, 255))
 
-    # ---------------------------------------------------------
-    # worker
-    # ---------------------------------------------------------
-
     def _worker(self) -> None:
         while self._running:
             try:
@@ -155,45 +153,61 @@ class LedService:
         if not self.config.enabled and cmd.name not in ("turn_off",):
             return
 
-        if cmd.name == "turn_on":
-            self.driver.turn_on()
-            return
+        try:
+            if cmd.name == "turn_on":
+                self.driver.turn_on()
+                return
 
-        if cmd.name == "turn_off":
-            self.driver.turn_off()
-            return
+            if cmd.name == "turn_off":
+                self.driver.turn_off()
+                return
 
-        if cmd.name == "show_color":
-            (color,) = cmd.args
-            self.driver.show_color(color)
-            return
+            if cmd.name == "show_color":
+                (color,) = cmd.args
+                self.driver.show_color(color)
+                return
 
-        if cmd.name == "show_white":
-            brightness, temperature = cmd.args
-            self.driver.show_white(brightness, temperature)
-            return
+            if cmd.name == "show_white":
+                brightness, temperature = cmd.args
+                self.driver.show_white(brightness, temperature)
+                return
 
-        if cmd.name == "restore_default":
-            self._apply_default()
-            return
+            if cmd.name == "restore_default":
+                self._apply_default()
+                return
 
-        if cmd.name == "flash":
-            color, duration_s = cmd.args
-            self.driver.show_color(color)
-            time.sleep(max(0.0, float(duration_s)))
-            self._apply_default()
-            return
+            if cmd.name == "flash":
+                color, duration_s = cmd.args
+                self.driver.show_color(color)
+                time.sleep(max(0.0, float(duration_s)))
+                self._apply_default()
+                return
+        except Exception as exc:
+            self._last_error = str(exc)
+            log.exception("LED runtime error")
+            try:
+                self.driver.disconnect()
+            except Exception:
+                pass
 
     def _apply_default(self) -> None:
-        if self._default_mode == "white":
-            self.driver.show_white(
-                brightness=self._default_brightness,
-                temperature=self._default_temperature,
-            )
-        elif self._default_mode == "colour":
-            self.driver.show_color(self._default_colour)
-        else:
-            self.driver.turn_off()
+        try:
+            if self._default_mode == "white":
+                self.driver.show_white(
+                    brightness=self._default_brightness,
+                    temperature=self._default_temperature,
+                )
+            elif self._default_mode == "colour":
+                self.driver.show_color(self._default_colour)
+            else:
+                self.driver.turn_off()
+        except Exception as exc:
+            self._last_error = str(exc)
+            log.exception("LED default apply failed")
+            try:
+                self.driver.disconnect()
+            except Exception:
+                pass
 
 
 led_service = LedService()

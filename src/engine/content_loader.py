@@ -16,6 +16,8 @@ class MenuItem:
     fit: str
     bg_color: tuple[int, int, int]
     script: str
+    led_enabled: bool
+    led_color: tuple[int, int, int]
 
 
 @dataclass(frozen=True)
@@ -55,9 +57,30 @@ def _parse_fit(value, fallback="stretch") -> str:
     return fallback
 
 
-def _parse_item(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int]) -> MenuItem:
+def _parse_led(value, inherited_enabled: bool, inherited_color: tuple[int, int, int]) -> tuple[bool, tuple[int, int, int]]:
+    if not isinstance(value, dict):
+        return inherited_enabled, inherited_color
+
+    enabled = value.get("enabled", inherited_enabled)
+    color = _parse_color(value.get("color", list(inherited_color)), inherited_color)
+
+    return bool(enabled), color
+
+
+def _parse_item(
+    raw: dict,
+    inherited_fit: str,
+    inherited_bg: tuple[int, int, int],
+    inherited_led_enabled: bool,
+    inherited_led_color: tuple[int, int, int],
+) -> MenuItem:
     item_fit = _parse_fit(raw.get("fit", inherited_fit), inherited_fit)
     item_bg = _parse_color(raw.get("bg_color", list(inherited_bg)), inherited_bg)
+    item_led_enabled, item_led_color = _parse_led(
+        raw.get("led"),
+        inherited_led_enabled,
+        inherited_led_color,
+    )
 
     return MenuItem(
         id=str(raw["id"]),
@@ -69,27 +92,72 @@ def _parse_item(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int
         fit=item_fit,
         bg_color=item_bg,
         script=str(raw.get("script", "")),
+        led_enabled=item_led_enabled,
+        led_color=item_led_color,
     )
 
 
-def _parse_folder(raw: dict, inherited_fit: str, inherited_bg: tuple[int, int, int]) -> MenuFolder:
+def _parse_folder(
+    raw: dict,
+    inherited_fit: str,
+    inherited_bg: tuple[int, int, int],
+    inherited_led_enabled: bool,
+    inherited_led_color: tuple[int, int, int],
+) -> MenuFolder:
     defaults = raw.get("defaults", {}) or {}
     folder_fit = _parse_fit(defaults.get("fit", inherited_fit), inherited_fit)
     folder_bg = _parse_color(defaults.get("bg_color", list(inherited_bg)), inherited_bg)
+    folder_led_enabled, folder_led_color = _parse_led(
+        defaults.get("led"),
+        inherited_led_enabled,
+        inherited_led_color,
+    )
 
     children: list[MenuNode] = []
     for child in raw.get("children", []):
         kind = str(child.get("kind", "")).lower().strip()
 
         if kind == "folder":
-            children.append(_parse_folder(child, folder_fit, folder_bg))
+            children.append(
+                _parse_folder(
+                    child,
+                    folder_fit,
+                    folder_bg,
+                    folder_led_enabled,
+                    folder_led_color,
+                )
+            )
         elif kind == "item":
-            children.append(_parse_item(child, folder_fit, folder_bg))
+            children.append(
+                _parse_item(
+                    child,
+                    folder_fit,
+                    folder_bg,
+                    folder_led_enabled,
+                    folder_led_color,
+                )
+            )
         else:
             if "children" in child:
-                children.append(_parse_folder(child, folder_fit, folder_bg))
+                children.append(
+                    _parse_folder(
+                        child,
+                        folder_fit,
+                        folder_bg,
+                        folder_led_enabled,
+                        folder_led_color,
+                    )
+                )
             else:
-                children.append(_parse_item(child, folder_fit, folder_bg))
+                children.append(
+                    _parse_item(
+                        child,
+                        folder_fit,
+                        folder_bg,
+                        folder_led_enabled,
+                        folder_led_color,
+                    )
+                )
 
     return MenuFolder(
         id=str(raw.get("id", "")),
@@ -104,7 +172,7 @@ def _load_tree_format(data: dict) -> MenuData:
     if "root" not in data:
         raise ValueError("menu.json saknar 'root'")
 
-    root = _parse_folder(data["root"], "stretch", (0, 0, 0))
+    root = _parse_folder(data["root"], "stretch", (0, 0, 0), False, (255, 255, 255))
     return MenuData(
         title=str(data.get("title", "Menu")),
         root=root,
@@ -118,10 +186,23 @@ def _load_legacy_categories_format(data: dict) -> MenuData:
         defaults = c.get("defaults", {}) or {}
         cat_fit = _parse_fit(defaults.get("fit", "stretch"), "stretch")
         cat_bg = _parse_color(defaults.get("bg_color", [0, 0, 0]), (0, 0, 0))
+        cat_led_enabled, cat_led_color = _parse_led(
+            defaults.get("led"),
+            False,
+            (255, 255, 255),
+        )
 
         children: list[MenuNode] = []
         for it in c.get("items", []):
-            children.append(_parse_item(it, cat_fit, cat_bg))
+            children.append(
+                _parse_item(
+                    it,
+                    cat_fit,
+                    cat_bg,
+                    cat_led_enabled,
+                    cat_led_color,
+                )
+            )
 
         root_children.append(
             MenuFolder(

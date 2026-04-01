@@ -9,7 +9,11 @@
       "preview": "assets/thumbs/images_icon.png",
       "defaults": {
         "fit": "contain",
-        "bg_color": [0, 0, 0]
+        "bg_color": [0, 0, 0],
+        "led": {
+          "enabled": true,
+          "color": [255, 255, 255]
+        }
       },
       "items": [
         {
@@ -61,7 +65,11 @@
       "preview": "assets/thumbs/targets_icon.png",
       "defaults": {
         "fit": "contain",
-        "bg_color": [0, 0, 0]
+        "bg_color": [0, 0, 0],
+        "led": {
+          "enabled": true,
+          "color": [255, 255, 255]
+        }
       },
       "items": [
         {
@@ -143,7 +151,11 @@
       "preview": "assets/thumbs/video_icon.png",
       "defaults": {
         "fit": "contain",
-        "bg_color": [0, 0, 0]
+        "bg_color": [0, 0, 0],
+        "led": {
+          "enabled": true,
+          "color": [255, 0, 0]
+        }
       },
       "items": [
         {
@@ -164,7 +176,11 @@
           "path": "assets/movies/zombie1.mp4",
           "preview": "assets/thumbs/zombie1.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": true,
+            "color": [0, 255, 0]
+          }
         },
         {
           "id": "battlefield",
@@ -174,7 +190,11 @@
           "path": "assets/movies/battlefield.mp4",
           "preview": "assets/thumbs/battlefield.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": true,
+            "color": [255, 120, 0]
+          }
         },
         {
           "id": "soldiers",
@@ -184,7 +204,11 @@
           "path": "assets/movies/soldiers.mp4",
           "preview": "assets/thumbs/soldiers.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": true,
+            "color": [255, 255, 255]
+          }
         }
       ]
     },
@@ -193,6 +217,12 @@
       "title": "Spel",
       "description": "Interaktiva spel och scenarion.",
       "preview": "assets/thumbs/game_icon.png",
+      "defaults": {
+        "led": {
+          "enabled": true,
+          "color": [0, 0, 255]
+        }
+      },
       "items": [
         {
           "id": "shootdontshoot",
@@ -203,7 +233,11 @@
           "script": "assets/games/shootdontshoot/shootdontshoot.py",
           "preview": "assets/games/shootdontshoot/b1.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": true,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "range_target_game",
@@ -211,7 +245,11 @@
           "type": "game",
           "preview": "assets/games/range_target/background.png",
           "script": "content/games/range_target_game.py",
-          "path": "assets/games/range_target"
+          "path": "assets/games/range_target",
+          "led": {
+            "enabled": true,
+            "color": [255, 255, 255]
+          }
         }
       ]
     },
@@ -220,6 +258,12 @@
       "title": "Inställningar",
       "description": "Justera projicerad rityta.",
       "preview": "assets/thumbs/settings_icon.png",
+      "defaults": {
+        "led": {
+          "enabled": false,
+          "color": [255, 255, 255]
+        }
+      },
       "items": [
         {
           "id": "calibrate_viewport",
@@ -229,7 +273,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "scanport_calibration",
@@ -239,7 +287,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "transform_debug",
@@ -249,7 +301,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "visual_hits_settings",
@@ -259,7 +315,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "scanner_debug_settings",
@@ -269,7 +329,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "viewportvie",
@@ -279,7 +343,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "audio_peak_settings",
@@ -289,7 +357,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "physical_setup_settings",
@@ -299,7 +371,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         },
         {
           "id": "led_settings",
@@ -309,7 +385,11 @@
           "path": "",
           "preview": "assets/settings.png",
           "fit": "contain",
-          "bg_color": [0, 0, 0]
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
         }
       ]
     }
