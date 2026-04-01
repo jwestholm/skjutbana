@@ -72,10 +72,8 @@ class CameraManager:
 
     def _transform_description(self) -> str:
         parts: list[str] = [f"rotation={self.rotation}°"]
-        if self.mirror_horizontal:
-            parts.append("mirror_h=on")
-        if self.mirror_vertical:
-            parts.append("mirror_v=on")
+        parts.append(f"mirror_h={'on' if self.mirror_horizontal else 'off'}")
+        parts.append(f"mirror_v={'on' if self.mirror_vertical else 'off'}")
         return ", ".join(parts)
 
     def start(self) -> bool:

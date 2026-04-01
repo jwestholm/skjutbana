@@ -51,7 +51,10 @@ def build_scene_from_item(item: MenuItem):
             CameraOrientationSettingsScene,
         )
 
-        return _attach_led_config(CameraOrientationSettingsScene(), item)
+        return _attach_led_config(
+            CameraOrientationSettingsScene(bg_color=item.bg_color),
+            item,
+        )
 
     if item.type == "scanport_preview":
         from src.engine.scenes.scanport_preview import ScanportPreview
