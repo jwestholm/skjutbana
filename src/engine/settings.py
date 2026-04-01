@@ -11,7 +11,6 @@ import config
 # --------------------------------------------------------------------
 # Core IO
 # --------------------------------------------------------------------
-
 def _settings_path() -> Path:
     return Path(getattr(config, "SETTINGS_PATH", "content/settings.json"))
 
@@ -20,14 +19,12 @@ def _load_settings_dict() -> dict:
     path = _settings_path()
     if not path.exists():
         return {}
-
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return data
     except Exception:
         pass
-
     return {}
 
 
@@ -40,7 +37,6 @@ def _save_settings_dict(data: dict) -> None:
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
-
 def _rect_from_value(value) -> pygame.Rect | None:
     if isinstance(value, list) and len(value) == 4:
         try:
@@ -105,16 +101,21 @@ def _parse_float(value, fallback: float) -> float:
         return fallback
 
 
+def _parse_int(value, fallback: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return fallback
+
+
 # --------------------------------------------------------------------
 # Viewport
 # --------------------------------------------------------------------
-
 def load_viewport_rect() -> pygame.Rect:
     data = _load_settings_dict()
     rect = _rect_from_value(data.get("viewport"))
     if rect is not None:
         return _clamp_viewport(rect)
-
     x, y, w, h = config.DEFAULT_VIEWPORT
     return _clamp_viewport(pygame.Rect(x, y, w, h))
 
@@ -128,17 +129,13 @@ def save_viewport_rect(rect: pygame.Rect) -> None:
 # --------------------------------------------------------------------
 # Scanport
 # --------------------------------------------------------------------
-
 def load_scanport_rect() -> pygame.Rect | None:
     data = _load_settings_dict()
-
     rect = _rect_from_value(data.get("scanport"))
     if rect is None:
         rect = _rect_from_value(data.get("scanport_rect"))
-
     if rect is None:
         return None
-
     return _sanitize_scanport(rect)
 
 
@@ -153,12 +150,10 @@ def save_scanport_rect(rect: pygame.Rect) -> None:
 # --------------------------------------------------------------------
 # Content rect
 # --------------------------------------------------------------------
-
 def load_content_rect() -> pygame.Rect:
     rect = _rect_from_value(_load_settings_dict().get("content_rect"))
     if rect is not None:
         return _sanitize_content_rect(rect)
-
     return load_viewport_rect().copy()
 
 
@@ -178,7 +173,6 @@ def clear_content_rect() -> None:
 # --------------------------------------------------------------------
 # Camera calibration
 # --------------------------------------------------------------------
-
 def load_camera_calibration() -> dict | None:
     calibration = _load_settings_dict().get("camera_calibration")
     if isinstance(calibration, dict):
@@ -193,9 +187,86 @@ def save_camera_calibration(calibration: dict) -> None:
 
 
 # --------------------------------------------------------------------
+# Camera transform settings
+# --------------------------------------------------------------------
+def _default_camera_transform_settings() -> dict:
+    return {
+        "rotation": 0,
+        "mirror_horizontal": False,
+        "mirror_vertical": False,
+    }
+
+
+def _sanitize_camera_rotation(value) -> int:
+    rotation = _parse_int(value, 0)
+    if rotation not in (0, 90, 180, 270):
+        rotation = 0
+    return rotation
+
+
+def load_camera_transform_settings() -> dict:
+    data = _load_settings_dict()
+    raw = data.get("camera", {})
+    defaults = _default_camera_transform_settings()
+
+    if not isinstance(raw, dict):
+        return defaults.copy()
+
+    merged = defaults.copy()
+    merged.update(raw)
+
+    merged["rotation"] = _sanitize_camera_rotation(merged.get("rotation", 0))
+    merged["mirror_horizontal"] = _parse_bool(
+        merged.get("mirror_horizontal"),
+        False,
+    )
+    merged["mirror_vertical"] = _parse_bool(
+        merged.get("mirror_vertical"),
+        False,
+    )
+    return merged
+
+
+def save_camera_transform_settings(settings: dict) -> None:
+    data = _load_settings_dict()
+    current = load_camera_transform_settings()
+    current.update(settings)
+
+    current["rotation"] = _sanitize_camera_rotation(current.get("rotation", 0))
+    current["mirror_horizontal"] = bool(current.get("mirror_horizontal", False))
+    current["mirror_vertical"] = bool(current.get("mirror_vertical", False))
+
+    data["camera"] = current
+    _save_settings_dict(data)
+
+
+def load_camera_rotation() -> int:
+    return int(load_camera_transform_settings().get("rotation", 0))
+
+
+def save_camera_rotation(rotation: int) -> None:
+    save_camera_transform_settings({"rotation": rotation})
+
+
+def load_camera_mirror_horizontal() -> bool:
+    return bool(load_camera_transform_settings().get("mirror_horizontal", False))
+
+
+def save_camera_mirror_horizontal(enabled: bool) -> None:
+    save_camera_transform_settings({"mirror_horizontal": bool(enabled)})
+
+
+def load_camera_mirror_vertical() -> bool:
+    return bool(load_camera_transform_settings().get("mirror_vertical", False))
+
+
+def save_camera_mirror_vertical(enabled: bool) -> None:
+    save_camera_transform_settings({"mirror_vertical": bool(enabled)})
+
+
+# --------------------------------------------------------------------
 # Visual hits settings
 # --------------------------------------------------------------------
-
 def _default_visual_hits_dict() -> dict:
     return {
         "enabled": True,
@@ -209,10 +280,8 @@ def load_visual_hits_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("visual_hits")
     defaults = _default_visual_hits_dict()
-
     if not isinstance(value, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -275,7 +344,6 @@ def save_visual_hits_radius(radius: int) -> None:
 # --------------------------------------------------------------------
 # Scanner debug overlay settings
 # --------------------------------------------------------------------
-
 def _default_scanner_debug_dict() -> dict:
     return {"enabled": False}
 
@@ -284,10 +352,8 @@ def load_scanner_debug_overlay_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("scanner_debug_overlay")
     defaults = _default_scanner_debug_dict()
-
     if not isinstance(value, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -312,7 +378,6 @@ def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
 # --------------------------------------------------------------------
 # Audio peak settings
 # --------------------------------------------------------------------
-
 def _default_audio_peak_dict() -> dict:
     return {
         "threshold": 0.10,
@@ -344,10 +409,8 @@ def save_audio_peak_settings(settings: dict) -> None:
     current = load_audio_peak_settings()
     current.update(settings)
     data["audio_peak"] = current
-
     if "threshold" in current:
         data["audio_peak_threshold"] = float(current["threshold"])
-
     _save_settings_dict(data)
 
 
@@ -376,7 +439,6 @@ def save_audio_status_overlay_enabled(enabled: bool) -> None:
 # --------------------------------------------------------------------
 # Range projection settings
 # --------------------------------------------------------------------
-
 def _default_range_projection_settings() -> dict:
     return {
         "wall_distance_m": 6.0,
@@ -390,10 +452,8 @@ def load_range_projection_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("range_projection", {})
     defaults = _default_range_projection_settings()
-
     if not isinstance(raw, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(raw)
     return merged
@@ -470,7 +530,6 @@ def save_viewport_bottom_world_cm(value: float) -> None:
 # --------------------------------------------------------------------
 # LED settings
 # --------------------------------------------------------------------
-
 def _default_led_settings() -> dict:
     return {
         "enabled": False,
@@ -519,7 +578,6 @@ def load_led_settings() -> dict:
     color = merged.get("default_colour", [255, 255, 255])
     if not (isinstance(color, list) and len(color) == 3):
         color = [255, 255, 255]
-
     merged["default_colour"] = [
         max(0, min(255, int(color[0]))),
         max(0, min(255, int(color[1]))),

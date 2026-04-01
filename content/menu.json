@@ -294,6 +294,20 @@
           }
         },
         {
+          "id": "camera_orientation_settings",
+          "type": "camera_orientation_settings",
+          "title": "Kameraorientering",
+          "description": "Ställ in rotation och spegling för kameran.\nAppliceras direkt vid inläsning innan analys, scanport och koordinater används.",
+          "path": "",
+          "preview": "assets/settings.png",
+          "fit": "contain",
+          "bg_color": [0, 0, 0],
+          "led": {
+            "enabled": false,
+            "color": [255, 255, 255]
+          }
+        },
+        {
           "id": "transform_debug",
           "type": "transform_debug",
           "title": "Grid / transform-test",
