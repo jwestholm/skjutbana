@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pygame
 
-from src.engine.scene import Scene
+from src.engine.scene import Scene, SceneSwitch
 from src.engine.visual.hit_visualizer import hit_visualizer
 from src.engine.visual.scanner_debug_overlay import scanner_debug_overlay
 from src.engine.visual.scanner_status_overlay import scanner_status_overlay
@@ -27,11 +27,26 @@ class OverlayScene(Scene):
 
     def on_exit(self):
         hit_visualizer.clear()
-
         if hasattr(self.inner, "on_exit"):
             self.inner.on_exit()
 
+    def _return_to_previous_menu(self):
+        menu_state = getattr(self, "return_menu_state", None)
+        if menu_state is None:
+            menu_state = getattr(self.inner, "return_menu_state", None)
+        if menu_state is None:
+            return None
+
+        from src.engine.scenes.menu import MenuScene
+
+        return SceneSwitch(MenuScene(menu_state=menu_state))
+
     def handle_event(self, event: pygame.event.Event):
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            result = self._return_to_previous_menu()
+            if result is not None:
+                return result
+
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             hit_input.push_mouse_hit(event.pos[0], event.pos[1])
 

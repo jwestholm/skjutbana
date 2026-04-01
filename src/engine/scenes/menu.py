@@ -30,11 +30,9 @@ class MenuScene(Scene):
         self.overlay = None
         self._preview_cache: dict[str, pygame.Surface] = {}
 
-        # Trädnavigation
         self.folder_stack: list[MenuFolder] = []
         self.index_stack: list[int] = []
 
-        # Återställning av menyposition när man kommer tillbaka från en scen
         self._initial_menu_state = menu_state or {}
 
     def on_enter(self) -> None:
@@ -51,7 +49,6 @@ class MenuScene(Scene):
         self.menu_data = load_menu(MENU_JSON_PATH)
         self._restore_menu_state()
 
-    # ---------- state helpers ----------
     def export_menu_state(self) -> dict:
         return {
             "folder_ids": [folder.id for folder in self.folder_stack[1:]],
@@ -108,6 +105,13 @@ class MenuScene(Scene):
                 return child
         return None
 
+    def _entries_for_folder(self, folder: MenuFolder, is_root: bool) -> list[_BackEntry | MenuNode]:
+        entries: list[_BackEntry | MenuNode] = []
+        if not is_root:
+            entries.append(_BackEntry())
+        entries.extend(folder.children)
+        return entries
+
     def _clamp_index_for_level(self, level: int) -> None:
         entries = self._entries_for_folder(self.folder_stack[level], is_root=(level == 0))
         if not entries:
@@ -115,19 +119,11 @@ class MenuScene(Scene):
             return
         self.index_stack[level] = max(0, min(self.index_stack[level], len(entries) - 1))
 
-    # ---------- navigation helpers ----------
     def _current_folder(self) -> MenuFolder:
         return self.folder_stack[-1]
 
     def _is_root(self) -> bool:
         return len(self.folder_stack) == 1
-
-    def _entries_for_folder(self, folder: MenuFolder, is_root: bool) -> list[_BackEntry | MenuNode]:
-        entries: list[_BackEntry | MenuNode] = []
-        if not is_root:
-            entries.append(_BackEntry())
-        entries.extend(folder.children)
-        return entries
 
     def _current_entries(self) -> list[_BackEntry | MenuNode]:
         return self._entries_for_folder(self._current_folder(), self._is_root())
@@ -188,7 +184,6 @@ class MenuScene(Scene):
 
         return None
 
-    # ---------- preview helpers ----------
     def _load_preview(self, path: str) -> pygame.Surface:
         if not path:
             surf = pygame.Surface((640, 360))
@@ -231,7 +226,6 @@ class MenuScene(Scene):
         assert self.menu_data is not None
         parts = [self.menu_data.title]
 
-        # visa inte root-folderns titel om den bara är "Huvudmeny"
         if len(self.folder_stack) > 1:
             for folder in self.folder_stack[1:]:
                 parts.append(folder.title)
@@ -242,10 +236,9 @@ class MenuScene(Scene):
         if isinstance(entry, _BackEntry):
             return " Tillbaka"
         if isinstance(entry, MenuFolder):
-            return f"{entry.title}"
+            return entry.title
         return entry.title
 
-    # ---------- input ----------
     def handle_event(self, event: pygame.event.Event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -258,7 +251,6 @@ class MenuScene(Scene):
                 return self._enter_selected()
         return None
 
-    # ---------- render ----------
     def render(self, screen: pygame.Surface) -> None:
         screen.blit(self.background, (0, 0))
         screen.blit(self.overlay, (0, 0))
