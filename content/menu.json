@@ -21,70 +21,107 @@
             0
           ]
         },
-        "children": [
+"children": [
           {
-            "kind": "item",
-            "id": "img_sniper1",
-            "type": "image",
+            "id": "images_spot_the_sniper",
             "title": "Hitta snipern",
-            "description": "En dold sniper",
-            "path": "assets/images/sniper_woods.png",
+            "description": "Samling med Hitta snipern-bilder.",
             "preview": "assets/thumbs/spotthesniper.png",
-            "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
+            "children": [
+              {
+                "id": "img_sniper1",
+                "type": "image",
+                "title": "Hitta snipern 1",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_woods.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper2",
+                "type": "image",
+                "title": "Hitta snipern 2",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_woods2.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper3",
+                "type": "image",
+                "title": "Hitta snipern 3",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_building.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper4",
+                "type": "image",
+                "title": "Hitta snipern 4",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_4.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper5",
+                "type": "image",
+                "title": "Hitta snipern 5",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_5.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper6",
+                "type": "image",
+                "title": "Hitta snipern 6",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_6.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper7",
+                "type": "image",
+                "title": "Hitta snipern 7",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_7.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              },
+              {
+                "id": "img_sniper8",
+                "type": "image",
+                "title": "Hitta snipern 8",
+                "description": "En dold sniper",
+                "path": "assets/images/sniper_8.png",
+                "preview": "assets/thumbs/spotthesniper.png",
+                "fit": "contain",
+                "bg_color": [0, 0, 0]
+              }
             ]
           },
           {
-            "kind": "item",
-            "id": "img_sniper2",
-            "type": "image",
-            "title": "Hitta snipern 2",
-            "description": "En dold sniper",
-            "path": "assets/images/sniper_woods2.png",
-            "preview": "assets/thumbs/spotthesniper.png",
-            "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
-            ]
-          },
-          {
-            "kind": "item",
-            "id": "img_sniper3",
-            "type": "image",
-            "title": "Hitta snipern 3",
-            "description": "En dold sniper",
-            "path": "assets/images/sniper_building.png",
-            "preview": "assets/thumbs/spotthesniper.png",
-            "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
-            ]
-          },
-          {
-            "kind": "item",
-            "id": "img_pt",
+            "id": "img_putin_trump",
             "type": "image",
             "title": "Putin och Trump",
             "description": "Amerikansk patron ur",
             "path": "assets/images/pt.jpg",
             "preview": "assets/images/pt.jpg",
             "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
-            ]
+            "bg_color": [0, 0, 0]
           }
         ]
-      },
-      {
+      },      {
         "kind": "folder",
         "id": "targets",
         "title": "Tavlor",
