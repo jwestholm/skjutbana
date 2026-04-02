@@ -4,137 +4,103 @@
   "root": {
     "id": "root",
     "title": "Huvudmeny",
-    "description": "Välj innehåll eller inställningar.",
+    "description": "Välj bana, spel eller inställning.",
+    "preview": "assets/thumbs/settings_icon.png",
     "children": [
       {
+        "kind": "folder",
         "id": "images",
         "title": "Bilder",
         "description": "Stillbilder",
         "preview": "assets/thumbs/images_icon.png",
         "defaults": {
           "fit": "contain",
-          "bg_color": [0, 0, 0],
-          "led": {
-            "enabled": true,
-            "color": [255, 255, 255]
-          }
+          "bg_color": [
+            0,
+            0,
+            0
+          ]
         },
         "children": [
           {
-            "id": "images_spot_the_sniper",
+            "kind": "item",
+            "id": "img_sniper1",
+            "type": "image",
             "title": "Hitta snipern",
-            "description": "Samling med Hitta snipern-bilder.",
+            "description": "En dold sniper",
+            "path": "assets/images/sniper_woods.png",
             "preview": "assets/thumbs/spotthesniper.png",
-            "children": [
-              {
-                "id": "img_sniper1",
-                "type": "image",
-                "title": "Hitta snipern 1",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_woods.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper2",
-                "type": "image",
-                "title": "Hitta snipern 2",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_woods2.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper3",
-                "type": "image",
-                "title": "Hitta snipern 3",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_building.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper4",
-                "type": "image",
-                "title": "Hitta snipern 4",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_4.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper5",
-                "type": "image",
-                "title": "Hitta snipern 5",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_5.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper6",
-                "type": "image",
-                "title": "Hitta snipern 6",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_6.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper7",
-                "type": "image",
-                "title": "Hitta snipern 7",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_7.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              },
-              {
-                "id": "img_sniper8",
-                "type": "image",
-                "title": "Hitta snipern 8",
-                "description": "En dold sniper",
-                "path": "assets/images/sniper_8.png",
-                "preview": "assets/thumbs/spotthesniper.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0]
-              }
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
             ]
           },
           {
-            "id": "img_putin_trump",
+            "kind": "item",
+            "id": "img_sniper2",
+            "type": "image",
+            "title": "Hitta snipern 2",
+            "description": "En dold sniper",
+            "path": "assets/images/sniper_woods2.png",
+            "preview": "assets/thumbs/spotthesniper.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "img_sniper3",
+            "type": "image",
+            "title": "Hitta snipern 3",
+            "description": "En dold sniper",
+            "path": "assets/images/sniper_building.png",
+            "preview": "assets/thumbs/spotthesniper.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "img_pt",
             "type": "image",
             "title": "Putin och Trump",
             "description": "Amerikansk patron ur",
             "path": "assets/images/pt.jpg",
             "preview": "assets/images/pt.jpg",
             "fit": "contain",
-            "bg_color": [0, 0, 0]
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           }
         ]
       },
       {
+        "kind": "folder",
         "id": "targets",
         "title": "Tavlor",
         "description": "Måltavlor",
         "preview": "assets/thumbs/targets_icon.png",
         "defaults": {
           "fit": "contain",
-          "bg_color": [0, 0, 0],
-          "led": {
-            "enabled": true,
-            "color": [255, 255, 255]
-          }
+          "bg_color": [
+            0,
+            0,
+            0
+          ]
         },
         "children": [
           {
+            "kind": "item",
             "id": "paper_1",
             "type": "image",
             "title": "Papptavla 10p",
@@ -142,9 +108,14 @@
             "path": "assets/targets/10-point-1.png",
             "preview": "assets/targets/10-point-1.png",
             "fit": "contain",
-            "bg_color": [255, 255, 255]
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_2",
             "type": "image",
             "title": "5 tavla",
@@ -152,9 +123,14 @@
             "path": "assets/targets/5tavla.jpg",
             "preview": "assets/targets/5tavla.jpg",
             "fit": "contain",
-            "bg_color": [100, 100, 100]
+            "bg_color": [
+              100,
+              100,
+              100
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_3",
             "type": "image",
             "title": "Skidskytte",
@@ -162,9 +138,14 @@
             "path": "assets/targets/skidskytte.jpg",
             "preview": "assets/targets/skidskytte.jpg",
             "fit": "contain",
-            "bg_color": [100, 100, 100]
+            "bg_color": [
+              100,
+              100,
+              100
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_4",
             "type": "image",
             "title": "Bågskytte",
@@ -172,9 +153,14 @@
             "path": "assets/targets/bagskytte.jpg",
             "preview": "assets/targets/bagskytte.jpg",
             "fit": "contain",
-            "bg_color": [255, 255, 255]
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_5",
             "type": "image",
             "title": "Dart",
@@ -182,19 +168,29 @@
             "path": "assets/targets/darttavla.jpg",
             "preview": "assets/targets/darttavla.jpg",
             "fit": "contain",
-            "bg_color": [255, 255, 255]
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_6",
             "type": "image",
             "title": "Inskjutning",
-            "description": "Entavla för inskjutning",
+            "description": "En tavla för inskjutning",
             "path": "assets/targets/inskjutning.jpg",
             "preview": "assets/targets/inskjutning.jpg",
             "fit": "contain",
-            "bg_color": [255, 255, 255]
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
           },
           {
+            "kind": "item",
             "id": "paper_7",
             "type": "image",
             "title": "Putin",
@@ -202,91 +198,100 @@
             "path": "assets/targets/putin.png",
             "preview": "assets/targets/putin.png",
             "fit": "contain",
-            "bg_color": [255, 255, 255]
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
           }
         ]
       },
       {
+        "kind": "folder",
         "id": "video",
         "title": "Video",
-        "description": "Videobanor.\nSPACE = play/pause.\nESC = tillbaka.",
+        "description": "Videobanor.",
         "preview": "assets/thumbs/video_icon.png",
         "defaults": {
           "fit": "contain",
-          "bg_color": [0, 0, 0],
-          "led": {
-            "enabled": true,
-            "color": [255, 0, 0]
-          }
+          "bg_color": [
+            0,
+            0,
+            0
+          ]
         },
         "children": [
           {
+            "kind": "item",
             "id": "hostage",
             "type": "video",
             "title": "Gisslan",
-            "description": "Du kommer in i ett rum, rädda gisslan!\nSkjutledare behövs.",
+            "description": "Du kommer in i ett rum, rädda gisslan!\\nSkjutledare behövs.",
             "path": "assets/movies/hostage.mp4",
             "preview": "assets/thumbs/hostage.png",
             "fit": "contain",
-            "bg_color": [0, 0, 0]
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           },
           {
+            "kind": "item",
             "id": "zombie1",
             "type": "video",
             "title": "Zombie",
-            "description": "Skjut zombien i huvudet.\nSkjutledare behövs",
+            "description": "Skjut zombien i huvudet.\\nSkjutledare behövs",
             "path": "assets/movies/zombie1.mp4",
             "preview": "assets/thumbs/zombie1.png",
             "fit": "contain",
-            "bg_color": [0, 0, 0],
-            "led": {
-              "enabled": true,
-              "color": [0, 255, 0]
-            }
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           },
           {
+            "kind": "item",
             "id": "battlefield",
             "type": "video",
             "title": "Slagfält",
-            "description": "Fienderna kommer!.\nSkjutledare behövs",
+            "description": "Fienderna kommer!.\\nSkjutledare behövs",
             "path": "assets/movies/battlefield.mp4",
             "preview": "assets/thumbs/battlefield.png",
             "fit": "contain",
-            "bg_color": [0, 0, 0],
-            "led": {
-              "enabled": true,
-              "color": [255, 120, 0]
-            }
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           },
           {
+            "kind": "item",
             "id": "soldiers",
             "type": "video",
             "title": "Soldater",
-            "description": "Soldater!.\nSkjutledare behövs",
+            "description": "Soldater!.\\nSkjutledare behövs",
             "path": "assets/movies/soldiers.mp4",
             "preview": "assets/thumbs/soldiers.png",
             "fit": "contain",
-            "bg_color": [0, 0, 0],
-            "led": {
-              "enabled": true,
-              "color": [255, 255, 255]
-            }
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           }
         ]
       },
       {
+        "kind": "folder",
         "id": "games",
         "title": "Spel",
         "description": "Interaktiva spel och scenarion.",
         "preview": "assets/thumbs/game_icon.png",
-        "defaults": {
-          "led": {
-            "enabled": true,
-            "color": [0, 0, 255]
-          }
-        },
         "children": [
           {
+            "kind": "item",
             "id": "shootdontshoot",
             "type": "game",
             "title": "Shoot / Don't Shoot",
@@ -295,123 +300,75 @@
             "script": "assets/games/shootdontshoot/shootdontshoot.py",
             "preview": "assets/games/shootdontshoot/b1.png",
             "fit": "contain",
-            "bg_color": [0, 0, 0],
-            "led": {
-              "enabled": true,
-              "color": [255, 255, 255]
-            }
-          },
-          {
-            "id": "range_target_game",
-            "title": "Skjutbana – Helfigur",
-            "type": "game",
-            "preview": "assets/games/range_target/background.png",
-            "script": "content/games/range_target_game.py",
-            "path": "assets/games/range_target",
-            "led": {
-              "enabled": true,
-              "color": [255, 255, 255]
-            }
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           }
         ]
       },
       {
+        "kind": "folder",
         "id": "settings",
         "title": "Inställningar",
-        "description": "Alla inställningar för system, kamera, ljud och LED.",
+        "description": "Kalibrering, kamera och debug.",
         "preview": "assets/thumbs/settings_icon.png",
-        "defaults": {
-          "led": {
-            "enabled": false,
-            "color": [255, 255, 255]
-          }
-        },
         "children": [
           {
-            "id": "settings_general",
-            "title": "Generellt",
-            "description": "Övergripande inställningar för projektion och fysisk setup.",
+            "kind": "item",
+            "id": "calibrate_viewport",
+            "type": "settings",
+            "title": "Justera skjutgränser",
+            "description": "Flytta och skala grön ram.\\nENTER sparar, ESC avbryter.",
+            "path": "",
             "preview": "assets/settings.png",
-            "children": [
-              {
-                "id": "calibrate_viewport",
-                "type": "settings",
-                "title": "Justera skjutgränser",
-                "description": "Flytta och skala grön ram.\nENTER sparar, ESC avbryter.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              },
-              {
-                "id": "physical_setup_settings",
-                "type": "physical_setup_settings",
-                "title": "Fysisk setup",
-                "description": "Inställningar för väggens höjd och avstånd etc.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              },
-              {
-                "id": "visual_hits_settings",
-                "type": "visual_hits_settings",
-                "title": "Visuella träffar",
-                "description": "Slå av/på träffmarkeringar och välj fade eller persistent.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              }
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
             ]
           },
           {
-            "id": "settings_camera",
+            "kind": "folder",
+            "id": "camera_settings",
             "title": "Kamera",
-            "description": "Kamerabild, analysyta och orientering.",
+            "description": "Kamerarelaterade inställningar och kalibrering.",
             "preview": "assets/settings.png",
             "children": [
               {
+                "kind": "item",
+                "id": "camera_viewport_calibration",
+                "type": "camera_viewport_calibration",
+                "title": "Kalibrera viewport via kamera",
+                "description": "ENTER visar kalibreringspunkter i viewporten och försöker läsa dem med kameran. Timeout om projektorn är av eller fel skärm används.",
+                "path": "",
+                "preview": "assets/settings.png",
+                "fit": "contain",
+                "bg_color": [
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "kind": "item",
                 "id": "scanport_calibration",
                 "type": "camera_scanport",
                 "title": "Justera scanport",
-                "description": "Kalibrera kamerans analysyta.\nOrange ram = scanport, grön streckad ram = viewport.\nENTER sparar, ESC går tillbaka.",
+                "description": "Kalibrera kamerans analysyta.\\nOrange ram = scanport, grön streckad ram = viewport.\\nENTER sparar, ESC går tillbaka.",
                 "path": "",
                 "preview": "assets/settings.png",
                 "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
+                "bg_color": [
+                  0,
+                  0,
+                  0
+                ]
               },
               {
-                "id": "camera_orientation_settings",
-                "type": "camera_orientation_settings",
-                "title": "Kameraorientering",
-                "description": "Ställ in rotation och spegling för kameran.\nAppliceras direkt vid inläsning innan analys, scanport och koordinater används.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              },
-              {
+                "kind": "item",
                 "id": "viewportvie",
                 "type": "scanport_preview",
                 "title": "Kolla Scanport",
@@ -419,92 +376,117 @@
                 "path": "",
                 "preview": "assets/settings.png",
                 "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              }
-            ]
-          },
-          {
-            "id": "settings_microphone",
-            "title": "Mikrofon",
-            "description": "Ljudnivåer och skott-trigger.",
-            "preview": "assets/settings.png",
-            "children": [
-              {
-                "id": "audio_peak_settings",
-                "type": "audio_peak_settings",
-                "title": "Ljud-peak / mikrofon",
-                "description": "Visa ljudkurva live och justera peaknivån för skott-trigger.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              }
-            ]
-          },
-          {
-            "id": "settings_led",
-            "title": "LED",
-            "description": "Inställningar för LED-list och belysning.",
-            "preview": "assets/settings.png",
-            "children": [
-              {
-                "id": "led_settings",
-                "type": "led_settings",
-                "title": "LED-list / Deltaco WiFi",
-                "description": "Ställ in Device ID, IP, Local key och testa blå, grön, röd, vit, av/på.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
-              }
-            ]
-          },
-          {
-            "id": "settings_debug",
-            "title": "Debug",
-            "description": "Felsökning och verifiering av koordinater och scanner.",
-            "preview": "assets/settings.png",
-            "children": [
-              {
-                "id": "transform_debug",
-                "type": "transform_debug",
-                "title": "Grid / transform-test",
-                "description": "Rutnätstest för träffkoordinater.\nMus och framtida kameraträffar använder samma hit-input.",
-                "path": "",
-                "preview": "assets/settings.png",
-                "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
+                "bg_color": [
+                  0,
+                  0,
+                  0
+                ]
               },
               {
-                "id": "scanner_debug_settings",
-                "type": "scanner_debug_settings",
-                "title": "Scanner debug overlay",
-                "description": "Slå av/på scanner-debug som visar crop, warped board, score map och mask.",
+                "kind": "item",
+                "id": "camera_orientation_settings",
+                "type": "camera_orientation_settings",
+                "title": "Kamerarotation / spegling",
+                "description": "Justera kamerans rotation och spegling innan kalibrering.",
                 "path": "",
                 "preview": "assets/settings.png",
                 "fit": "contain",
-                "bg_color": [0, 0, 0],
-                "led": {
-                  "enabled": false,
-                  "color": [255, 255, 255]
-                }
+                "bg_color": [
+                  0,
+                  0,
+                  0
+                ]
               }
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "transform_debug",
+            "type": "transform_debug",
+            "title": "Grid / transform-test",
+            "description": "Rutnätstest för träffkoordinater.\\nMus och framtida kameraträffar använder samma hit-input.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "visual_hits_settings",
+            "type": "visual_hits_settings",
+            "title": "Visuella träffar",
+            "description": "Slå av/på träffmarkeringar och välj fade eller persistent.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "scanner_debug_settings",
+            "type": "scanner_debug_settings",
+            "title": "Scanner debug overlay",
+            "description": "Slå av/på scanner-debug som visar crop, warped board, score map och mask.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "audio_peak_settings",
+            "type": "audio_peak_settings",
+            "title": "Ljud-peak / mikrofon",
+            "description": "Visa ljudkurva live och justera peaknivån för skott-trigger.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "physical_setup_settings",
+            "type": "physical_setup_settings",
+            "title": "Fysisk setup",
+            "description": "Mått, väggavstånd och fysisk viewportinformation.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "kind": "item",
+            "id": "led_settings",
+            "type": "led_settings",
+            "title": "LED / belysning",
+            "description": "Justera LED-lampans anslutning och standardläge.",
+            "path": "",
+            "preview": "assets/settings.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
             ]
           }
         ]

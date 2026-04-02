@@ -1,6 +1,6 @@
 from __future__ import annotations
-
 from src.engine.content_loader import MenuItem
+
 from src.engine.scenes.overlay_scene import OverlayScene
 
 
@@ -67,6 +67,15 @@ def build_scene_from_item(item: MenuItem, return_menu_state: dict | None = None)
 
         return _wrap(
             CalibrateViewportScene(),
+            item,
+            return_menu_state=return_menu_state,
+        )
+
+    if item.type == "camera_viewport_calibration":
+        from src.engine.scenes.calibrate_camera_viewport import CameraViewportCalibrationScene
+
+        return _wrap(
+            CameraViewportCalibrationScene(bg_color=item.bg_color),
             item,
             return_menu_state=return_menu_state,
         )
