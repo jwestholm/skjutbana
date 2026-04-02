@@ -155,16 +155,45 @@ class VisualHitsSettingsScene(Scene):
 
         panel = pygame.Surface((960, 430), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
+
+        rows_y = 120
+        self._row(
+            panel,
+            rows_y,
+            "Visa träff:",
+            "PÅ" if self.enabled else "AV",
+            self.selected_index == 0,
+            GREEN if self.enabled else RED,
+        )
+        self._row(
+            panel,
+            rows_y + 44,
+            "Visa träff i alla plan:",
+            "PÅ" if self.show_all_planes else "AV",
+            self.selected_index == 1,
+            GREEN if self.show_all_planes else RED,
+        )
+        self._row(
+            panel,
+            rows_y + 88,
+            "Mode:",
+            "Fade" if self.mode == "fade" else "Persistent",
+            self.selected_index == 2,
+            SOFT_WHITE,
+        )
+        self._row(
+            panel,
+            rows_y + 132,
+            "Fade tid:",
+            f"{self.lifetime} ms",
+            self.selected_index == 3,
+            SOFT_WHITE,
+        )
+
         screen.blit(panel, (40, 40))
 
         title = self.font.render("Visuella träffar", True, WHITE)
         screen.blit(title, (60, 60))
-
-        rows_y = 120
-        self._row(panel, rows_y, "Visa träff:", "PÅ" if self.enabled else "AV", self.selected_index == 0, GREEN if self.enabled else RED)
-        self._row(panel, rows_y + 44, "Visa träff i alla plan:", "PÅ" if self.show_all_planes else "AV", self.selected_index == 1, GREEN if self.show_all_planes else RED)
-        self._row(panel, rows_y + 88, "Mode:", "Fade" if self.mode == "fade" else "Persistent", self.selected_index == 2, SOFT_WHITE)
-        self._row(panel, rows_y + 132, "Fade tid:", f"{self.lifetime} ms", self.selected_index == 3, SOFT_WHITE)
 
         help_lines = [
             "UP / DOWN = navigera i menyn",
