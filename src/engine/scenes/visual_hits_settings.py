@@ -1,109 +1,179 @@
+from __future__ import annotations
+
 import pygame
 
-class VisualHitsSettingsScene:
-    def __init__(self, engine):
-        self.engine = engine
-        self.settings = engine.settings
+from src.engine.scene import Scene, SceneSwitch
+from src.engine.settings import (
+    load_visual_hits_enabled,
+    load_visual_hits_lifetime_ms,
+    load_visual_hits_mode,
+    save_visual_hits_enabled,
+    save_visual_hits_lifetime_ms,
+    save_visual_hits_mode,
+)
 
-        self.index = 0
+try:
+    from src.engine.settings import (
+        load_visual_hits_show_all_planes,
+        save_visual_hits_show_all_planes,
+    )
+except Exception:
+    def load_visual_hits_show_all_planes() -> bool:
+        return False
 
-        self.options = [
-            "show_hits",
+    def save_visual_hits_show_all_planes(enabled: bool) -> None:
+        del enabled
+        return None
+
+
+WHITE = (240, 240, 240)
+SOFT_WHITE = (210, 210, 210)
+GREEN = (120, 255, 120)
+RED = (255, 120, 120)
+YELLOW = (255, 215, 120)
+PANEL_BG = (0, 0, 0, 165)
+ROW_HIGHLIGHT = (255, 255, 255, 28)
+
+
+class VisualHitsSettingsScene(Scene):
+    def __init__(self, app=None, bg_color=(0, 0, 0), **kwargs) -> None:
+        super().__init__()
+        self.app = app
+        self.bg_color = bg_color
+        self.kwargs = kwargs
+
+        self.font = None
+        self.small = None
+        self.tiny = None
+
+        self.enabled = True
+        self.show_all_planes = False
+        self.mode = "fade"
+        self.lifetime = 900
+
+        self.selected_index = 0
+        self._items = [
+            "enabled",
             "show_all_planes",
-            "fade_time",
-            "persistent"
+            "mode",
+            "lifetime",
         ]
 
-    def _get_items(self):
-        return [
-            ("Visa träffar", self.settings.load_visual_hits_enabled()),
-            ("Visa träff i alla plan", self.settings.load_visual_hits_show_all_planes()),
-            ("Fade tid", round(self.settings.load_visual_hits_fade_time(), 1)),
-            ("Persistent", self.settings.load_visual_hits_persistent()),
-        ]
+    def on_enter(self) -> None:
+        self.font = pygame.font.Font(None, 42)
+        self.small = pygame.font.Font(None, 28)
+        self.tiny = pygame.font.Font(None, 24)
 
-    def handle_event(self, event):
+        self.enabled = load_visual_hits_enabled()
+        self.show_all_planes = load_visual_hits_show_all_planes()
+        self.mode = load_visual_hits_mode()
+        self.lifetime = load_visual_hits_lifetime_ms()
+        self.selected_index = max(0, min(self.selected_index, len(self._items) - 1))
+
+    def _go_back(self):
+        from src.engine.scenes.menu import MenuScene
+        return SceneSwitch(MenuScene())
+
+    def _save(self) -> None:
+        save_visual_hits_enabled(self.enabled)
+        save_visual_hits_show_all_planes(self.show_all_planes)
+        save_visual_hits_mode(self.mode)
+        save_visual_hits_lifetime_ms(self.lifetime)
+
+    def _current_item(self) -> str:
+        return self._items[self.selected_index]
+
+    def _toggle_or_activate_current(self) -> None:
+        item = self._current_item()
+        if item == "enabled":
+            self.enabled = not self.enabled
+        elif item == "show_all_planes":
+            self.show_all_planes = not self.show_all_planes
+        elif item == "mode":
+            self.mode = "persistent" if self.mode == "fade" else "fade"
+        elif item == "lifetime":
+            return None
+
+    def _adjust_current(self, delta: int) -> None:
+        item = self._current_item()
+        if item == "enabled":
+            self.enabled = delta > 0
+        elif item == "show_all_planes":
+            self.show_all_planes = delta > 0
+        elif item == "mode":
+            self.mode = "persistent" if self.mode == "fade" else "fade"
+        elif item == "lifetime":
+            self.lifetime = max(100, self.lifetime + (delta * 100))
+
+    def handle_event(self, event: pygame.event.Event):
         if event.type != pygame.KEYDOWN:
-            return
+            return None
+
+        if event.key == pygame.K_ESCAPE:
+            self._save()
+            return self._go_back()
 
         if event.key == pygame.K_UP:
-            self.index = (self.index - 1) % len(self.options)
+            self.selected_index = (self.selected_index - 1) % len(self._items)
+            return None
 
-        elif event.key == pygame.K_DOWN:
-            self.index = (self.index + 1) % len(self.options)
+        if event.key == pygame.K_DOWN:
+            self.selected_index = (self.selected_index + 1) % len(self._items)
+            return None
 
-        elif event.key in (pygame.K_LEFT, pygame.K_RIGHT, pygame.K_RETURN, pygame.K_SPACE):
-            self._modify_current(event.key)
+        if event.key in (pygame.K_RETURN, pygame.K_SPACE):
+            self._toggle_or_activate_current()
+            return None
 
-        elif event.key == pygame.K_ESCAPE:
-            self._save()
-            self.engine.pop_scene()
+        if event.key == pygame.K_LEFT:
+            self._adjust_current(-1)
+            return None
 
-    def _modify_current(self, key):
-        option = self.options[self.index]
+        if event.key == pygame.K_RIGHT:
+            self._adjust_current(1)
+            return None
 
-        if option == "show_hits":
-            val = not self.settings.load_visual_hits_enabled()
-            self.settings.save_visual_hits_enabled(val)
+        return None
 
-        elif option == "show_all_planes":
-            val = not self.settings.load_visual_hits_show_all_planes()
-            self.settings.save_visual_hits_show_all_planes(val)
+    def update(self, dt: float):
+        del dt
+        return None
 
-        elif option == "persistent":
-            val = not self.settings.load_visual_hits_persistent()
-            self.settings.save_visual_hits_persistent(val)
+    def _row(self, panel: pygame.Surface, y: int, label: str, value: str, selected: bool, value_color) -> None:
+        if selected:
+            highlight = pygame.Surface((840, 34), pygame.SRCALPHA)
+            highlight.fill(ROW_HIGHLIGHT)
+            panel.blit(highlight, (20, y - 4))
 
-        elif option == "fade_time":
-            val = self.settings.load_visual_hits_fade_time()
-            if key == pygame.K_LEFT:
-                val = max(0.1, val - 0.5)
-            else:
-                val = min(10.0, val + 0.5)
-            self.settings.save_visual_hits_fade_time(val)
+        label_surf = self.small.render(label, True, YELLOW if selected else SOFT_WHITE)
+        value_surf = self.small.render(value, True, value_color)
+        panel.blit(label_surf, (40, y))
+        panel.blit(value_surf, (500, y))
 
-    def _save(self):
-        self.settings.save()
+    def render(self, screen: pygame.Surface):
+        screen.fill(self.bg_color)
 
-    def update(self, dt):
-        pass
+        panel = pygame.Surface((960, 430), pygame.SRCALPHA)
+        panel.fill(PANEL_BG)
+        screen.blit(panel, (40, 40))
 
-    def draw(self, screen):
-        screen.fill((30, 40, 45))
+        title = self.font.render("Visuella träffar", True, WHITE)
+        screen.blit(title, (60, 60))
 
-        font = pygame.font.SysFont(None, 36)
-        small = pygame.font.SysFont(None, 24)
+        rows_y = 120
+        self._row(panel, rows_y, "Visa träff:", "PÅ" if self.enabled else "AV", self.selected_index == 0, GREEN if self.enabled else RED)
+        self._row(panel, rows_y + 44, "Visa träff i alla plan:", "PÅ" if self.show_all_planes else "AV", self.selected_index == 1, GREEN if self.show_all_planes else RED)
+        self._row(panel, rows_y + 88, "Mode:", "Fade" if self.mode == "fade" else "Persistent", self.selected_index == 2, SOFT_WHITE)
+        self._row(panel, rows_y + 132, "Fade tid:", f"{self.lifetime} ms", self.selected_index == 3, SOFT_WHITE)
 
-        # Titel
-        title = font.render("Visuella träffar", True, (255, 255, 255))
-        screen.blit(title, (50, 40))
-
-        items = self._get_items()
-
-        y = 120
-        for i, (label, value) in enumerate(items):
-            selected = i == self.index
-
-            color = (255, 255, 0) if selected else (200, 200, 200)
-
-            prefix = "> " if selected else "  "
-
-            text = f"{prefix}{label}: {value}"
-            surf = font.render(text, True, color)
-
-            screen.blit(surf, (80, y))
-            y += 50
-
-        # Hjälptext
-        help_text = [
-            "UP/DOWN = navigera",
-            "LEFT/RIGHT = ändra värde",
-            "ENTER = toggle",
-            "ESC = spara & tillbaka"
+        help_lines = [
+            "UP / DOWN = navigera i menyn",
+            "LEFT / RIGHT = ändra valt värde",
+            "ENTER / SPACE = slå av/på eller växla valt alternativ",
+            "ESC = spara och gå tillbaka",
         ]
-
-        y = screen.get_height() - 120
-        for line in help_text:
-            surf = small.render(line, True, (180, 180, 180))
-            screen.blit(surf, (50, y))
-            y += 25
+        y = 315
+        for line in help_lines:
+            surf = self.tiny.render(line, True, SOFT_WHITE)
+            screen.blit(surf, (60, y))
+            y += 26
