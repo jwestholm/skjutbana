@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pygame
 
+from src.engine.input.hit_input import hit_input
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.visual.hit_visualizer import hit_visualizer
 from src.engine.visual.scanner_debug_overlay import scanner_debug_overlay
 from src.engine.visual.scanner_status_overlay import scanner_status_overlay
-from src.engine.input.hit_input import hit_input
 
 
 class OverlayScene(Scene):
@@ -41,13 +41,23 @@ class OverlayScene(Scene):
 
         return SceneSwitch(MenuScene(menu_state=menu_state))
 
+    def _accepts_mouse_simulated_hits(self) -> bool:
+        explicit = getattr(self.inner, "wants_mouse_simulated_hits", None)
+        if explicit is not None:
+            return bool(explicit)
+        return bool(getattr(self.inner, "wants_hit_scanning", False))
+
     def handle_event(self, event: pygame.event.Event):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             result = self._return_to_previous_menu()
             if result is not None:
                 return result
 
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        if (
+            event.type == pygame.MOUSEBUTTONDOWN
+            and event.button == 1
+            and self._accepts_mouse_simulated_hits()
+        ):
             hit_input.push_mouse_hit(event.pos[0], event.pos[1])
 
         return self.inner.handle_event(event)

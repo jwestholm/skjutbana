@@ -7,10 +7,11 @@ import pygame
 
 import config
 
-
 # --------------------------------------------------------------------
 # Core IO
 # --------------------------------------------------------------------
+
+
 def _settings_path() -> Path:
     return Path(getattr(config, "SETTINGS_PATH", "content/settings.json"))
 
@@ -37,6 +38,8 @@ def _save_settings_dict(data: dict) -> None:
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
+
+
 def _rect_from_value(value) -> pygame.Rect | None:
     if isinstance(value, list) and len(value) == 4:
         try:
@@ -111,6 +114,8 @@ def _parse_int(value, fallback: int) -> int:
 # --------------------------------------------------------------------
 # Viewport
 # --------------------------------------------------------------------
+
+
 def load_viewport_rect() -> pygame.Rect:
     data = _load_settings_dict()
     rect = _rect_from_value(data.get("viewport"))
@@ -129,6 +134,8 @@ def save_viewport_rect(rect: pygame.Rect) -> None:
 # --------------------------------------------------------------------
 # Scanport
 # --------------------------------------------------------------------
+
+
 def load_scanport_rect() -> pygame.Rect | None:
     data = _load_settings_dict()
     rect = _rect_from_value(data.get("scanport"))
@@ -150,6 +157,8 @@ def save_scanport_rect(rect: pygame.Rect) -> None:
 # --------------------------------------------------------------------
 # Content rect
 # --------------------------------------------------------------------
+
+
 def load_content_rect() -> pygame.Rect:
     rect = _rect_from_value(_load_settings_dict().get("content_rect"))
     if rect is not None:
@@ -173,6 +182,8 @@ def clear_content_rect() -> None:
 # --------------------------------------------------------------------
 # Camera calibration
 # --------------------------------------------------------------------
+
+
 def load_camera_calibration() -> dict | None:
     calibration = _load_settings_dict().get("camera_calibration")
     if isinstance(calibration, dict):
@@ -189,6 +200,8 @@ def save_camera_calibration(calibration: dict) -> None:
 # --------------------------------------------------------------------
 # Camera transform settings
 # --------------------------------------------------------------------
+
+
 def _default_camera_transform_settings() -> dict:
     return {
         "rotation": 0,
@@ -208,22 +221,14 @@ def load_camera_transform_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("camera", {})
     defaults = _default_camera_transform_settings()
-
     if not isinstance(raw, dict):
         return defaults.copy()
 
     merged = defaults.copy()
     merged.update(raw)
-
     merged["rotation"] = _sanitize_camera_rotation(merged.get("rotation", 0))
-    merged["mirror_horizontal"] = _parse_bool(
-        merged.get("mirror_horizontal"),
-        False,
-    )
-    merged["mirror_vertical"] = _parse_bool(
-        merged.get("mirror_vertical"),
-        False,
-    )
+    merged["mirror_horizontal"] = _parse_bool(merged.get("mirror_horizontal"), False)
+    merged["mirror_vertical"] = _parse_bool(merged.get("mirror_vertical"), False)
     return merged
 
 
@@ -231,11 +236,9 @@ def save_camera_transform_settings(settings: dict) -> None:
     data = _load_settings_dict()
     current = load_camera_transform_settings()
     current.update(settings)
-
     current["rotation"] = _sanitize_camera_rotation(current.get("rotation", 0))
     current["mirror_horizontal"] = bool(current.get("mirror_horizontal", False))
     current["mirror_vertical"] = bool(current.get("mirror_vertical", False))
-
     data["camera"] = current
     _save_settings_dict(data)
 
@@ -267,12 +270,15 @@ def save_camera_mirror_vertical(enabled: bool) -> None:
 # --------------------------------------------------------------------
 # Visual hits settings
 # --------------------------------------------------------------------
+
+
 def _default_visual_hits_dict() -> dict:
     return {
         "enabled": True,
         "mode": "fade",
         "lifetime_ms": 900,
         "radius": 18,
+        "show_all_planes": False,
     }
 
 
@@ -341,9 +347,19 @@ def save_visual_hits_radius(radius: int) -> None:
     save_visual_hits_settings({"radius": max(1, int(radius))})
 
 
+def load_visual_hits_show_all_planes() -> bool:
+    return bool(load_visual_hits_settings().get("show_all_planes", False))
+
+
+def save_visual_hits_show_all_planes(enabled: bool) -> None:
+    save_visual_hits_settings({"show_all_planes": bool(enabled)})
+
+
 # --------------------------------------------------------------------
 # Scanner debug overlay settings
 # --------------------------------------------------------------------
+
+
 def _default_scanner_debug_dict() -> dict:
     return {"enabled": False}
 
@@ -378,6 +394,8 @@ def save_scanner_debug_overlay_enabled(enabled: bool) -> None:
 # --------------------------------------------------------------------
 # Audio peak settings
 # --------------------------------------------------------------------
+
+
 def _default_audio_peak_dict() -> dict:
     return {
         "threshold": 0.10,
@@ -423,9 +441,7 @@ def load_audio_peak_threshold() -> float:
 
 
 def save_audio_peak_threshold(threshold: float) -> None:
-    save_audio_peak_settings(
-        {"threshold": max(0.005, min(0.95, float(threshold)))}
-    )
+    save_audio_peak_settings({"threshold": max(0.005, min(0.95, float(threshold)))})
 
 
 def load_audio_status_overlay_enabled() -> bool:
@@ -439,6 +455,8 @@ def save_audio_status_overlay_enabled(enabled: bool) -> None:
 # --------------------------------------------------------------------
 # Range projection settings
 # --------------------------------------------------------------------
+
+
 def _default_range_projection_settings() -> dict:
     return {
         "wall_distance_m": 6.0,
@@ -481,41 +499,31 @@ def save_wall_distance_m(value: float) -> None:
 
 def load_viewport_physical_width_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_physical_width_cm", 100.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
     except Exception:
         value = 100.0
     return max(1.0, value)
 
 
 def save_viewport_physical_width_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_width_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_width_cm": max(1.0, float(value))})
 
 
 def load_viewport_physical_height_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_physical_height_cm", 50.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
     except Exception:
         value = 50.0
     return max(1.0, value)
 
 
 def save_viewport_physical_height_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_height_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_height_cm": max(1.0, float(value))})
 
 
 def load_viewport_bottom_world_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_bottom_world_cm", 105.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_bottom_world_cm", 105.0))
     except Exception:
         value = 105.0
     return max(-500.0, min(500.0, value))
@@ -530,6 +538,8 @@ def save_viewport_bottom_world_cm(value: float) -> None:
 # --------------------------------------------------------------------
 # LED settings
 # --------------------------------------------------------------------
+
+
 def _default_led_settings() -> dict:
     return {
         "enabled": False,
@@ -548,13 +558,11 @@ def load_led_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("led")
     defaults = _default_led_settings()
-
     if not isinstance(raw, dict):
         return defaults.copy()
 
     merged = defaults.copy()
     merged.update(raw)
-
     merged["enabled"] = _parse_bool(merged.get("enabled"), False)
     merged["device_id"] = _parse_str(merged.get("device_id"), "")
     merged["ip_address"] = _parse_str(merged.get("ip_address"), "")
@@ -588,7 +596,6 @@ def load_led_settings() -> dict:
     if mode not in ("off", "white", "colour"):
         mode = "colour"
     merged["default_mode"] = mode
-
     return merged
 
 

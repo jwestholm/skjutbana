@@ -26,15 +26,12 @@ class TransformDebugScene(Scene):
     """
     Grid / transform-test.
 
-    Kontroller:
-    - Mus vänsterknapp i viewporten = simulera träff via global hit_input
-    - C = rensa senaste träffinfo + audio-info
-    - ESC = tillbaka
-
-    Nytt:
-    - subscribar på globalt audio peak-event
-    - visar senaste hörda skott/peak i debugpanelen
+    Klick i viewporten går via OverlayScene till hit_input.push_mouse_hit(),
+    alltså som ett syntetiskt kamerahit som roundtrippas genom samma pipeline
+    som riktiga kameraträffar använder.
     """
+
+    wants_mouse_simulated_hits = True
 
     def __init__(self, bg_color=(0, 0, 0)) -> None:
         self.bg_color = bg_color
@@ -43,10 +40,9 @@ class TransformDebugScene(Scene):
         self.font = None
         self.small = None
         self.tiny = None
-
         self.last_hit: HitEvent | None = None
+        self.last_seen_hit_ts = 0.0
         self.status_message = ""
-
         self.audio_peak_count = 0
         self.last_audio_event: AudioPeakEvent | None = None
         self.last_audio_message = "Inget audio-peak ännu."
@@ -56,20 +52,19 @@ class TransformDebugScene(Scene):
         self.font = pygame.font.Font(None, 42)
         self.small = pygame.font.Font(None, 26)
         self.tiny = pygame.font.Font(None, 24)
-
         self.viewport = load_viewport_rect()
         self.grid_surface = self._build_grid(self.viewport.w, self.viewport.h)
         self.last_hit = None
-
+        self.last_seen_hit_ts = 0.0
         self.audio_peak_count = 0
         self.last_audio_event = None
         self.last_audio_message = "Inget audio-peak ännu."
 
         calibration = load_camera_calibration()
         if calibration and calibration.get("is_calibrated"):
-            self.status_message = "Kamerakalibrering hittad."
+            self.status_message = "Kamerakalibrering hittad. Klick simulerar kameraträff via pipeline."
         else:
-            self.status_message = "Ingen kamerakalibrering hittad. Mus-test fungerar ändå."
+            self.status_message = "Ingen kamerakalibrering hittad. Klick använder scanport/viewport-roundtrip."
 
         if not self._audio_subscribed:
             audio_peak_detector.subscribe(self._on_audio_peak)
@@ -90,7 +85,6 @@ class TransformDebugScene(Scene):
     def _build_grid(self, width: int, height: int) -> pygame.Surface:
         surface = pygame.Surface((width, height))
         surface.fill(WHITE)
-
         font = pygame.font.Font(None, 18)
 
         for x in range(0, width + 1, 10):
@@ -131,45 +125,41 @@ class TransformDebugScene(Scene):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return self._go_back()
-
             if event.key == pygame.K_c:
                 self.last_hit = None
+                self.last_seen_hit_ts = 0.0
                 self.last_audio_event = None
                 self.audio_peak_count = 0
                 self.last_audio_message = "Audio-info rensad."
-                return None
-
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.viewport and self.viewport.collidepoint(event.pos):
-                hit_input.push_mouse_hit(event.pos[0], event.pos[1])
-
         return None
 
     def update(self, dt: float):
         del dt
-
-        hit = hit_input.poll()
-        if hit is not None:
+        hit = hit_input.last_hit
+        if hit is not None and hit.timestamp != self.last_seen_hit_ts:
             self.last_hit = hit
-
+            self.last_seen_hit_ts = hit.timestamp
         return None
 
     def _draw_info(self, screen: pygame.Surface) -> None:
-        panel = pygame.Surface((1060, 250), pygame.SRCALPHA)
+        panel = pygame.Surface((1100, 250), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (20, 20))
 
         lines = [
             ("Grid / transform-test", self.font, WHITE),
             (
-                "Rutnätet ritas exakt i viewporten: 10 px per ruta, kraftigare linjer varje 100 px.",
+                "Klick i viewporten skapar ett syntetiskt kamerahit som transformeras tillbaka till spelets XY.",
                 self.small,
                 WHITE,
             ),
-            ("Klick i viewporten simulerar en träff via global hit_input.", self.tiny, WHITE),
-            ("Global audio peak-listener är aktiv i denna scen.", self.tiny, GREEN),
-            ("Samma audio-event kan nu användas av debug, scanner och andra lyssnare.", self.tiny, WHITE),
+            (
+                "Visa träff i alla plan i overlayn för att se screen / viewport / content / scanport / homography ovanpå varandra.",
+                self.tiny,
+                GREEN,
+            ),
             ("C = rensa senaste träffinfo/audio-info   ESC = tillbaka", self.tiny, WHITE),
+            ("Global audio peak-listener är aktiv i denna scen.", self.tiny, WHITE),
         ]
 
         y = 32
@@ -198,8 +188,7 @@ class TransformDebugScene(Scene):
             age = time.time() - latest_global_audio.timestamp
             lines.append(
                 (
-                    f"Senaste globala audio-peak: peak={latest_global_audio.peak:.3f} "
-                    f"rms={latest_global_audio.rms:.3f} age={age:.2f}s",
+                    f"Senaste globala audio-peak: peak={latest_global_audio.peak:.3f} rms={latest_global_audio.rms:.3f} age={age:.2f}s",
                     SOFT_WHITE,
                 )
             )
@@ -207,16 +196,41 @@ class TransformDebugScene(Scene):
             lines.append(("Senaste globala audio-peak: inget ännu", SOFT_WHITE))
 
         if self.last_hit is not None:
-            lines.append((f"Senaste träffkälla: {self.last_hit.source}", YELLOW))
+            dx = self.last_hit.screen_x - self.last_hit.requested_screen_x
+            dy = self.last_hit.screen_y - self.last_hit.requested_screen_y
             lines.append(
                 (
-                    f"Spelets XY (lokalt i viewport): x={self.last_hit.game_x:.1f} y={self.last_hit.game_y:.1f}",
+                    f"Senaste träffkälla: {self.last_hit.source}  simulated={self.last_hit.is_simulated}",
+                    YELLOW,
+                )
+            )
+            lines.append(
+                (
+                    f"Begärt screen/click: x={self.last_hit.requested_screen_x:.1f} y={self.last_hit.requested_screen_y:.1f}",
                     WHITE,
                 )
             )
             lines.append(
                 (
-                    f"Skärm-XY: x={self.last_hit.screen_x:.1f} y={self.last_hit.screen_y:.1f}",
+                    f"Pipeline screen: x={self.last_hit.screen_x:.1f} y={self.last_hit.screen_y:.1f}  Δx={dx:.2f} Δy={dy:.2f}",
+                    WHITE,
+                )
+            )
+            lines.append(
+                (
+                    f"Spel / viewport-lokalt: x={self.last_hit.game_x:.1f} y={self.last_hit.game_y:.1f}",
+                    WHITE,
+                )
+            )
+            lines.append(
+                (
+                    f"Content-lokalt: x={self.last_hit.content_x:.1f} y={self.last_hit.content_y:.1f}  norm=({self.last_hit.content_norm_x:.4f}, {self.last_hit.content_norm_y:.4f})",
+                    WHITE,
+                )
+            )
+            lines.append(
+                (
+                    f"Scanport-lokalt: x={self.last_hit.scanport_x:.1f} y={self.last_hit.scanport_y:.1f}  norm=({self.last_hit.scanport_norm_x:.4f}, {self.last_hit.scanport_norm_y:.4f})",
                     WHITE,
                 )
             )
@@ -226,14 +240,25 @@ class TransformDebugScene(Scene):
                     WHITE,
                 )
             )
+            lines.append(
+                (
+                    f"Reproj scanport->screen: x={self.last_hit.scanport_screen_x:.1f} y={self.last_hit.scanport_screen_y:.1f}",
+                    GREEN,
+                )
+            )
+            lines.append(
+                (
+                    f"Reproj homography->screen: x={self.last_hit.homography_screen_x:.1f} y={self.last_hit.homography_screen_y:.1f}",
+                    CYAN,
+                )
+            )
         else:
             lines.append(("Ingen hit registrerad ännu.", YELLOW))
 
-        panel_width = 1120
+        panel_width = min(1260, screen.get_width() - 40)
         panel_height = (len(lines) * 28) + 20
         panel_x = 20
         panel_y = screen.get_height() - panel_height - 20
-
         panel = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
         panel.fill(PANEL_BG)
         screen.blit(panel, (panel_x, panel_y))
@@ -246,9 +271,7 @@ class TransformDebugScene(Scene):
 
     def render(self, screen: pygame.Surface) -> None:
         screen.fill(self.bg_color)
-
         if self.viewport and self.grid_surface:
             screen.blit(self.grid_surface, self.viewport.topleft)
-
         self._draw_info(screen)
         self._draw_status(screen)
