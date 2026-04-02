@@ -208,22 +208,13 @@ def load_camera_transform_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("camera", {})
     defaults = _default_camera_transform_settings()
-
     if not isinstance(raw, dict):
         return defaults.copy()
-
     merged = defaults.copy()
     merged.update(raw)
-
     merged["rotation"] = _sanitize_camera_rotation(merged.get("rotation", 0))
-    merged["mirror_horizontal"] = _parse_bool(
-        merged.get("mirror_horizontal"),
-        False,
-    )
-    merged["mirror_vertical"] = _parse_bool(
-        merged.get("mirror_vertical"),
-        False,
-    )
+    merged["mirror_horizontal"] = _parse_bool(merged.get("mirror_horizontal"), False)
+    merged["mirror_vertical"] = _parse_bool(merged.get("mirror_vertical"), False)
     return merged
 
 
@@ -231,11 +222,9 @@ def save_camera_transform_settings(settings: dict) -> None:
     data = _load_settings_dict()
     current = load_camera_transform_settings()
     current.update(settings)
-
     current["rotation"] = _sanitize_camera_rotation(current.get("rotation", 0))
     current["mirror_horizontal"] = bool(current.get("mirror_horizontal", False))
     current["mirror_vertical"] = bool(current.get("mirror_vertical", False))
-
     data["camera"] = current
     _save_settings_dict(data)
 
@@ -273,25 +262,98 @@ def _default_visual_hits_dict() -> dict:
         "mode": "fade",
         "lifetime_ms": 900,
         "radius": 18,
+        "show_all_planes": False,
     }
 
 
-def load_visual_hits_settings() -> dict:
-    data = _load_settings_dict()
-    value = data.get("visual_hits")
+def _normalize_visual_hits_dict(value) -> tuple[dict, bool]:
     defaults = _default_visual_hits_dict()
+    changed = False
+
     if not isinstance(value, dict):
-        return defaults.copy()
+        value = {}
+        changed = True
+
     merged = defaults.copy()
-    merged.update(value)
-    return merged
+
+    enabled = value.get("enabled", defaults["enabled"])
+    if not isinstance(enabled, bool):
+        enabled = defaults["enabled"]
+        changed = True
+    elif "enabled" not in value:
+        changed = True
+    merged["enabled"] = enabled
+
+    mode = str(value.get("mode", defaults["mode"])).strip().lower()
+    if mode not in ("fade", "persistent"):
+        mode = defaults["mode"]
+        changed = True
+    elif "mode" not in value:
+        changed = True
+    merged["mode"] = mode
+
+    try:
+        lifetime_ms = int(value.get("lifetime_ms", defaults["lifetime_ms"]))
+    except Exception:
+        lifetime_ms = defaults["lifetime_ms"]
+        changed = True
+    if lifetime_ms < 0:
+        lifetime_ms = 0
+        changed = True
+    elif "lifetime_ms" not in value:
+        changed = True
+    merged["lifetime_ms"] = lifetime_ms
+
+    try:
+        radius = int(value.get("radius", defaults["radius"]))
+    except Exception:
+        radius = defaults["radius"]
+        changed = True
+    if radius < 1:
+        radius = 1
+        changed = True
+    elif "radius" not in value:
+        changed = True
+    merged["radius"] = radius
+
+    show_all_planes = value.get("show_all_planes", defaults["show_all_planes"])
+    if not isinstance(show_all_planes, bool):
+        show_all_planes = defaults["show_all_planes"]
+        changed = True
+    elif "show_all_planes" not in value:
+        changed = True
+    merged["show_all_planes"] = show_all_planes
+
+    extra_keys = set(value.keys()) - set(merged.keys())
+    if extra_keys:
+        # Behåll eventuella framtida nycklar i filen.
+        for key in extra_keys:
+            merged[key] = value[key]
+
+    return merged, changed
+
+
+def _ensure_visual_hits_settings() -> dict:
+    data = _load_settings_dict()
+    current = data.get("visual_hits")
+    normalized, changed = _normalize_visual_hits_dict(current)
+    if changed or "visual_hits" not in data:
+        data["visual_hits"] = normalized
+        _save_settings_dict(data)
+    return normalized.copy()
+
+
+def load_visual_hits_settings() -> dict:
+    return _ensure_visual_hits_settings()
 
 
 def save_visual_hits_settings(settings: dict) -> None:
     data = _load_settings_dict()
-    current = load_visual_hits_settings()
-    current.update(settings)
-    data["visual_hits"] = current
+    current, _ = _normalize_visual_hits_dict(data.get("visual_hits"))
+    if isinstance(settings, dict):
+        current.update(settings)
+    normalized, _ = _normalize_visual_hits_dict(current)
+    data["visual_hits"] = normalized
     _save_settings_dict(data)
 
 
@@ -304,10 +366,7 @@ def save_visual_hits_enabled(enabled: bool) -> None:
 
 
 def load_visual_hits_mode() -> str:
-    mode = str(load_visual_hits_settings().get("mode", "fade")).strip().lower()
-    if mode not in ("fade", "persistent"):
-        mode = "fade"
-    return mode
+    return str(load_visual_hits_settings().get("mode", "fade")).strip().lower()
 
 
 def save_visual_hits_mode(mode: str) -> None:
@@ -318,11 +377,7 @@ def save_visual_hits_mode(mode: str) -> None:
 
 
 def load_visual_hits_lifetime_ms() -> int:
-    try:
-        value = int(load_visual_hits_settings().get("lifetime_ms", 900))
-    except Exception:
-        value = 900
-    return max(0, value)
+    return max(0, int(load_visual_hits_settings().get("lifetime_ms", 900)))
 
 
 def save_visual_hits_lifetime_ms(lifetime_ms: int) -> None:
@@ -330,15 +385,19 @@ def save_visual_hits_lifetime_ms(lifetime_ms: int) -> None:
 
 
 def load_visual_hits_radius() -> int:
-    try:
-        value = int(load_visual_hits_settings().get("radius", 18))
-    except Exception:
-        value = 18
-    return max(1, value)
+    return max(1, int(load_visual_hits_settings().get("radius", 18)))
 
 
 def save_visual_hits_radius(radius: int) -> None:
     save_visual_hits_settings({"radius": max(1, int(radius))})
+
+
+def load_visual_hits_show_all_planes() -> bool:
+    return bool(load_visual_hits_settings().get("show_all_planes", False))
+
+
+def save_visual_hits_show_all_planes(enabled: bool) -> None:
+    save_visual_hits_settings({"show_all_planes": bool(enabled)})
 
 
 # --------------------------------------------------------------------
@@ -389,7 +448,6 @@ def load_audio_peak_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("audio_peak")
     defaults = _default_audio_peak_dict()
-
     if not isinstance(value, dict):
         merged = defaults.copy()
         if "audio_peak_threshold" in data:
@@ -398,7 +456,6 @@ def load_audio_peak_settings() -> dict:
             except Exception:
                 pass
         return merged
-
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -423,9 +480,7 @@ def load_audio_peak_threshold() -> float:
 
 
 def save_audio_peak_threshold(threshold: float) -> None:
-    save_audio_peak_settings(
-        {"threshold": max(0.005, min(0.95, float(threshold)))}
-    )
+    save_audio_peak_settings({"threshold": max(0.005, min(0.95, float(threshold)))})
 
 
 def load_audio_status_overlay_enabled() -> bool:
@@ -481,41 +536,31 @@ def save_wall_distance_m(value: float) -> None:
 
 def load_viewport_physical_width_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_physical_width_cm", 100.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
     except Exception:
         value = 100.0
     return max(1.0, value)
 
 
 def save_viewport_physical_width_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_width_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_width_cm": max(1.0, float(value))})
 
 
 def load_viewport_physical_height_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_physical_height_cm", 50.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
     except Exception:
         value = 50.0
     return max(1.0, value)
 
 
 def save_viewport_physical_height_cm(value: float) -> None:
-    save_range_projection_settings(
-        {"viewport_physical_height_cm": max(1.0, float(value))}
-    )
+    save_range_projection_settings({"viewport_physical_height_cm": max(1.0, float(value))})
 
 
 def load_viewport_bottom_world_cm() -> float:
     try:
-        value = float(
-            load_range_projection_settings().get("viewport_bottom_world_cm", 105.0)
-        )
+        value = float(load_range_projection_settings().get("viewport_bottom_world_cm", 105.0))
     except Exception:
         value = 105.0
     return max(-500.0, min(500.0, value))
@@ -526,12 +571,6 @@ def save_viewport_bottom_world_cm(value: float) -> None:
         {"viewport_bottom_world_cm": max(-500.0, min(500.0, float(value)))}
     )
 
-def load_visual_hits_show_all_planes() -> bool:
-    return bool(load_visual_hits_settings().get("show_all_planes", False))
-
-
-def save_visual_hits_show_all_planes(enabled: bool) -> None:
-    save_visual_hits_settings({"show_all_planes": bool(enabled)})
 
 # --------------------------------------------------------------------
 # LED settings
@@ -554,13 +593,11 @@ def load_led_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("led")
     defaults = _default_led_settings()
-
     if not isinstance(raw, dict):
         return defaults.copy()
 
     merged = defaults.copy()
     merged.update(raw)
-
     merged["enabled"] = _parse_bool(merged.get("enabled"), False)
     merged["device_id"] = _parse_str(merged.get("device_id"), "")
     merged["ip_address"] = _parse_str(merged.get("ip_address"), "")
@@ -594,7 +631,6 @@ def load_led_settings() -> dict:
     if mode not in ("off", "white", "colour"):
         mode = "colour"
     merged["default_mode"] = mode
-
     return merged
 
 
