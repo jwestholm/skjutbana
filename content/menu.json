@@ -342,7 +342,7 @@
                 "id": "camera_viewport_calibration",
                 "type": "camera_viewport_calibration",
                 "title": "Kalibrera viewport via kamera",
-                "description": "ENTER visar kalibreringspunkter i viewporten och försöker läsa dem med kameran. Timeout om projektorn är av eller fel skärm används.",
+                "description": "ENTER startar ny kalibrering. Under scanningen visas bara vit bild med ArUco-markörer i viewporten. Timeout om projektorn är av eller fel skärm används.",
                 "path": "",
                 "preview": "assets/settings.png",
                 "fit": "contain",
