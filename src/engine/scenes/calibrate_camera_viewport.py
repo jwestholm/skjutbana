@@ -9,6 +9,7 @@ import pygame
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH
 from src.engine.camera.camera_manager import camera_manager
+from src.engine.input.hit_input import hit_input
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.scenes.menu import MenuScene
 from src.engine.settings import (
@@ -19,33 +20,15 @@ from src.engine.settings import (
 
 
 WHITE = (245, 245, 245)
-BLACK = (0, 0, 0)
 SOFT = (205, 205, 205)
 GREEN = (120, 255, 120)
 RED = (255, 120, 120)
-YELLOW = (255, 220, 80)
 PANEL_BG = (0, 0, 0, 170)
 STATUS_OK_BG = (35, 80, 35, 170)
 STATUS_ERR_BG = (95, 25, 25, 170)
 
 
 class CameraViewportCalibrationScene(Scene):
-    """
-    Kamera -> viewport-kalibrering via projicerade ArUco-markörer.
-
-    Idle/result:
-    - Visar sparad kalibreringsinfo
-    - ENTER startar ny kalibrering
-    - R rensar sparad kalibrering
-    - ESC tillbaka
-
-    Capturing:
-    - Hela skärmen blir vit
-    - Endast markörer ritas i viewport-ytan
-    - Ingen text, ingen preview, ingen annan grafik
-    - Timeout om markörerna inte hittas i tid
-    """
-
     wants_hit_scanning = False
     wants_camera_preview = False
 
@@ -60,7 +43,7 @@ class CameraViewportCalibrationScene(Scene):
         self.font_small: pygame.font.Font | None = None
 
         self.viewport_rect = load_viewport_rect()
-        self.state = "idle"  # idle | capturing
+        self.state = "idle"
         self.capture_started_at: float | None = None
 
         self.status_message = "Redo."
@@ -74,9 +57,6 @@ class CameraViewportCalibrationScene(Scene):
         self.aruco_dict = None
         self.aruco_detector = None
         self.detector_params = None
-
-        # 8 markörer ger bättre robusthet än 4, men 4 räcker för homografin.
-        self.marker_ids = [0, 1, 2, 3, 4, 5, 6, 7]
 
     def on_enter(self) -> None:
         self.font_title = pygame.font.Font(None, 44)
@@ -122,12 +102,8 @@ class CameraViewportCalibrationScene(Scene):
     def _detect_markers(self, frame_bgr):
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         if self.aruco_detector is not None:
-            corners, ids, rejected = self.aruco_detector.detectMarkers(gray)
-        else:
-            corners, ids, rejected = cv2.aruco.detectMarkers(
-                gray, self.aruco_dict, parameters=self.detector_params
-            )
-        return corners, ids, rejected
+            return self.aruco_detector.detectMarkers(gray)
+        return cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.detector_params)
 
     def _marker_size_px(self) -> int:
         m = min(self.viewport_rect.w, self.viewport_rect.h)
@@ -173,13 +149,11 @@ class CameraViewportCalibrationScene(Scene):
         marker_positions = self._marker_positions()
         camera_points = []
         viewport_points = []
-        seen = {}
 
         for idx, marker_id in enumerate(ids.flatten().tolist()):
             if marker_id not in marker_positions:
                 continue
             center = np.mean(corners[idx][0], axis=0).astype(np.float32)
-            seen[marker_id] = center
             camera_points.append([float(center[0]), float(center[1])])
             vx, vy = marker_positions[marker_id]
             viewport_points.append([float(vx), float(vy)])
@@ -205,7 +179,6 @@ class CameraViewportCalibrationScene(Scene):
             "homography": H.tolist(),
             "inverse_homography": H_inv.tolist() if H_inv is not None else None,
             "marker_count": int(len(camera_points)),
-            "marker_ids": sorted(int(k) for k in seen.keys()),
             "reprojection_error_px": float(reproj),
             "camera_points": camera_points,
             "viewport_points": viewport_points,
@@ -236,10 +209,12 @@ class CameraViewportCalibrationScene(Scene):
         if success and result is not None:
             save_camera_calibration(result)
             self.last_saved = result
+            hit_input.reload_calibration()
 
     def _clear_calibration(self) -> None:
         save_camera_calibration({})
         self.last_saved = {}
+        hit_input.reload_calibration()
         self.status_message = "Sparad kamerakalibrering rensad."
         self.status_is_error = False
         self.state = "idle"
@@ -275,10 +250,7 @@ class CameraViewportCalibrationScene(Scene):
 
         elapsed = time.monotonic() - self.capture_started_at
         if elapsed >= self.timeout_seconds:
-            self._finish_capture(
-                False,
-                "Timeout: kunde inte hitta tillräckligt många kalibreringsmarkörer.",
-            )
+            self._finish_capture(False, "Timeout: kunde inte hitta tillräckligt många kalibreringsmarkörer.")
             return None
 
         if self.last_frame_bgr is None:
@@ -301,7 +273,6 @@ class CameraViewportCalibrationScene(Scene):
             f"Kalibrering sparad. {result['marker_count']} markörer, reprojection error {reproj:.1f} px.",
             result=result,
         )
-        return None
 
     def _fmt(self, key: str, fallback: str = "-") -> str:
         value = self.last_saved.get(key) if isinstance(self.last_saved, dict) else None
@@ -364,14 +335,12 @@ class CameraViewportCalibrationScene(Scene):
         screen.blit(status, (42, SCREEN_HEIGHT - 69))
 
     def _render_capture(self, screen: pygame.Surface) -> None:
-        # Under aktiv scannning: endast vit bakgrund + ArUco-markörer.
         screen.fill(WHITE)
 
         rect = self.viewport_rect
         positions = self._marker_positions()
         marker_size = self._marker_size_px()
 
-        # vit fyllning även inom viewporten, inga texter, ingen preview
         fill = pygame.Surface((rect.w, rect.h))
         fill.fill(WHITE)
         screen.blit(fill, rect.topleft)
