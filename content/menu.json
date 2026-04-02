@@ -328,7 +328,6 @@
         "preview": "assets/thumbs/game_icon.png",
         "children": [
           {
-            "kind": "item",
             "id": "shootdontshoot",
             "type": "game",
             "title": "Shoot / Don't Shoot",
@@ -337,11 +336,23 @@
             "script": "assets/games/shootdontshoot/shootdontshoot.py",
             "preview": "assets/games/shootdontshoot/b1.png",
             "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
-            ]
+            "bg_color": [0, 0, 0],
+            "led": {
+              "enabled": true,
+              "color": [255, 255, 255]
+            }
+          },
+          {
+            "id": "range_target_game",
+            "title": "Skjutbana – Helfigur",
+            "type": "game",
+            "preview": "assets/games/range_target/background.png",
+            "script": "content/games/range_target_game.py",
+            "path": "assets/games/range_target",
+            "led": {
+              "enabled": true,
+              "color": [255, 255, 255]
+            }
           }
         ]
       },
