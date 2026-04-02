@@ -51,7 +51,6 @@ class HitScanner:
         self.enabled = False
         self.state = self.STATE_OFF
 
-        # Lifecycle / trigger windows
         self.arm_duration_s = 1.0
         self.arm_until_ts = 0.0
         self.last_emit_ts = 0.0
@@ -60,18 +59,15 @@ class HitScanner:
         self.audio_event_count = 0
         self._audio_subscribed = False
 
-        # History
         self.frame_history: deque[ScanportFrame] = deque(maxlen=240)
         self.trigger_windows: deque[TriggerWindow] = deque(maxlen=48)
 
-        # Time around audio peak
         self.pre_start_s = 0.28
         self.pre_end_s = 0.05
         self.post_start_s = 0.03
         self.post_end_s = 0.42
         self.analysis_lag_s = 0.44
 
-        # Candidate extraction
         self.min_area = 3.0
         self.max_area = 240.0
         self.min_radius = 1.0
@@ -79,12 +75,10 @@ class HitScanner:
         self.min_circularity = 0.01
         self.border_margin = 3
 
-        # Thresholds
         self.min_change_threshold = 4.0
         self.min_combined_threshold = 8.0
         self.min_vote_threshold = 1.0
 
-        # Patch verification
         self.patch_radius = 10
         self.inner_radius = 2
         self.outer_radius = 7
@@ -94,13 +88,11 @@ class HitScanner:
         self.min_local_contrast_gain = 0.5
         self.min_persistent_post_frames = 2
 
-        # Known holes / duplicate suppression
         self.duplicate_radius_px = 20.0
         self.rehit_gain_required = 4.0
         self.max_known_holes = 256
         self.known_holes: list[dict[str, float]] = []
 
-        # Debug
         self.last_status = "off"
         self.debug_frames: dict[str, np.ndarray] = {}
         self.last_candidates: list[dict[str, float]] = []
@@ -111,9 +103,6 @@ class HitScanner:
         self.last_window_debug: dict[str, float] = {}
         self.last_best_candidate: dict[str, float] | None = None
 
-    # ------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------
     def enable(self) -> None:
         self.enabled = True
         self.state = self.STATE_ARMING
@@ -265,9 +254,6 @@ class HitScanner:
             f"Status: {self.last_status}",
         ]
 
-    # ------------------------------------------------------------
-    # Audio event listener
-    # ------------------------------------------------------------
     def _on_audio_peak(self, ev: AudioPeakEvent) -> None:
         self.last_audio_event_ts = max(self.last_audio_event_ts, ev.timestamp)
         self.audio_event_count += 1
@@ -283,9 +269,6 @@ class HitScanner:
             )
         )
 
-    # ------------------------------------------------------------
-    # Core
-    # ------------------------------------------------------------
     def _process_trigger_window(
         self,
         peak_ts: float,
@@ -329,16 +312,14 @@ class HitScanner:
 
         return best_candidate, candidates, stable_tracks
 
-    # ------------------------------------------------------------
-    # Geometry / ROI
-    # ------------------------------------------------------------
     def _frame_roi_mask(self, shape: tuple[int, int]) -> np.ndarray:
         """
         Build the search mask in full camera-frame coordinates.
 
-        Priority:
-        1) Use inverse homography to map content_rect from screen/view into camera plane.
-        2) Fall back to proportional content-inside-scanport mapping.
+        Important:
+        content_rect is viewport-local in this project, not absolute screen coords.
+        So for homography/inverse_homography we must first convert content_rect to
+        absolute screen coords by offsetting with viewport_rect.x/y.
         """
         h, w = shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -346,42 +327,48 @@ class HitScanner:
         calibration = load_camera_calibration() or {}
         raw_inv = calibration.get("inverse_homography")
         content = load_content_rect()
+        viewport = load_viewport_rect()
 
         if raw_inv:
             try:
                 H_inv = np.array(raw_inv, dtype=np.float32)
                 if H_inv.shape == (3, 3):
-                    pts = np.array(
+                    screen_pts = np.array(
                         [
-                            [content.x, content.y],
-                            [content.x + content.w, content.y],
-                            [content.x + content.w, content.y + content.h],
-                            [content.x, content.y + content.h],
+                            [viewport.x + content.x, viewport.y + content.y],
+                            [viewport.x + content.x + content.w, viewport.y + content.y],
+                            [viewport.x + content.x + content.w, viewport.y + content.y + content.h],
+                            [viewport.x + content.x, viewport.y + content.y + content.h],
                         ],
                         dtype=np.float32,
                     ).reshape(-1, 1, 2)
-                    cam_pts = cv2.perspectiveTransform(pts, H_inv).reshape(-1, 2)
+
+                    cam_pts = cv2.perspectiveTransform(screen_pts, H_inv).reshape(-1, 2)
                     cam_pts[:, 0] = np.clip(cam_pts[:, 0], 0, w - 1)
                     cam_pts[:, 1] = np.clip(cam_pts[:, 1], 0, h - 1)
                     polygon = np.round(cam_pts).astype(np.int32)
+
                     if cv2.contourArea(polygon) >= 10.0:
                         cv2.fillConvexPoly(mask, polygon, 255)
+                        roi_debug = np.zeros((h, w), dtype=np.uint8)
+                        cv2.polylines(roi_debug, [polygon], True, 255, 2)
+                        self.debug_frames["roi_polygon"] = roi_debug
                         return mask
             except Exception:
                 pass
 
-        # Fallback: old ratio-based content mapping inside scanport.
-        viewport = load_viewport_rect()
+        # Fallback: older ratio-based content mapping inside scanport.
         scanport = load_scanport_rect()
 
         if viewport.w <= 0 or viewport.h <= 0 or scanport.w <= 0 or scanport.h <= 0:
             mask[:, :] = 255
+            self.debug_frames["roi_polygon"] = np.zeros((h, w), dtype=np.uint8)
             return mask
 
-        rx0 = (content.x - viewport.x) / float(viewport.w)
-        ry0 = (content.y - viewport.y) / float(viewport.h)
-        rx1 = (content.x + content.w - viewport.x) / float(viewport.w)
-        ry1 = (content.y + content.h - viewport.y) / float(viewport.h)
+        rx0 = content.x / float(viewport.w)
+        ry0 = content.y / float(viewport.h)
+        rx1 = (content.x + content.w) / float(viewport.w)
+        ry1 = (content.y + content.h) / float(viewport.h)
 
         x0 = int(round(scanport.x + rx0 * scanport.w))
         y0 = int(round(scanport.y + ry0 * scanport.h))
@@ -395,31 +382,15 @@ class HitScanner:
 
         if x1 <= x0 or y1 <= y0:
             mask[:, :] = 255
+            self.debug_frames["roi_polygon"] = np.zeros((h, w), dtype=np.uint8)
             return mask
 
         mask[y0:y1, x0:x1] = 255
+        roi_debug = np.zeros((h, w), dtype=np.uint8)
+        cv2.rectangle(roi_debug, (x0, y0), (x1 - 1, y1 - 1), 255, 2)
+        self.debug_frames["roi_polygon"] = roi_debug
         return mask
 
-    def _warp_camera_to_view(self, frame_gray: np.ndarray) -> np.ndarray | None:
-        calibration = load_camera_calibration() or {}
-        raw_h = calibration.get("homography")
-        viewport = load_viewport_rect()
-
-        if not raw_h or viewport.w <= 0 or viewport.h <= 0:
-            return None
-
-        try:
-            H = np.array(raw_h, dtype=np.float32)
-            if H.shape != (3, 3):
-                return None
-            warped = cv2.warpPerspective(frame_gray, H, (viewport.x + viewport.w, viewport.y + viewport.h))
-            return warped
-        except Exception:
-            return None
-
-    # ------------------------------------------------------------
-    # Candidate extraction
-    # ------------------------------------------------------------
     def _detect_candidates(
         self,
         pre_ref: np.ndarray,
@@ -435,16 +406,15 @@ class HitScanner:
         diff_late = cv2.subtract(pre_ref, late_post)
         combined = cv2.max(diff_early, diff_late)
 
-        if roi_mask is not None:
-            diff_early = cv2.bitwise_and(diff_early, diff_early, mask=roi_mask)
-            diff_late = cv2.bitwise_and(diff_late, diff_late, mask=roi_mask)
-            combined = cv2.bitwise_and(combined, combined, mask=roi_mask)
+        diff_early = cv2.bitwise_and(diff_early, diff_early, mask=roi_mask)
+        diff_late = cv2.bitwise_and(diff_late, diff_late, mask=roi_mask)
+        combined = cv2.bitwise_and(combined, combined, mask=roi_mask)
 
         self.debug_frames["diff_early"] = diff_early
         self.debug_frames["diff_late"] = diff_late
         self.debug_frames["combined"] = combined
 
-        nonzero = combined[roi_mask > 0] if roi_mask is not None else combined.reshape(-1)
+        nonzero = combined[roi_mask > 0]
         if nonzero.size == 0:
             self.last_threshold_value = self.min_combined_threshold
             self.last_change_threshold_value = self.min_change_threshold
@@ -464,17 +434,10 @@ class HitScanner:
         late_bin = np.uint8(diff_late >= change_thr) * 255
         combined_bin = np.uint8(combined >= adaptive_thr) * 255
 
-        if roi_mask is not None:
-            early_bin = cv2.bitwise_and(early_bin, early_bin, mask=roi_mask)
-            late_bin = cv2.bitwise_and(late_bin, late_bin, mask=roi_mask)
-            combined_bin = cv2.bitwise_and(combined_bin, combined_bin, mask=roi_mask)
-
-        # Persistence voting from all post frames.
         votes = np.zeros_like(combined, dtype=np.float32)
         for fr in post_frames:
             delta = cv2.subtract(pre_ref, fr)
-            if roi_mask is not None:
-                delta = cv2.bitwise_and(delta, delta, mask=roi_mask)
+            delta = cv2.bitwise_and(delta, delta, mask=roi_mask)
             votes += (delta >= change_thr).astype(np.float32)
 
         vote_thr = max(self.min_vote_threshold, float(self.min_persistent_post_frames))
@@ -619,8 +582,6 @@ class HitScanner:
         }
 
     def _score_candidate(self, candidate: dict[str, float]) -> float:
-        # Later you can extend this with target-aware priors.
-        # For now, use image evidence only.
         score = 0.0
         score += candidate.get("center_darkening", 0.0) * 2.2
         score += candidate.get("onset_darkening", 0.0) * 1.0
@@ -628,15 +589,11 @@ class HitScanner:
         score += candidate.get("local_contrast_gain", 0.0) * 0.8
         score += candidate.get("persistent_post_frames", 0.0) * 1.25
         score += candidate.get("circularity", 0.0) * 4.0
-        # Prefer slightly smaller compact holes over broad noise blobs.
         radius = candidate.get("radius", 0.0)
         if radius > 0.0:
             score += max(0.0, 6.0 - abs(radius - 3.0))
         return float(score)
 
-    # ------------------------------------------------------------
-    # Picking / tracking / duplicate suppression
-    # ------------------------------------------------------------
     def _is_near_known_hole(self, camera_x: float, camera_y: float):
         best = None
         best_dist = 1e9
