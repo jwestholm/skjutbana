@@ -208,13 +208,22 @@ def load_camera_transform_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("camera", {})
     defaults = _default_camera_transform_settings()
+
     if not isinstance(raw, dict):
         return defaults.copy()
+
     merged = defaults.copy()
     merged.update(raw)
+
     merged["rotation"] = _sanitize_camera_rotation(merged.get("rotation", 0))
-    merged["mirror_horizontal"] = _parse_bool(merged.get("mirror_horizontal"), False)
-    merged["mirror_vertical"] = _parse_bool(merged.get("mirror_vertical"), False)
+    merged["mirror_horizontal"] = _parse_bool(
+        merged.get("mirror_horizontal"),
+        False,
+    )
+    merged["mirror_vertical"] = _parse_bool(
+        merged.get("mirror_vertical"),
+        False,
+    )
     return merged
 
 
@@ -222,9 +231,11 @@ def save_camera_transform_settings(settings: dict) -> None:
     data = _load_settings_dict()
     current = load_camera_transform_settings()
     current.update(settings)
+
     current["rotation"] = _sanitize_camera_rotation(current.get("rotation", 0))
     current["mirror_horizontal"] = bool(current.get("mirror_horizontal", False))
     current["mirror_vertical"] = bool(current.get("mirror_vertical", False))
+
     data["camera"] = current
     _save_settings_dict(data)
 
@@ -262,7 +273,6 @@ def _default_visual_hits_dict() -> dict:
         "mode": "fade",
         "lifetime_ms": 900,
         "radius": 18,
-        "show_all_planes": False,
     }
 
 
@@ -331,14 +341,6 @@ def save_visual_hits_radius(radius: int) -> None:
     save_visual_hits_settings({"radius": max(1, int(radius))})
 
 
-def load_visual_hits_show_all_planes() -> bool:
-    return bool(load_visual_hits_settings().get("show_all_planes", False))
-
-
-def save_visual_hits_show_all_planes(enabled: bool) -> None:
-    save_visual_hits_settings({"show_all_planes": bool(enabled)})
-
-
 # --------------------------------------------------------------------
 # Scanner debug overlay settings
 # --------------------------------------------------------------------
@@ -387,6 +389,7 @@ def load_audio_peak_settings() -> dict:
     data = _load_settings_dict()
     value = data.get("audio_peak")
     defaults = _default_audio_peak_dict()
+
     if not isinstance(value, dict):
         merged = defaults.copy()
         if "audio_peak_threshold" in data:
@@ -395,6 +398,7 @@ def load_audio_peak_settings() -> dict:
             except Exception:
                 pass
         return merged
+
     merged = defaults.copy()
     merged.update(value)
     return merged
@@ -419,7 +423,9 @@ def load_audio_peak_threshold() -> float:
 
 
 def save_audio_peak_threshold(threshold: float) -> None:
-    save_audio_peak_settings({"threshold": max(0.005, min(0.95, float(threshold)))})
+    save_audio_peak_settings(
+        {"threshold": max(0.005, min(0.95, float(threshold)))}
+    )
 
 
 def load_audio_status_overlay_enabled() -> bool:
@@ -475,31 +481,41 @@ def save_wall_distance_m(value: float) -> None:
 
 def load_viewport_physical_width_cm() -> float:
     try:
-        value = float(load_range_projection_settings().get("viewport_physical_width_cm", 100.0))
+        value = float(
+            load_range_projection_settings().get("viewport_physical_width_cm", 100.0)
+        )
     except Exception:
         value = 100.0
     return max(1.0, value)
 
 
 def save_viewport_physical_width_cm(value: float) -> None:
-    save_range_projection_settings({"viewport_physical_width_cm": max(1.0, float(value))})
+    save_range_projection_settings(
+        {"viewport_physical_width_cm": max(1.0, float(value))}
+    )
 
 
 def load_viewport_physical_height_cm() -> float:
     try:
-        value = float(load_range_projection_settings().get("viewport_physical_height_cm", 50.0))
+        value = float(
+            load_range_projection_settings().get("viewport_physical_height_cm", 50.0)
+        )
     except Exception:
         value = 50.0
     return max(1.0, value)
 
 
 def save_viewport_physical_height_cm(value: float) -> None:
-    save_range_projection_settings({"viewport_physical_height_cm": max(1.0, float(value))})
+    save_range_projection_settings(
+        {"viewport_physical_height_cm": max(1.0, float(value))}
+    )
 
 
 def load_viewport_bottom_world_cm() -> float:
     try:
-        value = float(load_range_projection_settings().get("viewport_bottom_world_cm", 105.0))
+        value = float(
+            load_range_projection_settings().get("viewport_bottom_world_cm", 105.0)
+        )
     except Exception:
         value = 105.0
     return max(-500.0, min(500.0, value))
@@ -510,6 +526,12 @@ def save_viewport_bottom_world_cm(value: float) -> None:
         {"viewport_bottom_world_cm": max(-500.0, min(500.0, float(value)))}
     )
 
+def load_visual_hits_show_all_planes() -> bool:
+    return bool(load_visual_hits_settings().get("show_all_planes", False))
+
+
+def save_visual_hits_show_all_planes(enabled: bool) -> None:
+    save_visual_hits_settings({"show_all_planes": bool(enabled)})
 
 # --------------------------------------------------------------------
 # LED settings
@@ -532,11 +554,13 @@ def load_led_settings() -> dict:
     data = _load_settings_dict()
     raw = data.get("led")
     defaults = _default_led_settings()
+
     if not isinstance(raw, dict):
         return defaults.copy()
 
     merged = defaults.copy()
     merged.update(raw)
+
     merged["enabled"] = _parse_bool(merged.get("enabled"), False)
     merged["device_id"] = _parse_str(merged.get("device_id"), "")
     merged["ip_address"] = _parse_str(merged.get("ip_address"), "")
@@ -570,6 +594,7 @@ def load_led_settings() -> dict:
     if mode not in ("off", "white", "colour"):
         mode = "colour"
     merged["default_mode"] = mode
+
     return merged
 
 
