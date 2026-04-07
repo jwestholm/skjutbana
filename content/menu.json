@@ -240,7 +240,22 @@
               255,
               255
             ]
-          }
+          },
+          {
+            "kind": "item",
+            "id": "paper_white",
+            "type": "image",
+            "title": "Vit tavla",
+            "description": "En tavla för kalibrering",
+            "path": "assets/targets/white.png",
+            "preview": "assets/targets/white.png",
+            "fit": "contain",
+            "bg_color": [
+              255,
+              255,
+              255
+            ]
+          }		  
         ]
       },
       {
