@@ -64,16 +64,13 @@ class HitInput:
     def __init__(self):
         self.queue: deque[HitEvent] = deque()
         self.subscribers: list[Callable[[HitEvent], None]] = []
-
         self.calibration_data: dict | None = None
         self.calibration_method: str = ""
         self.homography: np.ndarray | None = None
         self.inverse: np.ndarray | None = None
-
         self.last_mouse_hit: HitEvent | None = None
         self.last_camera_hit: HitEvent | None = None
         self.last_hit: HitEvent | None = None
-
         self._load_calibration()
 
     def _load_calibration(self):
@@ -141,7 +138,6 @@ class HitInput:
         scanport = load_scanport_rect()
         if scanport is None or scanport.w <= 0 or scanport.h <= 0:
             return None
-
         local_x = float(camera_x - scanport.x)
         local_y = float(camera_y - scanport.y)
         norm_x = local_x / float(scanport.w)
@@ -152,7 +148,6 @@ class HitInput:
         viewport = load_viewport_rect()
         if viewport is None or viewport.w <= 0 or viewport.h <= 0:
             return None
-
         local_x = float(screen_x - viewport.x)
         local_y = float(screen_y - viewport.y)
         norm_x = local_x / float(viewport.w)
@@ -163,15 +158,40 @@ class HitInput:
         viewport = load_viewport_rect()
         content_rect = load_content_rect()
 
-        viewport_x = float(screen_x - viewport.x)
-        viewport_y = float(screen_y - viewport.y)
+        if viewport is None:
+            viewport_x = float(screen_x)
+            viewport_y = float(screen_y)
+        else:
+            viewport_x = float(screen_x - viewport.x)
+            viewport_y = float(screen_y - viewport.y)
 
-        content_x = float(screen_x - content_rect.x)
-        content_y = float(screen_y - content_rect.y)
+        if content_rect is None:
+            content_x = float(screen_x)
+            content_y = float(screen_y)
+            content_norm_x = 0.0
+            content_norm_y = 0.0
+            return (
+                viewport_x,
+                viewport_y,
+                content_x,
+                content_y,
+                content_norm_x,
+                content_norm_y,
+            )
 
+        # Viktigt: content_rect är viewport-lokal i projektet.
+        # Gör därför om den till absoluta screen-koordinater innan content-local räknas ut.
+        if viewport is None:
+            content_screen_x = float(content_rect.x)
+            content_screen_y = float(content_rect.y)
+        else:
+            content_screen_x = float(viewport.x + content_rect.x)
+            content_screen_y = float(viewport.y + content_rect.y)
+
+        content_x = float(screen_x - content_screen_x)
+        content_y = float(screen_y - content_screen_y)
         content_norm_x = content_x / float(content_rect.w) if content_rect.w > 0 else 0.0
         content_norm_y = content_y / float(content_rect.h) if content_rect.h > 0 else 0.0
-
         return (
             viewport_x,
             viewport_y,
@@ -185,9 +205,10 @@ class HitInput:
         scanport_info = self._camera_to_scanport(camera_x, camera_y)
         if scanport_info is None:
             return None
-
         _, _, norm_x, norm_y = scanport_info
         viewport = load_viewport_rect()
+        if viewport is None:
+            return None
         screen_x = float(viewport.x + norm_x * viewport.w)
         screen_y = float(viewport.y + norm_y * viewport.h)
         return screen_x, screen_y
@@ -200,7 +221,6 @@ class HitInput:
         scanport = load_scanport_rect()
         if viewport_info is None or scanport is None or scanport.w <= 0 or scanport.h <= 0:
             return None
-
         _, _, norm_x, norm_y = viewport_info
         camera_x = float(scanport.x + norm_x * scanport.w)
         camera_y = float(scanport.y + norm_y * scanport.h)
@@ -224,7 +244,6 @@ class HitInput:
             screen = self._camera_to_screen_via_homography(camera_x, camera_y)
             if screen is not None:
                 return screen
-
         return float(camera_x), float(camera_y)
 
     def _canonical_screen_to_camera(self, screen_x: float, screen_y: float):
@@ -242,7 +261,6 @@ class HitInput:
             camera = self._screen_to_camera_via_homography(screen_x, screen_y)
             if camera is not None:
                 return camera
-
         return float(screen_x), float(screen_y)
 
     def _build_event_from_camera(
@@ -332,7 +350,6 @@ class HitInput:
             self.last_camera_hit = event
 
         self.queue.append(event)
-
         for cb in list(self.subscribers):
             try:
                 cb(event)
@@ -342,7 +359,6 @@ class HitInput:
     def push_mouse_hit(self, screen_x, screen_y):
         screen_x = float(screen_x)
         screen_y = float(screen_y)
-
         viewport = load_viewport_rect()
         if viewport is not None and not viewport.collidepoint(int(round(screen_x)), int(round(screen_y))):
             return None
@@ -362,7 +378,6 @@ class HitInput:
     def push_camera_hit(self, camera_x, camera_y):
         camera_x = float(camera_x)
         camera_y = float(camera_y)
-
         event = self._build_event_from_camera(
             source="camera",
             camera_x=camera_x,

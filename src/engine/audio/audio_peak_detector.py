@@ -37,19 +37,21 @@ class AudioPeakDetector:
     - INTE att ensam avgöra träff
     - bara att öppna ett extra noggrant bildanalysfönster
 
-    Nytt:
-    - peak-events dispatchas nu som ett globalt pub/sub-event
-    - callbacks körs i main thread via update()
+    Nytt i denna version:
+    - kortare audiochunk för bättre timing
+    - kortare cooldown för snabbskytte
+    - peak-ts approximeras inne i chunk i stället för att alltid sättas till chunk-slut
+    - enkel crest-factor-kontroll för att dämpa host/musik/fest-brus
+    - peak-events dispatchas som tidigare via global pub/sub i main thread
     """
 
     def __init__(self) -> None:
         self.sample_rate = 16000
         self.channels = 1
-        self.chunk_samples = 1024
+        self.chunk_samples = 256
 
         self.enabled = False
         self.running = False
-
         self.thread: threading.Thread | None = None
         self.proc: subprocess.Popen | None = None
 
@@ -63,12 +65,12 @@ class AudioPeakDetector:
 
         self.min_abs_peak = load_audio_peak_threshold()
         self.peak_ratio = 3.2
-        self.cooldown_s = 0.20
+        self.crest_factor_required = 1.7
+        self.cooldown_s = 0.08
 
-        self._events: deque[AudioPeakEvent] = deque(maxlen=100)
+        self._events: deque[AudioPeakEvent] = deque(maxlen=200)
         self._pending_dispatch: deque[AudioPeakEvent] = deque()
         self._sample_history: deque[float] = deque(maxlen=self.sample_rate * 2)
-
         self._subscribers: list[Callable[[AudioPeakEvent], None]] = []
         self._lock = threading.Lock()
 
@@ -86,6 +88,7 @@ class AudioPeakDetector:
         self.last_error = ""
         self.enabled = True
         self.running = True
+        self.last_peak_ts = 0.0
 
         with self._lock:
             self._events.clear()
@@ -117,6 +120,7 @@ class AudioPeakDetector:
     def update(self) -> None:
         """
         Dispatcha väntande audio peak-events i main thread.
+
         Detta gör att subscribers (debug UI, scanner, osv) inte körs från audio-tråden.
         """
         with self._lock:
@@ -129,7 +133,7 @@ class AudioPeakDetector:
                 try:
                     callback(ev)
                 except Exception:
-                    # Låt aldrig en trasig subscriber stoppa resten av systemet
+                    # Låt aldrig en trasig subscriber stoppa resten av systemet.
                     pass
 
     def subscribe(self, callback: Callable[[AudioPeakEvent], None]) -> None:
@@ -157,29 +161,28 @@ class AudioPeakDetector:
             subscriber_count = len(self._subscribers)
             pending_count = len(self._pending_dispatch)
 
+        chunk_ms = 1000.0 * float(self.chunk_samples) / float(self.sample_rate)
         lines = [
             f"Audio backend: {self.backend_name}",
             f"Audio peak: {self.last_peak_value:.3f} | rms: {self.last_rms:.3f}",
             f"Noise floor: {self.noise_floor:.3f}",
             f"Peak threshold: {self.min_abs_peak:.3f}",
+            f"Peak ratio: {self.peak_ratio:.2f} | crest: {self.crest_factor_required:.2f}",
+            f"Chunk: {self.chunk_samples} samp ({chunk_ms:.1f} ms) | cooldown: {self.cooldown_s:.2f}s",
             f"Audio listeners: {subscriber_count}",
             f"Pending peak events: {pending_count}",
         ]
-
         if self.last_peak_ts > 0:
             age = time.time() - self.last_peak_ts
             lines.append(f"Last peak: {age:.2f}s ago")
-
         if self.last_error:
             lines.append(f"Audio error: {self.last_error}")
-
         return lines
 
     def get_waveform_snapshot(self, max_points: int = 1200) -> np.ndarray:
         with self._lock:
             if not self._sample_history:
                 return np.zeros(max_points, dtype=np.float32)
-
             arr = np.array(self._sample_history, dtype=np.float32)
 
         if arr.size <= max_points:
@@ -245,7 +248,6 @@ class AudioPeakDetector:
         ]
 
         started = False
-
         for backend_name, cmd in backends:
             if not self.running:
                 return
@@ -303,7 +305,6 @@ class AudioPeakDetector:
 
         self.enabled = False
         self.running = False
-
         if self.proc is not None:
             try:
                 self.proc.kill()
@@ -311,14 +312,30 @@ class AudioPeakDetector:
                 pass
             self.proc = None
 
+    def _estimate_event_timestamp(
+        self,
+        samples: np.ndarray,
+        chunk_end_ts: float,
+        trigger_threshold: float,
+    ) -> float:
+        abs_samples = np.abs(samples)
+        trigger_indices = np.flatnonzero(abs_samples >= trigger_threshold)
+        if trigger_indices.size > 0:
+            trigger_index = int(trigger_indices[0])
+        else:
+            trigger_index = int(np.argmax(abs_samples))
+
+        trailing_samples = max(0, int(samples.size - 1 - trigger_index))
+        return float(chunk_end_ts - (trailing_samples / float(self.sample_rate)))
+
     def _process_chunk(self, chunk: bytes) -> None:
         data = np.frombuffer(chunk, dtype=np.int16).astype(np.float32)
         if data.size == 0:
             return
 
         data /= 32768.0
-
-        peak = float(np.max(np.abs(data)))
+        abs_data = np.abs(data)
+        peak = float(np.max(abs_data))
         rms = float(np.sqrt(np.mean(np.square(data))))
 
         self.last_peak_value = peak
@@ -331,17 +348,22 @@ class AudioPeakDetector:
             self._sample_history.extend(float(x) for x in data.tolist())
 
         now = time.time()
-
+        trigger_threshold = max(self.min_abs_peak, self.noise_floor * self.peak_ratio)
+        crest_ok = peak >= max(self.min_abs_peak, rms * self.crest_factor_required)
         is_peak = (
-            peak >= self.min_abs_peak
-            and peak >= max(self.min_abs_peak, self.noise_floor * self.peak_ratio)
+            peak >= trigger_threshold
+            and crest_ok
             and (now - self.last_peak_ts) >= self.cooldown_s
         )
 
         if is_peak:
-            self.last_peak_ts = now
-            ev = AudioPeakEvent(timestamp=now, peak=peak, rms=rms)
-
+            event_ts = self._estimate_event_timestamp(
+                samples=data,
+                chunk_end_ts=now,
+                trigger_threshold=max(self.min_abs_peak, trigger_threshold * 0.85),
+            )
+            self.last_peak_ts = event_ts
+            ev = AudioPeakEvent(timestamp=event_ts, peak=peak, rms=rms)
             with self._lock:
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)
