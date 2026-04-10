@@ -10,6 +10,7 @@ from src.engine.output.led_service import led_service
 from src.engine.output.led_types import LedConnectionConfig, RgbColor
 from src.engine.scenes.loading import LoadingScene
 from src.engine.settings import load_led_settings
+from src.engine.visual.hit_visualizer import hit_visualizer
 
 
 class App:
@@ -99,6 +100,7 @@ class App:
             self._update_window_caption()
 
             self.scene.render(self.screen)
+            hit_visualizer.update(dt)
             pygame.display.flip()
 
         self.scene.on_exit()

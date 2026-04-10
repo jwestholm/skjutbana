@@ -64,7 +64,7 @@ class HitVisualizer:
 
     def clear(self):
         self.hits.clear()
-        self._candidate_snapshots.clear()
+        # Behåll _candidate_snapshots — de ska överleva scenbyte
 
     def _color_for_source(self, source: str):
         if source == "mouse":
@@ -247,10 +247,15 @@ class HitVisualizer:
         if not candidates:
             return
 
-        # Använd senaste audio_event_count som shot-id för att detektera nya skott
+        # Använd senaste audio_event_count som shot-id för att detektera nya skott.
+        # audio_event_count kan nollställas vid scenbyte (enable/disable), så vi
+        # jämför med _last_seen_shot_id och accepterar även lägre värden som nya.
         current_shot_id = hit_scanner.audio_event_count
-        if current_shot_id <= self._last_seen_shot_id:
+        if current_shot_id == self._last_seen_shot_id:
             return
+        if current_shot_id < self._last_seen_shot_id:
+            # Scanner har startats om — nollställ vår räknare
+            self._last_seen_shot_id = 0
 
         self._last_seen_shot_id = current_shot_id
         max_count = load_visual_hits_candidates_count()
