@@ -18,6 +18,7 @@ from src.engine.settings import (
     load_visual_hits_show_all_planes,
     load_visual_hits_show_candidates,
     load_visual_hits_candidates_count,
+    load_visual_hits_candidates_lifetime_s,
 )
 
 
@@ -31,6 +32,14 @@ class VisualMarker:
     style: str
 
 
+@dataclass
+class CandidateSnapshot:
+    """En snapshot av kandidater tagen vid ett specifikt skott."""
+    candidates: list[dict]
+    timestamp: float
+    shot_id: int
+
+
 class HitVisualizer:
     COLOR_MOUSE = (255, 60, 60)
     COLOR_CAMERA = (0, 200, 255)
@@ -42,6 +51,8 @@ class HitVisualizer:
 
     def __init__(self):
         self.hits: list[VisualMarker] = []
+        self._candidate_snapshots: list[CandidateSnapshot] = []
+        self._last_seen_shot_id: int = -1
         hit_input.subscribe(self._on_hit)
 
     def reload_settings(self):
@@ -53,6 +64,7 @@ class HitVisualizer:
 
     def clear(self):
         self.hits.clear()
+        self._candidate_snapshots.clear()
 
     def _color_for_source(self, source: str):
         if source == "mouse":
@@ -173,13 +185,17 @@ class HitVisualizer:
 
     def update(self, dt: float):
         del dt
-        mode = load_visual_hits_mode()
-        if mode == "persistent":
-            return
-
-        lifetime = load_visual_hits_lifetime_ms() / 1000.0
         now = time.time()
-        self.hits = [hit for hit in self.hits if now - hit.timestamp <= lifetime]
+
+        mode = load_visual_hits_mode()
+        if mode != "persistent":
+            lifetime = load_visual_hits_lifetime_ms() / 1000.0
+            self.hits = [hit for hit in self.hits if now - hit.timestamp <= lifetime]
+
+        # Snapshotta kandidater från hit_scanner vid nya skott
+        if load_visual_hits_show_candidates():
+            self._capture_candidate_snapshots(now)
+            self._prune_candidate_snapshots(now)
 
     def _draw_cross(self, overlay: pygame.Surface, color, x: int, y: int, radius: int):
         pygame.draw.circle(overlay, color, (x, y), radius, 2)
@@ -225,6 +241,44 @@ class HitVisualizer:
         else:
             self._draw_cross(overlay, rgba, x, y, radius)
 
+    def _capture_candidate_snapshots(self, now: float) -> None:
+        """Fånga nya kandidater från hit_scanner när ett nytt skott har bearbetats."""
+        candidates = list(hit_scanner.last_candidates)
+        if not candidates:
+            return
+
+        # Använd senaste audio_event_count som shot-id för att detektera nya skott
+        current_shot_id = hit_scanner.audio_event_count
+        if current_shot_id <= self._last_seen_shot_id:
+            return
+
+        self._last_seen_shot_id = current_shot_id
+        max_count = load_visual_hits_candidates_count()
+
+        snapshot = CandidateSnapshot(
+            candidates=candidates[:max_count],
+            timestamp=now,
+            shot_id=current_shot_id,
+        )
+
+        lifetime_s = load_visual_hits_candidates_lifetime_s()
+        if lifetime_s == 0:
+            # "Till nästa skott" — behåll bara den senaste
+            self._candidate_snapshots = [snapshot]
+        else:
+            self._candidate_snapshots.append(snapshot)
+
+    def _prune_candidate_snapshots(self, now: float) -> None:
+        """Ta bort utgångna snapshots baserat på livstidsinställningen."""
+        lifetime_s = load_visual_hits_candidates_lifetime_s()
+        if lifetime_s == 0:
+            # Behåll bara senaste (hanteras redan i capture)
+            return
+        self._candidate_snapshots = [
+            s for s in self._candidate_snapshots
+            if now - s.timestamp <= lifetime_s
+        ]
+
     def render(self, screen: pygame.Surface):
         if not load_visual_hits_enabled():
             return
@@ -247,65 +301,80 @@ class HitVisualizer:
 
     def _render_candidates(self, overlay: pygame.Surface, screen: pygame.Surface):
         """
-        Ritar ut top-N kandidater från hit_scanner direkt på overlayen.
+        Ritar ut kandidat-snapshots på overlayen.
         Varje kandidat visas med numrering, score och position.
         Färgkodas från grön (hög score) till röd (låg score).
         """
         del screen
-        max_count = load_visual_hits_candidates_count()
-        candidates = list(hit_scanner.last_candidates)[:max_count]
-        if not candidates:
+        if not self._candidate_snapshots:
             return
 
+        max_count = load_visual_hits_candidates_count()
         font = pygame.font.Font(None, 16)
         font_panel = pygame.font.Font(None, 18)
+        lifetime_s = load_visual_hits_candidates_lifetime_s()
+        now = time.time()
 
-        max_score = max((c.get("score", 0.0) for c in candidates), default=1.0)
-        if max_score <= 0:
-            max_score = 1.0
-
-        # Rita varje kandidat som en numrerad ring på skärmen
-        for i, cand in enumerate(candidates):
-            cam_x = cand.get("camera_x", 0.0)
-            cam_y = cand.get("camera_y", 0.0)
-            score = cand.get("score", 0.0)
-
-            # Konvertera kamerakoordinater till skärmkoordinater
-            try:
-                sx, sy = hit_input._canonical_camera_to_screen(cam_x, cam_y)
-            except Exception:
+        # Rita alla aktiva snapshots
+        for snap in self._candidate_snapshots:
+            candidates = snap.candidates[:max_count]
+            if not candidates:
                 continue
 
-            if not (math.isfinite(sx) and math.isfinite(sy)):
-                continue
-
-            # Färg: grön → gul → röd baserat på score-ranking
-            ratio = score / max_score
-            if ratio > 0.5:
-                r = int(255 * (1.0 - ratio) * 2)
-                g = 255
+            # Beräkna alpha-fade om livstid > 0
+            if lifetime_s > 0:
+                age = now - snap.timestamp
+                fade = max(0.0, min(1.0, 1.0 - (age / lifetime_s)))
             else:
-                r = 255
-                g = int(255 * ratio * 2)
-            color = (r, g, 60, 200)
+                fade = 1.0
 
-            ix = int(round(sx))
-            iy = int(round(sy))
+            if fade <= 0.01:
+                continue
 
-            # Ring
-            pygame.draw.circle(overlay, color, (ix, iy), 14, 2)
-            # Numrering
-            num_text = font.render(str(i + 1), True, (255, 255, 255, 240))
-            num_rect = num_text.get_rect(center=(ix, iy))
-            overlay.blit(num_text, num_rect)
+            max_score = max((c.get("score", 0.0) for c in candidates), default=1.0)
+            if max_score <= 0:
+                max_score = 1.0
 
-            # Score-label bredvid
-            score_label = f"{score:.1f}"
-            score_surf = font.render(score_label, True, color)
-            overlay.blit(score_surf, (ix + 17, iy - 6))
+            for i, cand in enumerate(candidates):
+                cam_x = cand.get("camera_x", 0.0)
+                cam_y = cand.get("camera_y", 0.0)
+                score = cand.get("score", 0.0)
 
-        # Rita en infopanel med kandidatlistan
-        self._render_candidate_panel(overlay, candidates, font_panel, max_count)
+                try:
+                    sx, sy = hit_input._canonical_camera_to_screen(cam_x, cam_y)
+                except Exception:
+                    continue
+
+                if not (math.isfinite(sx) and math.isfinite(sy)):
+                    continue
+
+                ratio = score / max_score
+                if ratio > 0.5:
+                    r = int(255 * (1.0 - ratio) * 2)
+                    g = 255
+                else:
+                    r = 255
+                    g = int(255 * ratio * 2)
+                alpha = int(200 * fade)
+                color = (r, g, 60, alpha)
+
+                ix = int(round(sx))
+                iy = int(round(sy))
+
+                pygame.draw.circle(overlay, color, (ix, iy), 14, 2)
+                num_text = font.render(str(i + 1), True, (255, 255, 255, int(240 * fade)))
+                num_rect = num_text.get_rect(center=(ix, iy))
+                overlay.blit(num_text, num_rect)
+
+                score_label = f"{score:.1f}"
+                score_surf = font.render(score_label, True, color)
+                overlay.blit(score_surf, (ix + 17, iy - 6))
+
+        # Visa infopanel för senaste snapshot
+        latest = self._candidate_snapshots[-1]
+        latest_candidates = latest.candidates[:max_count]
+        if latest_candidates:
+            self._render_candidate_panel(overlay, latest_candidates, font_panel, max_count, latest.shot_id)
 
     def _render_candidate_panel(
         self,
@@ -313,6 +382,7 @@ class HitVisualizer:
         candidates: list[dict],
         font: pygame.font.Font,
         max_count: int,
+        shot_id: int = 0,
     ):
         """Kompakt panel med kandidatinfo i hörnet."""
         panel_w = 310
@@ -328,7 +398,7 @@ class HitVisualizer:
         pygame.draw.rect(panel, (110, 110, 110, 200), panel.get_rect(), 1)
 
         header = font.render(
-            f"Kandidater (top {min(len(candidates), max_count)})",
+            f"Skott #{shot_id} — Kandidater (top {min(len(candidates), max_count)})",
             True,
             (255, 220, 80, 255),
         )

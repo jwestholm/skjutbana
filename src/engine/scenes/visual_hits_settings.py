@@ -10,12 +10,14 @@ from src.engine.settings import (
     load_visual_hits_show_all_planes,
     load_visual_hits_show_candidates,
     load_visual_hits_candidates_count,
+    load_visual_hits_candidates_lifetime_s,
     save_visual_hits_enabled,
     save_visual_hits_lifetime_ms,
     save_visual_hits_mode,
     save_visual_hits_show_all_planes,
     save_visual_hits_show_candidates,
     save_visual_hits_candidates_count,
+    save_visual_hits_candidates_lifetime_s,
 )
 from src.engine.scenes.menu import MenuScene
 
@@ -139,6 +141,19 @@ class VisualHitsSettingsScene(Scene):
                 "save": save_visual_hits_candidates_count,
                 "hint": "Hur många kandidater som visas (1-50)",
             },
+            {
+                "label": "Kandidat-livstid",
+                "kind": "int",
+                "value": int(load_visual_hits_candidates_lifetime_s()),
+                "default": 0,
+                "small_step": 1,
+                "large_step": 5,
+                "min": 0,
+                "max": 120,
+                "unit": "s",
+                "save": save_visual_hits_candidates_lifetime_s,
+                "hint": "0 = visas till nästa skott, annars antal sekunder",
+            },
         ]
 
     def _selected_field(self) -> dict:
@@ -158,7 +173,12 @@ class VisualHitsSettingsScene(Scene):
             return ("Fade", WHITE)
 
         if kind == "int":
-            return (f"{int(value)} {field.get('unit', '')}".strip(), GREEN)
+            value_int = int(value)
+            unit = field.get("unit", "")
+            # Specialfall: kandidat-livstid 0 = till nästa skott
+            if field.get("label") == "Kandidat-livstid" and value_int == 0:
+                return ("Till nästa skott", GREEN)
+            return (f"{value_int} {unit}".strip(), GREEN)
 
         return (str(value), WHITE)
 

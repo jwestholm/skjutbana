@@ -265,6 +265,7 @@ def _default_visual_hits_dict() -> dict:
         "show_all_planes": False,
         "show_candidates": False,
         "candidates_count": 10,
+        "candidates_lifetime_s": 0,
     }
 
 
@@ -348,6 +349,21 @@ def _normalize_visual_hits_dict(value) -> tuple[dict, bool]:
     elif "candidates_count" not in value:
         changed = True
     merged["candidates_count"] = candidates_count
+
+    try:
+        candidates_lifetime_s = int(value.get("candidates_lifetime_s", defaults["candidates_lifetime_s"]))
+    except Exception:
+        candidates_lifetime_s = defaults["candidates_lifetime_s"]
+        changed = True
+    if candidates_lifetime_s < 0:
+        candidates_lifetime_s = 0
+        changed = True
+    elif candidates_lifetime_s > 120:
+        candidates_lifetime_s = 120
+        changed = True
+    elif "candidates_lifetime_s" not in value:
+        changed = True
+    merged["candidates_lifetime_s"] = candidates_lifetime_s
 
     extra_keys = set(value.keys()) - set(merged.keys())
     if extra_keys:
@@ -439,6 +455,14 @@ def load_visual_hits_candidates_count() -> int:
 
 def save_visual_hits_candidates_count(count: int) -> None:
     save_visual_hits_settings({"candidates_count": max(1, min(50, int(count)))})
+
+
+def load_visual_hits_candidates_lifetime_s() -> int:
+    return max(0, min(120, int(load_visual_hits_settings().get("candidates_lifetime_s", 0))))
+
+
+def save_visual_hits_candidates_lifetime_s(value: int) -> None:
+    save_visual_hits_settings({"candidates_lifetime_s": max(0, min(120, int(value)))})
 
 
 # --------------------------------------------------------------------
