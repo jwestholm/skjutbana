@@ -89,8 +89,8 @@ class HitScanner:
         self._next_hole_id = 1
 
         self.association_lead_s = 0.08
-        self.association_lag_s = 0.22
-        self.event_timeout_s = 0.95
+        self.association_lag_s = 1.5
+        self.event_timeout_s = 2.0
         self.track_confirm_frames = 3
         self.track_confirm_span_s = 0.09
         self.track_drop_after_missed_frames = 5
@@ -569,13 +569,15 @@ class HitScanner:
                 if earliest_peak_ts is None or ev.peak_ts < earliest_peak_ts:
                     earliest_peak_ts = ev.peak_ts
 
-        # Samla frames efter skottet (peak_ts + 20ms och framåt)
+        # Samla frames efter skottet (peak_ts + 20ms och framåt), max 6 st
         post_shot_frames: list[np.ndarray] = []
         if earliest_peak_ts is not None:
             for fr in self.frame_history:
                 if fr.timestamp < earliest_peak_ts + 0.02:
                     continue
                 post_shot_frames.append(fr.gray)
+                if len(post_shot_frames) >= 5:
+                    break
 
         # Inkludera nuvarande frame
         post_shot_frames.append(gray)
@@ -592,8 +594,7 @@ class HitScanner:
         vote_map = np.zeros(gray.shape, dtype=np.float32)
 
         for post_frame in post_shot_frames:
-            post_blur = cv2.GaussianBlur(post_frame, (5, 5), 0)
-            frame_diff = cv2.absdiff(pre_shot_blur, post_blur)
+            frame_diff = cv2.absdiff(pre_shot_blur, cv2.GaussianBlur(post_frame, (5, 5), 0))
 
             # Subtrahera global shift (projektorflicker, autoexponering)
             roi_vals = frame_diff[roi_mask > 0]
