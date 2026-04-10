@@ -554,95 +554,248 @@ class HitScanner:
             self.last_vote_threshold_value = 0.0
             return []
 
-        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
         pre_shot_bg = self._build_pre_shot_background()
+        if pre_shot_bg is None or pre_shot_bg.shape != gray.shape:
+            # Ingen pre-shot-referens ännu — fall tillbaka på legacy-detektion
+            return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
 
-        # ---- Primär signal: pre-shot diff ----
-        # Jämför "före skottet" med "nu" med absdiff — fångar BÅDE ljusare
-        # och mörkare förändringar. LED-bakljus ger ljusa hål, dåligt tryck
-        # ger mörka märken. Båda ska hittas.
-        pre_shot_delta: np.ndarray | None = None
-        if pre_shot_bg is not None and pre_shot_bg.shape == gray.shape:
-            pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
-            pre_shot_delta = cv2.absdiff(pre_shot_blur, gray_blur)
-            self.debug_frames["pre_shot_delta"] = pre_shot_delta
+        pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
 
-            # Kolla om för stor del av bilden ändrats (video/animation/scenövergång).
-            # Ett skotthål ändrar kanske 0.01% av pixlarna. En bildändring ändrar >5%.
-            change_pixels = int(np.count_nonzero(
-                (pre_shot_delta > 15) & (roi_mask > 0)
+        # ---- Samla post-shot frames och diffa var och en mot pre-shot ----
+        # Hitta den senaste pending audio-peaken
+        earliest_peak_ts = None
+        for ev in self.audio_events:
+            if ev.state == "pending":
+                if earliest_peak_ts is None or ev.peak_ts < earliest_peak_ts:
+                    earliest_peak_ts = ev.peak_ts
+
+        # Samla frames efter skottet (peak_ts + 20ms och framåt)
+        post_shot_frames: list[np.ndarray] = []
+        if earliest_peak_ts is not None:
+            for fr in self.frame_history:
+                if fr.timestamp < earliest_peak_ts + 0.02:
+                    continue
+                post_shot_frames.append(fr.gray)
+
+        # Inkludera nuvarande frame
+        post_shot_frames.append(gray)
+
+        if len(post_shot_frames) < 1:
+            return []
+
+        self.last_window_debug["post_shot_frames"] = float(len(post_shot_frames))
+
+        # ---- Bygg vote-map: för varje pixel, i hur många frames har den ändrats? ----
+        # En förändring som syns i de flesta frames = persistent (hål/märke).
+        # En förändring som bara syns i 1-2 frames = skakning/blänk/brus.
+        diff_threshold = 8  # Minsta pixelskillnad för att räknas som "ändrad"
+        vote_map = np.zeros(gray.shape, dtype=np.float32)
+
+        for post_frame in post_shot_frames:
+            post_blur = cv2.GaussianBlur(post_frame, (5, 5), 0)
+            frame_diff = cv2.absdiff(pre_shot_blur, post_blur)
+
+            # Subtrahera global shift (projektorflicker, autoexponering)
+            roi_vals = frame_diff[roi_mask > 0]
+            if roi_vals.size > 0:
+                global_shift = float(np.median(roi_vals))
+            else:
+                global_shift = 0.0
+            compensated = cv2.subtract(frame_diff, np.uint8(min(255, max(0, int(round(global_shift))))))
+
+            # Räkna vote: pixlar med förändring över tröskeln
+            vote_map += (compensated > diff_threshold).astype(np.float32)
+
+        # Normalisera till 0-255 baserat på antal frames
+        n_frames = float(len(post_shot_frames))
+        # vote_ratio: andel frames där pixeln ändrats (0.0 - 1.0)
+        vote_ratio = vote_map / max(1.0, n_frames)
+
+        # Kräv att förändringen syns i minst 50% av frames
+        min_vote_ratio = 0.5
+        persistent_mask = (vote_ratio >= min_vote_ratio).astype(np.uint8) * 255
+        persistent_mask = cv2.bitwise_and(persistent_mask, roi_mask)
+
+        # Kolla om för stor del av bilden är persistent (video/animation)
+        persistent_pixels = int(np.count_nonzero(persistent_mask))
+        change_ratio = float(persistent_pixels) / max(1, roi_pixels)
+        self.last_window_debug["change_ratio"] = change_ratio
+        self.last_window_debug["global_shift"] = global_shift
+
+        if change_ratio > 0.04:
+            self.last_window_debug["pre_shot_rejected"] = 1.0
+            return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
+
+        # ---- Bygg combined map från vote-data ----
+        # Skala vote_ratio till 0-255 för tröskling och konturanalys
+        combined = np.clip(vote_ratio * 255.0, 0, 255).astype(np.uint8)
+        combined = cv2.bitwise_and(combined, roi_mask)
+
+        # Använd senaste frame-diff som delta-map (för patch-verifiering)
+        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        current_diff = cv2.absdiff(pre_shot_blur, gray_blur)
+        roi_vals = current_diff[roi_mask > 0]
+        if roi_vals.size > 0:
+            gs = float(np.median(roi_vals))
+        else:
+            gs = 0.0
+        combined_delta = cv2.subtract(current_diff, np.uint8(min(255, max(0, int(round(gs))))))
+        combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
+
+        self.debug_frames["pre_shot_delta"] = combined_delta
+        self.debug_frames["vote_map"] = np.clip(vote_map * (255.0 / max(1.0, n_frames)), 0, 255).astype(np.uint8)
+
+        # Tröskling
+        roi_values = combined[roi_mask > 0]
+        if roi_values.size == 0:
+            return []
+
+        adaptive_thr = float(np.percentile(roi_values, 98.5))
+        self.last_threshold_value = max(3.0, adaptive_thr)
+        self.last_change_threshold_value = 0.0
+        self.last_vote_threshold_value = 0.0
+
+        merged = persistent_mask.copy()
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, close_kernel, iterations=1)
+
+        self.debug_frames["roi_polygon"] = roi_mask
+        self.debug_frames["combined_map"] = combined
+        self.debug_frames["change_map"] = combined_delta
+        self.debug_frames["candidate_mask"] = merged
+
+        # ---- Hitta konturer i persistent mask ----
+        contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates: list[dict[str, float]] = []
+        blackhat = np.zeros_like(gray_blur)  # Dummy för _verify_patch-signaturen
+
+        for contour in contours:
+            area = float(cv2.contourArea(contour))
+            if area < self.min_area or area > self.max_area:
+                continue
+
+            perimeter = float(cv2.arcLength(contour, True))
+            circularity = 0.0
+            if perimeter > 1e-6:
+                circularity = float((4.0 * np.pi * area) / (perimeter * perimeter))
+            if circularity < self.min_circularity:
+                continue
+
+            (cx, cy), radius = cv2.minEnclosingCircle(contour)
+            radius = float(radius)
+            if radius < self.min_radius or radius > self.max_radius:
+                continue
+
+            if (
+                cx < self.border_margin
+                or cy < self.border_margin
+                or cx >= gray.shape[1] - self.border_margin
+                or cy >= gray.shape[0] - self.border_margin
+            ):
+                continue
+
+            # Vote-score: genomsnittlig vote_ratio i centrum
+            ix, iy = int(round(cx)), int(round(cy))
+            r_check = max(2, int(radius))
+            y0c = max(0, iy - r_check)
+            y1c = min(gray.shape[0], iy + r_check + 1)
+            x0c = max(0, ix - r_check)
+            x1c = min(gray.shape[1], ix + r_check + 1)
+            if y1c > y0c and x1c > x0c:
+                center_vote = float(np.mean(vote_ratio[y0c:y1c, x0c:x1c]))
+            else:
+                center_vote = 0.0
+
+            patch = self._verify_patch(
+                gray=gray_blur,
+                combined=combined,
+                combined_delta=combined_delta,
+                blackhat=blackhat,
+                pre_shot_delta=combined_delta,
+                camera_x=cx,
+                camera_y=cy,
+                radius=radius,
+            )
+            if patch is None:
+                continue
+
+            # Boost score med vote-persistens
+            base_score = patch["score"]
+            score = base_score + 5.0 * center_vote
+
+            candidate = {
+                "camera_x": float(cx),
+                "camera_y": float(cy),
+                "area": float(area),
+                "radius": float(radius),
+                "circularity": float(circularity),
+                "score": float(score),
+                "center_darkening": float(patch["center_darkening"]),
+                "local_contrast_gain": float(patch["local_contrast_gain"]),
+                "blackhat_value": float(patch["blackhat_value"]),
+                "change_value": float(patch["change_value"]),
+                "pre_shot_change": float(center_vote),
+                "timestamp": float(frame_ts),
+            }
+            candidates.append(candidate)
+
+        candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
+        self.last_candidates = candidates[:24]
+        return self.last_candidates
+
+    def _detect_frame_candidates_legacy(
+        self,
+        gray: np.ndarray,
+        frame_ts: float,
+        roi_mask: np.ndarray,
+        roi_pixels: int,
+    ) -> list[dict[str, float]]:
+        """Fallback-detektion utan pre-shot-referens (scene_ref + blackhat)."""
+        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        delta_maps: list[np.ndarray] = []
+        if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
+            delta_maps.append(cv2.absdiff(
+                cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur
             ))
-            change_ratio = float(change_pixels) / max(1, roi_pixels)
-            self.last_window_debug["change_ratio"] = change_ratio
+        if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
+            delta_maps.append(cv2.absdiff(
+                cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur
+            ))
+        recent_bg = self._build_recent_background(frame_ts)
+        if recent_bg is not None:
+            delta_maps.append(cv2.absdiff(
+                cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur
+            ))
 
-            if change_ratio > 0.04:
-                # Mer än 4% av ROI har ändrats kraftigt — troligen bildändring.
-                # Ignorera pre-shot-diff, fall tillbaka på enbart fallback.
-                pre_shot_delta = None
-                self.last_window_debug["pre_shot_rejected"] = 1.0
-
-        # ---- Sekundär signal: blackhat (morfologisk) ----
-        # Hittar små mörka cirkulära fläckar oavsett bakgrund.
-        # Bra som fallback men ger falska positiva på kanter/sprickor.
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         blackhat = cv2.morphologyEx(gray_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
 
-        # ---- Fallback: scene/surface/recent delta ----
-        # Används bara om pre-shot-diff saknas (t.ex. första skottet).
-        # Använder absdiff för att fånga både ljusare och mörkare förändringar.
-        fallback_delta = np.zeros_like(gray_blur)
-        if pre_shot_delta is None:
-            delta_maps: list[np.ndarray] = []
-            if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
-                delta_maps.append(cv2.absdiff(
-                    cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur
-                ))
-            if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
-                delta_maps.append(cv2.absdiff(
-                    cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur
-                ))
-            recent_bg = self._build_recent_background(frame_ts)
-            if recent_bg is not None:
-                delta_maps.append(cv2.absdiff(
-                    cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur
-                ))
-            if delta_maps:
-                fallback_delta = delta_maps[0]
-                for dmap in delta_maps[1:]:
-                    fallback_delta = np.maximum(fallback_delta, dmap)
-
-        # ---- Bygg combined maps ----
-        if pre_shot_delta is not None:
-            # Pre-shot-diff (absdiff) är redan absolut förändring.
-            # Använd den direkt som combined — den visar alla förändringar
-            # oavsett om de är ljusare eller mörkare.
-            combined_delta = pre_shot_delta
-            combined = pre_shot_delta
+        if delta_maps:
+            fallback_delta = delta_maps[0]
+            for dmap in delta_maps[1:]:
+                fallback_delta = np.maximum(fallback_delta, dmap)
         else:
-            # Ingen pre-shot-diff — fall tillbaka på gamla metoden.
-            combined_delta = fallback_delta
-            combined = np.maximum(fallback_delta, blackhat)
+            fallback_delta = np.zeros_like(gray_blur)
 
+        combined_delta = fallback_delta
+        combined = np.maximum(fallback_delta, blackhat)
         combined = cv2.bitwise_and(combined, roi_mask)
         combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
 
         roi_values = combined[roi_mask > 0]
-        change_values = combined_delta[roi_mask > 0]
         if roi_values.size == 0:
             return []
 
         adaptive_thr = float(np.percentile(roi_values, 98.8))
-        change_thr = float(np.percentile(change_values, 98.5)) if change_values.size else 0.0
+        change_thr = float(np.percentile(combined_delta[roi_mask > 0], 98.5))
 
         self.last_threshold_value = max(self.min_score_threshold, adaptive_thr)
         self.last_change_threshold_value = max(self.min_change_threshold, change_thr)
         self.last_vote_threshold_value = 0.0
 
-        combined_bin = np.zeros_like(combined, dtype=np.uint8)
-        combined_bin[combined >= self.last_threshold_value] = 255
-        change_bin = np.zeros_like(combined_delta, dtype=np.uint8)
-        change_bin[combined_delta >= self.last_change_threshold_value] = 255
-
+        combined_bin = (combined >= self.last_threshold_value).astype(np.uint8) * 255
+        change_bin = (combined_delta >= self.last_change_threshold_value).astype(np.uint8) * 255
         merged = cv2.bitwise_or(combined_bin, change_bin)
         merged = cv2.bitwise_and(merged, roi_mask)
 
@@ -687,7 +840,7 @@ class HitScanner:
                 combined=combined,
                 combined_delta=combined_delta,
                 blackhat=blackhat,
-                pre_shot_delta=pre_shot_delta,
+                pre_shot_delta=None,
                 camera_x=cx,
                 camera_y=cy,
                 radius=radius,
