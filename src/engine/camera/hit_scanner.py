@@ -556,121 +556,138 @@ class HitScanner:
 
         pre_shot_bg = self._build_pre_shot_background()
         if pre_shot_bg is None or pre_shot_bg.shape != gray.shape:
-            # Ingen pre-shot-referens ännu — fall tillbaka på legacy-detektion
             return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
 
+        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
         pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
 
-        # ---- Samla post-shot frames och diffa var och en mot pre-shot ----
-        # Hitta den senaste pending audio-peaken
-        earliest_peak_ts = None
-        for ev in self.audio_events:
-            if ev.state == "pending":
-                if earliest_peak_ts is None or ev.peak_ts < earliest_peak_ts:
-                    earliest_peak_ts = ev.peak_ts
+        # ---- Steg 1: Hitta alla "fläckar" i pre-shot (innan skottet) ----
+        pre_features = self._find_small_features(pre_shot_blur, roi_mask)
 
-        # Samla frames efter skottet (peak_ts + 20ms och framåt), max 6 st
-        post_shot_frames: list[np.ndarray] = []
-        if earliest_peak_ts is not None:
-            for fr in self.frame_history:
-                if fr.timestamp < earliest_peak_ts + 0.02:
-                    continue
-                post_shot_frames.append(fr.gray)
-                if len(post_shot_frames) >= 5:
+        # ---- Steg 2: Hitta alla "fläckar" i nuvarande frame (efter skottet) ----
+        post_features = self._find_small_features(gray_blur, roi_mask)
+
+        # ---- Steg 3: Hitta NYA fläckar — de som finns i post men inte i pre ----
+        # En fläck räknas som "ny" om den inte har en matchande fläck inom
+        # merge-radie i pre-shot-bilden.
+        merge_radius = self.track_merge_radius_px  # 12px
+        new_features: list[tuple[float, float, float, float, float]] = []  # cx, cy, area, radius, circularity
+
+        for pcx, pcy, parea, pradius, pcirc in post_features:
+            is_new = True
+            for prex, prey, _, _, _ in pre_features:
+                dist = float(np.hypot(pcx - prex, pcy - prey))
+                if dist < merge_radius:
+                    is_new = False
                     break
+            if is_new:
+                new_features.append((pcx, pcy, parea, pradius, pcirc))
 
-        # Inkludera nuvarande frame
-        post_shot_frames.append(gray)
+        self.last_window_debug["pre_features"] = float(len(pre_features))
+        self.last_window_debug["post_features"] = float(len(post_features))
+        self.last_window_debug["new_features"] = float(len(new_features))
 
-        if len(post_shot_frames) < 1:
-            return []
-
-        self.last_window_debug["post_shot_frames"] = float(len(post_shot_frames))
-
-        # ---- Bygg vote-map: för varje pixel, i hur många frames har den ändrats? ----
-        # En förändring som syns i de flesta frames = persistent (hål/märke).
-        # En förändring som bara syns i 1-2 frames = skakning/blänk/brus.
-        diff_threshold = 8  # Minsta pixelskillnad för att räknas som "ändrad"
-        vote_map = np.zeros(gray.shape, dtype=np.float32)
-
-        for post_frame in post_shot_frames:
-            frame_diff = cv2.absdiff(pre_shot_blur, cv2.GaussianBlur(post_frame, (5, 5), 0))
-
-            # Subtrahera global shift (projektorflicker, autoexponering)
-            roi_vals = frame_diff[roi_mask > 0]
-            if roi_vals.size > 0:
-                global_shift = float(np.median(roi_vals))
-            else:
-                global_shift = 0.0
-            shift_val = int(min(255, max(0, round(global_shift))))
-            compensated = cv2.subtract(frame_diff, np.full_like(frame_diff, shift_val))
-
-            # Räkna vote: pixlar med förändring över tröskeln
-            vote_map += (compensated > diff_threshold).astype(np.float32)
-
-        # Normalisera till 0-255 baserat på antal frames
-        n_frames = float(len(post_shot_frames))
-        # vote_ratio: andel frames där pixeln ändrats (0.0 - 1.0)
-        vote_ratio = vote_map / max(1.0, n_frames)
-
-        # Kräv att förändringen syns i minst 50% av frames
-        min_vote_ratio = 0.5
-        persistent_mask = (vote_ratio >= min_vote_ratio).astype(np.uint8) * 255
-        persistent_mask = cv2.bitwise_and(persistent_mask, roi_mask)
-
-        # Kolla om för stor del av bilden är persistent (video/animation)
-        persistent_pixels = int(np.count_nonzero(persistent_mask))
-        change_ratio = float(persistent_pixels) / max(1, roi_pixels)
-        self.last_window_debug["change_ratio"] = change_ratio
+        # ---- Steg 4: Verifiera nya fläckar med diff-data ----
+        frame_diff = cv2.absdiff(pre_shot_blur, gray_blur)
+        # Global shift-kompensation
+        roi_vals = frame_diff[roi_mask > 0]
+        global_shift = float(np.median(roi_vals)) if roi_vals.size > 0 else 0.0
+        gs_val = int(min(255, max(0, round(global_shift))))
+        compensated_diff = cv2.subtract(frame_diff, np.full_like(frame_diff, gs_val))
         self.last_window_debug["global_shift"] = global_shift
 
+        # Kolla om för stor del ändrats (video/animation)
+        change_pixels = int(np.count_nonzero((compensated_diff > 10) & (roi_mask > 0)))
+        change_ratio = float(change_pixels) / max(1, roi_pixels)
+        self.last_window_debug["change_ratio"] = change_ratio
         if change_ratio > 0.04:
             self.last_window_debug["pre_shot_rejected"] = 1.0
             return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
 
-        # ---- Bygg combined map från vote-data ----
-        # Skala vote_ratio till 0-255 för tröskling och konturanalys
-        combined = np.clip(vote_ratio * 255.0, 0, 255).astype(np.uint8)
-        combined = cv2.bitwise_and(combined, roi_mask)
+        self.debug_frames["pre_shot_delta"] = compensated_diff
+        self.debug_frames["roi_polygon"] = roi_mask
+        self.debug_frames["combined_map"] = compensated_diff
+        self.debug_frames["change_map"] = compensated_diff
+        self.debug_frames["candidate_mask"] = roi_mask
 
-        # Använd senaste frame-diff som delta-map (för patch-verifiering)
-        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        current_diff = cv2.absdiff(pre_shot_blur, gray_blur)
-        roi_vals = current_diff[roi_mask > 0]
-        if roi_vals.size > 0:
-            gs = float(np.median(roi_vals))
-        else:
-            gs = 0.0
-        gs_val = int(min(255, max(0, round(gs))))
-        combined_delta = cv2.subtract(current_diff, np.full_like(current_diff, gs_val))
-        combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
-
-        self.debug_frames["pre_shot_delta"] = combined_delta
-        self.debug_frames["vote_map"] = np.clip(vote_map * (255.0 / max(1.0, n_frames)), 0, 255).astype(np.uint8)
-
-        # Tröskling
-        roi_values = combined[roi_mask > 0]
-        if roi_values.size == 0:
-            return []
-
-        adaptive_thr = float(np.percentile(roi_values, 98.5))
-        self.last_threshold_value = max(3.0, adaptive_thr)
+        self.last_threshold_value = 0.0
         self.last_change_threshold_value = 0.0
         self.last_vote_threshold_value = 0.0
 
-        merged = persistent_mask.copy()
+        # Bygg kandidater från nya fläckar
+        blackhat = np.zeros_like(gray_blur)
+        candidates: list[dict[str, float]] = []
+        for cx, cy, area, radius, circularity in new_features:
+            # Mät diff-intensitet vid fläcken
+            ix, iy = int(round(cx)), int(round(cy))
+            r_check = max(3, int(radius) + 1)
+            y0 = max(0, iy - r_check)
+            y1 = min(gray.shape[0], iy + r_check + 1)
+            x0 = max(0, ix - r_check)
+            x1 = min(gray.shape[1], ix + r_check + 1)
+            if y1 <= y0 or x1 <= x0:
+                continue
+
+            diff_patch = compensated_diff[y0:y1, x0:x1]
+            diff_intensity = float(np.mean(diff_patch))
+
+            # Score baserat på diff-intensitet (hur mycket har denna punkt ändrats)
+            score = diff_intensity + 2.0 * area
+
+            candidate = {
+                "camera_x": float(cx),
+                "camera_y": float(cy),
+                "area": float(area),
+                "radius": float(radius),
+                "circularity": float(circularity),
+                "score": float(score),
+                "center_darkening": float(diff_intensity),
+                "local_contrast_gain": float(diff_intensity),
+                "blackhat_value": 0.0,
+                "change_value": float(diff_intensity),
+                "pre_shot_change": float(diff_intensity),
+                "timestamp": float(frame_ts),
+            }
+            candidates.append(candidate)
+
+        candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
+        self.last_candidates = candidates[:24]
+        return self.last_candidates
+
+    def _find_small_features(
+        self, blurred: np.ndarray, roi_mask: np.ndarray
+    ) -> list[tuple[float, float, float, float, float]]:
+        """
+        Hitta små fläckar/features i en blurrad gråskalebild.
+        Returnerar lista av (cx, cy, area, radius, circularity).
+
+        Använder adaptiv tröskling + konturanalys för att hitta
+        både ljusa och mörka små fläckar.
+        """
+        features: list[tuple[float, float, float, float, float]] = []
+
+        # Adaptiv tröskling hittar lokala intensitetsskillnader
+        # (både ljusa och mörka fläckar mot sin omgivning)
+        adapt_dark = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, 15, 4
+        )
+        adapt_light = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 15, 4
+        )
+
+        merged = cv2.bitwise_or(adapt_dark, adapt_light)
+        merged = cv2.bitwise_and(merged, roi_mask)
+
+        # Erodera för att ta bort tunna linjer (sprickor), behåll kompakta fläckar
+        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+        merged = cv2.erode(merged, erode_kernel, iterations=1)
+
         close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, close_kernel, iterations=1)
 
-        self.debug_frames["roi_polygon"] = roi_mask
-        self.debug_frames["combined_map"] = combined
-        self.debug_frames["change_map"] = combined_delta
-        self.debug_frames["candidate_mask"] = merged
-
-        # ---- Hitta konturer i persistent mask ----
         contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        candidates: list[dict[str, float]] = []
-        blackhat = np.zeros_like(gray_blur)  # Dummy för _verify_patch-signaturen
 
         for contour in contours:
             area = float(cv2.contourArea(contour))
@@ -692,59 +709,14 @@ class HitScanner:
             if (
                 cx < self.border_margin
                 or cy < self.border_margin
-                or cx >= gray.shape[1] - self.border_margin
-                or cy >= gray.shape[0] - self.border_margin
+                or cx >= blurred.shape[1] - self.border_margin
+                or cy >= blurred.shape[0] - self.border_margin
             ):
                 continue
 
-            # Vote-score: genomsnittlig vote_ratio i centrum
-            ix, iy = int(round(cx)), int(round(cy))
-            r_check = max(2, int(radius))
-            y0c = max(0, iy - r_check)
-            y1c = min(gray.shape[0], iy + r_check + 1)
-            x0c = max(0, ix - r_check)
-            x1c = min(gray.shape[1], ix + r_check + 1)
-            if y1c > y0c and x1c > x0c:
-                center_vote = float(np.mean(vote_ratio[y0c:y1c, x0c:x1c]))
-            else:
-                center_vote = 0.0
+            features.append((float(cx), float(cy), area, radius, circularity))
 
-            patch = self._verify_patch(
-                gray=gray_blur,
-                combined=combined,
-                combined_delta=combined_delta,
-                blackhat=blackhat,
-                pre_shot_delta=combined_delta,
-                camera_x=cx,
-                camera_y=cy,
-                radius=radius,
-            )
-            if patch is None:
-                continue
-
-            # Boost score med vote-persistens
-            base_score = patch["score"]
-            score = base_score + 5.0 * center_vote
-
-            candidate = {
-                "camera_x": float(cx),
-                "camera_y": float(cy),
-                "area": float(area),
-                "radius": float(radius),
-                "circularity": float(circularity),
-                "score": float(score),
-                "center_darkening": float(patch["center_darkening"]),
-                "local_contrast_gain": float(patch["local_contrast_gain"]),
-                "blackhat_value": float(patch["blackhat_value"]),
-                "change_value": float(patch["change_value"]),
-                "pre_shot_change": float(center_vote),
-                "timestamp": float(frame_ts),
-            }
-            candidates.append(candidate)
-
-        candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-        self.last_candidates = candidates[:24]
-        return self.last_candidates
+        return features
 
     def _detect_frame_candidates_legacy(
         self,
