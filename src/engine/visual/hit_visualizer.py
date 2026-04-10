@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import pygame
 
 from src.engine.input.hit_input import HitEvent, hit_input
+from src.engine.camera.hit_scanner import hit_scanner
 from src.engine.settings import (
     load_content_rect,
     load_viewport_rect,
@@ -15,6 +16,8 @@ from src.engine.settings import (
     load_visual_hits_mode,
     load_visual_hits_radius,
     load_visual_hits_show_all_planes,
+    load_visual_hits_show_candidates,
+    load_visual_hits_candidates_count,
 )
 
 
@@ -237,7 +240,125 @@ class HitVisualizer:
                 text = label_font.render(hit.label, True, hit.color)
                 overlay.blit(text, (int(round(hit.x)) + radius + 8, int(round(hit.y)) - 10))
 
+        if load_visual_hits_show_candidates():
+            self._render_candidates(overlay, screen)
+
         screen.blit(overlay, (0, 0))
+
+    def _render_candidates(self, overlay: pygame.Surface, screen: pygame.Surface):
+        """
+        Ritar ut top-N kandidater från hit_scanner direkt på overlayen.
+        Varje kandidat visas med numrering, score och position.
+        Färgkodas från grön (hög score) till röd (låg score).
+        """
+        del screen
+        max_count = load_visual_hits_candidates_count()
+        candidates = list(hit_scanner.last_candidates)[:max_count]
+        if not candidates:
+            return
+
+        font = pygame.font.Font(None, 16)
+        font_panel = pygame.font.Font(None, 18)
+
+        max_score = max((c.get("score", 0.0) for c in candidates), default=1.0)
+        if max_score <= 0:
+            max_score = 1.0
+
+        # Rita varje kandidat som en numrerad ring på skärmen
+        for i, cand in enumerate(candidates):
+            cam_x = cand.get("camera_x", 0.0)
+            cam_y = cand.get("camera_y", 0.0)
+            score = cand.get("score", 0.0)
+
+            # Konvertera kamerakoordinater till skärmkoordinater
+            try:
+                sx, sy = hit_input._canonical_camera_to_screen(cam_x, cam_y)
+            except Exception:
+                continue
+
+            if not (math.isfinite(sx) and math.isfinite(sy)):
+                continue
+
+            # Färg: grön → gul → röd baserat på score-ranking
+            ratio = score / max_score
+            if ratio > 0.5:
+                r = int(255 * (1.0 - ratio) * 2)
+                g = 255
+            else:
+                r = 255
+                g = int(255 * ratio * 2)
+            color = (r, g, 60, 200)
+
+            ix = int(round(sx))
+            iy = int(round(sy))
+
+            # Ring
+            pygame.draw.circle(overlay, color, (ix, iy), 14, 2)
+            # Numrering
+            num_text = font.render(str(i + 1), True, (255, 255, 255, 240))
+            num_rect = num_text.get_rect(center=(ix, iy))
+            overlay.blit(num_text, num_rect)
+
+            # Score-label bredvid
+            score_label = f"{score:.1f}"
+            score_surf = font.render(score_label, True, color)
+            overlay.blit(score_surf, (ix + 17, iy - 6))
+
+        # Rita en infopanel med kandidatlistan
+        self._render_candidate_panel(overlay, candidates, font_panel, max_count)
+
+    def _render_candidate_panel(
+        self,
+        overlay: pygame.Surface,
+        candidates: list[dict],
+        font: pygame.font.Font,
+        max_count: int,
+    ):
+        """Kompakt panel med kandidatinfo i hörnet."""
+        panel_w = 310
+        line_h = 17
+        header_h = 24
+        panel_h = header_h + line_h * min(len(candidates), max_count) + 8
+        margin = 10
+        panel_x = margin
+        panel_y = overlay.get_height() - panel_h - margin
+
+        panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+        panel.fill((0, 0, 0, 170))
+        pygame.draw.rect(panel, (110, 110, 110, 200), panel.get_rect(), 1)
+
+        header = font.render(
+            f"Kandidater (top {min(len(candidates), max_count)})",
+            True,
+            (255, 220, 80, 255),
+        )
+        panel.blit(header, (8, 4))
+
+        max_score = max((c.get("score", 0.0) for c in candidates), default=1.0)
+        if max_score <= 0:
+            max_score = 1.0
+
+        for i, cand in enumerate(candidates[:max_count]):
+            score = cand.get("score", 0.0)
+            cx = cand.get("camera_x", 0.0)
+            cy = cand.get("camera_y", 0.0)
+            cd = cand.get("center_darkening", 0.0)
+            lcg = cand.get("local_contrast_gain", 0.0)
+
+            ratio = score / max_score
+            if ratio > 0.5:
+                r = int(255 * (1.0 - ratio) * 2)
+                g = 255
+            else:
+                r = 255
+                g = int(255 * ratio * 2)
+            color = (r, g, 60, 230)
+
+            line = f"#{i+1}  scr:{score:.1f}  cd:{cd:.1f}  lcg:{lcg:.1f}  ({cx:.0f},{cy:.0f})"
+            text = font.render(line, True, color)
+            panel.blit(text, (8, header_h + i * line_h))
+
+        overlay.blit(panel, (panel_x, panel_y))
 
 
 hit_visualizer = HitVisualizer()

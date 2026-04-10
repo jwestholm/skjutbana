@@ -8,10 +8,14 @@ from src.engine.settings import (
     load_visual_hits_lifetime_ms,
     load_visual_hits_mode,
     load_visual_hits_show_all_planes,
+    load_visual_hits_show_candidates,
+    load_visual_hits_candidates_count,
     save_visual_hits_enabled,
     save_visual_hits_lifetime_ms,
     save_visual_hits_mode,
     save_visual_hits_show_all_planes,
+    save_visual_hits_show_candidates,
+    save_visual_hits_candidates_count,
 )
 from src.engine.scenes.menu import MenuScene
 
@@ -113,6 +117,27 @@ class VisualHitsSettingsScene(Scene):
                 "unit": "ms",
                 "save": save_visual_hits_lifetime_ms,
                 "hint": "Hur länge en fade-träff visas",
+            },
+            {
+                "label": "Visa kandidater",
+                "kind": "toggle",
+                "value": bool(load_visual_hits_show_candidates()),
+                "default": False,
+                "save": save_visual_hits_show_candidates,
+                "hint": "Visar top-N hålkandidater vid varje skott för debug",
+            },
+            {
+                "label": "Antal kandidater",
+                "kind": "int",
+                "value": int(load_visual_hits_candidates_count()),
+                "default": 10,
+                "small_step": 1,
+                "large_step": 5,
+                "min": 1,
+                "max": 50,
+                "unit": "st",
+                "save": save_visual_hits_candidates_count,
+                "hint": "Hur många kandidater som visas (1-50)",
             },
         ]
 
