@@ -390,7 +390,7 @@ class HitVisualizer:
         shot_id: int = 0,
     ):
         """Kompakt panel med kandidatinfo i hörnet."""
-        panel_w = 310
+        panel_w = 370
         line_h = 17
         header_h = 24
         panel_h = header_h + line_h * min(len(candidates), max_count) + 8
@@ -419,6 +419,7 @@ class HitVisualizer:
             cy = cand.get("camera_y", 0.0)
             cd = cand.get("center_darkening", 0.0)
             lcg = cand.get("local_contrast_gain", 0.0)
+            psc = cand.get("pre_shot_change", 0.0)
 
             ratio = score / max_score
             if ratio > 0.5:
@@ -429,7 +430,7 @@ class HitVisualizer:
                 g = int(255 * ratio * 2)
             color = (r, g, 60, 230)
 
-            line = f"#{i+1}  scr:{score:.1f}  cd:{cd:.1f}  lcg:{lcg:.1f}  ({cx:.0f},{cy:.0f})"
+            line = f"#{i+1}  scr:{score:.1f}  psc:{psc:.1f}  cd:{cd:.1f}  lcg:{lcg:.1f}  ({cx:.0f},{cy:.0f})"
             text = font.render(line, True, color)
             panel.blit(text, (8, header_h + i * line_h))
 
