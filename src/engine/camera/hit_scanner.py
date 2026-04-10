@@ -601,7 +601,8 @@ class HitScanner:
                 global_shift = float(np.median(roi_vals))
             else:
                 global_shift = 0.0
-            compensated = cv2.subtract(frame_diff, np.uint8(min(255, max(0, int(round(global_shift))))))
+            shift_val = int(min(255, max(0, round(global_shift))))
+            compensated = cv2.subtract(frame_diff, np.full_like(frame_diff, shift_val))
 
             # Räkna vote: pixlar med förändring över tröskeln
             vote_map += (compensated > diff_threshold).astype(np.float32)
@@ -639,7 +640,8 @@ class HitScanner:
             gs = float(np.median(roi_vals))
         else:
             gs = 0.0
-        combined_delta = cv2.subtract(current_diff, np.uint8(min(255, max(0, int(round(gs))))))
+        gs_val = int(min(255, max(0, round(gs))))
+        combined_delta = cv2.subtract(current_diff, np.full_like(current_diff, gs_val))
         combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
 
         self.debug_frames["pre_shot_delta"] = combined_delta
