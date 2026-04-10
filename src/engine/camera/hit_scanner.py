@@ -554,207 +554,54 @@ class HitScanner:
             self.last_vote_threshold_value = 0.0
             return []
 
+        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
         pre_shot_bg = self._build_pre_shot_background()
-        if pre_shot_bg is None or pre_shot_bg.shape != gray.shape:
-            return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
 
-        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
+        # ---- Pre-shot diff (primär signal) ----
+        pre_shot_delta: np.ndarray | None = None
+        if pre_shot_bg is not None and pre_shot_bg.shape == gray.shape:
+            pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
+            pre_shot_delta = cv2.absdiff(pre_shot_blur, gray_blur)
+            self.debug_frames["pre_shot_delta"] = pre_shot_delta
 
-        # ---- Steg 1: Hitta alla "fläckar" i pre-shot (innan skottet) ----
-        pre_features = self._find_small_features(pre_shot_blur, roi_mask)
+            # Kolla om för stor del ändrats (video/animation)
+            change_pixels = int(np.count_nonzero((pre_shot_delta > 20) & (roi_mask > 0)))
+            change_ratio = float(change_pixels) / max(1, roi_pixels)
+            self.last_window_debug["change_ratio"] = change_ratio
+            if change_ratio > 0.05:
+                pre_shot_delta = None
+                self.last_window_debug["pre_shot_rejected"] = 1.0
 
-        # ---- Steg 2: Hitta alla "fläckar" i nuvarande frame (efter skottet) ----
-        post_features = self._find_small_features(gray_blur, roi_mask)
-
-        # ---- Steg 3: Hitta NYA fläckar — de som finns i post men inte i pre ----
-        # En fläck räknas som "ny" om den inte har en matchande fläck inom
-        # merge-radie i pre-shot-bilden.
-        merge_radius = self.track_merge_radius_px  # 12px
-        new_features: list[tuple[float, float, float, float, float]] = []  # cx, cy, area, radius, circularity
-
-        for pcx, pcy, parea, pradius, pcirc in post_features:
-            is_new = True
-            for prex, prey, _, _, _ in pre_features:
-                dist = float(np.hypot(pcx - prex, pcy - prey))
-                if dist < merge_radius:
-                    is_new = False
-                    break
-            if is_new:
-                new_features.append((pcx, pcy, parea, pradius, pcirc))
-
-        self.last_window_debug["pre_features"] = float(len(pre_features))
-        self.last_window_debug["post_features"] = float(len(post_features))
-        self.last_window_debug["new_features"] = float(len(new_features))
-
-        # ---- Steg 4: Verifiera nya fläckar med diff-data ----
-        frame_diff = cv2.absdiff(pre_shot_blur, gray_blur)
-        # Global shift-kompensation
-        roi_vals = frame_diff[roi_mask > 0]
-        global_shift = float(np.median(roi_vals)) if roi_vals.size > 0 else 0.0
-        gs_val = int(min(255, max(0, round(global_shift))))
-        compensated_diff = cv2.subtract(frame_diff, np.full_like(frame_diff, gs_val))
-        self.last_window_debug["global_shift"] = global_shift
-
-        # Kolla om för stor del ändrats (video/animation)
-        change_pixels = int(np.count_nonzero((compensated_diff > 10) & (roi_mask > 0)))
-        change_ratio = float(change_pixels) / max(1, roi_pixels)
-        self.last_window_debug["change_ratio"] = change_ratio
-        if change_ratio > 0.04:
-            self.last_window_debug["pre_shot_rejected"] = 1.0
-            return self._detect_frame_candidates_legacy(gray, frame_ts, roi_mask, roi_pixels)
-
-        self.debug_frames["pre_shot_delta"] = compensated_diff
-        self.debug_frames["roi_polygon"] = roi_mask
-        self.debug_frames["combined_map"] = compensated_diff
-        self.debug_frames["change_map"] = compensated_diff
-        self.debug_frames["candidate_mask"] = roi_mask
-
-        self.last_threshold_value = 0.0
-        self.last_change_threshold_value = 0.0
-        self.last_vote_threshold_value = 0.0
-
-        # Bygg kandidater från nya fläckar
-        blackhat = np.zeros_like(gray_blur)
-        candidates: list[dict[str, float]] = []
-        for cx, cy, area, radius, circularity in new_features:
-            # Mät diff-intensitet vid fläcken
-            ix, iy = int(round(cx)), int(round(cy))
-            r_check = max(3, int(radius) + 1)
-            y0 = max(0, iy - r_check)
-            y1 = min(gray.shape[0], iy + r_check + 1)
-            x0 = max(0, ix - r_check)
-            x1 = min(gray.shape[1], ix + r_check + 1)
-            if y1 <= y0 or x1 <= x0:
-                continue
-
-            diff_patch = compensated_diff[y0:y1, x0:x1]
-            diff_intensity = float(np.mean(diff_patch))
-
-            # Score baserat på diff-intensitet (hur mycket har denna punkt ändrats)
-            score = diff_intensity + 2.0 * area
-
-            candidate = {
-                "camera_x": float(cx),
-                "camera_y": float(cy),
-                "area": float(area),
-                "radius": float(radius),
-                "circularity": float(circularity),
-                "score": float(score),
-                "center_darkening": float(diff_intensity),
-                "local_contrast_gain": float(diff_intensity),
-                "blackhat_value": 0.0,
-                "change_value": float(diff_intensity),
-                "pre_shot_change": float(diff_intensity),
-                "timestamp": float(frame_ts),
-            }
-            candidates.append(candidate)
-
-        candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-        self.last_candidates = candidates[:24]
-        return self.last_candidates
-
-    def _find_small_features(
-        self, blurred: np.ndarray, roi_mask: np.ndarray
-    ) -> list[tuple[float, float, float, float, float]]:
-        """
-        Hitta små fläckar/features i en blurrad gråskalebild.
-        Returnerar lista av (cx, cy, area, radius, circularity).
-
-        Använder adaptiv tröskling + konturanalys för att hitta
-        både ljusa och mörka små fläckar.
-        """
-        features: list[tuple[float, float, float, float, float]] = []
-
-        # Adaptiv tröskling hittar lokala intensitetsskillnader
-        # (både ljusa och mörka fläckar mot sin omgivning)
-        adapt_dark = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, 15, 4
-        )
-        adapt_light = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 15, 4
-        )
-
-        merged = cv2.bitwise_or(adapt_dark, adapt_light)
-        merged = cv2.bitwise_and(merged, roi_mask)
-
-        # Erodera för att ta bort tunna linjer (sprickor), behåll kompakta fläckar
-        erode_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
-        merged = cv2.erode(merged, erode_kernel, iterations=1)
-
-        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, close_kernel, iterations=1)
-
-        contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for contour in contours:
-            area = float(cv2.contourArea(contour))
-            if area < self.min_area or area > self.max_area:
-                continue
-
-            perimeter = float(cv2.arcLength(contour, True))
-            circularity = 0.0
-            if perimeter > 1e-6:
-                circularity = float((4.0 * np.pi * area) / (perimeter * perimeter))
-            if circularity < self.min_circularity:
-                continue
-
-            (cx, cy), radius = cv2.minEnclosingCircle(contour)
-            radius = float(radius)
-            if radius < self.min_radius or radius > self.max_radius:
-                continue
-
-            if (
-                cx < self.border_margin
-                or cy < self.border_margin
-                or cx >= blurred.shape[1] - self.border_margin
-                or cy >= blurred.shape[0] - self.border_margin
-            ):
-                continue
-
-            features.append((float(cx), float(cy), area, radius, circularity))
-
-        return features
-
-    def _detect_frame_candidates_legacy(
-        self,
-        gray: np.ndarray,
-        frame_ts: float,
-        roi_mask: np.ndarray,
-        roi_pixels: int,
-    ) -> list[dict[str, float]]:
-        """Fallback-detektion utan pre-shot-referens (scene_ref + blackhat)."""
-        gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        delta_maps: list[np.ndarray] = []
-        if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
-            delta_maps.append(cv2.absdiff(
-                cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur
-            ))
-        if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
-            delta_maps.append(cv2.absdiff(
-                cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur
-            ))
-        recent_bg = self._build_recent_background(frame_ts)
-        if recent_bg is not None:
-            delta_maps.append(cv2.absdiff(
-                cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur
-            ))
-
+        # ---- Fallback: scene/surface/recent ----
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         blackhat = cv2.morphologyEx(gray_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
 
-        if delta_maps:
-            fallback_delta = delta_maps[0]
-            for dmap in delta_maps[1:]:
-                fallback_delta = np.maximum(fallback_delta, dmap)
-        else:
-            fallback_delta = np.zeros_like(gray_blur)
+        fallback_delta = np.zeros_like(gray_blur)
+        if pre_shot_delta is None:
+            delta_maps: list[np.ndarray] = []
+            if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur))
+            if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur))
+            recent_bg = self._build_recent_background(frame_ts)
+            if recent_bg is not None:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur))
+            if delta_maps:
+                fallback_delta = delta_maps[0]
+                for dmap in delta_maps[1:]:
+                    fallback_delta = np.maximum(fallback_delta, dmap)
 
-        combined_delta = fallback_delta
-        combined = np.maximum(fallback_delta, blackhat)
+        # ---- Bygg combined ----
+        if pre_shot_delta is not None:
+            combined_delta = pre_shot_delta
+            combined = pre_shot_delta
+        else:
+            combined_delta = fallback_delta
+            combined = np.maximum(fallback_delta, blackhat)
+
         combined = cv2.bitwise_and(combined, roi_mask)
         combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
 
@@ -815,7 +662,7 @@ class HitScanner:
                 combined=combined,
                 combined_delta=combined_delta,
                 blackhat=blackhat,
-                pre_shot_delta=None,
+                pre_shot_delta=pre_shot_delta,
                 camera_x=cx,
                 camera_y=cy,
                 radius=radius,
