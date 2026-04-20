@@ -89,8 +89,8 @@ class HitScanner:
         self._next_hole_id = 1
 
         self.association_lead_s = 0.08
-        self.association_lag_s = 0.22
-        self.event_timeout_s = 0.95
+        self.association_lag_s = 1.5
+        self.event_timeout_s = 2.0
         self.track_confirm_frames = 3
         self.track_confirm_span_s = 0.09
         self.track_drop_after_missed_frames = 5
@@ -488,6 +488,54 @@ class HitScanner:
             return None
         return np.median(np.stack(candidates, axis=0), axis=0).astype(np.uint8)
 
+    def _build_pre_shot_background(self) -> np.ndarray | None:
+        """
+        Bygg en bakgrundsbild från frames INNAN kulan träffade tavlan.
+
+        Mikrofonen sitter i kameran, ~50cm från tavlan.
+        Tidslinje vid 6m avstånd:
+        - t=0: Avfyrning
+        - t=30-60ms: Kulan träffar tavlan → hål uppstår
+        - t=~1.5ms efter träff: Mikrofon hör smällen (50cm / 340m/s)
+
+        Audio peak ≈ kulan har redan träffat. Hålet finns redan i bilden.
+        Vi behöver frames från INNAN peak_ts för att ha en ren bakgrund.
+
+        Vid 30fps (33ms/frame) och snabbskytte (5 skott/s = 200ms mellanrum)
+        tar vi frames som är minst 40ms äldre än peak_ts (säkerhetsmarginal
+        för att kulan kan ha träffat 1-2 frames innan ljudet nådde mikrofonen).
+        """
+        earliest_peak_ts = None
+        for ev in self.audio_events:
+            if ev.state == "pending":
+                if earliest_peak_ts is None or ev.peak_ts < earliest_peak_ts:
+                    earliest_peak_ts = ev.peak_ts
+
+        if earliest_peak_ts is None:
+            return None
+
+        # Kulan träffade ~1-2 frames innan audio peak (30-66ms vid 30fps).
+        # Vi vill ha frames från innan kulan träffade, alltså minst 40ms
+        # före peak_ts, och max 200ms tillbaka (snabbskytte-gräns).
+        pre_shot_frames: list[np.ndarray] = []
+        cutoff_latest = earliest_peak_ts - 0.04   # 40ms före peak
+        cutoff_earliest = earliest_peak_ts - 0.20  # 200ms före peak
+
+        for fr in reversed(self.frame_history):
+            if fr.timestamp > cutoff_latest:
+                continue
+            if fr.timestamp < cutoff_earliest:
+                break
+            pre_shot_frames.append(fr.gray)
+            if len(pre_shot_frames) >= 5:
+                break
+
+        if len(pre_shot_frames) < 1:
+            return None
+        if len(pre_shot_frames) == 1:
+            return pre_shot_frames[0]
+        return np.median(np.stack(pre_shot_frames, axis=0), axis=0).astype(np.uint8)
+
     # ------------------------------------------------------------------
     # Detection / tracking
     # ------------------------------------------------------------------
@@ -507,52 +555,70 @@ class HitScanner:
             return []
 
         gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        recent_bg = self._build_recent_background(frame_ts)
+        pre_shot_bg = self._build_pre_shot_background()
 
-        delta_maps: list[np.ndarray] = []
-        if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
-            delta_maps.append(cv2.subtract(cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur))
-        if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
-            delta_maps.append(cv2.subtract(cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur))
-        if recent_bg is not None:
-            delta_maps.append(cv2.subtract(cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur))
+        # ---- Pre-shot diff (primär signal) ----
+        pre_shot_delta: np.ndarray | None = None
+        if pre_shot_bg is not None and pre_shot_bg.shape == gray.shape:
+            pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
+            pre_shot_delta = cv2.absdiff(pre_shot_blur, gray_blur)
+            self.debug_frames["pre_shot_delta"] = pre_shot_delta
 
+            # Kolla om för stor del ändrats (video/animation)
+            change_pixels = int(np.count_nonzero((pre_shot_delta > 20) & (roi_mask > 0)))
+            change_ratio = float(change_pixels) / max(1, roi_pixels)
+            self.last_window_debug["change_ratio"] = change_ratio
+            if change_ratio > 0.05:
+                pre_shot_delta = None
+                self.last_window_debug["pre_shot_rejected"] = 1.0
+
+        # ---- Fallback: scene/surface/recent ----
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         blackhat = cv2.morphologyEx(gray_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
 
-        if delta_maps:
-            combined_delta = delta_maps[0]
-            for dmap in delta_maps[1:]:
-                combined_delta = np.maximum(combined_delta, dmap)
-        else:
-            combined_delta = np.zeros_like(gray_blur)
+        fallback_delta = np.zeros_like(gray_blur)
+        if pre_shot_delta is None:
+            delta_maps: list[np.ndarray] = []
+            if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur))
+            if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur))
+            recent_bg = self._build_recent_background(frame_ts)
+            if recent_bg is not None:
+                delta_maps.append(cv2.absdiff(
+                    cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur))
+            if delta_maps:
+                fallback_delta = delta_maps[0]
+                for dmap in delta_maps[1:]:
+                    fallback_delta = np.maximum(fallback_delta, dmap)
 
-        combined = np.maximum(combined_delta, blackhat)
+        # ---- Bygg combined ----
+        if pre_shot_delta is not None:
+            combined_delta = pre_shot_delta
+            combined = pre_shot_delta
+        else:
+            combined_delta = fallback_delta
+            combined = np.maximum(fallback_delta, blackhat)
+
         combined = cv2.bitwise_and(combined, roi_mask)
+        combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
 
         roi_values = combined[roi_mask > 0]
-        change_values = combined_delta[roi_mask > 0]
-        vote_values = blackhat[roi_mask > 0]
         if roi_values.size == 0:
             return []
 
         adaptive_thr = float(np.percentile(roi_values, 98.8))
-        change_thr = float(np.percentile(change_values, 98.5)) if change_values.size else 0.0
-        vote_thr = float(np.percentile(vote_values, 98.5)) if vote_values.size else 0.0
+        change_thr = float(np.percentile(combined_delta[roi_mask > 0], 98.5))
 
         self.last_threshold_value = max(self.min_score_threshold, adaptive_thr)
         self.last_change_threshold_value = max(self.min_change_threshold, change_thr)
-        self.last_vote_threshold_value = max(self.min_blackhat_threshold, vote_thr)
+        self.last_vote_threshold_value = 0.0
 
-        combined_bin = np.zeros_like(combined, dtype=np.uint8)
-        combined_bin[combined >= self.last_threshold_value] = 255
-        change_bin = np.zeros_like(combined_delta, dtype=np.uint8)
-        change_bin[combined_delta >= self.last_change_threshold_value] = 255
-        vote_bin = np.zeros_like(blackhat, dtype=np.uint8)
-        vote_bin[blackhat >= self.last_vote_threshold_value] = 255
-
+        combined_bin = (combined >= self.last_threshold_value).astype(np.uint8) * 255
+        change_bin = (combined_delta >= self.last_change_threshold_value).astype(np.uint8) * 255
         merged = cv2.bitwise_or(combined_bin, change_bin)
-        merged = cv2.bitwise_or(merged, vote_bin)
         merged = cv2.bitwise_and(merged, roi_mask)
 
         close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -563,8 +629,6 @@ class HitScanner:
         self.debug_frames["change_map"] = combined_delta
         self.debug_frames["blackhat_map"] = blackhat
         self.debug_frames["candidate_mask"] = merged
-        if recent_bg is not None:
-            self.debug_frames["recent_background"] = recent_bg
 
         contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         candidates: list[dict[str, float]] = []
@@ -598,6 +662,7 @@ class HitScanner:
                 combined=combined,
                 combined_delta=combined_delta,
                 blackhat=blackhat,
+                pre_shot_delta=pre_shot_delta,
                 camera_x=cx,
                 camera_y=cy,
                 radius=radius,
@@ -616,6 +681,7 @@ class HitScanner:
                 "local_contrast_gain": float(patch["local_contrast_gain"]),
                 "blackhat_value": float(patch["blackhat_value"]),
                 "change_value": float(patch["change_value"]),
+                "pre_shot_change": float(patch.get("pre_shot_change", 0.0)),
                 "timestamp": float(frame_ts),
             }
             candidates.append(candidate)
@@ -631,6 +697,7 @@ class HitScanner:
         combined: np.ndarray,
         combined_delta: np.ndarray,
         blackhat: np.ndarray,
+        pre_shot_delta: np.ndarray | None,
         camera_x: float,
         camera_y: float,
         radius: float,
@@ -645,10 +712,8 @@ class HitScanner:
         if x1 <= x0 or y1 <= y0:
             return None
 
-        patch_gray = gray[y0:y1, x0:x1]
         patch_combined = combined[y0:y1, x0:x1]
         patch_delta = combined_delta[y0:y1, x0:x1]
-        patch_blackhat = blackhat[y0:y1, x0:x1]
 
         yy, xx = np.ogrid[y0:y1, x0:x1]
         dist_sq = (xx - camera_x) ** 2 + (yy - camera_y) ** 2
@@ -660,32 +725,52 @@ class HitScanner:
         if not np.any(center_mask) or not np.any(ring_mask):
             return None
 
-        center_darkening = float(np.mean(patch_combined[center_mask]))
+        # center_change: hur mycket har centrum förändrats (ljusare ELLER mörkare).
+        # Ersätter gamla center_darkening som bara fångade mörkare.
+        center_change = float(np.mean(patch_combined[center_mask]))
         change_value = float(np.mean(patch_delta[center_mask]))
-        blackhat_value = float(np.mean(patch_blackhat[center_mask]))
         ring_value = float(np.mean(patch_combined[ring_mask]))
-        local_contrast_gain = float(center_darkening - ring_value)
 
-        if center_darkening < self.min_center_darkening:
+        # local_contrast: absolut skillnad mellan centrum och ring.
+        # Hål/märken har hög kontrast mot omgivningen oavsett riktning.
+        local_contrast = abs(center_change - ring_value)
+
+        # Pre-shot change: hur mycket har denna punkt förändrats sedan
+        # precis innan skottet? Hög = nytt hål/märke.
+        pre_shot_change = 0.0
+        if pre_shot_delta is not None:
+            patch_pre = pre_shot_delta[y0:y1, x0:x1]
+            pre_shot_change = float(np.mean(patch_pre[center_mask]))
+
+        if center_change < self.min_center_darkening:
             return None
-        if local_contrast_gain < self.min_local_contrast_gain:
+        if local_contrast < self.min_local_contrast_gain:
             return None
 
-        score = (
-            0.55 * center_darkening
-            + 0.30 * change_value
-            + 0.20 * blackhat_value
-            + 0.35 * local_contrast_gain
-        )
+        # Score: pre-shot-förändring dominerar om tillgänglig.
+        if pre_shot_change > 0.5:
+            score = (
+                0.25 * center_change
+                + 0.15 * change_value
+                + 0.15 * local_contrast
+                + 0.80 * pre_shot_change
+            )
+        else:
+            score = (
+                0.45 * center_change
+                + 0.35 * change_value
+                + 0.35 * local_contrast
+            )
         if score < self.min_score_threshold:
             return None
 
         return {
             "score": float(score),
-            "center_darkening": float(center_darkening),
+            "center_darkening": float(center_change),
             "change_value": float(change_value),
-            "blackhat_value": float(blackhat_value),
-            "local_contrast_gain": float(local_contrast_gain),
+            "blackhat_value": 0.0,
+            "local_contrast_gain": float(local_contrast),
+            "pre_shot_change": float(pre_shot_change),
         }
 
     def _update_tracks(self, candidates: list[dict[str, float]], frame_ts: float) -> None:

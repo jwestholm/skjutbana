@@ -26,7 +26,6 @@ class OverlayScene(Scene):
             self.inner.on_enter()
 
     def on_exit(self):
-        hit_visualizer.clear()
         if hasattr(self.inner, "on_exit"):
             self.inner.on_exit()
 
@@ -64,7 +63,6 @@ class OverlayScene(Scene):
 
     def update(self, dt):
         result = self.inner.update(dt)
-        hit_visualizer.update(dt)
         return result
 
     def render(self, screen):
