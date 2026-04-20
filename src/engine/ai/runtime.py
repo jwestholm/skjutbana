@@ -66,7 +66,7 @@ class AIRuntime:
         settings = load_ai_settings()
         if not bool(settings.get("enabled", True)):
             return []
-        top_k = int(settings.get("top_k", 5))
+        top_k = int(settings.get("top_k", 10))
         ranked: list[AICandidate] = []
         for index, raw in enumerate(candidates_raw):
             feats = self._feature_vector(raw)
@@ -157,7 +157,7 @@ class AIRuntime:
         }
         return result
 
-    def learn_from_click(self, click_camera_x: float, click_camera_y: float) -> dict[str, Any] | None:
+    def learn_from_click(self, click_camera_x: float, click_camera_y: float, *, clear_visuals: bool = True) -> dict[str, Any] | None:
         prediction = self.latest_prediction
         if not prediction:
             return None
@@ -207,7 +207,12 @@ class AIRuntime:
         }
         save_training_example(payload)
         self.latest_training_feedback = payload
+        if clear_visuals:
+            self.clear_visual_state()
         return payload
+
+    def clear_visual_state(self) -> None:
+        self.latest_prediction = None
 
     def _feature_vector(self, raw: dict[str, Any]) -> list[float]:
         x = float(raw.get("camera_x", raw.get("x", 0.0)))

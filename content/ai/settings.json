@@ -8,6 +8,6 @@
   "max_negative_memories": 384,
   "auto_learn": true,
   "show_overlay": true,
-  "top_k": 5,
+  "top_k": 10,
   "click_match_radius_px": 36.0
 }

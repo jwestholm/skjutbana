@@ -21,7 +21,7 @@ def _default_settings() -> dict[str, Any]:
         "max_negative_memories": 384,
         "auto_learn": True,
         "show_overlay": True,
-        "top_k": 5,
+        "top_k": 10,
         "click_match_radius_px": 36.0,
     }
 
@@ -65,7 +65,7 @@ def load_ai_settings() -> dict[str, Any]:
     merged["max_negative_memories"] = max(16, int(merged.get("max_negative_memories", 384)))
     merged["auto_learn"] = bool(merged.get("auto_learn", True))
     merged["show_overlay"] = bool(merged.get("show_overlay", True))
-    merged["top_k"] = max(1, min(10, int(merged.get("top_k", 5))))
+    merged["top_k"] = max(1, min(10, int(merged.get("top_k", 10))))
     try:
         merged["click_match_radius_px"] = max(4.0, min(200.0, float(merged.get("click_match_radius_px", 36.0))))
     except Exception:
