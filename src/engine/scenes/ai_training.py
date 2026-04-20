@@ -27,19 +27,39 @@ HUD_BG = (0, 0, 0, 90)
 class AITrainingScene(Scene):
     wants_hit_scanning = True
 
-    def __init__(self, bg_mode: str = "white") -> None:
-        self.bg_mode = str(bg_mode or 'white').strip().lower()
+    def __init__(self, bg_mode: str = "white", bg_color=None) -> None:
+        # Backwards compatibility: bootstrap/menu currently instantiates the scene
+        # with bg_color=item.bg_color. Accept that without crashing and map common
+        # colors to a useful starting training mode.
+        inferred_mode = None
+        if isinstance(bg_color, str) and bg_color.strip():
+            inferred_mode = bg_color.strip().lower()
+        elif isinstance(bg_color, (tuple, list)) and len(bg_color) >= 3:
+            try:
+                r, g, b = int(bg_color[0]), int(bg_color[1]), int(bg_color[2])
+                brightness = (r + g + b) / 3.0
+                inferred_mode = "black" if brightness < 96 else "white"
+            except Exception:
+                inferred_mode = None
+
+        self.mode_names = ["white", "black", "grid", "noise", "rings", "moving_box", "sweep"]
+
+        requested_mode = str(bg_mode or inferred_mode or "white").strip().lower()
+        if requested_mode not in self.mode_names:
+            requested_mode = inferred_mode if inferred_mode in self.mode_names else "white"
+
+        self.bg_mode = requested_mode
+        self.bg_color = bg_color if bg_color is not None else (BG_WHITE if self.bg_mode != "black" else BG_BLACK)
+
         self.font = None
         self.small = None
         self.tiny = None
-        self.mode_index = 0
-        self.mode_names = ["white", "black", "grid", "noise", "rings", "moving_box", "sweep"]
-        if self.bg_mode in self.mode_names:
-            self.mode_index = self.mode_names.index(self.bg_mode)
+        self.mode_index = self.mode_names.index(self.bg_mode)
         self.t = 0.0
         self.last_camera_hit = None
         self.awaiting_label = False
         self.last_completed_shot_serial = None
+        self.last_click_screen = None
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -82,10 +102,12 @@ class AITrainingScene(Scene):
                 ai_runtime.model.reset()
                 self.awaiting_label = False
                 self.last_completed_shot_serial = None
+                self.last_click_screen = None
                 return None
             return None
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.awaiting_label:
+            self.last_click_screen = (float(event.pos[0]), float(event.pos[1]))
             projected = project_screen_point(float(event.pos[0]), float(event.pos[1]))
             feedback = ai_runtime.learn_from_click(projected.camera_x, projected.camera_y)
             if feedback is not None:
@@ -96,6 +118,14 @@ class AITrainingScene(Scene):
 
     def update(self, dt: float):
         self.t += dt
+        if not self.awaiting_label and self.last_click_screen is not None:
+            # Keep the feedback flash only briefly, then clear for the next shot.
+            if not hasattr(self, "_click_flash_t"):
+                self._click_flash_t = 0.0
+            self._click_flash_t += dt
+            if self._click_flash_t > 0.25:
+                self.last_click_screen = None
+                self._click_flash_t = 0.0
         return None
 
     def render(self, screen: pygame.Surface) -> None:
@@ -106,25 +136,50 @@ class AITrainingScene(Scene):
         else:
             screen.fill(BG_BLACK)
             ink = TEXT_LIGHT
+
         viewport = load_viewport_rect()
         if viewport is None:
             viewport = pygame.Rect(120, 100, 960, 540)
+
         self._render_training_content(screen, viewport, mode)
 
         prediction = ai_runtime.latest_prediction or {"candidates": []}
         candidates = prediction.get("candidates", []) or []
         shot_serial = prediction.get("shot_serial")
-        show_candidates = bool(self.awaiting_label and shot_serial is not None and shot_serial != self.last_completed_shot_serial)
+        show_candidates = bool(
+            self.awaiting_label
+            and shot_serial is not None
+            and shot_serial != self.last_completed_shot_serial
+        )
         if show_candidates:
             self._draw_candidates(screen, viewport, candidates)
 
+        if self.last_click_screen is not None:
+            self._draw_click_feedback(screen, self.last_click_screen)
+
         self._draw_minimal_hud(screen, viewport, ink, mode, show_candidates, candidates)
 
-    def _draw_minimal_hud(self, screen: pygame.Surface, viewport: pygame.Rect, ink, mode: str, show_candidates: bool, candidates: list[dict]) -> None:
+    def _draw_minimal_hud(
+        self,
+        screen: pygame.Surface,
+        viewport: pygame.Rect,
+        ink,
+        mode: str,
+        show_candidates: bool,
+        candidates: list[dict],
+    ) -> None:
         top = pygame.Surface((260, 36), pygame.SRCALPHA)
         top.fill(HUD_BG)
         screen.blit(top, (16, 16))
-        mode_label = {"white": "Vit", "black": "Svart", "grid": "Rutnät", "noise": "Brus", "rings": "Ringar", "moving_box": "Box", "sweep": "Sweep"}.get(mode, mode)
+        mode_label = {
+            "white": "Vit",
+            "black": "Svart",
+            "grid": "Rutnät",
+            "noise": "Brus",
+            "rings": "Ringar",
+            "moving_box": "Box",
+            "sweep": "Sweep",
+        }.get(mode, mode)
         screen.blit(self.small.render(f"AI-träning • {mode_label}", True, ink), (24, 24))
 
         status_text = "Skjut" if not self.awaiting_label else "Klicka"
@@ -139,10 +194,6 @@ class AITrainingScene(Scene):
             best = candidates[0]
             txt = f"#1  {best.get('fused_score', 0.0):.2f}"
             screen.blit(self.small.render(txt, True, YELLOW), (viewport.left + 28, viewport.bottom - 48))
-            hint = pygame.Surface((255, 30), pygame.SRCALPHA)
-            hint.fill(HUD_BG)
-            screen.blit(hint, (viewport.centerx - 128, viewport.top + 10))
-            screen.blit(self.tiny.render("Klicka ungefär där du träffade", True, ink), (viewport.centerx - 104, viewport.top + 18))
 
     def _render_training_content(self, screen: pygame.Surface, rect: pygame.Rect, mode: str) -> None:
         if mode == "white":
@@ -210,8 +261,16 @@ class AITrainingScene(Scene):
             color = ORANGE if rank == 1 else (YELLOW if rank <= 3 else CYAN)
             radius = 20 if rank == 1 else (15 if rank <= 3 else 11)
             width = 3 if rank == 1 else 2
-            pygame.draw.circle(screen, color, (int(round(x)), int(round(y))), radius, width)
-            pygame.draw.line(screen, color, (int(round(x - radius - 5)), int(round(y))), (int(round(x + radius + 5)), int(round(y))), 1)
-            pygame.draw.line(screen, color, (int(round(x)), int(round(y - radius - 5))), (int(round(x)), int(round(y + radius + 5))), 1)
+            xi = int(round(x))
+            yi = int(round(y))
+            pygame.draw.circle(screen, color, (xi, yi), radius, width)
+            pygame.draw.line(screen, color, (int(round(x - radius - 5)), yi), (int(round(x + radius + 5)), yi), 1)
+            pygame.draw.line(screen, color, (xi, int(round(y - radius - 5))), (xi, int(round(y + radius + 5))), 1)
             label = self.small.render(str(rank), True, color)
-            screen.blit(label, (int(round(x)) + radius + 5, int(round(y)) - 12))
+            screen.blit(label, (xi + radius + 5, yi - 12))
+
+    def _draw_click_feedback(self, screen: pygame.Surface, pos: tuple[float, float]) -> None:
+        x, y = int(round(pos[0])), int(round(pos[1]))
+        pygame.draw.circle(screen, CLICK_COLOR, (x, y), 14, 3)
+        pygame.draw.line(screen, CLICK_COLOR, (x - 20, y), (x + 20, y), 2)
+        pygame.draw.line(screen, CLICK_COLOR, (x, y - 20), (x, y + 20), 2)
