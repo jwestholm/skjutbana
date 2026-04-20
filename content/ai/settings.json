@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "mode": "train_only",
+  "blend_percent": 0.0,
+  "min_confidence": 0.58,
+  "override_confidence": 0.92,
+  "max_positive_memories": 256,
+  "max_negative_memories": 384,
+  "auto_learn": true,
+  "show_overlay": true,
+  "top_k": 5,
+  "click_match_radius_px": 36.0
+}
