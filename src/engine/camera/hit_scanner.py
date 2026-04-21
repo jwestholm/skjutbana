@@ -117,6 +117,12 @@ class HitScanner:
         self.min_local_contrast_gain = 0.6
         self.min_persistent_post_frames = 3
 
+        # Diff mode: "subtract" (original, detects darkening only — better for
+        # projected images where holes appear darker) or "absdiff" (detects both
+        # brighter and darker changes — needed if LED backlight makes holes bright).
+        # Default: subtract (proven to find 4/5 air rifle holes).
+        self.diff_mode = "subtract"
+
         self.duplicate_radius_px = 18.0
         self.rehit_radius_px = 12.0
         self.rehit_gain_required = 4.0
@@ -278,6 +284,7 @@ class HitScanner:
         return {
             "enabled": self.enabled,
             "state": self.state,
+            "diff_mode": self.diff_mode,
             "last_status": self.last_status,
             "audio_event_count": self.audio_event_count,
             "pending_trigger_windows": len(self.audio_events),
@@ -536,6 +543,14 @@ class HitScanner:
             return pre_shot_frames[0]
         return np.median(np.stack(pre_shot_frames, axis=0), axis=0).astype(np.uint8)
 
+    def _compute_diff(self, ref: np.ndarray, current: np.ndarray) -> np.ndarray:
+        """Compute frame difference using configured diff_mode."""
+        if self.diff_mode == "absdiff":
+            return cv2.absdiff(ref, current)
+        # Default: subtract (ref - current, clipped at 0).
+        # Detects where the image got DARKER (holes in projected image).
+        return cv2.subtract(ref, current)
+
     # ------------------------------------------------------------------
     # Detection / tracking
     # ------------------------------------------------------------------
@@ -561,13 +576,14 @@ class HitScanner:
         pre_shot_delta: np.ndarray | None = None
         if pre_shot_bg is not None and pre_shot_bg.shape == gray.shape:
             pre_shot_blur = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
-            pre_shot_delta = cv2.absdiff(pre_shot_blur, gray_blur)
+            pre_shot_delta = self._compute_diff(pre_shot_blur, gray_blur)
             self.debug_frames["pre_shot_delta"] = pre_shot_delta
 
             # Kolla om för stor del ändrats (video/animation)
             change_pixels = int(np.count_nonzero((pre_shot_delta > 20) & (roi_mask > 0)))
             change_ratio = float(change_pixels) / max(1, roi_pixels)
             self.last_window_debug["change_ratio"] = change_ratio
+            self.last_window_debug["diff_mode"] = 1.0 if self.diff_mode == "absdiff" else 0.0
             if change_ratio > 0.05:
                 pre_shot_delta = None
                 self.last_window_debug["pre_shot_rejected"] = 1.0
@@ -580,14 +596,14 @@ class HitScanner:
         if pre_shot_delta is None:
             delta_maps: list[np.ndarray] = []
             if self.scene_reference_gray is not None and self.scene_reference_gray.shape == gray.shape:
-                delta_maps.append(cv2.absdiff(
+                delta_maps.append(self._compute_diff(
                     cv2.GaussianBlur(self.scene_reference_gray, (5, 5), 0), gray_blur))
             if self.surface_reference_gray is not None and self.surface_reference_gray.shape == gray.shape:
-                delta_maps.append(cv2.absdiff(
+                delta_maps.append(self._compute_diff(
                     cv2.GaussianBlur(self.surface_reference_gray, (5, 5), 0), gray_blur))
             recent_bg = self._build_recent_background(frame_ts)
             if recent_bg is not None:
-                delta_maps.append(cv2.absdiff(
+                delta_maps.append(self._compute_diff(
                     cv2.GaussianBlur(recent_bg, (5, 5), 0), gray_blur))
             if delta_maps:
                 fallback_delta = delta_maps[0]
@@ -688,6 +704,15 @@ class HitScanner:
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
         self.last_candidates = candidates[:24]
+
+        # Log candidate stats for debugging
+        self.last_window_debug["candidates_generated"] = float(len(candidates))
+        self.last_window_debug["candidates_kept"] = float(len(self.last_candidates))
+        for i, c in enumerate(self.last_candidates[:5]):
+            self.last_window_debug[f"top{i+1}_score"] = float(c.get("score", 0.0))
+            self.last_window_debug[f"top{i+1}_psc"] = float(c.get("pre_shot_change", 0.0))
+            self.last_window_debug[f"top{i+1}_cd"] = float(c.get("center_darkening", 0.0))
+
         return self.last_candidates
 
     def _verify_patch(
