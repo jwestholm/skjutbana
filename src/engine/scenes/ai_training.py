@@ -1,276 +1,331 @@
+
 from __future__ import annotations
 
 import math
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pygame
 
-from src.engine.ai.runtime import ai_runtime
-from src.engine.ai.settings import load_ai_settings, save_ai_settings
-from src.engine.ai.space_mapper import project_screen_point
-from src.engine.input.hit_input import hit_input
-from src.engine.scene import Scene, SceneSwitch
-from src.engine.settings import load_viewport_rect
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None
 
-BG_WHITE = (248, 248, 248)
-BG_BLACK = (18, 18, 18)
-GRID_LINE_LIGHT = (222, 222, 222)
-GRID_LINE_DARK = (58, 58, 58)
-TEXT_LIGHT = (245, 245, 245)
-TEXT_DARK = (30, 30, 30)
-CYAN = (80, 220, 255)
-YELLOW = (255, 210, 70)
-ORANGE = (255, 150, 80)
-CLICK_COLOR = (255, 110, 110)
-HUD_BG = (0, 0, 0, 90)
+try:
+    import numpy as np  # type: ignore
+except Exception as exc:  # pragma: no cover
+    raise RuntimeError("numpy is required for scenes.ai_training") from exc
+
+from src.engine.ai.runtime import get_ai_runtime
 
 
-class AITrainingScene(Scene):
+class AITrainingScene:
+    """
+    Minimal-text AI training scene.
+
+    Flow:
+    1. Wait for a shot / shot-like event.
+    2. Freeze pre/post camera frames.
+    3. Show top 10 candidates.
+    4. User clicks roughly where the hit was.
+    5. AI learns immediately from that click.
+    6. Visual state clears and the user can shoot again.
+
+    Important:
+    - AI lives in camera/video space.
+    - The user's click is transformed into camera space before training.
+    - Training area is a strict central ROI, so the wall/text outside should not dominate.
+    """
     wants_hit_scanning = True
 
-    def __init__(self, bg_mode: str = "white", bg_color=None) -> None:
-        # Backwards compatibility: bootstrap/menu currently instantiates the scene
-        # with bg_color=item.bg_color. Accept that without crashing and map common
-        # colors to a useful starting training mode.
-        inferred_mode = None
-        if isinstance(bg_color, str) and bg_color.strip():
-            inferred_mode = bg_color.strip().lower()
-        elif isinstance(bg_color, (tuple, list)) and len(bg_color) >= 3:
+    def __init__(self, bg_color=None, *args, **kwargs) -> None:
+        self.bg_color = bg_color or (255, 255, 255)
+        self.runtime = get_ai_runtime()
+        self.app = None
+        self.return_menu_state = None
+
+        self.font_small: Optional[pygame.font.Font] = None
+        self.font_big: Optional[pygame.font.Font] = None
+
+        self.background_mode = "white"
+        self.awaiting_click = False
+        self.last_reset_ts = time.time()
+        self.session_message = ""
+
+        self.pre_frame_gray: Optional[np.ndarray] = None
+        self.post_frame_gray: Optional[np.ndarray] = None
+        self.last_camera_frame_bgr: Optional[np.ndarray] = None
+
+        self.current_candidates: List[Dict[str, Any]] = []
+        self.clicked_camera_xy: Optional[Tuple[float, float]] = None
+        self.last_learning_result: Optional[Dict[str, Any]] = None
+        self.last_shot_ts: Optional[float] = None
+
+        self.cached_surface_size: Tuple[int, int] = (1280, 720)
+
+    # ---------- Engine lifecycle ----------
+
+    def enter(self, app=None, return_menu_state=None, *args, **kwargs):
+        self.app = app
+        self.return_menu_state = return_menu_state
+        pygame.font.init()
+        self.font_small = pygame.font.SysFont("arial", 20)
+        self.font_big = pygame.font.SysFont("arial", 28, bold=True)
+        self._hard_reset_visuals()
+        return self
+
+    def exit(self):
+        return None
+
+    # ---------- Internal helpers ----------
+
+    def _hard_reset_visuals(self) -> None:
+        self.awaiting_click = False
+        self.current_candidates = []
+        self.clicked_camera_xy = None
+        self.post_frame_gray = None
+        self.last_learning_result = None
+        self.session_message = ""
+        self.last_reset_ts = time.time()
+
+    def _surface_size(self) -> Tuple[int, int]:
+        if self.app is not None and hasattr(self.app, "screen") and self.app.screen is not None:
             try:
-                r, g, b = int(bg_color[0]), int(bg_color[1]), int(bg_color[2])
-                brightness = (r + g + b) / 3.0
-                inferred_mode = "black" if brightness < 96 else "white"
+                w, h = self.app.screen.get_size()
+                self.cached_surface_size = (int(w), int(h))
+                return self.cached_surface_size
             except Exception:
-                inferred_mode = None
+                pass
+        return self.cached_surface_size
 
-        self.mode_names = ["white", "black", "grid", "noise", "rings", "moving_box", "sweep"]
+    def _camera_frame_from_app(self) -> Optional[np.ndarray]:
+        if self.app is None:
+            return None
 
-        requested_mode = str(bg_mode or inferred_mode or "white").strip().lower()
-        if requested_mode not in self.mode_names:
-            requested_mode = inferred_mode if inferred_mode in self.mode_names else "white"
+        candidates = [
+            ("camera_manager", "last_frame"),
+            ("camera_manager", "frame"),
+            ("camera_manager", "latest_frame"),
+            ("camera_manager", "current_frame"),
+        ]
+        for owner_name, attr_name in candidates:
+            owner = getattr(self.app, owner_name, None)
+            if owner is not None and hasattr(owner, attr_name):
+                frame = getattr(owner, attr_name)
+                if frame is not None:
+                    return frame
+            if owner is not None and hasattr(owner, "get_frame"):
+                try:
+                    frame = owner.get_frame()
+                    if frame is not None:
+                        return frame
+                except Exception:
+                    pass
+        return None
 
-        self.bg_mode = requested_mode
-        self.bg_color = bg_color if bg_color is not None else (BG_WHITE if self.bg_mode != "black" else BG_BLACK)
+    def _gray_from_frame(self, frame: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if frame is None:
+            return None
+        if len(frame.shape) == 2:
+            return frame.copy()
+        if cv2 is not None:
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Fallback: assume BGR/RGB-like final axis
+        return np.mean(frame[:, :, :3], axis=2).astype(np.uint8)
 
-        self.font = None
-        self.small = None
-        self.tiny = None
-        self.mode_index = self.mode_names.index(self.bg_mode)
-        self.t = 0.0
-        self.last_camera_hit = None
-        self.awaiting_label = False
-        self.last_completed_shot_serial = None
-        self.last_click_screen = None
-
-    def on_enter(self) -> None:
-        self.font = pygame.font.Font(None, 34)
-        self.small = pygame.font.Font(None, 24)
-        self.tiny = pygame.font.Font(None, 18)
-        hit_input.subscribe(self._on_hit)
-        settings = load_ai_settings()
-        updates = {}
-        if settings.get("mode") == "off":
-            updates["mode"] = "train_only"
-        if int(settings.get("top_k", 5)) < 10:
-            updates["top_k"] = 10
-        if updates:
-            save_ai_settings(updates)
-
-    def on_exit(self) -> None:
-        hit_input.unsubscribe(self._on_hit)
-
-    def _go_back(self):
-        from src.engine.scenes.menu import MenuScene
-
-        menu_state = getattr(self, "return_menu_state", None)
-        return SceneSwitch(MenuScene(menu_state=menu_state))
-
-    def _on_hit(self, event) -> None:
-        if getattr(event, "source", "") != "camera":
+    def _capture_pre_if_needed(self) -> None:
+        if self.pre_frame_gray is not None:
             return
-        self.last_camera_hit = event
-        self.awaiting_label = True
-        self.last_completed_shot_serial = None
+        frame = self._camera_frame_from_app()
+        gray = self._gray_from_frame(frame)
+        if gray is not None:
+            self.pre_frame_gray = gray
+            self.last_camera_frame_bgr = frame
 
-    def handle_event(self, event: pygame.event.Event):
+    def _extract_detector_candidates(self) -> List[Dict[str, Any]]:
+        if self.app is None:
+            return []
+        hit_scanner = getattr(self.app, "hit_scanner", None)
+        if hit_scanner is None:
+            return []
+        probe_names = [
+            "last_candidates",
+            "debug_candidates",
+            "recent_candidates",
+            "_last_candidates",
+        ]
+        for name in probe_names:
+            value = getattr(hit_scanner, name, None)
+            if isinstance(value, list):
+                return list(value)
+        for method_name in ["get_debug_candidates", "get_recent_candidates"]:
+            method = getattr(hit_scanner, method_name, None)
+            if callable(method):
+                try:
+                    value = method()
+                    if isinstance(value, list):
+                        return list(value)
+                except Exception:
+                    pass
+        return []
+
+    def _detect_new_shot(self) -> bool:
+        """
+        Training scene needs to work with the existing detector as support.
+        We therefore watch a few possible timestamps from hit_scanner/audio detector.
+        """
+        if self.app is None:
+            return False
+
+        timestamps: List[float] = []
+        for owner_name in ["hit_scanner", "audio_peak_detector"]:
+            owner = getattr(self.app, owner_name, None)
+            if owner is None:
+                continue
+            for attr_name in ["last_shot_ts", "last_peak_ts", "latest_peak_ts", "last_event_ts"]:
+                value = getattr(owner, attr_name, None)
+                if value is not None:
+                    try:
+                        timestamps.append(float(value))
+                    except Exception:
+                        pass
+
+        if not timestamps:
+            return False
+
+        shot_ts = max(timestamps)
+        if self.last_shot_ts is None or shot_ts > self.last_shot_ts + 1e-6:
+            self.last_shot_ts = shot_ts
+            return True
+        return False
+
+    def _camera_to_screen(self, xy: Tuple[float, float]) -> Tuple[int, int]:
+        # For now use direct normalization by camera frame size.
+        # This keeps training internally consistent even before perfect game-space projection.
+        width, height = self._surface_size()
+        if self.post_frame_gray is not None:
+            ch, cw = self.post_frame_gray.shape[:2]
+        elif self.pre_frame_gray is not None:
+            ch, cw = self.pre_frame_gray.shape[:2]
+        else:
+            ch, cw = height, width
+        sx = int(round((xy[0] / max(1, cw - 1)) * width))
+        sy = int(round((xy[1] / max(1, ch - 1)) * height))
+        return sx, sy
+
+    def _screen_to_camera(self, xy: Tuple[int, int]) -> Tuple[float, float]:
+        width, height = self._surface_size()
+        if self.post_frame_gray is not None:
+            ch, cw = self.post_frame_gray.shape[:2]
+        elif self.pre_frame_gray is not None:
+            ch, cw = self.pre_frame_gray.shape[:2]
+        else:
+            ch, cw = height, width
+        cx = (xy[0] / max(1, width)) * max(1, cw - 1)
+        cy = (xy[1] / max(1, height)) * max(1, ch - 1)
+        return (float(cx), float(cy))
+
+    def _roi_screen_rect(self) -> pygame.Rect:
+        width, height = self._surface_size()
+        if self.post_frame_gray is not None:
+            ch, cw = self.post_frame_gray.shape[:2]
+        elif self.pre_frame_gray is not None:
+            ch, cw = self.pre_frame_gray.shape[:2]
+        else:
+            cw, ch = width, height
+        rx, ry, rw, rh = self.runtime.training_roi_rect(cw, ch)
+        x0, y0 = self._camera_to_screen((rx, ry))
+        x1, y1 = self._camera_to_screen((rx + rw, ry + rh))
+        left = min(x0, x1)
+        top = min(y0, y1)
+        return pygame.Rect(left, top, abs(x1 - x0), abs(y1 - y0))
+
+    def _finalize_shot_capture(self) -> None:
+        frame = self._camera_frame_from_app()
+        gray = self._gray_from_frame(frame)
+        self.post_frame_gray = gray
+        detector_candidates = self._extract_detector_candidates()
+        self.current_candidates = self.runtime.rank_candidates(
+            gray_pre=self.pre_frame_gray,
+            gray_post=self.post_frame_gray,
+            detector_candidates=detector_candidates,
+            limit=10,
+        )
+        self.awaiting_click = True
+        self.clicked_camera_xy = None
+
+    # ---------- Scene API ----------
+
+    def update(self, dt=0.0):
+        self._capture_pre_if_needed()
+
+        # Use existing detector/audio support, but keep training logic bounded to ROI.
+        if not self.awaiting_click and self._detect_new_shot():
+            self._finalize_shot_capture()
+
+        # After a short quiet period without a real shot, allow manual fallback with SPACE.
+        return None
+
+    def draw(self, surface):
+        width, height = surface.get_size()
+        self.cached_surface_size = (width, height)
+
+        # Very little text. Mostly clean training board.
+        bg = (250, 250, 250) if self.background_mode == "white" else (10, 10, 10)
+        fg = (15, 15, 15) if self.background_mode == "white" else (245, 245, 245)
+        surface.fill(bg)
+
+        roi = self._roi_screen_rect()
+        pygame.draw.rect(surface, (205, 205, 205) if self.background_mode == "white" else (80, 80, 80), roi, 2)
+
+        if self.awaiting_click:
+            for index, candidate in enumerate(self.current_candidates):
+                sx, sy = self._camera_to_screen((candidate["camera_x"], candidate["camera_y"]))
+                is_top = index == 0
+                color = (220, 30, 30) if is_top else (40, 110, 220)
+                radius = 13 if is_top else 9
+                pygame.draw.circle(surface, color, (sx, sy), radius, 2)
+                if self.font_small is not None:
+                    label = self.font_small.render(str(index + 1), True, color)
+                    surface.blit(label, (sx + 10, sy - 10))
+
+        if self.clicked_camera_xy is not None:
+            sx, sy = self._camera_to_screen(self.clicked_camera_xy)
+            pygame.draw.circle(surface, (230, 30, 30), (sx, sy), 18, 3)
+
+        # Minimal mode hints only.
+        if self.font_big is not None:
+            caption = self.font_big.render("AI", True, fg)
+            surface.blit(caption, (18, 12))
+
+    def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                return self._go_back()
+                return self.return_menu_state
             if event.key == pygame.K_TAB:
-                self.mode_index = (self.mode_index + 1) % len(self.mode_names)
+                if self.runtime.settings.get("allow_black_background", True):
+                    self.background_mode = "black" if self.background_mode == "white" else "white"
                 return None
-            if event.key == pygame.K_r:
-                ai_runtime.model.reset()
-                self.awaiting_label = False
-                self.last_completed_shot_serial = None
-                self.last_click_screen = None
+            if event.key == pygame.K_SPACE and not self.awaiting_click:
+                # Manual fallback for cases where audio integration is not firing yet.
+                self._finalize_shot_capture()
                 return None
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.awaiting_click:
+            click_screen = event.pos
+            click_camera = self._screen_to_camera(click_screen)
+            self.clicked_camera_xy = click_camera
+            self.last_learning_result = self.runtime.learn_from_click(
+                click_camera_xy=click_camera,
+                shown_candidates=self.current_candidates,
+                gray_pre=self.pre_frame_gray,
+                gray_post=self.post_frame_gray,
+            )
+
+            # Prepare next shot immediately. The click DOES train the AI and persists on disk.
+            self.pre_frame_gray = self.post_frame_gray
+            self._hard_reset_visuals()
             return None
 
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.awaiting_label:
-            self.last_click_screen = (float(event.pos[0]), float(event.pos[1]))
-            projected = project_screen_point(float(event.pos[0]), float(event.pos[1]))
-            feedback = ai_runtime.learn_from_click(projected.camera_x, projected.camera_y)
-            if feedback is not None:
-                self.last_completed_shot_serial = feedback.get("shot_serial")
-            self.awaiting_label = False
-            return None
         return None
-
-    def update(self, dt: float):
-        self.t += dt
-        if not self.awaiting_label and self.last_click_screen is not None:
-            # Keep the feedback flash only briefly, then clear for the next shot.
-            if not hasattr(self, "_click_flash_t"):
-                self._click_flash_t = 0.0
-            self._click_flash_t += dt
-            if self._click_flash_t > 0.25:
-                self.last_click_screen = None
-                self._click_flash_t = 0.0
-        return None
-
-    def render(self, screen: pygame.Surface) -> None:
-        mode = self.mode_names[self.mode_index]
-        if mode in {"white", "grid", "rings", "moving_box", "sweep", "noise"}:
-            screen.fill(BG_WHITE)
-            ink = TEXT_DARK
-        else:
-            screen.fill(BG_BLACK)
-            ink = TEXT_LIGHT
-
-        viewport = load_viewport_rect()
-        if viewport is None:
-            viewport = pygame.Rect(120, 100, 960, 540)
-
-        self._render_training_content(screen, viewport, mode)
-
-        prediction = ai_runtime.latest_prediction or {"candidates": []}
-        candidates = prediction.get("candidates", []) or []
-        shot_serial = prediction.get("shot_serial")
-        show_candidates = bool(
-            self.awaiting_label
-            and shot_serial is not None
-            and shot_serial != self.last_completed_shot_serial
-        )
-        if show_candidates:
-            self._draw_candidates(screen, viewport, candidates)
-
-        if self.last_click_screen is not None:
-            self._draw_click_feedback(screen, self.last_click_screen)
-
-        self._draw_minimal_hud(screen, viewport, ink, mode, show_candidates, candidates)
-
-    def _draw_minimal_hud(
-        self,
-        screen: pygame.Surface,
-        viewport: pygame.Rect,
-        ink,
-        mode: str,
-        show_candidates: bool,
-        candidates: list[dict],
-    ) -> None:
-        top = pygame.Surface((260, 36), pygame.SRCALPHA)
-        top.fill(HUD_BG)
-        screen.blit(top, (16, 16))
-        mode_label = {
-            "white": "Vit",
-            "black": "Svart",
-            "grid": "Rutnät",
-            "noise": "Brus",
-            "rings": "Ringar",
-            "moving_box": "Box",
-            "sweep": "Sweep",
-        }.get(mode, mode)
-        screen.blit(self.small.render(f"AI-träning • {mode_label}", True, ink), (24, 24))
-
-        status_text = "Skjut" if not self.awaiting_label else "Klicka"
-        status_color = YELLOW if self.awaiting_label else CYAN
-        pygame.draw.circle(screen, status_color, (viewport.right - 24, viewport.top + 24), 8)
-        screen.blit(self.small.render(status_text, True, ink), (viewport.right - 88, viewport.top + 12))
-
-        if show_candidates and candidates:
-            box = pygame.Surface((190, 44), pygame.SRCALPHA)
-            box.fill(HUD_BG)
-            screen.blit(box, (viewport.left + 14, viewport.bottom - 58))
-            best = candidates[0]
-            txt = f"#1  {best.get('fused_score', 0.0):.2f}"
-            screen.blit(self.small.render(txt, True, YELLOW), (viewport.left + 28, viewport.bottom - 48))
-
-    def _render_training_content(self, screen: pygame.Surface, rect: pygame.Rect, mode: str) -> None:
-        if mode == "white":
-            self._draw_plain(screen, rect, light=True)
-        elif mode == "black":
-            self._draw_plain(screen, rect, light=False)
-        elif mode == "grid":
-            self._draw_grid(screen, rect, dark=False)
-        elif mode == "noise":
-            self._draw_noise(screen, rect)
-        elif mode == "rings":
-            self._draw_rings(screen, rect)
-        elif mode == "moving_box":
-            self._draw_moving_box(screen, rect)
-        else:
-            self._draw_sweep(screen, rect)
-
-    def _draw_plain(self, screen, rect, *, light: bool):
-        color = BG_WHITE if light else BG_BLACK
-        pygame.draw.rect(screen, color, rect)
-        border = (210, 210, 210) if light else (80, 80, 80)
-        pygame.draw.rect(screen, border, rect, 2)
-
-    def _draw_grid(self, screen, rect, *, dark: bool):
-        self._draw_plain(screen, rect, light=not dark)
-        line = GRID_LINE_DARK if dark else GRID_LINE_LIGHT
-        for x in range(rect.left, rect.right, 48):
-            pygame.draw.line(screen, line, (x, rect.top), (x, rect.bottom), 1)
-        for y in range(rect.top, rect.bottom, 48):
-            pygame.draw.line(screen, line, (rect.left, y), (rect.right, y), 1)
-
-    def _draw_noise(self, screen, rect):
-        self._draw_plain(screen, rect, light=True)
-        cell = 12
-        phase = int(self.t * 25)
-        for gy in range(rect.top, rect.bottom, cell):
-            for gx in range(rect.left, rect.right, cell):
-                v = 210 + ((gx * 11 + gy * 5 + phase * 13) % 40)
-                pygame.draw.rect(screen, (v, v, v), (gx, gy, cell, cell))
-
-    def _draw_rings(self, screen, rect):
-        self._draw_plain(screen, rect, light=True)
-        center = rect.center
-        for radius in (220, 170, 120, 70, 30):
-            pygame.draw.circle(screen, (170, 170, 170), center, radius, 2)
-
-    def _draw_moving_box(self, screen, rect):
-        self._draw_grid(screen, rect, dark=False)
-        w, h = 120, 140
-        x = rect.left + int((rect.w - w) * ((math.sin(self.t * 1.2) + 1.0) * 0.5))
-        y = rect.top + int((rect.h - h) * ((math.cos(self.t * 0.9) + 1.0) * 0.5))
-        pygame.draw.rect(screen, (85, 85, 85), (x, y, w, h))
-        pygame.draw.rect(screen, (220, 220, 220), (x, y, w, h), 2)
-
-    def _draw_sweep(self, screen, rect):
-        self._draw_grid(screen, rect, dark=False)
-        y = rect.top + int((rect.h - 1) * ((math.sin(self.t * 1.4) + 1.0) * 0.5))
-        pygame.draw.line(screen, (80, 80, 80), (rect.left, y), (rect.right, y), 3)
-
-    def _draw_candidates(self, screen: pygame.Surface, viewport: pygame.Rect, candidates: list[dict]) -> None:
-        for cand in candidates[:10]:
-            x = float(cand.get("screen_x", viewport.left + cand.get("camera_x", 0.0)))
-            y = float(cand.get("screen_y", viewport.top + cand.get("camera_y", 0.0)))
-            rank = int(cand.get("rank", 99))
-            color = ORANGE if rank == 1 else (YELLOW if rank <= 3 else CYAN)
-            radius = 20 if rank == 1 else (15 if rank <= 3 else 11)
-            width = 3 if rank == 1 else 2
-            xi = int(round(x))
-            yi = int(round(y))
-            pygame.draw.circle(screen, color, (xi, yi), radius, width)
-            pygame.draw.line(screen, color, (int(round(x - radius - 5)), yi), (int(round(x + radius + 5)), yi), 1)
-            pygame.draw.line(screen, color, (xi, int(round(y - radius - 5))), (xi, int(round(y + radius + 5))), 1)
-            label = self.small.render(str(rank), True, color)
-            screen.blit(label, (xi + radius + 5, yi - 12))
-
-    def _draw_click_feedback(self, screen: pygame.Surface, pos: tuple[float, float]) -> None:
-        x, y = int(round(pos[0])), int(round(pos[1]))
-        pygame.draw.circle(screen, CLICK_COLOR, (x, y), 14, 3)
-        pygame.draw.line(screen, CLICK_COLOR, (x - 20, y), (x + 20, y), 2)
-        pygame.draw.line(screen, CLICK_COLOR, (x, y - 20), (x, y + 20), 2)

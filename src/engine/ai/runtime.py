@@ -1,281 +1,445 @@
+
 from __future__ import annotations
 
+import json
 import math
 import time
-from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import cv2
-import numpy as np
+try:
+    import cv2  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None
 
-from src.engine.camera.camera_manager import camera_manager
-
-from .model import PrototypeMemoryModel
-from .settings import load_ai_settings
-from .space_mapper import candidate_with_projection, project_camera_point
-from .training_data import save_training_example
+try:
+    import numpy as np  # type: ignore
+except Exception as exc:  # pragma: no cover
+    raise RuntimeError("numpy is required for engine.ai.runtime") from exc
 
 
-@dataclass
-class AICandidate:
-    rank: int
-    camera_x: float
-    camera_y: float
-    detector_score: float
-    ai_score: float
-    fused_score: float
-    feature_vector: list[float]
-    source_index: int
+Point = Tuple[float, float]
+Candidate = Dict[str, Any]
+
+
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    "enabled": True,
+    "mode": "train_only",
+    "top_k": 10,
+    "memory_limit_positive": 400,
+    "memory_limit_negative": 1200,
+    "click_match_radius_px": 42.0,
+    "training_roi_margin_x": 0.18,
+    "training_roi_margin_y": 0.16,
+    "diff_threshold": 18,
+    "min_blob_area": 6,
+    "max_blob_area": 1500,
+    "edge_reject_px": 6,
+    "trust_percent": 0,
+    "allow_black_background": True,
+}
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _candidate_xy(candidate: Candidate) -> Optional[Point]:
+    pairs = [
+        ("camera_x", "camera_y"),
+        ("x", "y"),
+        ("cx", "cy"),
+        ("screen_x", "screen_y"),
+    ]
+    for kx, ky in pairs:
+        if kx in candidate and ky in candidate:
+            return (_safe_float(candidate[kx]), _safe_float(candidate[ky]))
+    return None
+
+
+class SimpleAIMemory:
+    """
+    Small bounded online learner.
+    Stores compact feature vectors and updates immediately after the user clicks.
+    This is intentionally tiny and transparent rather than a heavy NN.
+    """
+
+    def __init__(
+        self,
+        storage_dir: Path,
+        positive_limit: int = 400,
+        negative_limit: int = 1200,
+    ) -> None:
+        self.storage_dir = Path(storage_dir)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_file = self.storage_dir / "memory.json"
+        self.positive_limit = int(positive_limit)
+        self.negative_limit = int(negative_limit)
+        self.positives: List[Dict[str, Any]] = []
+        self.negatives: List[Dict[str, Any]] = []
+        self.stats: Dict[str, Any] = {
+            "positive_count": 0,
+            "negative_count": 0,
+            "last_updated": None,
+            "version": 1,
+        }
+        self.load()
+
+    def load(self) -> None:
+        if not self.memory_file.exists():
+            return
+        try:
+            data = json.loads(self.memory_file.read_text(encoding="utf-8"))
+            self.positives = list(data.get("positives", []))[-self.positive_limit :]
+            self.negatives = list(data.get("negatives", []))[-self.negative_limit :]
+            self.stats.update(dict(data.get("stats", {})))
+        except Exception:
+            self.positives = []
+            self.negatives = []
+
+    def save(self) -> None:
+        self.stats["positive_count"] = len(self.positives)
+        self.stats["negative_count"] = len(self.negatives)
+        self.stats["last_updated"] = time.time()
+        payload = {
+            "positives": self.positives[-self.positive_limit :],
+            "negatives": self.negatives[-self.negative_limit :],
+            "stats": self.stats,
+        }
+        self.memory_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _trim(self) -> None:
+        if len(self.positives) > self.positive_limit:
+            self.positives = self.positives[-self.positive_limit :]
+        if len(self.negatives) > self.negative_limit:
+            self.negatives = self.negatives[-self.negative_limit :]
+
+    def add_positive(self, features: Dict[str, float], meta: Optional[Dict[str, Any]] = None) -> None:
+        self.positives.append({"features": features, "meta": meta or {}})
+        self._trim()
+
+    def add_negative(self, features: Dict[str, float], meta: Optional[Dict[str, Any]] = None) -> None:
+        self.negatives.append({"features": features, "meta": meta or {}})
+        self._trim()
+
+    @staticmethod
+    def _distance(a: Dict[str, float], b: Dict[str, float]) -> float:
+        keys = sorted(set(a.keys()) | set(b.keys()))
+        if not keys:
+            return 9999.0
+        total = 0.0
+        for key in keys:
+            av = _safe_float(a.get(key, 0.0))
+            bv = _safe_float(b.get(key, 0.0))
+            total += (av - bv) ** 2
+        return math.sqrt(total / max(1, len(keys)))
+
+    def score(self, features: Dict[str, float]) -> float:
+        """
+        Returns 0..1, higher means more hit-like.
+        """
+        pos = [self._distance(features, row["features"]) for row in self.positives[-64:]]
+        neg = [self._distance(features, row["features"]) for row in self.negatives[-128:]]
+        if not pos and not neg:
+            return 0.5
+        pos_best = min(pos) if pos else 4.0
+        neg_best = min(neg) if neg else 4.0
+        # Convert relative closeness into a bounded confidence.
+        raw = 0.5 + (neg_best - pos_best) / 8.0
+        return max(0.0, min(1.0, raw))
 
 
 class AIRuntime:
-    def __init__(self) -> None:
-        self.model = PrototypeMemoryModel()
-        self.latest_prediction: dict[str, Any] | None = None
-        self.latest_training_feedback: dict[str, Any] | None = None
-        self._last_shot_serial = 0
-        self._latest_gray: np.ndarray | None = None
+    def __init__(self, storage_dir: str = "content/ai") -> None:
+        self.storage_dir = Path(storage_dir)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
-    def update_observation(self, scanner) -> None:
-        try:
-            frame = camera_manager.get_latest_frame()
-            if frame is not None:
-                self._latest_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        except Exception:
-            self._latest_gray = None
+        self.settings_path = self.storage_dir / "settings.json"
+        self.settings = dict(DEFAULT_SETTINGS)
+        if self.settings_path.exists():
+            try:
+                loaded = json.loads(self.settings_path.read_text(encoding="utf-8"))
+                self.settings.update(loaded)
+            except Exception:
+                pass
 
-        snapshot = scanner.get_debug_snapshot()
-        candidates_raw = snapshot.get("candidates", []) or []
-        if not candidates_raw:
-            return
-
-        ranked = self.rank_candidates(candidates_raw)
-        self._last_shot_serial += 1
-        self.latest_prediction = {
-            "shot_serial": self._last_shot_serial,
-            "timestamp": time.time(),
-            "candidates": [self._candidate_to_dict(c) for c in ranked],
-            "debug": {
-                "state": snapshot.get("state", ""),
-                "status": snapshot.get("last_status", ""),
-                "tracks": snapshot.get("stable_tracks_count", 0),
-            },
-        }
-
-    def rank_candidates(self, candidates_raw: list[dict[str, Any]]) -> list[AICandidate]:
-        settings = load_ai_settings()
-        if not bool(settings.get("enabled", True)):
-            return []
-        top_k = int(settings.get("top_k", 10))
-        ranked: list[AICandidate] = []
-        for index, raw in enumerate(candidates_raw):
-            feats = self._feature_vector(raw)
-            detector_score = float(raw.get("score", 0.0))
-            ai_score = self.model.score(feats)
-            fused = 0.45 * self._sigmoid(detector_score / 8.0) + 0.55 * ai_score
-            ranked.append(
-                AICandidate(
-                    rank=0,
-                    camera_x=float(raw.get("camera_x", raw.get("x", 0.0))),
-                    camera_y=float(raw.get("camera_y", raw.get("y", 0.0))),
-                    detector_score=detector_score,
-                    ai_score=ai_score,
-                    fused_score=float(fused),
-                    feature_vector=feats,
-                    source_index=index,
-                )
-            )
-        ranked.sort(key=lambda item: item.fused_score, reverse=True)
-        for i, candidate in enumerate(ranked, start=1):
-            candidate.rank = i
-        return ranked[:top_k]
-
-    def choose_for_emission(self, default_x: float, default_y: float, scanner_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
-        settings = load_ai_settings()
-        mode = str(settings.get("mode", "train_only"))
-        result = {
-            "apply": False,
-            "camera_x": float(default_x),
-            "camera_y": float(default_y),
-            "confidence": 0.0,
-            "blend_percent": 0.0,
-            "reason": mode,
-        }
-        if not bool(settings.get("enabled", True)):
-            return result
-        if mode in {"off", "train_only", "advisory"}:
-            return result
-
-        if scanner_snapshot is None:
-            return result
-        ranked = self.rank_candidates(scanner_snapshot.get("candidates", []) or [])
-        if not ranked:
-            return result
-        best = ranked[0]
-        min_conf = float(settings.get("min_confidence", 0.58))
-        override_conf = float(settings.get("override_confidence", 0.92))
-        if best.fused_score < min_conf:
-            result["reason"] = "below_min_confidence"
-            return result
-
-        if mode == "ai_only":
-            blend = 1.0
-        elif mode == "ai_priority" and best.fused_score >= override_conf:
-            blend = 1.0
-        else:
-            blend = float(settings.get("blend_percent", 0.0)) / 100.0
-        final_camera_x = float((1.0 - blend) * default_x + blend * best.camera_x)
-        final_camera_y = float((1.0 - blend) * default_y + blend * best.camera_y)
-        projected = project_camera_point(final_camera_x, final_camera_y)
-        result.update(
-            {
-                "apply": blend > 0.0,
-                "camera_x": final_camera_x,
-                "camera_y": final_camera_y,
-                "screen_x": projected.screen_x,
-                "screen_y": projected.screen_y,
-                "game_x": projected.game_x,
-                "game_y": projected.game_y,
-                "confidence": float(best.fused_score),
-                "blend_percent": float(blend * 100.0),
-                "reason": f"rank_{best.rank}",
-            }
+        self.memory = SimpleAIMemory(
+            storage_dir=self.storage_dir,
+            positive_limit=int(self.settings.get("memory_limit_positive", 400)),
+            negative_limit=int(self.settings.get("memory_limit_negative", 1200)),
         )
-        self.latest_prediction = {
-            "shot_serial": self._last_shot_serial,
-            "timestamp": time.time(),
-            "candidates": [self._candidate_to_dict(c) for c in ranked],
-            "selected": self._candidate_to_dict(best),
-            "resolved_hit": {
-                "camera_x": projected.camera_x,
-                "camera_y": projected.camera_y,
-                "screen_x": projected.screen_x,
-                "screen_y": projected.screen_y,
-                "game_x": projected.game_x,
-                "game_y": projected.game_y,
-            },
+        self.session_stats: Dict[str, Any] = {
+            "shots_seen": 0,
+            "click_updates": 0,
+            "last_click": None,
         }
-        return result
 
-    def learn_from_click(self, click_camera_x: float, click_camera_y: float, *, clear_visuals: bool = True) -> dict[str, Any] | None:
-        prediction = self.latest_prediction
-        if not prediction:
-            return None
-        settings = load_ai_settings()
-        radius = float(settings.get("click_match_radius_px", 36.0))
-        candidates = prediction.get("candidates", []) or []
-        best_match = None
-        best_dist = None
-        for cand in candidates:
-            dx = float(cand.get("camera_x", 0.0)) - float(click_camera_x)
-            dy = float(cand.get("camera_y", 0.0)) - float(click_camera_y)
-            dist = math.hypot(dx, dy)
-            if best_match is None or dist < best_dist:
-                best_match = cand
-                best_dist = dist
-        positives = 0
-        negatives = 0
-        accepted = best_match is not None and best_dist is not None and best_dist <= radius
-        for cand in candidates:
-            feats = list(cand.get("feature_vector", []))
-            if not feats:
-                continue
-            label = 1 if accepted and cand is best_match else 0
-            if label:
-                self.model.add_sample(feats, 1, weight=1.5, source="training_click")
-                positives += 1
-            else:
-                self.model.add_sample(feats, 0, weight=1.0, source="training_click")
-                negatives += 1
-        self.model.save()
+    def save(self) -> None:
+        self.settings_path.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
+        self.memory.save()
 
-        click_projected = project_camera_point(click_camera_x, click_camera_y)
-        payload = {
-            "timestamp": time.time(),
-            "shot_serial": prediction.get("shot_serial"),
-            "click_camera_x": float(click_camera_x),
-            "click_camera_y": float(click_camera_y),
-            "click_screen_x": float(click_projected.screen_x),
-            "click_screen_y": float(click_projected.screen_y),
-            "accepted_candidate": best_match,
-            "accepted": bool(accepted),
-            "best_distance": None if best_dist is None else float(best_dist),
-            "candidates": candidates,
-            "model_summary": self.model.summary(),
-            "positives_added": int(positives),
-            "negatives_added": int(negatives),
-        }
-        save_training_example(payload)
-        self.latest_training_feedback = payload
-        if clear_visuals:
-            self.clear_visual_state()
-        return payload
+    def training_roi_rect(self, width: int, height: int) -> Tuple[int, int, int, int]:
+        margin_x = float(self.settings.get("training_roi_margin_x", 0.18))
+        margin_y = float(self.settings.get("training_roi_margin_y", 0.16))
+        x = int(width * margin_x)
+        y = int(height * margin_y)
+        w = int(width * (1.0 - margin_x * 2.0))
+        h = int(height * (1.0 - margin_y * 2.0))
+        return (x, y, max(1, w), max(1, h))
 
-    def clear_visual_state(self) -> None:
-        self.latest_prediction = None
-
-    def _feature_vector(self, raw: dict[str, Any]) -> list[float]:
-        x = float(raw.get("camera_x", raw.get("x", 0.0)))
-        y = float(raw.get("camera_y", raw.get("y", 0.0)))
-        detector_score = float(raw.get("score", 0.0))
-        area = float(raw.get("area", 0.0))
-        radius = float(raw.get("radius", 0.0))
-        circularity = float(raw.get("circularity", 0.0))
-        local_contrast = float(raw.get("local_contrast_gain", raw.get("local_contrast", 0.0)))
-        center_delta = float(raw.get("center_delta", raw.get("center_darkening", 0.0)))
-        pre_delta = float(raw.get("pre_shot_delta", raw.get("delta_pre", 0.0)))
-        recent_delta = float(raw.get("recent_delta", raw.get("delta_recent", 0.0)))
-        blackhat = float(raw.get("blackhat", 0.0))
-        track_hits = float(raw.get("track_hits", raw.get("hits", 0.0)))
-        patch_mean, patch_std = self._patch_stats(x, y)
-        return [
-            detector_score,
-            area,
-            radius,
-            circularity,
-            local_contrast,
-            center_delta,
-            pre_delta,
-            recent_delta,
-            blackhat,
-            track_hits,
-            patch_mean,
-            patch_std,
-        ]
-
-    def _patch_stats(self, x: float, y: float) -> tuple[float, float]:
-        if self._latest_gray is None:
-            return 0.0, 0.0
-        ix = int(round(x))
-        iy = int(round(y))
-        h, w = self._latest_gray.shape[:2]
-        if ix < 0 or iy < 0 or ix >= w or iy >= h:
-            return 0.0, 0.0
-        x0 = max(0, ix - 8)
-        y0 = max(0, iy - 8)
-        x1 = min(w, ix + 9)
-        y1 = min(h, iy + 9)
-        patch = self._latest_gray[y0:y1, x0:x1]
+    def _extract_patch_features(
+        self,
+        gray_pre: Optional["np.ndarray"],
+        gray_post: "np.ndarray",
+        x: int,
+        y: int,
+        radius: int = 11,
+    ) -> Dict[str, float]:
+        h, w = gray_post.shape[:2]
+        x0 = max(0, x - radius)
+        y0 = max(0, y - radius)
+        x1 = min(w, x + radius + 1)
+        y1 = min(h, y + radius + 1)
+        patch = gray_post[y0:y1, x0:x1]
         if patch.size == 0:
-            return 0.0, 0.0
-        return float(np.mean(patch) / 255.0), float(np.std(patch) / 255.0)
-
-    def _candidate_to_dict(self, candidate: AICandidate) -> dict[str, Any]:
-        base = {
-            "rank": int(candidate.rank),
-            "camera_x": float(candidate.camera_x),
-            "camera_y": float(candidate.camera_y),
-            "detector_score": float(candidate.detector_score),
-            "ai_score": float(candidate.ai_score),
-            "fused_score": float(candidate.fused_score),
-            "feature_vector": list(candidate.feature_vector),
-            "source_index": int(candidate.source_index),
+            return {"mean": 0.0, "std": 0.0, "center_darkness": 0.0, "delta_mean": 0.0}
+        center = gray_post[max(0, y - 1):min(h, y + 2), max(0, x - 1):min(w, x + 2)]
+        patch_mean = float(np.mean(patch))
+        patch_std = float(np.std(patch))
+        center_darkness = 255.0 - float(np.mean(center))
+        delta_mean = 0.0
+        if gray_pre is not None and gray_pre.shape == gray_post.shape:
+            pre_patch = gray_pre[y0:y1, x0:x1]
+            delta = np.abs(patch.astype(np.int16) - pre_patch.astype(np.int16))
+            delta_mean = float(np.mean(delta))
+        if cv2 is not None:
+            lap = cv2.Laplacian(patch, cv2.CV_32F)
+            edge = float(np.mean(np.abs(lap)))
+        else:
+            gy, gx = np.gradient(patch.astype(np.float32))
+            edge = float(np.mean(np.abs(gx)) + np.mean(np.abs(gy)))
+        return {
+            "mean": patch_mean / 255.0,
+            "std": patch_std / 64.0,
+            "center_darkness": center_darkness / 255.0,
+            "delta_mean": delta_mean / 64.0,
+            "edge": edge / 32.0,
+            "x_norm": x / max(1.0, float(w)),
+            "y_norm": y / max(1.0, float(h)),
         }
-        return candidate_with_projection(base)
+
+    def _normalize_detector_candidate(
+        self,
+        candidate: Candidate,
+        gray_pre: Optional["np.ndarray"],
+        gray_post: Optional["np.ndarray"],
+        roi_rect: Tuple[int, int, int, int],
+    ) -> Optional[Candidate]:
+        xy = _candidate_xy(candidate)
+        if xy is None:
+            return None
+        x, y = int(round(xy[0])), int(round(xy[1]))
+        rx, ry, rw, rh = roi_rect
+        if not (rx <= x < rx + rw and ry <= y < ry + rh):
+            return None
+        edge_pad = int(self.settings.get("edge_reject_px", 6))
+        if x < rx + edge_pad or x >= rx + rw - edge_pad or y < ry + edge_pad or y >= ry + rh - edge_pad:
+            return None
+        features = dict(candidate.get("features", {}))
+        if gray_post is not None:
+            features.update(self._extract_patch_features(gray_pre, gray_post, x, y))
+        normalized = dict(candidate)
+        normalized["camera_x"] = float(x)
+        normalized["camera_y"] = float(y)
+        normalized["features"] = features
+        normalized["detector_score"] = _safe_float(
+            candidate.get("score", candidate.get("detector_score", 0.0))
+        )
+        return normalized
+
+    def _generate_diff_candidates(
+        self,
+        gray_pre: Optional["np.ndarray"],
+        gray_post: Optional["np.ndarray"],
+        roi_rect: Tuple[int, int, int, int],
+    ) -> List[Candidate]:
+        if gray_pre is None or gray_post is None or gray_pre.shape != gray_post.shape:
+            return []
+        rx, ry, rw, rh = roi_rect
+        pre_roi = gray_pre[ry:ry + rh, rx:rx + rw]
+        post_roi = gray_post[ry:ry + rh, rx:rx + rw]
+        diff = np.abs(post_roi.astype(np.int16) - pre_roi.astype(np.int16)).astype(np.uint8)
+        threshold = int(self.settings.get("diff_threshold", 18))
+        mask = (diff >= threshold).astype(np.uint8) * 255
+
+        if cv2 is not None:
+            kernel = np.ones((3, 3), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            blobs = contours
+        else:
+            ys, xs = np.where(mask > 0)
+            blobs = []
+            for x, y in zip(xs.tolist(), ys.tolist()):
+                blobs.append(np.array([[[x, y]]], dtype=np.int32))
+
+        results: List[Candidate] = []
+        min_area = int(self.settings.get("min_blob_area", 6))
+        max_area = int(self.settings.get("max_blob_area", 1500))
+        for blob in blobs:
+            if cv2 is not None:
+                area = float(cv2.contourArea(blob))
+                if area < min_area or area > max_area:
+                    continue
+                M = cv2.moments(blob)
+                if not M.get("m00"):
+                    continue
+                local_x = int(M["m10"] / M["m00"])
+                local_y = int(M["m01"] / M["m00"])
+                x = rx + local_x
+                y = ry + local_y
+            else:
+                x = rx + int(blob[0][0][0])
+                y = ry + int(blob[0][0][1])
+                area = 1.0
+            features = self._extract_patch_features(gray_pre, gray_post, x, y)
+            detector_score = features.get("delta_mean", 0.0) * 8.0 + features.get("center_darkness", 0.0) * 2.0
+            results.append(
+                {
+                    "source": "diff",
+                    "camera_x": float(x),
+                    "camera_y": float(y),
+                    "detector_score": float(detector_score),
+                    "area": float(area),
+                    "features": features,
+                }
+            )
+        return results
 
     @staticmethod
-    def _sigmoid(v: float) -> float:
-        return float(1.0 / (1.0 + math.exp(-v)))
+    def _dedupe_candidates(candidates: Sequence[Candidate], radius_px: float = 14.0) -> List[Candidate]:
+        kept: List[Candidate] = []
+        for candidate in sorted(candidates, key=lambda c: _safe_float(c.get("detector_score", 0.0)), reverse=True):
+            xy = _candidate_xy(candidate)
+            if xy is None:
+                continue
+            dup = False
+            for existing in kept:
+                exy = _candidate_xy(existing)
+                if exy is None:
+                    continue
+                if math.dist(xy, exy) <= radius_px:
+                    dup = True
+                    break
+            if not dup:
+                kept.append(candidate)
+        return kept
+
+    def rank_candidates(
+        self,
+        gray_pre: Optional["np.ndarray"],
+        gray_post: Optional["np.ndarray"],
+        detector_candidates: Optional[Sequence[Candidate]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Candidate]:
+        if gray_post is None:
+            return []
+        height, width = gray_post.shape[:2]
+        roi_rect = self.training_roi_rect(width, height)
+
+        merged: List[Candidate] = []
+        for row in detector_candidates or []:
+            candidate = self._normalize_detector_candidate(row, gray_pre, gray_post, roi_rect)
+            if candidate is not None:
+                merged.append(candidate)
+
+        merged.extend(self._generate_diff_candidates(gray_pre, gray_post, roi_rect))
+        merged = self._dedupe_candidates(merged)
+        top_k = int(limit or self.settings.get("top_k", 10))
+
+        for candidate in merged:
+            features = dict(candidate.get("features", {}))
+            ai_score = self.memory.score(features)
+            detector_score = _safe_float(candidate.get("detector_score", 0.0))
+            combined = detector_score * 0.35 + ai_score * 0.65
+            candidate["ai_score"] = float(ai_score)
+            candidate["combined_score"] = float(combined)
+
+        merged.sort(key=lambda c: _safe_float(c.get("combined_score", 0.0)), reverse=True)
+        return merged[:top_k]
+
+    def learn_from_click(
+        self,
+        click_camera_xy: Point,
+        shown_candidates: Sequence[Candidate],
+        gray_pre: Optional["np.ndarray"] = None,
+        gray_post: Optional["np.ndarray"] = None,
+    ) -> Dict[str, Any]:
+        """
+        This is the important part: yes, the click trains the AI.
+        - nearest shown candidate within radius becomes positive
+        - other shown candidates become negatives
+        - if no shown candidate is near enough, a synthetic positive sample is created
+          directly from the click location
+        """
+        self.session_stats["click_updates"] += 1
+        self.session_stats["last_click"] = [float(click_camera_xy[0]), float(click_camera_xy[1])]
+        click_radius = float(self.settings.get("click_match_radius_px", 42.0))
+
+        nearest_index: Optional[int] = None
+        nearest_distance = 10_000.0
+        for index, candidate in enumerate(shown_candidates):
+            xy = _candidate_xy(candidate)
+            if xy is None:
+                continue
+            dist = math.dist(click_camera_xy, xy)
+            if dist < nearest_distance:
+                nearest_distance = dist
+                nearest_index = index
+
+        positive_added = False
+        if nearest_index is not None and nearest_distance <= click_radius:
+            candidate = shown_candidates[nearest_index]
+            features = dict(candidate.get("features", {}))
+            features["click_distance"] = nearest_distance / max(1.0, click_radius)
+            self.memory.add_positive(features, {"kind": "candidate_match"})
+            positive_added = True
+
+        # All non-winning shown candidates become negatives.
+        for index, candidate in enumerate(shown_candidates):
+            if positive_added and index == nearest_index:
+                continue
+            features = dict(candidate.get("features", {}))
+            xy = _candidate_xy(candidate)
+            if xy is not None:
+                features["distance_to_click"] = math.dist(click_camera_xy, xy) / max(1.0, click_radius)
+            self.memory.add_negative(features, {"kind": "shown_other"})
+
+        # If nothing matched closely, create a positive sample from the clicked spot itself.
+        if not positive_added and gray_post is not None:
+            x = int(round(click_camera_xy[0]))
+            y = int(round(click_camera_xy[1]))
+            features = self._extract_patch_features(gray_pre, gray_post, x, y)
+            self.memory.add_positive(features, {"kind": "synthetic_click_positive"})
+            positive_added = True
+
+        self.memory.save()
+        return {
+            "positive_added": positive_added,
+            "nearest_index": nearest_index,
+            "nearest_distance": nearest_distance,
+        }
 
 
-ai_runtime = AIRuntime()
+_RUNTIME: Optional[AIRuntime] = None
+
+
+def get_ai_runtime(storage_dir: str = "content/ai") -> AIRuntime:
+    global _RUNTIME
+    if _RUNTIME is None:
+        _RUNTIME = AIRuntime(storage_dir=storage_dir)
+    return _RUNTIME

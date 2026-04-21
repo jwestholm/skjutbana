@@ -1,13 +1,16 @@
 {
   "enabled": true,
   "mode": "train_only",
-  "blend_percent": 0.0,
-  "min_confidence": 0.58,
-  "override_confidence": 0.92,
-  "max_positive_memories": 256,
-  "max_negative_memories": 384,
-  "auto_learn": true,
-  "show_overlay": true,
   "top_k": 10,
-  "click_match_radius_px": 36.0
+  "memory_limit_positive": 400,
+  "memory_limit_negative": 1200,
+  "click_match_radius_px": 42.0,
+  "training_roi_margin_x": 0.18,
+  "training_roi_margin_y": 0.16,
+  "diff_threshold": 18,
+  "min_blob_area": 6,
+  "max_blob_area": 1500,
+  "edge_reject_px": 6,
+  "trust_percent": 0,
+  "allow_black_background": true
 }
