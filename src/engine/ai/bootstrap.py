@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
-
 from src.engine.ai.menu_extension import augment_menu
-from src.engine.ai.runtime import ai_runtime
 
 _bootstrapped = False
 
@@ -18,7 +15,6 @@ def apply_bootstrap() -> None:
     _bootstrapped = True
 
 
-
 def _patch_menu_loader() -> None:
     import src.engine.content_loader as content_loader
 
@@ -29,7 +25,6 @@ def _patch_menu_loader() -> None:
         return augment_menu(data)
 
     content_loader.load_menu = wrapped_load_menu
-
 
 
 def _patch_scene_factory() -> None:
@@ -51,7 +46,6 @@ def _patch_scene_factory() -> None:
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item
 
 
-
 def _patch_hit_scanner() -> None:
     from src.engine.camera.hit_scanner import HitScanner
 
@@ -61,32 +55,34 @@ def _patch_hit_scanner() -> None:
     def wrapped_update(self: HitScanner, dt: float):
         result = original_update(self, dt)
         try:
-            ai_runtime.update_observation(self)
+            from src.engine.ai.runtime import get_ai_runtime
+
+            runtime = get_ai_runtime()
+            runtime.observe_scanner(self)
         except Exception:
             pass
         return result
 
     def wrapped_emit(self: HitScanner, track, event):
-        snapshot = None
         try:
-            snapshot = self.get_debug_snapshot()
+            from src.engine.ai.runtime import get_ai_runtime
+
+            runtime = get_ai_runtime()
+            chosen = runtime.choose_for_emission(track.camera_x, track.camera_y)
+            if chosen.get("apply"):
+                old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
+                try:
+                    track.camera_x = float(chosen["camera_x"])
+                    track.camera_y = float(chosen["camera_y"])
+                    track.best_score = max(track.best_score, float(chosen.get("confidence", 0.0)) * 10.0)
+                    return original_emit(self, track, event)
+                finally:
+                    track.camera_x = old_x
+                    track.camera_y = old_y
+                    track.best_score = old_score
         except Exception:
-            snapshot = None
-        chosen = ai_runtime.choose_for_emission(track.camera_x, track.camera_y, snapshot)
-        if not chosen.get("apply"):
-            return original_emit(self, track, event)
-        old_x = track.camera_x
-        old_y = track.camera_y
-        old_score = track.best_score
-        try:
-            track.camera_x = float(chosen.get("camera_x", track.camera_x))
-            track.camera_y = float(chosen.get("camera_y", track.camera_y))
-            track.best_score = max(float(track.best_score), float(chosen.get("confidence", 0.0) * 10.0))
-            return original_emit(self, track, event)
-        finally:
-            track.camera_x = old_x
-            track.camera_y = old_y
-            track.best_score = old_score
+            pass
+        return original_emit(self, track, event)
 
     HitScanner.update = wrapped_update
     HitScanner._emit_track_result = wrapped_emit

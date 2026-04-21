@@ -3,11 +3,14 @@ from __future__ import annotations
 import pygame
 
 from config import LOADING_SCREEN_PATH, SCREEN_HEIGHT, SCREEN_WIDTH
-from src.engine.ai.bootstrap import apply_bootstrap
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.scenes.video import VideoScene
 
-apply_bootstrap()
+try:
+    from src.engine.ai.bootstrap import apply_bootstrap
+    apply_bootstrap()
+except Exception:
+    pass  # AI-modulen ska aldrig kunna krascha appen
 
 from src.engine.scenes.menu import MenuScene
 
