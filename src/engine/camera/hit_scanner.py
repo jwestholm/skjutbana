@@ -612,8 +612,11 @@ class HitScanner:
 
         # ---- Bygg combined ----
         if pre_shot_delta is not None:
+            # Behåll blackhat som robust signal även med pre-shot.
+            # Pre-shot kan missa pga flicker/timing, blackhat hittar
+            # mörka fläckar oavsett.
             combined_delta = pre_shot_delta
-            combined = pre_shot_delta
+            combined = np.maximum(pre_shot_delta, blackhat)
         else:
             combined_delta = fallback_delta
             combined = np.maximum(fallback_delta, blackhat)
@@ -772,13 +775,14 @@ class HitScanner:
         if local_contrast < self.min_local_contrast_gain:
             return None
 
-        # Score: pre-shot-förändring dominerar om tillgänglig.
+        # Score: blackhat och center_change bär huvudsignalen.
+        # Pre-shot-change är en bonus om tillgänglig, inte dominant.
         if pre_shot_change > 0.5:
             score = (
-                0.25 * center_change
-                + 0.15 * change_value
+                0.45 * center_change
+                + 0.30 * change_value
                 + 0.15 * local_contrast
-                + 0.80 * pre_shot_change
+                + 0.25 * pre_shot_change
             )
         else:
             score = (
