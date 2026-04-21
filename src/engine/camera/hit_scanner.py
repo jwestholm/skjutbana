@@ -650,10 +650,23 @@ class HitScanner:
         self.debug_frames["candidate_mask"] = merged
 
         contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Zone logging: count raw blobs and where they get filtered out
+        img_w = gray.shape[1]
+        zone_thirds = [img_w / 3.0, img_w * 2.0 / 3.0]
+        raw_blobs = {"left": 0, "mid": 0, "right": 0, "total": 0}
+        rejected = {"area": 0, "circ": 0, "radius": 0, "border": 0, "patch": 0}
+
         candidates: list[dict[str, float]] = []
         for contour in contours:
             area = float(cv2.contourArea(contour))
+            (cx, cy), _ = cv2.minEnclosingCircle(contour)
+            zone = "left" if cx < zone_thirds[0] else ("right" if cx >= zone_thirds[1] else "mid")
+            raw_blobs[zone] += 1
+            raw_blobs["total"] += 1
+
             if area < self.min_area or area > self.max_area:
+                rejected["area"] += 1
                 continue
 
             perimeter = float(cv2.arcLength(contour, True))
@@ -661,11 +674,13 @@ class HitScanner:
             if perimeter > 1e-6:
                 circularity = float((4.0 * np.pi * area) / (perimeter * perimeter))
             if circularity < self.min_circularity:
+                rejected["circ"] += 1
                 continue
 
             (cx, cy), radius = cv2.minEnclosingCircle(contour)
             radius = float(radius)
             if radius < self.min_radius or radius > self.max_radius:
+                rejected["radius"] += 1
                 continue
 
             if (
@@ -674,6 +689,7 @@ class HitScanner:
                 or cx >= gray.shape[1] - self.border_margin
                 or cy >= gray.shape[0] - self.border_margin
             ):
+                rejected["border"] += 1
                 continue
 
             patch = self._verify_patch(
@@ -687,6 +703,7 @@ class HitScanner:
                 radius=radius,
             )
             if patch is None:
+                rejected["patch"] += 1
                 continue
 
             candidate = {
@@ -723,9 +740,27 @@ class HitScanner:
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
         self.last_candidates = candidates[:50]
 
+        # Zone stats for kept candidates
+        kept_zones = {"left": 0, "mid": 0, "right": 0}
+        for c in candidates:
+            cz = "left" if c["camera_x"] < zone_thirds[0] else ("right" if c["camera_x"] >= zone_thirds[1] else "mid")
+            kept_zones[cz] += 1
+
         # Log candidate stats for debugging
         self.last_window_debug["candidates_generated"] = float(len(candidates))
         self.last_window_debug["candidates_kept"] = float(len(self.last_candidates))
+        self.last_window_debug["raw_blobs_total"] = float(raw_blobs["total"])
+        self.last_window_debug["raw_blobs_L"] = float(raw_blobs["left"])
+        self.last_window_debug["raw_blobs_M"] = float(raw_blobs["mid"])
+        self.last_window_debug["raw_blobs_R"] = float(raw_blobs["right"])
+        self.last_window_debug["kept_L"] = float(kept_zones["left"])
+        self.last_window_debug["kept_M"] = float(kept_zones["mid"])
+        self.last_window_debug["kept_R"] = float(kept_zones["right"])
+        self.last_window_debug["rej_area"] = float(rejected["area"])
+        self.last_window_debug["rej_circ"] = float(rejected["circ"])
+        self.last_window_debug["rej_radius"] = float(rejected["radius"])
+        self.last_window_debug["rej_border"] = float(rejected["border"])
+        self.last_window_debug["rej_patch"] = float(rejected["patch"])
         for i, c in enumerate(self.last_candidates[:5]):
             self.last_window_debug[f"top{i+1}_score"] = float(c.get("score", 0.0))
             self.last_window_debug[f"top{i+1}_psc"] = float(c.get("pre_shot_change", 0.0))
