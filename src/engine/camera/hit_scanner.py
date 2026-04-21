@@ -721,7 +721,7 @@ class HitScanner:
                 candidate["near_known_hole_dist"] = float(dist)
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-        self.last_candidates = candidates[:24]
+        self.last_candidates = candidates[:50]
 
         # Log candidate stats for debugging
         self.last_window_debug["candidates_generated"] = float(len(candidates))
