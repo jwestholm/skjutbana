@@ -705,6 +705,21 @@ class HitScanner:
             }
             candidates.append(candidate)
 
+        # Penalize candidates near known holes — new holes should rank higher.
+        for candidate in candidates:
+            near = self._is_near_known_hole(candidate["camera_x"], candidate["camera_y"])
+            if near is not None:
+                _hole, dist = near
+                # Hard penalty: candidates within duplicate_radius get score halved.
+                # Candidates just outside get a softer penalty.
+                if dist <= self.duplicate_radius_px * 0.5:
+                    candidate["score"] *= 0.15  # Very close to known hole — almost certainly old
+                elif dist <= self.duplicate_radius_px:
+                    candidate["score"] *= 0.4   # Near known hole — probably old
+                elif dist <= self.duplicate_radius_px * 1.5:
+                    candidate["score"] *= 0.7   # Somewhat near — mild penalty
+                candidate["near_known_hole_dist"] = float(dist)
+
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
         self.last_candidates = candidates[:24]
 
