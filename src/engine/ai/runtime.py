@@ -299,6 +299,7 @@ class AIRuntime:
         self._latest_candidates: List[Candidate] = []
         self._latest_gray: Optional[np.ndarray] = None
         self._pre_shot_gray: Optional[np.ndarray] = None
+        self._pre_shot_ts: float = 0.0
         self._post_shot_gray: Optional[np.ndarray] = None
         self._latest_snapshot: Optional[Dict[str, Any]] = None
         self._shot_detected: bool = False
@@ -366,9 +367,15 @@ class AIRuntime:
 
         if peak_ts > 0:
             # Find frame well before the peak (200ms margin)
+            import time as _time
+            now = _time.time()
             for fr in reversed(frame_history):
                 if fr.timestamp < peak_ts - 0.20:
+                    age_ms = (now - fr.timestamp) * 1000
+                    peak_age_ms = (now - peak_ts) * 1000
+                    print(f"[AI PRE-SHOT] peak_ts age={peak_age_ms:.0f}ms, frame age={age_ms:.0f}ms, history_len={len(frame_history)}")
                     self._pre_shot_gray = fr.gray.copy()
+                    self._pre_shot_ts = fr.timestamp
                     return
 
         # Fallback: use a frame from 500ms ago (well before any recent shot)
@@ -377,6 +384,7 @@ class AIRuntime:
         for fr in reversed(frame_history):
             if fr.timestamp < target_ts:
                 self._pre_shot_gray = fr.gray.copy()
+                self._pre_shot_ts = fr.timestamp
                 return
 
         # Last resort: oldest frame in history

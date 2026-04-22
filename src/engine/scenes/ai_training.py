@@ -272,6 +272,20 @@ class AITrainingScene(Scene):
         post_gray = clean_post_gray if clean_post_gray is not None else self.runtime.post_shot_gray
         pre_gray = self.runtime.pre_shot_gray
 
+        # Debug: compare pre and post
+        import time as _dbg_time
+        now = _dbg_time.time()
+        pre_ts = getattr(self.runtime, '_pre_shot_ts', 0.0)
+        print(f"[AI CAPTURE] now={now:.3f}")
+        print(f"[AI CAPTURE] pre_gray ts={pre_ts:.3f} (age={((now - pre_ts) * 1000):.0f}ms)")
+        print(f"[AI CAPTURE] post_gray: {'FRESH' if clean_post_gray is not None else 'RUNTIME'} (taken now)")
+        print(f"[AI CAPTURE] same object: {pre_gray is post_gray}")
+        if pre_gray is not None and post_gray is not None and pre_gray.shape == post_gray.shape:
+            diff = float(np.mean(np.abs(pre_gray.astype(np.int16) - post_gray.astype(np.int16))))
+            print(f"[AI CAPTURE] mean pixel diff: {diff:.2f} (>1 = different frames)")
+        else:
+            print(f"[AI CAPTURE] cannot compare (different shapes or None)")
+
         # Train AI on the CLEAN image — same image we show in review
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
