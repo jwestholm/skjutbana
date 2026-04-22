@@ -53,7 +53,7 @@ class SyntheticHoleOverlay:
         height: int,
         *,
         rng_seed: Optional[int] = None,
-        default_radius_px_range: Tuple[float, float] = (0.75, 1.35),
+        default_radius_px_range: Tuple[float, float] = (1.5, 2.7),
         blur_sigma_range: Tuple[float, float] = (0.4, 1.2),
         shadow_opacity: float = 0.18,
         edge_brighten: float = 0.22,
