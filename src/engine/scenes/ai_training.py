@@ -1,27 +1,15 @@
 """
 AI Training Scene.
 
-Manual flow:
-1. Show a training surface
-2. Wait for a shot (or right-click for one synthetic round)
-3. AI captures pre/post frames and ranks all candidates
-4. User clicks roughly where the hit was
-5. AI learns from that click
-6. Review panel shows before/after, then user dismisses it
+Key flows:
+- Real/manual shot: original training flow
+- Right click: one synthetic/manual round
+- F1: stable auto-training state machine with visible steps and delays
 
-Synthetic single-round (right-click):
-- Behaves like a normal shot round
-- Places a synthetic hole at the clicked position
-- Hides the mouse before the camera sees the shot setup
-- Triggers a fake audio shot
-- Shows normal candidate markers
-- User clicks the hole manually
-- Clean-capture/review runs exactly as in the normal flow
-
-Auto-training (F1):
-- Runs many synthetic rounds automatically
-- Shows hole -> candidate markers -> auto click -> review
-- Keeps a running score and ends with a visible summary report
+Important behavior:
+- During clean-capture/photo, HUD/markers/cursor are hidden
+- Synthetic holes remain visible during clean-capture and review
+- Auto-training waits between the phases instead of rushing
 """
 
 from __future__ import annotations
@@ -53,11 +41,8 @@ from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import load_viewport_rect
 from src.engine.synthetic.synthetic_hole_overlay import SyntheticHoleOverlay
 
-
 BG_WHITE = (248, 248, 248)
 BG_BLACK = (18, 18, 18)
-TEXT_LIGHT = (245, 245, 245)
-TEXT_DARK = (30, 30, 30)
 CYAN = (80, 220, 255)
 YELLOW = (255, 210, 70)
 ORANGE = (255, 150, 80)
@@ -96,7 +81,6 @@ class AITrainingScene(Scene):
         self.ranked_candidates: list[dict[str, Any]] = []
         self.clicked_camera_xy: tuple[float, float] | None = None
         self.last_learning_result: dict[str, Any] | None = None
-        self.click_flash_timer = 0.0
         self.status_message = ""
 
         self._pending_click_camera: tuple[float, float] | None = None
@@ -114,7 +98,10 @@ class AITrainingScene(Scene):
         self.synthetic_overlay: SyntheticHoleOverlay | None = None
         self._overlay_size: tuple[int, int] = (0, 0)
 
-        # Synthetic scheduling.
+        # Cursor state (avoid blinking by only toggling when the desired state changes).
+        self._cursor_visible = True
+
+        # Synthetic scheduling / settle timing.
         self.synthetic_trigger_delay_s = 0.20
         self.background_settle_delay_s = 0.25
         self.background_settle_until_ts = 0.0
@@ -127,21 +114,20 @@ class AITrainingScene(Scene):
         self.single_synth_round_active = False
         self.single_target_screen_xy: tuple[int, int] | None = None
 
-        # Auto-training state.
+        # Auto-training configuration.
         self.auto_training_enabled = False
         self.auto_target_iterations = 1000
         self.auto_iteration = 0
         self.auto_target_screen_xy: tuple[int, int] | None = None
         self.auto_active_hole_id: str | None = None
-        self.auto_waiting_for_shot = False
-        self.auto_click_pending = False
         self.auto_last_trigger_ts = 0.0
         self.auto_min_trigger_gap_s = 0.08
-        self.auto_status_detail = ""
 
+        # Auto-training flow state.
+        self.auto_phase = "idle"  # idle / waiting_markers / waiting_review / waiting_next
         self.auto_click_delay_s = 1.0
         self.auto_review_delay_s = 1.0
-        self.auto_next_iteration_delay_s = 1.0
+        self.auto_next_iteration_delay_s = 0.5
         self.auto_click_ready_ts = 0.0
         self.auto_review_ready_ts = 0.0
         self.auto_next_iteration_ts = 0.0
@@ -150,6 +136,15 @@ class AITrainingScene(Scene):
         self.auto_report_visible = False
         self.auto_report_lines: list[str] = []
         self._reset_auto_stats()
+
+    # ------------------------------------------------------------------
+    # Basic helpers
+    # ------------------------------------------------------------------
+    def _set_cursor_visible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if visible != self._cursor_visible:
+            pygame.mouse.set_visible(visible)
+            self._cursor_visible = visible
 
     def _reset_auto_stats(self) -> None:
         self.auto_stats: dict[str, Any] = {
@@ -162,7 +157,6 @@ class AITrainingScene(Scene):
             "missed": 0,
             "nearest_distance_sum": 0.0,
             "nearest_distance_count": 0,
-            "per_kind": {},
         }
 
     def on_enter(self) -> None:
@@ -173,16 +167,16 @@ class AITrainingScene(Scene):
         self.runtime = get_ai_runtime()
         self._reset_shot_state(clear_synthetic=True)
         self._last_peak_ts = audio_peak_detector.last_peak_ts
+        self._set_cursor_visible(True)
 
     def on_exit(self) -> None:
-        pygame.mouse.set_visible(True)
+        self._set_cursor_visible(True)
 
     def _reset_shot_state(self, *, clear_synthetic: bool = False) -> None:
         self.awaiting_click = False
         self.ranked_candidates = []
         self.clicked_camera_xy = None
         self.last_learning_result = None
-        self.click_flash_timer = 0.0
         self._animation_frozen = False
         self._reviewing = False
         self._review_pre_surface = None
@@ -197,11 +191,6 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_screen_xy = None
         self.synthetic_trigger_ready_ts = 0.0
 
-        self.auto_waiting_for_shot = False
-        self.auto_click_pending = False
-        self.auto_click_ready_ts = 0.0
-        self.auto_review_ready_ts = 0.0
-
         self.single_synth_round_active = False
         self.single_target_screen_xy = None
 
@@ -210,7 +199,7 @@ class AITrainingScene(Scene):
             self.auto_active_hole_id = None
             self.auto_target_screen_xy = None
 
-        pygame.mouse.set_visible(True)
+        self._set_cursor_visible(True)
 
     def _ensure_overlay(self, screen: pygame.Surface) -> SyntheticHoleOverlay:
         size = (screen.get_width(), screen.get_height())
@@ -265,28 +254,9 @@ class AITrainingScene(Scene):
         except Exception:
             return None
 
-    def _toggle_auto_training(self) -> None:
-        self.auto_training_enabled = not self.auto_training_enabled
-        self.auto_report_visible = False
-
-        if self.auto_training_enabled:
-            self._reset_auto_stats()
-            self.auto_iteration = 0
-            self.auto_next_iteration_ts = 0.0
-            self.auto_status_detail = "Autoträning startad."
-            self.status_message = "Autoträning startad (F1 stoppar)."
-            self._reset_shot_state(clear_synthetic=True)
-        else:
-            self.auto_status_detail = "Autoträning stoppad."
-            self.status_message = "Autoträning stoppad."
-            self._reset_shot_state(clear_synthetic=True)
-
-    def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
-        margin = 48
-        x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
-        y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
-        return x, y
-
+    # ------------------------------------------------------------------
+    # Auto report / stats
+    # ------------------------------------------------------------------
     def _record_detection_stats(self, ranked_candidates: list[dict[str, Any]]) -> None:
         if not self.auto_training_enabled or self.auto_target_screen_xy is None:
             return
@@ -352,6 +322,44 @@ class AITrainingScene(Scene):
         ]
         self.auto_report_visible = True
 
+    # ------------------------------------------------------------------
+    # Synthetic shot setup / firing
+    # ------------------------------------------------------------------
+    def _toggle_auto_training(self) -> None:
+        self.auto_training_enabled = not self.auto_training_enabled
+        self.auto_report_visible = False
+        self.auto_report_lines = []
+
+        if self.auto_training_enabled:
+            self._reset_auto_stats()
+            self.auto_iteration = 0
+            self.auto_phase = "waiting_next"
+            self.auto_next_iteration_ts = time.time() + 0.2
+            self.status_message = "Autoträning startad (F1 stoppar)."
+            self._reset_shot_state(clear_synthetic=True)
+        else:
+            self.auto_phase = "idle"
+            self.status_message = "Autoträning stoppad."
+            self._reset_shot_state(clear_synthetic=True)
+
+    def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
+        margin = 48
+        x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+        y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+        return x, y
+
+    def _start_auto_iteration(self, screen: pygame.Surface) -> None:
+        if self.auto_iteration >= self.auto_target_iterations:
+            self.auto_training_enabled = False
+            self.auto_phase = "idle"
+            self._build_auto_report()
+            return
+
+        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+        target_xy = self._choose_auto_screen_point(vp)
+        self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True)
+        self.auto_phase = "idle"
+
     def _trigger_synthetic_shot_at(
         self,
         screen: pygame.Surface,
@@ -377,23 +385,22 @@ class AITrainingScene(Scene):
 
         hole_kind = random.choices(
             ["clean_hole", "torn_hole", "ragged_hole", "dent_ring", "weak_indent"],
-            weights=[64, 18, 10, 6, 2],
+            weights=[66, 16, 10, 6, 2],
             k=1,
         )[0]
-
-        radius_px = random.uniform(1.8, 3.0)
+        radius_px = random.uniform(1.7, 2.9)
 
         self.auto_active_hole_id = overlay.add_hole(
             sx,
             sy,
             kind=hole_kind,
             radius_px=radius_px,
-            strength=random.uniform(0.90, 1.20),
-            opacity=random.uniform(0.92, 1.0),
+            strength=random.uniform(0.90, 1.18),
+            opacity=random.uniform(0.94, 1.0),
         )
 
         # Hide cursor before the camera sees the setup.
-        pygame.mouse.set_visible(False)
+        self._set_cursor_visible(False)
 
         self.synthetic_trigger_pending = True
         self.synthetic_trigger_batch_mode = batch_mode
@@ -417,8 +424,8 @@ class AITrainingScene(Scene):
             return False
 
         batch_mode = self.synthetic_trigger_batch_mode
-
         event_ts = time.time()
+
         audio_peak_detector.last_peak_ts = event_ts
         try:
             hit_scanner._on_audio_peak(
@@ -431,45 +438,31 @@ class AITrainingScene(Scene):
         except Exception as exc:
             self.status_message = f"Syntetiskt skott misslyckades: {exc}"
             self.auto_training_enabled = False
-            self.single_synth_round_active = False
+            self.auto_phase = "idle"
             self.synthetic_trigger_pending = False
             self._clear_synthetic_holes()
-            pygame.mouse.set_visible(True)
+            self._set_cursor_visible(True)
             return False
 
         self.synthetic_trigger_pending = False
         self._animation_frozen = True
         self._last_peak_ts = event_ts
         self.auto_last_trigger_ts = event_ts
-        self.auto_waiting_for_shot = batch_mode
-        self.auto_click_pending = False
         self.auto_stats["shots_triggered"] += 1
 
         if batch_mode:
             self.status_message = (
                 f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
-                f"syntetiskt skott triggat."
+                "syntetiskt skott triggat."
             )
         else:
             self.status_message = "Syntetiskt skott triggat på vald punkt."
 
         return True
 
-    def _finish_auto_iteration(self) -> None:
-        self.auto_iteration += 1
-        self.auto_stats["iterations"] = self.auto_iteration
-        self.auto_waiting_for_shot = False
-        self.auto_click_pending = False
-
-        if self.auto_iteration >= self.auto_target_iterations:
-            self.auto_training_enabled = False
-            self.status_message = f"Autoträning klar: {self.auto_iteration} iterationer."
-            self._build_auto_report()
-        else:
-            self.status_message = (
-                f"Autoträning: iteration {self.auto_iteration}/{self.auto_target_iterations} klar."
-            )
-
+    # ------------------------------------------------------------------
+    # Scene events
+    # ------------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event):
         if self.auto_report_visible:
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
@@ -507,6 +500,7 @@ class AITrainingScene(Scene):
                 self.runtime.memory.reset()
                 self._reset_auto_stats()
                 self._reset_shot_state(clear_synthetic=True)
+                self.auto_phase = "idle"
                 self.status_message = "AI nollställd."
                 return None
 
@@ -521,7 +515,6 @@ class AITrainingScene(Scene):
                 return None
 
             if event.button == 3:
-                # Right click: one synthetic round using the normal manual flow.
                 if (not self.awaiting_click and not self._reviewing and not self.synthetic_trigger_pending and
                         not self.auto_training_enabled and not self.auto_report_visible):
                     screen = pygame.display.get_surface()
@@ -531,6 +524,9 @@ class AITrainingScene(Scene):
 
         return None
 
+    # ------------------------------------------------------------------
+    # Update
+    # ------------------------------------------------------------------
     def update(self, dt: float):
         current_peak_ts = audio_peak_detector.last_peak_ts
         if current_peak_ts > self._last_peak_ts and not self._animation_frozen:
@@ -542,29 +538,38 @@ class AITrainingScene(Scene):
 
         now = time.time()
 
+        # Stable auto-training state machine.
+        if self.auto_training_enabled:
+            if self.auto_phase == "waiting_next" and not self.awaiting_click and not self._reviewing and not self.synthetic_trigger_pending:
+                if now >= self.auto_next_iteration_ts:
+                    screen = pygame.display.get_surface()
+                    if screen is not None:
+                        self._start_auto_iteration(screen)
+
+            elif self.auto_phase == "waiting_markers" and self.awaiting_click:
+                if now >= self.auto_click_ready_ts and self.auto_target_screen_xy is not None:
+                    self._on_training_click(self.auto_target_screen_xy)
+                    # _on_training_click starts clean capture. Next visible phase is review.
+                    self.auto_phase = "waiting_review"
+
+            elif self.auto_phase == "waiting_review" and self._reviewing:
+                if now >= self.auto_review_ready_ts:
+                    # Auto-dismiss review after it has been visible for 1 second.
+                    self._reviewing = False
+                    self._review_pre_surface = None
+                    self._review_post_surface = None
+                    self._clear_synthetic_holes()
+                    self.clicked_camera_xy = None
+                    self.awaiting_click = False
+                    self._set_cursor_visible(True)
+                    self.auto_next_iteration_ts = now + self.auto_next_iteration_delay_s
+                    self.auto_phase = "waiting_next"
+
         if self.synthetic_trigger_pending and now >= self.synthetic_trigger_ready_ts:
             self._fire_pending_synthetic_shot()
 
         if not self.awaiting_click and not self._reviewing and self.runtime.has_new_shot:
             self._on_shot_detected()
-
-        if self.awaiting_click and self.auto_training_enabled and self.auto_click_pending:
-            if now >= self.auto_click_ready_ts and self.auto_target_screen_xy is not None:
-                self.auto_click_pending = False
-                self._on_training_click(self.auto_target_screen_xy)
-
-        if self._reviewing and self.auto_training_enabled and self.auto_review_ready_ts > 0.0:
-            if now >= self.auto_review_ready_ts:
-                # Keep holes visible during review, then clear before next iteration.
-                self._reviewing = False
-                self._review_pre_surface = None
-                self._review_post_surface = None
-                self._clear_synthetic_holes()
-                self.clicked_camera_xy = None
-                self.awaiting_click = False
-                pygame.mouse.set_visible(True)
-                self.auto_next_iteration_ts = now + self.auto_next_iteration_delay_s
-                self.auto_review_ready_ts = 0.0
 
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
@@ -573,10 +578,12 @@ class AITrainingScene(Scene):
         elif self._pending_click_phase == "capture":
             self._do_clean_capture()
 
+    # ------------------------------------------------------------------
+    # Shot / click / learning
+    # ------------------------------------------------------------------
     def _do_clean_capture(self) -> None:
-        # Important: keep the mouse hidden for the whole clean-capture/photo phase.
-        # Only the synthetic holes should remain visible on the projected world.
-        pygame.mouse.set_visible(False)
+        # Important: during clean capture, the cursor must stay hidden.
+        self._set_cursor_visible(False)
 
         click_camera = self._pending_click_camera
         self._pending_click_phase = None
@@ -584,7 +591,7 @@ class AITrainingScene(Scene):
         self._pending_wait_frames = 0
 
         if click_camera is None:
-            pygame.mouse.set_visible(True)
+            self._set_cursor_visible(True)
             return
 
         clean_post_gray = None
@@ -615,11 +622,14 @@ class AITrainingScene(Scene):
         self._enter_review(click_camera, post_gray)
 
         if self.auto_training_enabled:
-            pygame.mouse.set_visible(False)
-            self._finish_auto_iteration()
+            self.auto_iteration += 1
+            self.auto_stats["iterations"] = self.auto_iteration
+            self.status_message = f"Autoträning: iteration {self.auto_iteration}/{self.auto_target_iterations} klar."
             self.auto_review_ready_ts = time.time() + self.auto_review_delay_s
+            self.auto_phase = "waiting_review"
         else:
-            pygame.mouse.set_visible(True)
+            # Manual/right-click round: review stays until user dismisses.
+            self._set_cursor_visible(True)
 
     def _on_shot_detected(self) -> None:
         all_candidates = list(hit_scanner.last_candidates)
@@ -627,10 +637,18 @@ class AITrainingScene(Scene):
             self.status_message = "Skott detekterat men inga kandidater."
             if self.auto_training_enabled:
                 self.auto_stats["missed"] += 1
-                self._finish_auto_iteration()
-                self.auto_next_iteration_ts = time.time() + self.auto_next_iteration_delay_s
+                self.auto_iteration += 1
+                self.auto_stats["iterations"] = self.auto_iteration
+                if self.auto_iteration >= self.auto_target_iterations:
+                    self.auto_training_enabled = False
+                    self.auto_phase = "idle"
+                    self._build_auto_report()
+                else:
+                    self._clear_synthetic_holes()
+                    self.auto_next_iteration_ts = time.time() + self.auto_next_iteration_delay_s
+                    self.auto_phase = "waiting_next"
             else:
-                pygame.mouse.set_visible(True)
+                self._set_cursor_visible(True)
             return
 
         self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
@@ -639,22 +657,20 @@ class AITrainingScene(Scene):
         self._record_detection_stats(self.ranked_candidates)
 
         if self.auto_training_enabled:
-            self.auto_waiting_for_shot = False
-            self.auto_click_pending = True
             self.auto_click_ready_ts = time.time() + self.auto_click_delay_s
+            self.auto_phase = "waiting_markers"
             self.status_message = (
                 f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
                 f"{len(self.ranked_candidates)} kandidater hittade, auto-klick om {self.auto_click_delay_s:.1f} s."
             )
+            self._set_cursor_visible(False)
         else:
-            pygame.mouse.set_visible(True)
             self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
+            self._set_cursor_visible(True)
 
     def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
-        # Hide mouse immediately after the user click. The synthetic hole overlay
-        # must remain, but the cursor/HUD/markers must disappear before the clean
-        # capture/photo frame is taken.
-        pygame.mouse.set_visible(False)
+        # Hide mouse immediately after click so only the projected world remains for photo/capture.
+        self._set_cursor_visible(False)
 
         projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
         click_camera = (projected.camera_x, projected.camera_y)
@@ -663,6 +679,9 @@ class AITrainingScene(Scene):
         self._pending_click_phase = "clean_render"
         self.awaiting_click = False
 
+    # ------------------------------------------------------------------
+    # Render
+    # ------------------------------------------------------------------
     def render(self, screen: pygame.Surface) -> None:
         overlay = self._ensure_overlay(screen)
         mode = self.MODE_NAMES[self.bg_mode_index]
@@ -671,23 +690,15 @@ class AITrainingScene(Scene):
         screen.fill((30, 30, 30))
         self._render_background(screen, mode, vp)
 
-        # Draw synthetic holes first. These must remain visible during clean-capture
-        # phases when the HUD, markers and cursor are hidden.
+        # Synthetic holes must remain visible even in clean capture / review.
         if overlay is not None:
             composed = overlay.composite_on(pygame.surfarray.array3d(screen).swapaxes(0, 1))
             composed = composed.swapaxes(0, 1)
             pygame.surfarray.blit_array(screen, composed)
 
-        # Start new auto iteration only when completely idle.
-        if (self.auto_training_enabled and not self.awaiting_click and not self._reviewing and
-                not self.synthetic_trigger_pending and time.time() >= self.auto_next_iteration_ts):
-            self._start_auto_iteration(screen)
-
-        # Clean render for capture: show only the projected world (incl. synthetic holes).
+        # Clean render for photo/capture: show only world + synthetic holes.
         if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
-            # Force cursor hidden during the clean capture pipeline so the camera
-            # only sees the projected world and the synthetic holes.
-            pygame.mouse.set_visible(False)
+            self._set_cursor_visible(False)
             if self._pending_click_phase == "clean_render":
                 self._pending_click_phase = "wait_frame"
                 self._pending_wait_frames = 0
@@ -703,17 +714,6 @@ class AITrainingScene(Scene):
 
         if self.auto_report_visible:
             self._render_auto_report(screen, vp)
-
-    def _start_auto_iteration(self, screen: pygame.Surface) -> None:
-        if self.auto_iteration >= self.auto_target_iterations:
-            self.auto_training_enabled = False
-            self._build_auto_report()
-            return
-
-        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
-        target_xy = self._choose_auto_screen_point(vp)
-        self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True)
-        self.auto_status_detail = "Autoträning körs."
 
     def _render_auto_report(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         lines = self.auto_report_lines or ["Autoträning klar"]
