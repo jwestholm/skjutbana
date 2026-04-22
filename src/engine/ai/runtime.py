@@ -351,32 +351,39 @@ class AIRuntime:
         """Get a frame from before the shot using scanner's frame_history."""
         frame_history = getattr(scanner, "frame_history", None)
         if frame_history is None or len(frame_history) < 2:
-            self._pre_shot_gray = self._latest_gray
+            if self._latest_gray is not None:
+                self._pre_shot_gray = self._latest_gray.copy()
             return
 
-        # Get the second-to-last frame (more likely to be pre-shot)
-        audio_events = getattr(scanner, "audio_events", [])
-        earliest_peak = None
-        for ev in audio_events:
-            if getattr(ev, "state", "") == "pending":
+        # Use last_audio_event_ts — this is set immediately when audio fires
+        peak_ts = getattr(scanner, "last_audio_event_ts", 0.0)
+        if peak_ts <= 0:
+            # Fallback: try pending events
+            for ev in getattr(scanner, "audio_events", []):
                 ts = getattr(ev, "peak_ts", None)
-                if ts is not None and (earliest_peak is None or ts < earliest_peak):
-                    earliest_peak = ts
+                if ts is not None and (peak_ts <= 0 or ts < peak_ts):
+                    peak_ts = ts
 
-        if earliest_peak is not None:
-            # Find frame well before the peak (200ms margin for clean pre-shot)
+        if peak_ts > 0:
+            # Find frame well before the peak (200ms margin)
             for fr in reversed(frame_history):
-                if fr.timestamp < earliest_peak - 0.20:
+                if fr.timestamp < peak_ts - 0.20:
                     self._pre_shot_gray = fr.gray.copy()
                     return
 
-        # Fallback: use oldest available frame
-        if len(frame_history) >= 3:
-            self._pre_shot_gray = frame_history[-3].gray.copy()
+        # Fallback: use a frame from 500ms ago (well before any recent shot)
+        import time
+        target_ts = time.time() - 0.5
+        for fr in reversed(frame_history):
+            if fr.timestamp < target_ts:
+                self._pre_shot_gray = fr.gray.copy()
+                return
+
+        # Last resort: oldest frame in history
+        if len(frame_history) > 0:
+            self._pre_shot_gray = frame_history[0].gray.copy()
         elif self._latest_gray is not None:
             self._pre_shot_gray = self._latest_gray.copy()
-        else:
-            self._pre_shot_gray = None
 
     def choose_for_emission(
         self, default_x: float, default_y: float
