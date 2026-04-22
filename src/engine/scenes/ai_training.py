@@ -90,8 +90,9 @@ class AITrainingScene(Scene):
         self.click_flash_timer = 0.0
         self.status_message = ""
 
-        # Animation
+        # Animation — frozen_at is set the instant audio fires
         self.t = 0.0
+        self._animation_frozen = False
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -100,9 +101,17 @@ class AITrainingScene(Scene):
         self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state()
+        # Subscribe to audio peaks for instant animation freeze
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        audio_peak_detector.subscribe(self._on_audio_peak)
 
     def on_exit(self) -> None:
-        pass
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        audio_peak_detector.unsubscribe(self._on_audio_peak)
+
+    def _on_audio_peak(self, event) -> None:
+        """Freeze animation the instant a shot is heard — before any processing."""
+        self._animation_frozen = True
 
     def _reset_shot_state(self) -> None:
         self.awaiting_click = False
@@ -110,6 +119,7 @@ class AITrainingScene(Scene):
         self.clicked_camera_xy = None
         self.last_learning_result = None
         self.click_flash_timer = 0.0
+        self._animation_frozen = False
 
     # ------------------------------------------------------------------
     # Events
@@ -148,7 +158,9 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
 
     def update(self, dt: float):
-        self.t += dt
+        # Only advance animation time when not frozen
+        if not self._animation_frozen:
+            self.t += dt
 
         # Check if AI runtime detected a new shot
         if not self.awaiting_click and self.runtime.has_new_shot:
@@ -264,15 +276,15 @@ class AITrainingScene(Scene):
         """Animated checkerboard — scrolls diagonally, freezes on shot."""
         cell = 40
         colors = [(220, 220, 220), (60, 60, 60)]
-        # Offset scrolls when not awaiting click
-        if not self.awaiting_click:
+        # Offset scrolls when not frozen
+        if not self._animation_frozen:
             offset = int(self.t * 60) % (cell * 2)
         else:
             if not hasattr(self, "_checker_frozen_offset"):
                 self._checker_frozen_offset = 0
             offset = self._checker_frozen_offset
 
-        if not self.awaiting_click:
+        if not self._animation_frozen:
             self._checker_frozen_offset = offset
 
         for y in range(vp.top - cell, vp.bottom + cell, cell):
@@ -307,8 +319,8 @@ class AITrainingScene(Scene):
                     "shape": random.choice(["circle", "rect", "triangle"]),
                 })
 
-        # Move bubbles only when NOT awaiting click (freeze on shot)
-        if not self.awaiting_click:
+        # Move bubbles only when NOT frozen (freeze instantly on shot)
+        if not self._animation_frozen:
             dt = 1.0 / 60.0  # Approximate
             for b in self._bubbles:
                 b["x"] += b["dx"] * dt
