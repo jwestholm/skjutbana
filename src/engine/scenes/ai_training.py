@@ -9,9 +9,14 @@ Flow:
 5. AI learns immediately from that click
 6. Reset and repeat
 
-The click is transformed to camera space. The AI compares it against
-shown candidates and learns positive/negative examples.
+Auto mode:
+- F1 toggles automatic training on/off
+- The scene places a synthetic hole on the projected playfield
+- It triggers a fake audio peak directly into the scanner
+- The normal chain runs: shot -> candidates -> click -> learning
+- The scene auto-clicks the center of the synthetic hole
 """
+
 from __future__ import annotations
 
 import math
@@ -33,12 +38,13 @@ except Exception:
 
 from src.engine.ai.runtime import get_ai_runtime
 from src.engine.ai.space_mapper import project_screen_point
+from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.camera.hit_scanner import hit_scanner
 from src.engine.input.hit_input import hit_input
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import load_viewport_rect
-
+from src.engine.synthetic.synthetic_hole_overlay import SyntheticHoleOverlay
 
 BG_WHITE = (248, 248, 248)
 BG_BLACK = (18, 18, 18)
@@ -48,7 +54,8 @@ CYAN = (80, 220, 255)
 YELLOW = (255, 210, 70)
 ORANGE = (255, 150, 80)
 GREEN = (120, 255, 120)
-CLICK_COLOR = (255, 110, 110)
+RED = (255, 110, 110)
+CLICK_COLOR = RED
 HUD_BG = (0, 0, 0, 120)
 GRID_LINE = (222, 222, 222)
 WHITE = (240, 240, 240)
@@ -66,10 +73,8 @@ class AITrainingScene(Scene):
     def __init__(self, bg_color=None, **kwargs) -> None:
         super().__init__()
         self.runtime = get_ai_runtime()
+        self._bubbles: list[dict] = []
 
-        self._bubbles: list[dict] = []  # For bubbles mode
-
-        # Determine initial background mode from bg_color hint
         if isinstance(bg_color, (tuple, list)) and len(bg_color) >= 3:
             brightness = sum(int(c) for c in bg_color[:3]) / 3.0
             self.bg_mode_index = 1 if brightness < 96 else 0
@@ -79,10 +84,8 @@ class AITrainingScene(Scene):
         self.font: pygame.font.Font | None = None
         self.small: pygame.font.Font | None = None
         self.tiny: pygame.font.Font | None = None
-
         self.viewport: pygame.Rect | None = None
 
-        # Shot state
         self.awaiting_click = False
         self.ranked_candidates: list[dict[str, Any]] = []
         self.clicked_camera_xy: tuple[float, float] | None = None
@@ -90,20 +93,32 @@ class AITrainingScene(Scene):
         self.click_flash_timer = 0.0
         self.status_message = ""
 
-        # Deferred capture state — clean render before camera capture
         self._pending_click_camera: tuple[float, float] | None = None
-        self._pending_click_phase: str | None = None  # "clean_render" → "wait_frame" → "capture"
+        self._pending_click_phase: str | None = None
         self._pending_wait_frames: int = 0
 
-        # Review state — shows pre/post patches after training
         self._reviewing = False
         self._review_pre_surface: pygame.Surface | None = None
         self._review_post_surface: pygame.Surface | None = None
 
-        # Animation
         self.t = 0.0
         self._animation_frozen = False
         self._last_peak_ts = 0.0
+
+        self.synthetic_overlay: SyntheticHoleOverlay | None = None
+        self._overlay_size: tuple[int, int] = (0, 0)
+
+        # Auto-training state
+        self.auto_training_enabled = False
+        self.auto_target_iterations = 1000
+        self.auto_iteration = 0
+        self.auto_target_screen_xy: tuple[int, int] | None = None
+        self.auto_active_hole_id: str | None = None
+        self.auto_waiting_for_shot = False
+        self.auto_click_pending = False
+        self.auto_last_trigger_ts = 0.0
+        self.auto_min_trigger_gap_s = 0.08
+        self.auto_status_detail = ""
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -112,8 +127,6 @@ class AITrainingScene(Scene):
         self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state()
-        # Sync peak timestamp to avoid false trigger from old peaks
-        from src.engine.audio.audio_peak_detector import audio_peak_detector
         self._last_peak_ts = audio_peak_detector.last_peak_ts
 
     def on_exit(self) -> None:
@@ -132,12 +145,22 @@ class AITrainingScene(Scene):
         self._pending_click_camera = None
         self._pending_click_phase = None
         self._pending_wait_frames = 0
-        # Sync so old peaks don't re-trigger freeze
-        from src.engine.audio.audio_peak_detector import audio_peak_detector
         self._last_peak_ts = audio_peak_detector.last_peak_ts
 
+    def _ensure_overlay(self, screen: pygame.Surface) -> SyntheticHoleOverlay:
+        size = (screen.get_width(), screen.get_height())
+        if self.synthetic_overlay is None or self._overlay_size != size:
+            self.synthetic_overlay = SyntheticHoleOverlay(size[0], size[1], rng_seed=42)
+            self._overlay_size = size
+        return self.synthetic_overlay
+
+    def _clear_synthetic_holes(self) -> None:
+        if self.synthetic_overlay is not None:
+            self.synthetic_overlay.clear()
+        self.auto_active_hole_id = None
+        self.auto_target_screen_xy = None
+
     def _enter_review(self, click_camera_xy: tuple[float, float], fresh_post_gray=None) -> None:
-        """Build zoomed pre/post patch surfaces for visual review."""
         self._reviewing = True
         self._review_pre_surface = None
         self._review_post_surface = None
@@ -149,10 +172,9 @@ class AITrainingScene(Scene):
 
         ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
         h, w = gray_post.shape[:2]
-        patch_r = 80  # Large area — ~160x160 pixels from 4K camera
+        patch_r = 80
         x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
         x1, y1 = min(w, ix + patch_r + 1), min(h, iy + patch_r + 1)
-
         if x1 <= x0 or y1 <= y0:
             return
 
@@ -165,7 +187,6 @@ class AITrainingScene(Scene):
 
     @staticmethod
     def _gray_patch_to_surface(patch) -> pygame.Surface | None:
-        """Convert a small grayscale numpy patch to a pygame surface."""
         if patch is None or patch.size == 0:
             return None
         try:
@@ -178,79 +199,109 @@ class AITrainingScene(Scene):
         except Exception:
             return None
 
-    @staticmethod
-    def _save_hole_image(click_camera_xy, post_gray) -> None:
-        """Save the post-shot patch as a transparent PNG for the hole image bank."""
-        if post_gray is None or np is None:
+    # ------------------------------------------------------------------
+    # Auto-training
+    # ------------------------------------------------------------------
+    def _toggle_auto_training(self) -> None:
+        self.auto_training_enabled = not self.auto_training_enabled
+        if self.auto_training_enabled:
+            self.auto_iteration = 0
+            self.auto_waiting_for_shot = False
+            self.auto_click_pending = False
+            self.auto_status_detail = "Autoträning startad."
+            self.status_message = "Autoträning startad (F1 stoppar)."
+            self._reviewing = False
+            self._clear_synthetic_holes()
+        else:
+            self.auto_waiting_for_shot = False
+            self.auto_click_pending = False
+            self.auto_status_detail = "Autoträning stoppad."
+            self.status_message = "Autoträning stoppad."
+            self._clear_synthetic_holes()
+
+    def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
+        margin = 48
+        x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+        y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+        return x, y
+
+    def _start_auto_iteration(self, screen: pygame.Surface) -> None:
+        if self.auto_iteration >= self.auto_target_iterations:
+            self.auto_training_enabled = False
+            self.auto_status_detail = "Målnivå nådd."
+            self.status_message = f"Autoträning klar: {self.auto_iteration} iterationer."
+            self._clear_synthetic_holes()
             return
+
+        now = time.time()
+        if now - self.auto_last_trigger_ts < self.auto_min_trigger_gap_s:
+            return
+
+        overlay = self._ensure_overlay(screen)
+        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+
+        self._clear_synthetic_holes()
+        sx, sy = self._choose_auto_screen_point(vp)
+        self.auto_target_screen_xy = (sx, sy)
+
+        hole_kind = random.choices(
+            ["clean_hole", "torn_hole", "ragged_hole", "dent_ring", "weak_indent"],
+            weights=[34, 18, 14, 18, 16],
+            k=1,
+        )[0]
+        radius_px = random.uniform(6.0, 13.0)
+        self.auto_active_hole_id = overlay.add_hole(
+            sx,
+            sy,
+            kind=hole_kind,
+            radius_px=radius_px,
+            strength=random.uniform(0.75, 1.15),
+            opacity=random.uniform(0.82, 1.0),
+        )
+
+        event_ts = time.time()
+        audio_peak_detector.last_peak_ts = event_ts
         try:
-            from pathlib import Path
-
-            ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
-            h, w = post_gray.shape[:2]
-            patch_r = 64  # 128x128 patch
-            x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
-            x1, y1 = min(w, ix + patch_r), min(h, iy + patch_r)
-
-            if x1 <= x0 or y1 <= y0:
-                return
-
-            patch = post_gray[y0:y1, x0:x1]
-            if patch.size == 0:
-                return
-
-            # Create RGBA with alpha based on distance from white (background).
-            # White pixels → transparent, dark pixels (hole) → opaque.
-            # Alpha = 75% max to keep some background context.
-            if cv2 is not None:
-                rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
-            else:
-                rgb = np.stack([patch, patch, patch], axis=-1)
-
-            # Alpha: darker pixels = more opaque, white = transparent
-            # Invert brightness: 255 (white) → 0 alpha, 0 (black) → 191 alpha (75%)
-            alpha = (255 - patch).astype(np.float32) * (191.0 / 255.0)
-            alpha = alpha.astype(np.uint8)
-
-            rgba = np.zeros((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
-            rgba[:, :, :3] = rgb
-            rgba[:, :, 3] = alpha
-
-            # Save to content/ai/holes/
-            holes_dir = Path("content/ai/holes")
-            holes_dir.mkdir(parents=True, exist_ok=True)
-
-            # Find next number
-            existing = sorted(holes_dir.glob("*.png"))
-            next_num = 1
-            for f in existing:
-                try:
-                    num = int(f.stem)
-                    next_num = max(next_num, num + 1)
-                except ValueError:
-                    pass
-
-            path = holes_dir / f"{next_num}.png"
-
-            if cv2 is not None:
-                # cv2 expects BGRA
-                bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
-                cv2.imwrite(str(path), bgra)
-            else:
-                # Fallback: save as pygame surface
-                surf = pygame.image.frombuffer(rgba.tobytes(), (rgba.shape[1], rgba.shape[0]), "RGBA")
-                pygame.image.save(surf, str(path))
-
-            print(f"[AI HOLE] saved {path.name} ({rgba.shape[1]}x{rgba.shape[0]})")
+            hit_scanner._on_audio_peak(
+                AudioPeakEvent(
+                    timestamp=event_ts,
+                    peak=max(1.0, float(getattr(audio_peak_detector, "min_abs_peak", 0.2)) * 1.5),
+                    rms=0.0,
+                )
+            )
         except Exception as exc:
-            print(f"[AI HOLE] save failed: {exc}")
+            self.status_message = f"Autoträning misslyckades att trigga skott: {exc}"
+            self.auto_training_enabled = False
+            self._clear_synthetic_holes()
+            return
+
+        self._animation_frozen = True
+        self._last_peak_ts = event_ts
+        self.auto_last_trigger_ts = event_ts
+        self.auto_waiting_for_shot = True
+        self.auto_click_pending = False
+        self.status_message = (
+            f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
+            f"syntetiskt skott triggat."
+        )
+
+    def _finish_auto_iteration(self) -> None:
+        self.auto_iteration += 1
+        self.auto_waiting_for_shot = False
+        self.auto_click_pending = False
+        self._clear_synthetic_holes()
+        if self.auto_iteration >= self.auto_target_iterations:
+            self.auto_training_enabled = False
+            self.status_message = f"Autoträning klar: {self.auto_iteration} iterationer."
+        else:
+            self.status_message = (
+                f"Autoträning: iteration {self.auto_iteration}/{self.auto_target_iterations} klar."
+            )
 
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------
-
     def handle_event(self, event: pygame.event.Event):
-        # If reviewing, any click or key dismisses and resumes
         if self._reviewing:
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -265,6 +316,10 @@ class AITrainingScene(Scene):
                 from src.engine.scenes.menu import MenuScene
                 return SceneSwitch(MenuScene())
 
+            if event.key == pygame.K_F1:
+                self._toggle_auto_training()
+                return None
+
             if event.key == pygame.K_TAB:
                 self.bg_mode_index = (self.bg_mode_index + 1) % len(self.MODE_NAMES)
                 return None
@@ -272,6 +327,7 @@ class AITrainingScene(Scene):
             if event.key == pygame.K_r:
                 self.runtime.memory.reset()
                 self._reset_shot_state()
+                self._clear_synthetic_holes()
                 self.status_message = "AI nollställd."
                 return None
 
@@ -289,24 +345,23 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
     # Update
     # ------------------------------------------------------------------
-
     def update(self, dt: float):
-        # Check for audio peak directly from audio thread's last_peak_ts.
-        from src.engine.audio.audio_peak_detector import audio_peak_detector
         current_peak_ts = audio_peak_detector.last_peak_ts
         if current_peak_ts > self._last_peak_ts and not self._animation_frozen:
             self._animation_frozen = True
-        self._last_peak_ts = current_peak_ts
+            self._last_peak_ts = current_peak_ts
 
-        # Only advance animation time when not frozen
         if not self._animation_frozen:
             self.t += dt
 
-        # Check if AI runtime detected a new shot (for candidate display)
         if not self.awaiting_click and not self._reviewing and self.runtime.has_new_shot:
             self._on_shot_detected()
 
-        # Deferred capture for review images
+        if self.awaiting_click and self.auto_training_enabled and self.auto_click_pending:
+            self.auto_click_pending = False
+            if self.auto_target_screen_xy is not None:
+                self._on_training_click(self.auto_target_screen_xy)
+
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
             if self._pending_wait_frames >= 5:
@@ -314,10 +369,7 @@ class AITrainingScene(Scene):
         elif self._pending_click_phase == "capture":
             self._do_clean_capture()
 
-        return None
-
     def _do_clean_capture(self) -> None:
-        """Capture clean camera frame, train AI, and show review."""
         click_camera = self._pending_click_camera
         self._pending_click_phase = None
         self._pending_click_camera = None
@@ -327,7 +379,6 @@ class AITrainingScene(Scene):
         if click_camera is None:
             return
 
-        # Capture fresh clean post-shot (no overlays/cursor on projector)
         clean_post_gray = None
         try:
             frame_bgr = camera_manager.get_latest_frame()
@@ -339,21 +390,6 @@ class AITrainingScene(Scene):
         post_gray = clean_post_gray if clean_post_gray is not None else self.runtime.post_shot_gray
         pre_gray = self.runtime.pre_shot_gray
 
-        # Debug: compare pre and post
-        import time as _dbg_time
-        now = _dbg_time.time()
-        pre_ts = getattr(self.runtime, '_pre_shot_ts', 0.0)
-        print(f"[AI CAPTURE] now={now:.3f}")
-        print(f"[AI CAPTURE] pre_gray ts={pre_ts:.3f} (age={((now - pre_ts) * 1000):.0f}ms)")
-        print(f"[AI CAPTURE] post_gray: {'FRESH' if clean_post_gray is not None else 'RUNTIME'} (taken now)")
-        print(f"[AI CAPTURE] same object: {pre_gray is post_gray}")
-        if pre_gray is not None and post_gray is not None and pre_gray.shape == post_gray.shape:
-            diff = float(np.mean(np.abs(pre_gray.astype(np.int16) - post_gray.astype(np.int16))))
-            print(f"[AI CAPTURE] mean pixel diff: {diff:.2f} (>1 = different frames)")
-        else:
-            print(f"[AI CAPTURE] cannot compare (different shapes or None)")
-
-        # Train AI on the CLEAN image — same image we show in review
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
             shown_candidates=self.ranked_candidates,
@@ -369,8 +405,8 @@ class AITrainingScene(Scene):
         )
 
         if result.get("positive_added"):
-            dist = result.get("nearest_distance", 999)
-            if dist <= float(self.runtime.settings.get("click_match_radius_px", 42)):
+            dist = result.get("nearest_distance", 999.0)
+            if dist <= float(self.runtime.settings.get("click_match_radius_px", 42.0)):
                 idx = result.get("nearest_index", 0)
                 self.status_message = (
                     f"Tränade: kandidat #{idx + 1} (avstånd {dist:.0f}px). "
@@ -383,34 +419,40 @@ class AITrainingScene(Scene):
                     f"Totalt: {result['total_positives']} pos / {result['total_negatives']} neg"
                 )
 
-        # Save hole image to build up training image bank
-        self._save_hole_image(click_camera, post_gray)
+        if self.auto_training_enabled:
+            self._finish_auto_iteration()
+            self._reset_shot_state()
+            return
 
-        # Show review — same clean images AI trained on
         self._enter_review(click_camera, post_gray)
 
     def _on_shot_detected(self) -> None:
-        """A shot was detected — rank candidates and wait for click."""
-        # Get all candidates from hit_scanner (not just top 10)
         all_candidates = list(hit_scanner.last_candidates)
         if not all_candidates:
             self.status_message = "Skott detekterat men inga kandidater."
+            if self.auto_training_enabled:
+                self._finish_auto_iteration()
+                self._reset_shot_state()
             return
 
         self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
         self.awaiting_click = True
         self.clicked_camera_xy = None
-        self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
+
+        if self.auto_training_enabled:
+            self.auto_waiting_for_shot = False
+            self.auto_click_pending = True
+            self.status_message = (
+                f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
+                f"{len(self.ranked_candidates)} kandidater hittade, auto-klickar."
+            )
+        else:
+            self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
 
     def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
-        """User clicked to indicate where the hit was."""
         projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
         click_camera = (projected.camera_x, projected.camera_y)
         self.clicked_camera_xy = click_camera
-
-        # Schedule clean capture — ALL training happens AFTER we get a clean
-        # camera image without overlays/cursor. That way AI trains on the same
-        # clean image that we show in review.
         self._pending_click_camera = click_camera
         self._pending_click_phase = "clean_render"
         self.awaiting_click = False
@@ -418,17 +460,24 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
     # Render
     # ------------------------------------------------------------------
-
     def render(self, screen: pygame.Surface) -> None:
+        overlay = self._ensure_overlay(screen)
         mode = self.MODE_NAMES[self.bg_mode_index]
         vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
 
-        # Fill area outside viewport with dark border
         screen.fill((30, 30, 30))
-
         self._render_background(screen, mode, vp)
 
-        # During clean capture: render only background, hide overlays + cursor
+        # Synthetic holes are part of the projected world and must remain visible
+        # during clean capture. Candidate overlays / cursor feedback are hidden later.
+        if overlay is not None:
+            composed = overlay.composite_on(pygame.surfarray.array3d(screen).swapaxes(0, 1))
+            composed = composed.swapaxes(0, 1)
+            pygame.surfarray.blit_array(screen, composed)
+
+        if self.auto_training_enabled and not self.awaiting_click and not self._reviewing:
+            self._start_auto_iteration(screen)
+
         if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
             if self._pending_click_phase == "clean_render":
                 self._pending_click_phase = "wait_frame"
@@ -439,20 +488,16 @@ class AITrainingScene(Scene):
         self._render_candidates(screen, vp)
         self._render_click_feedback(screen)
 
-        # Review overlay — shows pre/post patches after training click
         if self._reviewing:
             self._render_review(screen, vp)
 
         self._render_hud(screen, mode, vp)
 
     def _render_review(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
-        """Show zoomed pre/post patches side by side in the center of viewport."""
-        zoom = 3  # Scale factor — 160px patch × 3 = 480px display
+        zoom = 3
         gap = 24
-
         pre = self._review_pre_surface
         post = self._review_post_surface
-
         if post is None:
             return
 
@@ -462,7 +507,6 @@ class AITrainingScene(Scene):
         total_w = scaled_w * 2 + gap if pre is not None else scaled_w
         total_h = scaled_h + label_h + 30
 
-        # Background panel
         panel_rect = pygame.Rect(0, 0, total_w + 40, total_h + 20)
         panel_rect.center = (vp.centerx, vp.centery)
         panel = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
@@ -473,7 +517,6 @@ class AITrainingScene(Scene):
         x_start = panel_rect.x + 20
         y_start = panel_rect.y + 10
 
-        # Pre-shot (left)
         if pre is not None:
             scaled_pre = pygame.transform.scale(pre, (scaled_w, scaled_h))
             screen.blit(scaled_pre, (x_start, y_start + label_h))
@@ -486,7 +529,6 @@ class AITrainingScene(Scene):
                 label = self.tiny.render("FÖRE skott", True, CYAN)
                 screen.blit(label, (x_start, y_start))
 
-        # Post-shot (right, or center if no pre)
         post_x = x_start + (scaled_w + gap if pre is not None else 0)
         scaled_post = pygame.transform.scale(post, (scaled_w, scaled_h))
         screen.blit(scaled_post, (post_x, y_start + label_h))
@@ -495,12 +537,10 @@ class AITrainingScene(Scene):
         cy_post = y_start + label_h + scaled_h // 2
         pygame.draw.line(screen, ORANGE, (cx_post - 10, cy_post), (cx_post + 10, cy_post), 1)
         pygame.draw.line(screen, ORANGE, (cx_post, cy_post - 10), (cx_post, cy_post + 10), 1)
+
         if self.tiny:
             label = self.tiny.render("EFTER skott", True, ORANGE)
             screen.blit(label, (post_x, y_start))
-
-        # Hint
-        if self.tiny:
             hint = self.tiny.render("Klicka eller tryck för att fortsätta", True, WHITE)
             hint_rect = hint.get_rect(centerx=panel_rect.centerx, top=y_start + label_h + scaled_h + 6)
             screen.blit(hint, hint_rect)
@@ -525,11 +565,9 @@ class AITrainingScene(Scene):
         else:
             pygame.draw.rect(screen, BG_WHITE, vp)
 
-        # Viewport border
         pygame.draw.rect(screen, (0, 180, 0), vp, 2)
 
     def _draw_checker_static(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
-        """Static checkerboard — tests detection against high-contrast edges."""
         cell = 40
         colors = [(220, 220, 220), (60, 60, 60)]
         for row, y in enumerate(range(vp.top, vp.bottom, cell)):
@@ -539,19 +577,13 @@ class AITrainingScene(Scene):
                 pygame.draw.rect(screen, color, rect)
 
     def _draw_checker_anim(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
-        """Animated checkerboard — scrolls diagonally, freezes on shot."""
         cell = 40
         colors = [(220, 220, 220), (60, 60, 60)]
-        # Offset scrolls when not frozen
         if not self._animation_frozen:
             offset = int(self.t * 60) % (cell * 2)
-        else:
-            if not hasattr(self, "_checker_frozen_offset"):
-                self._checker_frozen_offset = 0
-            offset = self._checker_frozen_offset
-
-        if not self._animation_frozen:
             self._checker_frozen_offset = offset
+        else:
+            offset = getattr(self, "_checker_frozen_offset", 0)
 
         for y in range(vp.top - cell, vp.bottom + cell, cell):
             for x in range(vp.left - cell, vp.right + cell, cell):
@@ -565,47 +597,46 @@ class AITrainingScene(Scene):
                     pygame.draw.rect(screen, color, rect)
 
     def _draw_bubbles(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
-        """Moving shapes that freeze when awaiting click — fun to shoot at."""
         pygame.draw.rect(screen, BG_WHITE, vp)
 
-        # Spawn bubbles if empty — each with unique speed
         if not self._bubbles:
             for _ in range(15):
                 speed = random.uniform(0.06, 0.25)
-                angle = random.uniform(0, 2 * math.pi)
-                self._bubbles.append({
-                    "x": random.uniform(0.1, 0.9),
-                    "y": random.uniform(0.1, 0.9),
-                    "r": random.uniform(0.03, 0.08),
-                    "dx": math.cos(angle) * speed,
-                    "dy": math.sin(angle) * speed,
-                    "color": (
-                        random.randint(40, 220),
-                        random.randint(40, 220),
-                        random.randint(40, 220),
-                    ),
-                    "shape": random.choice(["circle", "rect", "triangle"]),
-                })
+                angle = random.uniform(0.0, 2.0 * math.pi)
+                self._bubbles.append(
+                    {
+                        "x": random.uniform(0.1, 0.9),
+                        "y": random.uniform(0.1, 0.9),
+                        "r": random.uniform(0.03, 0.08),
+                        "dx": math.cos(angle) * speed,
+                        "dy": math.sin(angle) * speed,
+                        "color": (
+                            random.randint(40, 220),
+                            random.randint(40, 220),
+                            random.randint(40, 220),
+                        ),
+                        "shape": random.choice(["circle", "rect", "triangle"]),
+                    }
+                )
 
-        # Move bubbles only when NOT frozen (freeze instantly on shot)
         if not self._animation_frozen:
             dt = 1.0 / 60.0
             for b in self._bubbles:
                 b["x"] += b["dx"] * dt
                 b["y"] += b["dy"] * dt
-                # Bounce with slight random deflection
+
                 if b["x"] < 0.05 or b["x"] > 0.95:
-                    b["dx"] *= -1
+                    b["dx"] *= -1.0
                     b["dx"] += random.uniform(-0.02, 0.02)
                     b["dy"] += random.uniform(-0.01, 0.01)
                     b["x"] = max(0.05, min(0.95, b["x"]))
+
                 if b["y"] < 0.05 or b["y"] > 0.95:
-                    b["dy"] *= -1
+                    b["dy"] *= -1.0
                     b["dy"] += random.uniform(-0.02, 0.02)
                     b["dx"] += random.uniform(-0.01, 0.01)
                     b["y"] = max(0.05, min(0.95, b["y"]))
 
-        # Draw
         for b in self._bubbles:
             cx = int(vp.left + b["x"] * vp.w)
             cy = int(vp.top + b["y"] * vp.h)
@@ -619,12 +650,8 @@ class AITrainingScene(Scene):
                 rect = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
                 pygame.draw.rect(screen, color, rect)
                 pygame.draw.rect(screen, (30, 30, 30), rect, 2)
-            elif b["shape"] == "triangle":
-                points = [
-                    (cx, cy - r),
-                    (cx + r, cy + r),
-                    (cx - r, cy + r),
-                ]
+            else:
+                points = [(cx, cy - r), (cx + r, cy + r), (cx - r, cy + r)]
                 pygame.draw.polygon(screen, color, points)
                 pygame.draw.polygon(screen, (30, 30, 30), points, 2)
 
@@ -637,9 +664,7 @@ class AITrainingScene(Scene):
             cam_x = cand.get("camera_x", 0.0)
             cam_y = cand.get("camera_y", 0.0)
 
-            # Transform to screen
             try:
-                from src.engine.input.hit_input import hit_input
                 sx, sy = hit_input._canonical_camera_to_screen(cam_x, cam_y)
             except Exception:
                 continue
@@ -649,7 +674,6 @@ class AITrainingScene(Scene):
 
             ix, iy = int(round(sx)), int(round(sy))
 
-            # Color by rank
             if rank == 1:
                 color = ORANGE
                 radius = 18
@@ -664,16 +688,13 @@ class AITrainingScene(Scene):
                 width = 2
 
             pygame.draw.circle(screen, color, (ix, iy), radius, width)
-            # Crosshair
             pygame.draw.line(screen, color, (ix - radius - 4, iy), (ix + radius + 4, iy), 1)
             pygame.draw.line(screen, color, (ix, iy - radius - 4), (ix, iy + radius + 4), 1)
 
-            # Rank number
             if self.small is not None:
                 label = self.small.render(str(rank), True, color)
                 screen.blit(label, (ix + radius + 4, iy - 10))
 
-            # Score
             if self.tiny is not None:
                 ai_score = cand.get("ai_score", 0.0)
                 combined = cand.get("combined_score", 0.0)
@@ -684,10 +705,11 @@ class AITrainingScene(Scene):
     def _render_click_feedback(self, screen: pygame.Surface) -> None:
         if self.clicked_camera_xy is None:
             return
+
         try:
-            from src.engine.input.hit_input import hit_input
             sx, sy = hit_input._canonical_camera_to_screen(
-                self.clicked_camera_xy[0], self.clicked_camera_xy[1]
+                self.clicked_camera_xy[0],
+                self.clicked_camera_xy[1],
             )
         except Exception:
             return
@@ -703,9 +725,7 @@ class AITrainingScene(Scene):
 
         sw, sh = screen.get_size()
         is_dark = mode == "black"
-        ink = TEXT_LIGHT if is_dark else TEXT_DARK
 
-        # Top bar
         top_bar = pygame.Surface((sw, 36), pygame.SRCALPHA)
         top_bar.fill(HUD_BG)
         screen.blit(top_bar, (0, 0))
@@ -719,6 +739,7 @@ class AITrainingScene(Scene):
             "checker_anim": "Rutmönster (video)",
             "bubbles": "Bubblor",
         }.get(mode, mode)
+
         summary = self.runtime.memory.summary()
         header = (
             f"AI-träning • {mode_label} • "
@@ -726,10 +747,12 @@ class AITrainingScene(Scene):
         )
         screen.blit(self.small.render(header, True, WHITE), (12, 8))
 
-        # Status indicator
         if self.awaiting_click:
             status_text = "KLICKA var du träffade"
             status_color = YELLOW
+        elif self.auto_training_enabled:
+            status_text = f"AUTO {self.auto_iteration}/{self.auto_target_iterations}"
+            status_color = ORANGE
         else:
             status_text = "Skjut..."
             status_color = GREEN
@@ -737,14 +760,16 @@ class AITrainingScene(Scene):
         status_surf = self.small.render(status_text, True, status_color)
         screen.blit(status_surf, (sw - status_surf.get_width() - 16, 8))
 
-        # Bottom status message
         if self.status_message:
             bot_bar = pygame.Surface((sw, 28), pygame.SRCALPHA)
             bot_bar.fill(HUD_BG)
             screen.blit(bot_bar, (0, sh - 28))
             screen.blit(self.tiny.render(self.status_message, True, WHITE), (12, sh - 24))
 
-        # Help (bottom right)
-        help_text = "TAB=bakgrund  SPACE=manuellt skott  R=nollställ  ESC=tillbaka"
-        help_surf = self.tiny.render(help_text, True, SOFT_WHITE if not is_dark else (140, 140, 140))
+        help_text = "TAB=bakgrund SPACE=manuellt skott F1=autoträna R=nollställ ESC=tillbaka"
+        help_surf = self.tiny.render(
+            help_text,
+            True,
+            SOFT_WHITE if not is_dark else (140, 140, 140),
+        )
         screen.blit(help_surf, (sw - help_surf.get_width() - 12, sh - 48))
