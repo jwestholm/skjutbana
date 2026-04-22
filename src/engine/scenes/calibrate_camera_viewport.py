@@ -107,21 +107,47 @@ class CameraViewportCalibrationScene(Scene):
 
     def _marker_size_px(self) -> int:
         m = min(self.viewport_rect.w, self.viewport_rect.h)
-        return max(64, min(160, int(m * 0.11)))
+        return max(36, min(80, int(m * 0.06)))
 
     def _marker_positions(self) -> dict[int, tuple[float, float]]:
+        """24 markers distributed across the viewport for robust homography."""
         rect = self.viewport_rect
-        margin_x = max(54, int(rect.w * 0.08))
-        margin_y = max(54, int(rect.h * 0.08))
+        # Positions as (u, v) fractions of viewport, then converted to screen coords
+        specs = {
+            # Corners (close to edges for best homography support)
+            0:  (0.05, 0.05),
+            1:  (0.95, 0.05),
+            2:  (0.95, 0.95),
+            3:  (0.05, 0.95),
+            # Edges — top and bottom
+            4:  (0.30, 0.05),
+            5:  (0.70, 0.05),
+            6:  (0.30, 0.95),
+            7:  (0.70, 0.95),
+            # Edges — left and right
+            8:  (0.05, 0.30),
+            9:  (0.05, 0.70),
+            10: (0.95, 0.30),
+            11: (0.95, 0.70),
+            # Inner grid — 0.25/0.75
+            12: (0.25, 0.25),
+            13: (0.75, 0.25),
+            14: (0.75, 0.75),
+            15: (0.25, 0.75),
+            # Center cross
+            16: (0.50, 0.05),
+            17: (0.50, 0.95),
+            18: (0.05, 0.50),
+            19: (0.95, 0.50),
+            # Inner center
+            20: (0.50, 0.25),
+            21: (0.50, 0.75),
+            22: (0.25, 0.50),
+            23: (0.75, 0.50),
+        }
         return {
-            0: (rect.left + margin_x, rect.top + margin_y),
-            1: (rect.centerx, rect.top + margin_y),
-            2: (rect.right - margin_x, rect.top + margin_y),
-            3: (rect.right - margin_x, rect.centery),
-            4: (rect.right - margin_x, rect.bottom - margin_y),
-            5: (rect.centerx, rect.bottom - margin_y),
-            6: (rect.left + margin_x, rect.bottom - margin_y),
-            7: (rect.left + margin_x, rect.centery),
+            mid: (float(rect.x + u * rect.w), float(rect.y + v * rect.h))
+            for mid, (u, v) in specs.items()
         }
 
     def _draw_marker_surface(self, marker_id: int, size: int) -> pygame.Surface:
@@ -149,6 +175,7 @@ class CameraViewportCalibrationScene(Scene):
         marker_positions = self._marker_positions()
         camera_points = []
         viewport_points = []
+        matched_ids = []
 
         for idx, marker_id in enumerate(ids.flatten().tolist()):
             if marker_id not in marker_positions:
@@ -157,6 +184,7 @@ class CameraViewportCalibrationScene(Scene):
             camera_points.append([float(center[0]), float(center[1])])
             vx, vy = marker_positions[marker_id]
             viewport_points.append([float(vx), float(vy)])
+            matched_ids.append(int(marker_id))
 
         if len(camera_points) < 4:
             return None
@@ -164,24 +192,36 @@ class CameraViewportCalibrationScene(Scene):
         cam_np = np.array(camera_points, dtype=np.float32)
         vp_np = np.array(viewport_points, dtype=np.float32)
 
-        H, _ = cv2.findHomography(cam_np, vp_np, method=0)
+        # Use RANSAC for robust fitting — bad markers won't drag the result
+        H, mask = cv2.findHomography(cam_np, vp_np, method=cv2.RANSAC, ransacReprojThreshold=3.0)
         if H is None:
             return None
 
-        H_inv, _ = cv2.findHomography(vp_np, cam_np, method=0)
+        H_inv, _ = cv2.findHomography(vp_np, cam_np, method=cv2.RANSAC, ransacReprojThreshold=3.0)
         reproj = self._homography_error(H, cam_np, vp_np)
 
+        # Per-marker error
+        projected = cv2.perspectiveTransform(cam_np.reshape(-1, 1, 2), H).reshape(-1, 2)
+        per_marker_errors = {}
+        for i, mid in enumerate(matched_ids):
+            per_marker_errors[str(mid)] = float(np.linalg.norm(projected[i] - vp_np[i]))
+
+        inliers = int(mask.sum()) if mask is not None else len(camera_points)
         frame_h, frame_w = frame_bgr.shape[:2]
 
         return {
             "method": "aruco_viewport_board",
+            "prefer_homography": True,
             "calibrated_at": datetime.now().isoformat(timespec="seconds"),
             "homography": H.tolist(),
             "inverse_homography": H_inv.tolist() if H_inv is not None else None,
             "marker_count": int(len(camera_points)),
+            "inliers": inliers,
             "reprojection_error_px": float(reproj),
+            "per_marker_errors": per_marker_errors,
             "camera_points": camera_points,
             "viewport_points": viewport_points,
+            "matched_ids": matched_ids,
             "camera_frame_size": [int(frame_w), int(frame_h)],
             "viewport_rect": [
                 int(self.viewport_rect.x),
@@ -270,7 +310,8 @@ class CameraViewportCalibrationScene(Scene):
 
         self._finish_capture(
             True,
-            f"Kalibrering sparad. {result['marker_count']} markörer, reprojection error {reproj:.1f} px.",
+            f"Kalibrering sparad. {result['marker_count']} markörer ({result.get('inliers', '?')} inliers), "
+            f"reprojection error {reproj:.1f} px.",
             result=result,
         )
 
