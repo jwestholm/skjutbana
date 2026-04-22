@@ -574,6 +574,10 @@ class AITrainingScene(Scene):
             self._do_clean_capture()
 
     def _do_clean_capture(self) -> None:
+        # Important: keep the mouse hidden for the whole clean-capture/photo phase.
+        # Only the synthetic holes should remain visible on the projected world.
+        pygame.mouse.set_visible(False)
+
         click_camera = self._pending_click_camera
         self._pending_click_phase = None
         self._pending_click_camera = None
@@ -647,7 +651,9 @@ class AITrainingScene(Scene):
             self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
 
     def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
-        # Hide mouse while the clean-capture frame is taken.
+        # Hide mouse immediately after the user click. The synthetic hole overlay
+        # must remain, but the cursor/HUD/markers must disappear before the clean
+        # capture/photo frame is taken.
         pygame.mouse.set_visible(False)
 
         projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
@@ -679,6 +685,9 @@ class AITrainingScene(Scene):
 
         # Clean render for capture: show only the projected world (incl. synthetic holes).
         if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
+            # Force cursor hidden during the clean capture pipeline so the camera
+            # only sees the projected world and the synthetic holes.
+            pygame.mouse.set_visible(False)
             if self._pending_click_phase == "clean_render":
                 self._pending_click_phase = "wait_frame"
                 self._pending_wait_frames = 0
