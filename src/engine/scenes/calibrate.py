@@ -52,16 +52,42 @@ class CalibrateViewportScene(Scene):
     MODE_CAMERA = "camera"
     MODE_MANUAL = "manual"
 
+    # 24 markers in a well-distributed pattern:
+    # - 4 nära hörnen (0.05)
+    # - 8 längs kanterna (0.05 och 0.50)
+    # - 8 i ett inre grid (0.25 och 0.75)
+    # - 4 i mitten-korset (0.50)
     MARKER_SPECS: tuple[MarkerSpec, ...] = (
-        MarkerSpec(0, 0.08, 0.08),
-        MarkerSpec(1, 0.50, 0.08),
-        MarkerSpec(2, 0.92, 0.08),
-        MarkerSpec(3, 0.92, 0.50),
-        MarkerSpec(4, 0.92, 0.92),
-        MarkerSpec(5, 0.50, 0.92),
-        MarkerSpec(6, 0.08, 0.92),
-        MarkerSpec(7, 0.08, 0.50),
-        MarkerSpec(8, 0.50, 0.50),
+        # Hörn (nära kanterna för bästa homografi-stöd)
+        MarkerSpec(0,  0.05, 0.05),
+        MarkerSpec(1,  0.95, 0.05),
+        MarkerSpec(2,  0.95, 0.95),
+        MarkerSpec(3,  0.05, 0.95),
+        # Kanter — övre och nedre
+        MarkerSpec(4,  0.30, 0.05),
+        MarkerSpec(5,  0.70, 0.05),
+        MarkerSpec(6,  0.30, 0.95),
+        MarkerSpec(7,  0.70, 0.95),
+        # Kanter — vänster och höger
+        MarkerSpec(8,  0.05, 0.30),
+        MarkerSpec(9,  0.05, 0.70),
+        MarkerSpec(10, 0.95, 0.30),
+        MarkerSpec(11, 0.95, 0.70),
+        # Inre grid — 0.25/0.75
+        MarkerSpec(12, 0.25, 0.25),
+        MarkerSpec(13, 0.75, 0.25),
+        MarkerSpec(14, 0.75, 0.75),
+        MarkerSpec(15, 0.25, 0.75),
+        # Mitten-kors
+        MarkerSpec(16, 0.50, 0.05),
+        MarkerSpec(17, 0.50, 0.95),
+        MarkerSpec(18, 0.05, 0.50),
+        MarkerSpec(19, 0.95, 0.50),
+        # Inre mitten
+        MarkerSpec(20, 0.50, 0.25),
+        MarkerSpec(21, 0.50, 0.75),
+        MarkerSpec(22, 0.25, 0.50),
+        MarkerSpec(23, 0.75, 0.50),
     )
 
     def __init__(self) -> None:
@@ -92,6 +118,7 @@ class CalibrateViewportScene(Scene):
         self.last_reprojection_error_px: float | None = None
         self.last_detect_count = 0
         self.last_status = "Ingen kamerakalibrering ännu."
+        self._per_marker_errors: dict[int, float] = {}
         self.preview_surface: pygame.Surface | None = None
         self.last_frame_size: tuple[int, int] | None = None
         self.last_saved_summary = ""
@@ -236,8 +263,9 @@ class CalibrateViewportScene(Scene):
         )
 
     def _marker_size_for_viewport(self, rect: pygame.Rect) -> int:
-        size = int(min(rect.w, rect.h) * 0.12)
-        return max(56, min(size, 180))
+        # Smaller markers to fit 24 without overlap
+        size = int(min(rect.w, rect.h) * 0.065)
+        return max(36, min(size, 100))
 
     def _build_board_surface(self, rect: pygame.Rect) -> pygame.Surface:
         board = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -337,8 +365,57 @@ class CalibrateViewportScene(Scene):
                 errors = np.linalg.norm(projected - screen_pts, axis=1)
                 self.last_reprojection_error_px = float(np.mean(errors)) if len(errors) else 0.0
                 inliers = int(mask.sum()) if mask is not None else len(ordered_ids)
+
+                # Per-marker error visualization on preview
+                self._per_marker_errors = {}
+                for i, mid in enumerate(ordered_ids):
+                    err = float(errors[i])
+                    self._per_marker_errors[mid] = err
+                    cx, cy = int(round(camera_pts[i][0])), int(round(camera_pts[i][1]))
+                    # Color: green < 1px, yellow 1-3px, red > 3px
+                    if err < 1.0:
+                        color = (0, 255, 0)
+                    elif err < 3.0:
+                        color = (0, 255, 255)
+                    else:
+                        color = (0, 0, 255)
+                    cv2.putText(
+                        preview,
+                        f"{err:.1f}px",
+                        (cx + 12, cy + 16),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.45,
+                        color,
+                        1,
+                        cv2.LINE_AA,
+                    )
+
+                # Zone error summary
+                zone_errors: dict[str, list[float]] = {"TL": [], "TR": [], "BL": [], "BR": [], "C": []}
+                for i, mid in enumerate(ordered_ids):
+                    spec = {s.marker_id: s for s in self.MARKER_SPECS}.get(mid)
+                    if spec is None:
+                        continue
+                    err = float(errors[i])
+                    if spec.u < 0.4 and spec.v < 0.4:
+                        zone_errors["TL"].append(err)
+                    elif spec.u > 0.6 and spec.v < 0.4:
+                        zone_errors["TR"].append(err)
+                    elif spec.u < 0.4 and spec.v > 0.6:
+                        zone_errors["BL"].append(err)
+                    elif spec.u > 0.6 and spec.v > 0.6:
+                        zone_errors["BR"].append(err)
+                    else:
+                        zone_errors["C"].append(err)
+
+                zone_summary = " ".join(
+                    f"{z}:{np.mean(errs):.1f}" if errs else f"{z}:-"
+                    for z, errs in zone_errors.items()
+                )
+
                 self.last_status = (
-                    f"Hittade {len(ordered_ids)} markörer. Homography klar. Inliers={inliers} error={self.last_reprojection_error_px:.2f}px"
+                    f"{len(ordered_ids)} markörer. Inliers={inliers} "
+                    f"error={self.last_reprojection_error_px:.2f}px | {zone_summary}"
                 )
             else:
                 self.last_status = f"Hittade {len(self.detected_camera_points)} markörer men homography misslyckades."
@@ -375,6 +452,11 @@ class CalibrateViewportScene(Scene):
                 for mid in ordered_ids
             ],
             "reprojection_error_px": float(self.last_reprojection_error_px or 0.0),
+            "per_marker_errors": {
+                str(mid): float(err)
+                for mid, err in getattr(self, "_per_marker_errors", {}).items()
+            },
+            "marker_count": len(ordered_ids),
             "frame_size": [
                 int(self.last_frame_size[0]) if self.last_frame_size else 0,
                 int(self.last_frame_size[1]) if self.last_frame_size else 0,
@@ -382,7 +464,10 @@ class CalibrateViewportScene(Scene):
         }
         save_camera_calibration(calibration)
         hit_input.reload_calibration()
-        self.last_saved_summary = f"Sparad kalibrering. Error {float(self.last_reprojection_error_px or 0.0):.2f}px"
+        self.last_saved_summary = (
+            f"Sparad kalibrering. {len(ordered_ids)} markörer. "
+            f"Error {float(self.last_reprojection_error_px or 0.0):.2f}px"
+        )
         self.last_status = self.last_saved_summary
 
     # ------------------------------------------------------------
