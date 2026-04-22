@@ -131,6 +131,18 @@ class AITrainingScene(Scene):
         self.auto_review_ready_ts = 0.0
         self.auto_next_iteration_ts = 0.0
 
+        # Synthetic shot scheduling / settle timing.
+        # We wait a short time after drawing the hole or changing background
+        # before injecting the fake audio event, so the camera has time to
+        # observe the correct "before/after" world state.
+        self.synthetic_trigger_delay_s = 0.20
+        self.background_settle_delay_s = 0.25
+        self.background_settle_until_ts = 0.0
+        self.synthetic_trigger_pending = False
+        self.synthetic_trigger_batch_mode = False
+        self.synthetic_trigger_screen_xy: tuple[int, int] | None = None
+        self.synthetic_trigger_ready_ts = 0.0
+
         # One synthetic manual round triggered by right click.
         # This behaves exactly like a normal shot flow, except the program
         # injects the sound trigger and places the hole for you.
@@ -169,6 +181,10 @@ class AITrainingScene(Scene):
         self.auto_review_ready_ts = 0.0
         self.single_synth_round_active = False
         self.single_target_screen_xy = None
+        self.synthetic_trigger_pending = False
+        self.synthetic_trigger_batch_mode = False
+        self.synthetic_trigger_screen_xy = None
+        self.synthetic_trigger_ready_ts = 0.0
         if self.synthetic_overlay is not None:
             self.synthetic_overlay.clear()
         pygame.mouse.set_visible(True)
@@ -238,6 +254,9 @@ class AITrainingScene(Scene):
             self.auto_click_ready_ts = 0.0
             self.auto_review_ready_ts = 0.0
             self.auto_next_iteration_ts = time.time() + 0.2
+            self.synthetic_trigger_pending = False
+            self.synthetic_trigger_screen_xy = None
+            self.synthetic_trigger_ready_ts = 0.0
             self.single_synth_round_active = False
             self.auto_status_detail = "Autoträning startad."
             self.status_message = "Autoträning startad (F1 stoppar)."
@@ -249,6 +268,9 @@ class AITrainingScene(Scene):
             self.auto_click_pending = False
             self.auto_click_ready_ts = 0.0
             self.auto_review_ready_ts = 0.0
+            self.synthetic_trigger_pending = False
+            self.synthetic_trigger_screen_xy = None
+            self.synthetic_trigger_ready_ts = 0.0
             self.auto_status_detail = "Autoträning stoppad."
             self.status_message = "Autoträning stoppad."
             self.single_synth_round_active = False
@@ -293,18 +315,41 @@ class AITrainingScene(Scene):
             k=1,
         )[0]
 
-        radius_px = random.uniform(1.5, 2.7)
+        radius_px = random.uniform(1.9, 3.3)
 
         self.auto_active_hole_id = overlay.add_hole(
             sx,
             sy,
             kind=hole_kind,
             radius_px=radius_px,
-            strength=random.uniform(0.75, 1.15),
-            opacity=random.uniform(0.82, 1.0),
+            strength=random.uniform(0.85, 1.20),
+            opacity=random.uniform(0.90, 1.0),
         )
 
+        # Hide cursor before the camera sees the synthetic shot setup.
         pygame.mouse.set_visible(False)
+
+        # Give the projector/camera chain a brief moment to catch up so that
+        # pre/post frames use the intended background and hole state.
+        self.synthetic_trigger_pending = True
+        self.synthetic_trigger_batch_mode = batch_mode
+        self.synthetic_trigger_screen_xy = (sx, sy)
+        self.synthetic_trigger_ready_ts = max(
+            now + self.synthetic_trigger_delay_s,
+            self.background_settle_until_ts,
+        )
+        self.status_message = (
+            f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: väntar på kamerasettling..."
+            if batch_mode
+            else "Syntetisk runda förbereds..."
+        )
+        return True
+
+    def _fire_pending_synthetic_shot(self) -> bool:
+        if not self.synthetic_trigger_pending:
+            return False
+
+        batch_mode = self.synthetic_trigger_batch_mode
 
         event_ts = time.time()
         audio_peak_detector.last_peak_ts = event_ts
@@ -320,10 +365,12 @@ class AITrainingScene(Scene):
             self.status_message = f"Syntetiskt skott misslyckades: {exc}"
             self.auto_training_enabled = False
             self.single_synth_round_active = False
+            self.synthetic_trigger_pending = False
             self._clear_synthetic_holes()
             pygame.mouse.set_visible(True)
             return False
 
+        self.synthetic_trigger_pending = False
         self._animation_frozen = True
         self._last_peak_ts = event_ts
         self.auto_last_trigger_ts = event_ts
@@ -397,6 +444,8 @@ class AITrainingScene(Scene):
 
             if event.key == pygame.K_TAB:
                 self.bg_mode_index = (self.bg_mode_index + 1) % len(self.MODE_NAMES)
+                self.background_settle_until_ts = time.time() + self.background_settle_delay_s
+                self.status_message = "Bakgrund bytt – vänta ett ögonblick innan skott."
                 return None
 
             if event.key == pygame.K_r:
@@ -441,6 +490,9 @@ class AITrainingScene(Scene):
 
         if not self._animation_frozen:
             self.t += dt
+
+        if self.synthetic_trigger_pending and time.time() >= self.synthetic_trigger_ready_ts:
+            self._fire_pending_synthetic_shot()
 
         if not self.awaiting_click and not self._reviewing and self.runtime.has_new_shot:
             self._on_shot_detected()
@@ -552,7 +604,7 @@ class AITrainingScene(Scene):
             pygame.mouse.set_visible(False)
             self.status_message = (
                 f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
-                f"{len(self.ranked_candidates)} kandidater hittade, auto-klick om 1 s."
+                f"{len(self.ranked_candidates)} kandidater hittade, auto-klick om {self.auto_click_delay_s:.1f} s."
             )
         elif self.single_synth_round_active:
             pygame.mouse.set_visible(True)
