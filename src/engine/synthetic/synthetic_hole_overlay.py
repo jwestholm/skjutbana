@@ -40,11 +40,11 @@ class SyntheticHoleOverlay:
     """
 
     DEFAULT_KIND_WEIGHTS = {
-        "clean_hole": 0.34,
-        "torn_hole": 0.22,
-        "ragged_hole": 0.16,
-        "dent_ring": 0.16,
-        "weak_indent": 0.12,
+        "clean_hole": 0.64,
+        "torn_hole": 0.18,
+        "ragged_hole": 0.12,
+        "dent_ring": 0.04,
+        "weak_indent": 0.02,
     }
 
     def __init__(
@@ -53,9 +53,9 @@ class SyntheticHoleOverlay:
         height: int,
         *,
         rng_seed: Optional[int] = None,
-        default_radius_px_range: Tuple[float, float] = (1.9, 3.3),
-        blur_sigma_range: Tuple[float, float] = (0.06, 0.20),
-        shadow_opacity: float = 0.18,
+        default_radius_px_range: Tuple[float, float] = (2.3, 3.9),
+        blur_sigma_range: Tuple[float, float] = (0.02, 0.08),
+        shadow_opacity: float = 0.14,
         edge_brighten: float = 0.22,
     ) -> None:
         self.width = int(width)
@@ -357,7 +357,7 @@ class SyntheticHoleOverlay:
             p1 = (int(round(cx + math.cos(a) * base * 0.8)), int(round(cy + math.sin(a) * base * 0.8)))
             p2 = (int(round(cx + math.cos(a) * (base + tear_len))), int(round(cy + math.sin(a) * (base + tear_len))))
             cv2.line(alpha, p1, p2, hole.opacity * 0.45, thickness=max(1, int(round(r * 0.22))), lineType=cv2.LINE_AA)
-            cv2.line(bgr, p1, p2, (18, 18, 18), thickness=max(1, int(round(r * 0.15))), lineType=cv2.LINE_AA)
+            cv2.line(bgr, p1, p2, (0, 0, 0), thickness=max(1, int(round(r * 0.15))), lineType=cv2.LINE_AA)
 
         self._add_shadow(alpha, bgr, center, base, hole.shadow_offset, strength=0.16)
 
@@ -385,7 +385,7 @@ class SyntheticHoleOverlay:
 
         for c in range(3):
             bgr[..., c] = np.maximum(bgr[..., c], ring_mask * 255.0 * (0.76 + self.edge_brighten * 0.6 * hole.strength))
-            bgr[..., c] = np.maximum(bgr[..., c], center_mask * 52.0)
+            bgr[..., c] = np.maximum(bgr[..., c], center_mask * 68.0)
 
         self._add_shadow(alpha, bgr, center, r * 0.65, hole.shadow_offset, strength=0.08)
 
@@ -423,7 +423,7 @@ class SyntheticHoleOverlay:
 
         for c in range(3):
             bgr[..., c] = np.maximum(bgr[..., c], ring_mask * 255.0 * (0.70 + self.edge_brighten * 0.4))
-            bgr[..., c] = np.maximum(bgr[..., c], dent_mask * 40.0)
+            bgr[..., c] = np.maximum(bgr[..., c], dent_mask * 56.0)
 
         if rng.random() < 0.65:
             a = math.radians(angle + rng.uniform(-20.0, 20.0))

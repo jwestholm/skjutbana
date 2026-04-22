@@ -101,6 +101,7 @@ class AITrainingScene(Scene):
         self._pending_click_camera: tuple[float, float] | None = None
         self._pending_click_phase: str | None = None
         self._pending_wait_frames: int = 0
+        self._pending_wait_target_frames: int = 5
 
         self._reviewing = False
         self._review_pre_surface: pygame.Surface | None = None
@@ -130,6 +131,8 @@ class AITrainingScene(Scene):
         self.auto_click_ready_ts = 0.0
         self.auto_review_ready_ts = 0.0
         self.auto_next_iteration_ts = 0.0
+        self.manual_click_capture_wait_frames = 5
+        self.synthetic_click_capture_wait_frames = 10
 
         # Synthetic shot scheduling / settle timing.
         # We wait a short time after drawing the hole or changing background
@@ -174,6 +177,7 @@ class AITrainingScene(Scene):
         self._pending_click_camera = None
         self._pending_click_phase = None
         self._pending_wait_frames = 0
+        self._pending_wait_target_frames = self.manual_click_capture_wait_frames
         self._last_peak_ts = audio_peak_detector.last_peak_ts
         self.auto_click_pending = False
         self.auto_waiting_for_shot = False
@@ -311,11 +315,11 @@ class AITrainingScene(Scene):
 
         hole_kind = random.choices(
             ["clean_hole", "torn_hole", "ragged_hole", "dent_ring", "weak_indent"],
-            weights=[34, 18, 14, 18, 16],
+            weights=[64, 18, 12, 4, 2],
             k=1,
         )[0]
 
-        radius_px = random.uniform(1.9, 3.3)
+        radius_px = random.uniform(2.3, 3.9)
 
         self.auto_active_hole_id = overlay.add_hole(
             sx,
@@ -388,6 +392,9 @@ class AITrainingScene(Scene):
         return True
 
     def _start_auto_iteration(self, screen: pygame.Surface) -> None:
+        if self.synthetic_trigger_pending or self.auto_waiting_for_shot or self.awaiting_click or self._reviewing:
+            return
+
         if self.auto_iteration >= self.auto_target_iterations:
             self.auto_training_enabled = False
             self.auto_status_detail = "Målnivå nådd."
@@ -516,7 +523,7 @@ class AITrainingScene(Scene):
 
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
-            if self._pending_wait_frames >= 5:
+            if self._pending_wait_frames >= self._pending_wait_target_frames:
                 self._pending_click_phase = "capture"
         elif self._pending_click_phase == "capture":
             self._do_clean_capture()
@@ -526,6 +533,7 @@ class AITrainingScene(Scene):
         self._pending_click_phase = None
         self._pending_click_camera = None
         self._pending_wait_frames = 0
+        self._pending_wait_target_frames = self.manual_click_capture_wait_frames
 
         if click_camera is None:
             pygame.mouse.set_visible(True)
@@ -621,7 +629,13 @@ class AITrainingScene(Scene):
         self.clicked_camera_xy = click_camera
         self._pending_click_camera = click_camera
         self._pending_click_phase = "clean_render"
+        self._pending_wait_target_frames = (
+            self.synthetic_click_capture_wait_frames
+            if (self.single_synth_round_active or self.auto_training_enabled)
+            else self.manual_click_capture_wait_frames
+        )
         self.awaiting_click = False
+        pygame.mouse.set_visible(False)
         pygame.mouse.set_visible(False)
 
     # ------------------------------------------------------------------
@@ -642,7 +656,13 @@ class AITrainingScene(Scene):
             composed = composed.swapaxes(0, 1)
             pygame.surfarray.blit_array(screen, composed)
 
-        if self.auto_training_enabled and not self.awaiting_click and not self._reviewing and self._pending_click_phase is None:
+        if (
+            self.auto_training_enabled
+            and not self.awaiting_click
+            and not self._reviewing
+            and self._pending_click_phase is None
+            and not self.synthetic_trigger_pending
+        ):
             self._start_auto_iteration(screen)
 
         if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
