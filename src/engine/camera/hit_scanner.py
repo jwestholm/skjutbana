@@ -521,11 +521,11 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
-        # Audio peak can be delayed 500ms+ after bullet hits (CO2 sound
-        # profile builds up). Go back 1 second to be safe.
+        # With CAP_PROP_BUFFERSIZE=1, frames are now real-time.
+        # Go back 200ms to be safely before the bullet hit.
         pre_shot_frames: list[np.ndarray] = []
-        cutoff_latest = earliest_peak_ts - 1.0    # 1 second before peak
-        cutoff_earliest = earliest_peak_ts - 1.5   # 1.5 seconds back max
+        cutoff_latest = earliest_peak_ts - 0.20    # 200ms before peak
+        cutoff_earliest = earliest_peak_ts - 0.50   # 500ms back max
 
         for fr in reversed(self.frame_history):
             if fr.timestamp > cutoff_latest:
