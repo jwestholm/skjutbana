@@ -178,6 +178,73 @@ class AITrainingScene(Scene):
         except Exception:
             return None
 
+    @staticmethod
+    def _save_hole_image(click_camera_xy, post_gray) -> None:
+        """Save the post-shot patch as a transparent PNG for the hole image bank."""
+        if post_gray is None or np is None:
+            return
+        try:
+            from pathlib import Path
+
+            ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
+            h, w = post_gray.shape[:2]
+            patch_r = 64  # 128x128 patch
+            x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
+            x1, y1 = min(w, ix + patch_r), min(h, iy + patch_r)
+
+            if x1 <= x0 or y1 <= y0:
+                return
+
+            patch = post_gray[y0:y1, x0:x1]
+            if patch.size == 0:
+                return
+
+            # Create RGBA with alpha based on distance from white (background).
+            # White pixels → transparent, dark pixels (hole) → opaque.
+            # Alpha = 75% max to keep some background context.
+            if cv2 is not None:
+                rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
+            else:
+                rgb = np.stack([patch, patch, patch], axis=-1)
+
+            # Alpha: darker pixels = more opaque, white = transparent
+            # Invert brightness: 255 (white) → 0 alpha, 0 (black) → 191 alpha (75%)
+            alpha = (255 - patch).astype(np.float32) * (191.0 / 255.0)
+            alpha = alpha.astype(np.uint8)
+
+            rgba = np.zeros((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
+            rgba[:, :, :3] = rgb
+            rgba[:, :, 3] = alpha
+
+            # Save to content/ai/holes/
+            holes_dir = Path("content/ai/holes")
+            holes_dir.mkdir(parents=True, exist_ok=True)
+
+            # Find next number
+            existing = sorted(holes_dir.glob("*.png"))
+            next_num = 1
+            for f in existing:
+                try:
+                    num = int(f.stem)
+                    next_num = max(next_num, num + 1)
+                except ValueError:
+                    pass
+
+            path = holes_dir / f"{next_num}.png"
+
+            if cv2 is not None:
+                # cv2 expects BGRA
+                bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+                cv2.imwrite(str(path), bgra)
+            else:
+                # Fallback: save as pygame surface
+                surf = pygame.image.frombuffer(rgba.tobytes(), (rgba.shape[1], rgba.shape[0]), "RGBA")
+                pygame.image.save(surf, str(path))
+
+            print(f"[AI HOLE] saved {path.name} ({rgba.shape[1]}x{rgba.shape[0]})")
+        except Exception as exc:
+            print(f"[AI HOLE] save failed: {exc}")
+
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------
@@ -315,6 +382,9 @@ class AITrainingScene(Scene):
                     f"Syntetiskt positivt (ingen kandidat nära). "
                     f"Totalt: {result['total_positives']} pos / {result['total_negatives']} neg"
                 )
+
+        # Save hole image to build up training image bank
+        self._save_hole_image(click_camera, post_gray)
 
         # Show review — same clean images AI trained on
         self._enter_review(click_camera, post_gray)
