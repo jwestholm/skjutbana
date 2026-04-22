@@ -53,7 +53,7 @@ class SyntheticHoleOverlay:
         height: int,
         *,
         rng_seed: Optional[int] = None,
-        default_radius_px_range: Tuple[float, float] = (6.0, 14.0),
+        default_radius_px_range: Tuple[float, float] = (0.75, 1.35),
         blur_sigma_range: Tuple[float, float] = (0.4, 1.2),
         shadow_opacity: float = 0.18,
         edge_brighten: float = 0.22,
@@ -230,7 +230,7 @@ class SyntheticHoleOverlay:
 
     def _build_hole_sprite(self, hole: SyntheticHole) -> Optional[np.ndarray]:
         local_rng = random.Random(hole.seed)
-        r = max(2.0, hole.radius_px)
+        r = max(0.6, hole.radius_px)
         canvas_radius = int(math.ceil(r * 3.2))
         size = max(16, canvas_radius * 2 + 1)
         center = (size // 2, size // 2)
