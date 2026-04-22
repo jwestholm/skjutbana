@@ -31,4 +31,4 @@
 - Svart bakgrund i mörkt rum ger inga träffar (kräver extern belysning)
 - Kalibreringen kan fortfarande ha zonbias i hörnen
 - AI:n är i train_only-läge — påverkar inte träffar ännu
-- Detektorn hittar ibland kanter/sprickor i plexiglaset som kandidater
+- Detektorn hittar ibland kanter/tejp/sprickor som kandidater
