@@ -90,10 +90,15 @@ class AITrainingScene(Scene):
         self.click_flash_timer = 0.0
         self.status_message = ""
 
-        # Animation — frozen_at is set the instant audio fires
+        # Review state — shows pre/post patches after training
+        self._reviewing = False
+        self._review_pre_surface: pygame.Surface | None = None
+        self._review_post_surface: pygame.Surface | None = None
+
+        # Animation
         self.t = 0.0
         self._animation_frozen = False
-        self._last_audio_ts = 0.0
+        self._last_peak_ts = 0.0
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -102,20 +107,12 @@ class AITrainingScene(Scene):
         self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state()
-        # Subscribe to audio peaks for instant animation freeze
+        # Sync peak timestamp to avoid false trigger from old peaks
         from src.engine.audio.audio_peak_detector import audio_peak_detector
-        audio_peak_detector.subscribe(self._on_audio_peak)
+        self._last_peak_ts = audio_peak_detector.last_peak_ts
 
     def on_exit(self) -> None:
-        from src.engine.audio.audio_peak_detector import audio_peak_detector
-        try:
-            audio_peak_detector.unsubscribe(self._on_audio_peak)
-        except Exception:
-            pass
-
-    def _on_audio_peak(self, event) -> None:
-        """Freeze animation the instant a shot is heard."""
-        self._animation_frozen = True
+        pass
 
     def _reset_shot_state(self) -> None:
         self.awaiting_click = False
@@ -124,12 +121,71 @@ class AITrainingScene(Scene):
         self.last_learning_result = None
         self.click_flash_timer = 0.0
         self._animation_frozen = False
+        self._reviewing = False
+        self._review_pre_surface = None
+        self._review_post_surface = None
+        # Sync so old peaks don't re-trigger freeze
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        self._last_peak_ts = audio_peak_detector.last_peak_ts
+
+    def _enter_review(self, click_camera_xy: tuple[float, float]) -> None:
+        """Build zoomed pre/post patch surfaces for visual review."""
+        self._reviewing = True
+        self._review_pre_surface = None
+        self._review_post_surface = None
+
+        gray_pre = self.runtime.pre_shot_gray
+        gray_post = self.runtime.post_shot_gray
+        if gray_post is None:
+            return
+
+        ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
+        h, w = gray_post.shape[:2]
+        patch_r = 30  # Capture a decent area around the click
+        x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
+        x1, y1 = min(w, ix + patch_r + 1), min(h, iy + patch_r + 1)
+
+        if x1 <= x0 or y1 <= y0:
+            return
+
+        post_patch = gray_post[y0:y1, x0:x1]
+        self._review_post_surface = self._gray_patch_to_surface(post_patch)
+
+        if gray_pre is not None and gray_pre.shape == gray_post.shape:
+            pre_patch = gray_pre[y0:y1, x0:x1]
+            self._review_pre_surface = self._gray_patch_to_surface(pre_patch)
+
+    @staticmethod
+    def _gray_patch_to_surface(patch) -> pygame.Surface | None:
+        """Convert a small grayscale numpy patch to a pygame surface."""
+        if patch is None or patch.size == 0:
+            return None
+        try:
+            if cv2 is not None:
+                rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
+            else:
+                rgb = np.stack([patch, patch, patch], axis=-1)
+            # Transpose for pygame (expects width, height, channels)
+            rgb_t = np.transpose(rgb, (1, 0, 2)).copy()
+            return pygame.surfarray.make_surface(rgb_t)
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------
 
     def handle_event(self, event: pygame.event.Event):
+        # If reviewing, any click or key dismisses and resumes
+        if self._reviewing:
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    from src.engine.scenes.menu import MenuScene
+                    return SceneSwitch(MenuScene())
+                self._reset_shot_state()
+                return None
+            return None
+
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 from src.engine.scenes.menu import MenuScene
@@ -146,7 +202,6 @@ class AITrainingScene(Scene):
                 return None
 
             if event.key == pygame.K_SPACE and not self.awaiting_click:
-                # Manual trigger — capture current state as a shot
                 self._on_shot_detected()
                 return None
 
@@ -162,14 +217,20 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
 
     def update(self, dt: float):
-        # _animation_frozen is set by _on_audio_peak callback (runs in main thread
-        # during audio_peak_detector.update(), before scene.update())
+        # Check for audio peak directly from audio thread's last_peak_ts.
+        # This is faster than waiting for main-thread dispatch since
+        # last_peak_ts is set in the audio thread immediately.
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        current_peak_ts = audio_peak_detector.last_peak_ts
+        if current_peak_ts > self._last_peak_ts and not self._animation_frozen:
+            self._animation_frozen = True
+        self._last_peak_ts = current_peak_ts
 
         # Only advance animation time when not frozen
         if not self._animation_frozen:
             self.t += dt
 
-        # Check if AI runtime detected a new shot
+        # Check if AI runtime detected a new shot (for candidate display)
         if not self.awaiting_click and self.runtime.has_new_shot:
             self._on_shot_detected()
 
@@ -202,7 +263,7 @@ class AITrainingScene(Scene):
         click_camera = (projected.camera_x, projected.camera_y)
         self.clicked_camera_xy = click_camera
 
-        # Train the AI
+        # Train the AI with candidates
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
             shown_candidates=self.ranked_candidates,
@@ -210,6 +271,15 @@ class AITrainingScene(Scene):
             gray_post=self.runtime.post_shot_gray,
         )
         self.last_learning_result = result
+
+        # Additionally: let AI study the actual click area as a "hole signature".
+        # This gives the AI direct visual knowledge of what a real hit looks like,
+        # regardless of whether a candidate was nearby.
+        self.runtime.study_click_area(
+            click_camera_xy=click_camera,
+            gray_pre=self.runtime.pre_shot_gray,
+            gray_post=self.runtime.post_shot_gray,
+        )
 
         if result.get("positive_added"):
             dist = result.get("nearest_distance", 999)
@@ -226,9 +296,9 @@ class AITrainingScene(Scene):
                     f"Totalt: {result['total_positives']} pos / {result['total_negatives']} neg"
                 )
 
-        # Reset for next shot
+        # Enter review mode — show pre/post patches before resuming
+        self._enter_review(click_camera)
         self.awaiting_click = False
-        self.click_flash_timer = 0.0
 
     # ------------------------------------------------------------------
     # Render
@@ -244,7 +314,64 @@ class AITrainingScene(Scene):
         self._render_background(screen, mode, vp)
         self._render_candidates(screen, vp)
         self._render_click_feedback(screen)
+
+        # Review overlay — shows pre/post patches after training click
+        if self._reviewing:
+            self._render_review(screen, vp)
+
         self._render_hud(screen, mode, vp)
+
+    def _render_review(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Show zoomed pre/post patches side by side in the center of viewport."""
+        zoom = 4  # Scale factor for the small patches
+        gap = 20  # Gap between the two images
+        label_h = 24
+
+        pre = self._review_pre_surface
+        post = self._review_post_surface
+
+        if post is None:
+            return
+
+        pw, ph = post.get_size()
+        scaled_w, scaled_h = pw * zoom, ph * zoom
+        total_w = scaled_w * 2 + gap if pre is not None else scaled_w
+        total_h = scaled_h + label_h + 30  # Extra for labels and hint
+
+        # Background panel
+        panel_rect = pygame.Rect(0, 0, total_w + 40, total_h + 20)
+        panel_rect.center = (vp.centerx, vp.centery)
+        panel = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        panel.fill((0, 0, 0, 200))
+        pygame.draw.rect(panel, (120, 120, 120), panel.get_rect(), 2)
+        screen.blit(panel, panel_rect.topleft)
+
+        x_start = panel_rect.x + 20
+        y_start = panel_rect.y + 10
+
+        # Pre-shot (left)
+        if pre is not None:
+            scaled_pre = pygame.transform.scale(pre, (scaled_w, scaled_h))
+            screen.blit(scaled_pre, (x_start, y_start + label_h))
+            pygame.draw.rect(screen, CYAN, (x_start, y_start + label_h, scaled_w, scaled_h), 2)
+            if self.tiny:
+                label = self.tiny.render("FÖRE skott", True, CYAN)
+                screen.blit(label, (x_start, y_start))
+
+        # Post-shot (right, or center if no pre)
+        post_x = x_start + (scaled_w + gap if pre is not None else 0)
+        scaled_post = pygame.transform.scale(post, (scaled_w, scaled_h))
+        screen.blit(scaled_post, (post_x, y_start + label_h))
+        pygame.draw.rect(screen, ORANGE, (post_x, y_start + label_h, scaled_w, scaled_h), 2)
+        if self.tiny:
+            label = self.tiny.render("EFTER skott", True, ORANGE)
+            screen.blit(label, (post_x, y_start))
+
+        # Hint
+        if self.tiny:
+            hint = self.tiny.render("Klicka eller tryck för att fortsätta", True, WHITE)
+            hint_rect = hint.get_rect(centerx=panel_rect.centerx, top=y_start + label_h + scaled_h + 6)
+            screen.blit(hint, hint_rect)
 
     def _render_background(self, screen: pygame.Surface, mode: str, vp: pygame.Rect) -> None:
         if mode == "black":

@@ -625,6 +625,99 @@ class AIRuntime:
             "total_negatives": len(self.memory.negatives),
         }
 
+    def study_click_area(
+        self,
+        click_camera_xy: Point,
+        gray_pre: Optional[np.ndarray] = None,
+        gray_post: Optional[np.ndarray] = None,
+    ) -> None:
+        """
+        Study the visual area around a confirmed click point.
+
+        Stores TWO kinds of positive examples:
+        1. Diff-based: pre vs post at click point — "what changed" (needs pre-shot)
+        2. Absolute: just the post-shot patch — "what a hole looks like" (works
+           even when background changes completely between shots)
+
+        This way the AI learns both:
+        - temporal change signatures (useful with static backgrounds)
+        - absolute hole appearance (useful with video/animation backgrounds)
+        """
+        if gray_post is None:
+            return
+
+        x, y = click_camera_xy
+        ix, iy = int(round(x)), int(round(y))
+        h, w = gray_post.shape[:2]
+        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+            return
+
+        r = 12
+        x0, y0 = max(0, ix - r), max(0, iy - r)
+        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
+
+        post_patch = gray_post[y0:y1, x0:x1]
+        if post_patch.size == 0:
+            return
+
+        # --- Example 1: Absolute hole appearance ---
+        # "What does a hole look like?" — independent of background
+        abs_features: Dict[str, float] = {k: 0.0 for k in FEATURE_KEYS}
+        abs_features["patch_mean"] = float(np.mean(post_patch)) / 255.0
+        abs_features["patch_std"] = float(np.std(post_patch)) / 64.0
+        abs_features["x_norm"] = x / max(1.0, float(w))
+        abs_features["y_norm"] = y / max(1.0, float(h))
+
+        if cv2 is not None and post_patch.shape[0] >= 3 and post_patch.shape[1] >= 3:
+            lap = cv2.Laplacian(post_patch, cv2.CV_32F)
+            abs_features["edge_strength"] = float(np.mean(np.abs(lap))) / 32.0
+
+        # Center vs ring in the post-shot — holes have distinct center
+        if post_patch.shape[0] >= 2 * r and post_patch.shape[1] >= 2 * r:
+            center_val = float(np.mean(post_patch[r - 2:r + 3, r - 2:r + 3]))
+            ring_vals = [
+                float(np.mean(post_patch[:3, :])),
+                float(np.mean(post_patch[-3:, :])),
+                float(np.mean(post_patch[:, :3])),
+                float(np.mean(post_patch[:, -3:])),
+            ]
+            ring_val = sum(ring_vals) / len(ring_vals)
+            abs_features["center_change"] = center_val / 255.0
+            abs_features["local_contrast"] = abs(center_val - ring_val) / 255.0
+
+        if abs_features.get("patch_std", 0.0) > 0.003:
+            self.memory.add_positive(abs_features, {"kind": "hole_appearance"})
+
+        # --- Example 2: Diff-based change signature ---
+        # "What changed at this spot?" — needs pre-shot
+        if gray_pre is not None and gray_pre.shape == gray_post.shape:
+            pre_patch = gray_pre[y0:y1, x0:x1]
+            if pre_patch.size > 0 and pre_patch.shape == post_patch.shape:
+                diff_features: Dict[str, float] = {k: 0.0 for k in FEATURE_KEYS}
+                delta = np.abs(post_patch.astype(np.int16) - pre_patch.astype(np.int16))
+                delta_mean = float(np.mean(delta))
+
+                diff_features["pre_shot_change"] = delta_mean / 64.0
+                diff_features["change_value"] = delta_mean / 64.0
+                diff_features["patch_mean"] = abs_features["patch_mean"]
+                diff_features["patch_std"] = abs_features["patch_std"]
+                diff_features["edge_strength"] = abs_features.get("edge_strength", 0.0)
+                diff_features["x_norm"] = abs_features["x_norm"]
+                diff_features["y_norm"] = abs_features["y_norm"]
+                diff_features["detector_score"] = float(np.mean(pre_patch)) / 255.0
+
+                # Center vs ring in delta
+                if delta.shape[0] >= 2 * r and delta.shape[1] >= 2 * r:
+                    center_delta = float(np.mean(delta[r - 2:r + 3, r - 2:r + 3]))
+                    ring_delta = (float(np.mean(delta[:3, :])) + float(np.mean(delta[-3:, :]))) / 2.0
+                    diff_features["center_change"] = center_delta / 64.0
+                    diff_features["local_contrast"] = abs(center_delta - ring_delta) / 64.0
+
+                if delta_mean > 0.5:
+                    self.memory.add_positive(diff_features, {"kind": "click_area_diff"})
+
+        self.memory.save()
+
     def _ensure_features(self, candidate: Candidate) -> Dict[str, float]:
         """Get or extract features from a candidate."""
         existing = candidate.get("features")
