@@ -521,14 +521,11 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
-        # Kulan träffade ~1-2 frames innan audio peak (30-66ms vid 30fps).
-        # Vi vill ha frames från innan kulan träffade.
-        # Mikrofon ~50cm från tavla: ljud tar ~1.5ms efter träff.
-        # Kamera 30fps: 33ms/frame. Kulan kan ha träffat 1-2 frames innan peak.
-        # 120ms marginal ger 3-4 frames säkerhet vid 30fps.
+        # Audio peak can be delayed 500ms+ after bullet hits (CO2 sound
+        # profile builds up). Go back 1 second to be safe.
         pre_shot_frames: list[np.ndarray] = []
-        cutoff_latest = earliest_peak_ts - 0.12   # 120ms före peak
-        cutoff_earliest = earliest_peak_ts - 0.30  # 300ms tillbaka
+        cutoff_latest = earliest_peak_ts - 1.0    # 1 second before peak
+        cutoff_earliest = earliest_peak_ts - 1.5   # 1.5 seconds back max
 
         for fr in reversed(self.frame_history):
             if fr.timestamp > cutoff_latest:

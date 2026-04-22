@@ -333,17 +333,22 @@ class AIRuntime:
         # Detect new shot by watching audio_event_count
         current_count = getattr(scanner, "audio_event_count", 0)
         if current_count > self._last_audio_count:
-            # Get pre-shot frame from frame_history — use the OLDEST frame
-            # available (up to 12 seconds back) to guarantee no hole.
+            # Get pre-shot frame from frame_history.
+            # Audio peak can be delayed 500ms+ after the bullet hits (CO2 sound
+            # profile builds up slowly). Go back ~1 second to be safe.
             frame_history = getattr(scanner, "frame_history", None)
-            if frame_history is not None and len(frame_history) >= 2:
-                # Use the very oldest frame in history
-                target_frame = frame_history[0]
+            if frame_history is not None and len(frame_history) >= 30:
+                target_frame = frame_history[-30]  # ~1 second back at 30fps
                 self._pre_shot_gray = target_frame.gray.copy()
                 self._pre_shot_ts = target_frame.timestamp
                 import time as _t
                 age_ms = (_t.time() - self._pre_shot_ts) * 1000
-                print(f"[AI PRE-SHOT] using OLDEST frame (history[0]), age={age_ms:.0f}ms, history_len={len(frame_history)}")
+                print(f"[AI PRE-SHOT] using frame_history[-30], age={age_ms:.0f}ms, history_len={len(frame_history)}")
+            elif frame_history is not None and len(frame_history) >= 2:
+                target_frame = frame_history[0]
+                self._pre_shot_gray = target_frame.gray.copy()
+                self._pre_shot_ts = target_frame.timestamp
+                print(f"[AI PRE-SHOT] using oldest frame, history_len={len(frame_history)}")
             else:
                 self._capture_pre_shot_frame(scanner)
             self._shot_detected = True
