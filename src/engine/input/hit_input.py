@@ -111,8 +111,9 @@ class HitInput:
             self.homography is not None
             and self.inverse is not None
             and (
-                self.calibration_method == "aruco_viewport_board"
+                self.calibration_method in ("aruco_viewport_board", "aruco_viewport_v1")
                 or bool(self.calibration_data.get("inverse_homography"))
+                or bool(self.calibration_data.get("prefer_homography"))
             )
         )
 

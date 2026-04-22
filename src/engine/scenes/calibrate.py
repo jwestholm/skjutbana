@@ -364,6 +364,7 @@ class CalibrateViewportScene(Scene):
             "dictionary": "DICT_4X4_50",
             "marker_ids": ordered_ids,
             "homography": self.last_homography.tolist(),
+            "inverse_homography": np.linalg.inv(self.last_homography).astype(np.float32).tolist(),
             "viewport_rect": [int(self.rect.x), int(self.rect.y), int(self.rect.w), int(self.rect.h)],
             "camera_points": [
                 [float(self.detected_camera_points[mid][0]), float(self.detected_camera_points[mid][1])]
