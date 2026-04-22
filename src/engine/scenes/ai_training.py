@@ -100,6 +100,7 @@ class AITrainingScene(Scene):
 
         # Cursor state (avoid blinking by only toggling when the desired state changes).
         self._cursor_visible = True
+        self._handled_shot_peak_ts = 0.0
 
         # Synthetic scheduling / settle timing.
         self.synthetic_trigger_delay_s = 0.20
@@ -167,6 +168,7 @@ class AITrainingScene(Scene):
         self.runtime = get_ai_runtime()
         self._reset_shot_state(clear_synthetic=True)
         self._last_peak_ts = audio_peak_detector.last_peak_ts
+        self._handled_shot_peak_ts = 0.0
         self._set_cursor_visible(True)
 
     def on_exit(self) -> None:
@@ -185,6 +187,7 @@ class AITrainingScene(Scene):
         self._pending_click_phase = None
         self._pending_wait_frames = 0
         self._last_peak_ts = audio_peak_detector.last_peak_ts
+        self._handled_shot_peak_ts = 0.0
 
         self.synthetic_trigger_pending = False
         self.synthetic_trigger_batch_mode = False
@@ -357,8 +360,8 @@ class AITrainingScene(Scene):
 
         vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
         target_xy = self._choose_auto_screen_point(vp)
-        self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True)
-        self.auto_phase = "idle"
+        if self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True):
+            self.auto_phase = "waiting_fire"
 
     def _trigger_synthetic_shot_at(
         self,
@@ -372,7 +375,8 @@ class AITrainingScene(Scene):
             return False
 
         overlay = self._ensure_overlay(screen)
-        self._clear_synthetic_holes()
+        if not batch_mode:
+            self._clear_synthetic_holes()
 
         sx = int(round(screen_xy[0]))
         sy = int(round(screen_xy[1]))
@@ -451,6 +455,7 @@ class AITrainingScene(Scene):
         self.auto_stats["shots_triggered"] += 1
 
         if batch_mode:
+            self.auto_phase = "waiting_detection"
             self.status_message = (
                 f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
                 "syntetiskt skott triggat."
@@ -558,17 +563,27 @@ class AITrainingScene(Scene):
                     self._reviewing = False
                     self._review_pre_surface = None
                     self._review_post_surface = None
-                    self._clear_synthetic_holes()
                     self.clicked_camera_xy = None
                     self.awaiting_click = False
                     self._set_cursor_visible(True)
-                    self.auto_next_iteration_ts = now + self.auto_next_iteration_delay_s
-                    self.auto_phase = "waiting_next"
+                    if self.auto_iteration >= self.auto_target_iterations:
+                        self.auto_training_enabled = False
+                        self.auto_phase = "idle"
+                        self._build_auto_report()
+                    else:
+                        self.auto_next_iteration_ts = now + self.auto_next_iteration_delay_s
+                        self.auto_phase = "waiting_next"
 
         if self.synthetic_trigger_pending and now >= self.synthetic_trigger_ready_ts:
             self._fire_pending_synthetic_shot()
 
-        if not self.awaiting_click and not self._reviewing and self.runtime.has_new_shot:
+        if (
+            not self.awaiting_click
+            and not self._reviewing
+            and self.runtime.has_new_shot
+            and audio_peak_detector.last_peak_ts > self._handled_shot_peak_ts
+        ):
+            self._handled_shot_peak_ts = audio_peak_detector.last_peak_ts
             self._on_shot_detected()
 
         if self._pending_click_phase == "wait_frame":
@@ -644,7 +659,6 @@ class AITrainingScene(Scene):
                     self.auto_phase = "idle"
                     self._build_auto_report()
                 else:
-                    self._clear_synthetic_holes()
                     self.auto_next_iteration_ts = time.time() + self.auto_next_iteration_delay_s
                     self.auto_phase = "waiting_next"
             else:
