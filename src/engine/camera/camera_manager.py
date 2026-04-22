@@ -94,6 +94,14 @@ class CameraManager:
         self.cap = cap
         self.running = True
 
+        # Minimize internal buffer to reduce frame latency.
+        # Without this, OpenCV can buffer several seconds of frames,
+        # making "current" frames actually be old.
+        try:
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+
         self.property_apply_result = apply_preferred_camera_settings(
             self.cap,
             preferred_width=self.preferred_width,
