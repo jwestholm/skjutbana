@@ -173,9 +173,8 @@ class AITrainingScene(Scene):
                 rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
             else:
                 rgb = np.stack([patch, patch, patch], axis=-1)
-            # Transpose for pygame (expects width, height, channels)
-            rgb_t = np.transpose(rgb, (1, 0, 2)).copy()
-            return pygame.surfarray.make_surface(rgb_t)
+            h, w = rgb.shape[:2]
+            return pygame.image.frombuffer(rgb.tobytes(), (w, h), "RGB")
         except Exception:
             return None
 
@@ -236,59 +235,55 @@ class AITrainingScene(Scene):
         if not self._animation_frozen:
             self.t += dt
 
-        # Deferred capture: after click, we render a clean frame (no overlays),
-        # wait for projector+camera to update, then capture.
+        # Check if AI runtime detected a new shot (for candidate display)
+        if not self.awaiting_click and not self._reviewing and self.runtime.has_new_shot:
+            self._on_shot_detected()
+
+        # Deferred capture for review images
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
-            # Wait 3 frames: 1 for pygame flip, 1 for projector, 1 for camera
             if self._pending_wait_frames >= 3:
                 self._pending_click_phase = "capture"
         elif self._pending_click_phase == "capture":
-            self._do_deferred_capture()
-
-        # Check if AI runtime detected a new shot (for candidate display)
-        if not self.awaiting_click and not self._pending_click_phase and self.runtime.has_new_shot:
-            self._on_shot_detected()
+            self._do_clean_capture()
 
         return None
 
-    def _do_deferred_capture(self) -> None:
-        """Capture clean camera frame and complete training + review."""
+    def _do_clean_capture(self) -> None:
+        """Capture clean camera frame, train AI, and show review."""
         click_camera = self._pending_click_camera
         self._pending_click_phase = None
         self._pending_click_camera = None
         self._pending_wait_frames = 0
-
-        # Restore mouse cursor
         pygame.mouse.set_visible(True)
 
         if click_camera is None:
             return
 
-        # Capture fresh post-shot from camera (projector now shows clean background)
-        fresh_post_gray = None
+        # Capture fresh clean post-shot (no overlays/cursor on projector)
+        clean_post_gray = None
         try:
             frame_bgr = camera_manager.get_latest_frame()
             if frame_bgr is not None and cv2 is not None:
-                fresh_post_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                clean_post_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         except Exception:
             pass
 
-        post_gray = fresh_post_gray if fresh_post_gray is not None else self.runtime.post_shot_gray
+        post_gray = clean_post_gray if clean_post_gray is not None else self.runtime.post_shot_gray
+        pre_gray = self.runtime.pre_shot_gray
 
-        # Train the AI
+        # Train AI on the CLEAN image — same image we show in review
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
             shown_candidates=self.ranked_candidates,
-            gray_pre=self.runtime.pre_shot_gray,
+            gray_pre=pre_gray,
             gray_post=post_gray,
         )
         self.last_learning_result = result
 
-        # Study the click area
         self.runtime.study_click_area(
             click_camera_xy=click_camera,
-            gray_pre=self.runtime.pre_shot_gray,
+            gray_pre=pre_gray,
             gray_post=post_gray,
         )
 
@@ -307,7 +302,7 @@ class AITrainingScene(Scene):
                     f"Totalt: {result['total_positives']} pos / {result['total_negatives']} neg"
                 )
 
-        # Enter review mode
+        # Show review — same clean images AI trained on
         self._enter_review(click_camera, post_gray)
 
     def _on_shot_detected(self) -> None:
@@ -329,9 +324,9 @@ class AITrainingScene(Scene):
         click_camera = (projected.camera_x, projected.camera_y)
         self.clicked_camera_xy = click_camera
 
-        # Schedule a clean capture: we need to render one frame WITHOUT overlays
-        # so the projector shows a clean image, then capture the camera frame.
-        # Store click data and defer the actual training to next update.
+        # Schedule clean capture — ALL training happens AFTER we get a clean
+        # camera image without overlays/cursor. That way AI trains on the same
+        # clean image that we show in review.
         self._pending_click_camera = click_camera
         self._pending_click_phase = "clean_render"
         self.awaiting_click = False
@@ -349,18 +344,12 @@ class AITrainingScene(Scene):
 
         self._render_background(screen, mode, vp)
 
-        # During clean capture phase: render ONLY background, no overlays.
-        # This ensures the projector shows a clean image for the camera.
+        # During clean capture: render only background, hide overlays + cursor
         if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
             if self._pending_click_phase == "clean_render":
                 self._pending_click_phase = "wait_frame"
                 self._pending_wait_frames = 0
-                # Hide mouse cursor so it doesn't appear in the camera image
                 pygame.mouse.set_visible(False)
-            # Minimal HUD only
-            if self.tiny:
-                hint = self.tiny.render("Tar bild...", True, (180, 180, 180))
-                screen.blit(hint, (vp.x + 8, vp.y + 8))
             return
 
         self._render_candidates(screen, vp)
