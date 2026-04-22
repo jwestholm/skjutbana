@@ -77,6 +77,8 @@ class AITrainingScene(Scene):
         self.small: pygame.font.Font | None = None
         self.tiny: pygame.font.Font | None = None
 
+        self.viewport: pygame.Rect | None = None
+
         # Shot state
         self.awaiting_click = False
         self.ranked_candidates: list[dict[str, Any]] = []
@@ -92,6 +94,7 @@ class AITrainingScene(Scene):
         self.font = pygame.font.Font(None, 34)
         self.small = pygame.font.Font(None, 24)
         self.tiny = pygame.font.Font(None, 18)
+        self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state()
 
@@ -211,25 +214,32 @@ class AITrainingScene(Scene):
 
     def render(self, screen: pygame.Surface) -> None:
         mode = self.MODE_NAMES[self.bg_mode_index]
-        self._render_background(screen, mode)
-        self._render_candidates(screen)
+        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+
+        # Fill area outside viewport with dark border
+        screen.fill((30, 30, 30))
+
+        self._render_background(screen, mode, vp)
+        self._render_candidates(screen, vp)
         self._render_click_feedback(screen)
-        self._render_hud(screen, mode)
+        self._render_hud(screen, mode, vp)
 
-    def _render_background(self, screen: pygame.Surface, mode: str) -> None:
+    def _render_background(self, screen: pygame.Surface, mode: str, vp: pygame.Rect) -> None:
         if mode == "black":
-            screen.fill(BG_BLACK)
+            pygame.draw.rect(screen, BG_BLACK, vp)
         elif mode == "grid":
-            screen.fill(BG_WHITE)
-            sw, sh = screen.get_size()
-            for x in range(0, sw, 48):
-                pygame.draw.line(screen, GRID_LINE, (x, 0), (x, sh), 1)
-            for y in range(0, sh, 48):
-                pygame.draw.line(screen, GRID_LINE, (0, y), (sw, y), 1)
+            pygame.draw.rect(screen, BG_WHITE, vp)
+            for x in range(vp.left, vp.right, 48):
+                pygame.draw.line(screen, GRID_LINE, (x, vp.top), (x, vp.bottom), 1)
+            for y in range(vp.top, vp.bottom, 48):
+                pygame.draw.line(screen, GRID_LINE, (vp.left, y), (vp.right, y), 1)
         else:
-            screen.fill(BG_WHITE)
+            pygame.draw.rect(screen, BG_WHITE, vp)
 
-    def _render_candidates(self, screen: pygame.Surface) -> None:
+        # Viewport border
+        pygame.draw.rect(screen, (0, 180, 0), vp, 2)
+
+    def _render_candidates(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         if not self.awaiting_click or not self.ranked_candidates:
             return
 
@@ -298,7 +308,7 @@ class AITrainingScene(Scene):
         pygame.draw.line(screen, CLICK_COLOR, (ix - 22, iy), (ix + 22, iy), 2)
         pygame.draw.line(screen, CLICK_COLOR, (ix, iy - 22), (ix, iy + 22), 2)
 
-    def _render_hud(self, screen: pygame.Surface, mode: str) -> None:
+    def _render_hud(self, screen: pygame.Surface, mode: str, vp: pygame.Rect) -> None:
         if self.font is None or self.small is None or self.tiny is None:
             return
 
