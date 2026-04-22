@@ -309,15 +309,17 @@ class AITrainingScene(Scene):
         """Moving shapes that freeze when awaiting click — fun to shoot at."""
         pygame.draw.rect(screen, BG_WHITE, vp)
 
-        # Spawn bubbles if empty
+        # Spawn bubbles if empty — each with unique speed
         if not self._bubbles:
             for _ in range(15):
+                speed = random.uniform(0.06, 0.25)
+                angle = random.uniform(0, 2 * math.pi)
                 self._bubbles.append({
                     "x": random.uniform(0.1, 0.9),
                     "y": random.uniform(0.1, 0.9),
                     "r": random.uniform(0.03, 0.08),
-                    "dx": random.uniform(-0.15, 0.15),
-                    "dy": random.uniform(-0.15, 0.15),
+                    "dx": math.cos(angle) * speed,
+                    "dy": math.sin(angle) * speed,
                     "color": (
                         random.randint(40, 220),
                         random.randint(40, 220),
@@ -328,16 +330,20 @@ class AITrainingScene(Scene):
 
         # Move bubbles only when NOT frozen (freeze instantly on shot)
         if not self._animation_frozen:
-            dt = 1.0 / 60.0  # Approximate
+            dt = 1.0 / 60.0
             for b in self._bubbles:
                 b["x"] += b["dx"] * dt
                 b["y"] += b["dy"] * dt
-                # Bounce off edges
+                # Bounce with slight random deflection
                 if b["x"] < 0.05 or b["x"] > 0.95:
                     b["dx"] *= -1
+                    b["dx"] += random.uniform(-0.02, 0.02)
+                    b["dy"] += random.uniform(-0.01, 0.01)
                     b["x"] = max(0.05, min(0.95, b["x"]))
                 if b["y"] < 0.05 or b["y"] > 0.95:
                     b["dy"] *= -1
+                    b["dy"] += random.uniform(-0.02, 0.02)
+                    b["dx"] += random.uniform(-0.01, 0.01)
                     b["y"] = max(0.05, min(0.95, b["y"]))
 
         # Draw
