@@ -364,9 +364,9 @@ class AIRuntime:
                     earliest_peak = ts
 
         if earliest_peak is not None:
-            # Find frame before the peak
+            # Find frame well before the peak (200ms margin for clean pre-shot)
             for fr in reversed(frame_history):
-                if fr.timestamp < earliest_peak - 0.04:
+                if fr.timestamp < earliest_peak - 0.20:
                     self._pre_shot_gray = fr.gray.copy()
                     return
 

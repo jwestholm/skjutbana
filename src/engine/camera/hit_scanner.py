@@ -522,11 +522,13 @@ class HitScanner:
             return None
 
         # Kulan träffade ~1-2 frames innan audio peak (30-66ms vid 30fps).
-        # Vi vill ha frames från innan kulan träffade, alltså minst 40ms
-        # före peak_ts, och max 200ms tillbaka (snabbskytte-gräns).
+        # Vi vill ha frames från innan kulan träffade.
+        # Mikrofon ~50cm från tavla: ljud tar ~1.5ms efter träff.
+        # Kamera 30fps: 33ms/frame. Kulan kan ha träffat 1-2 frames innan peak.
+        # 120ms marginal ger 3-4 frames säkerhet vid 30fps.
         pre_shot_frames: list[np.ndarray] = []
-        cutoff_latest = earliest_peak_ts - 0.04   # 40ms före peak
-        cutoff_earliest = earliest_peak_ts - 0.20  # 200ms före peak
+        cutoff_latest = earliest_peak_ts - 0.12   # 120ms före peak
+        cutoff_earliest = earliest_peak_ts - 0.30  # 300ms tillbaka
 
         for fr in reversed(self.frame_history):
             if fr.timestamp > cutoff_latest:

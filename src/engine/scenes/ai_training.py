@@ -242,7 +242,7 @@ class AITrainingScene(Scene):
         # Deferred capture for review images
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
-            if self._pending_wait_frames >= 3:
+            if self._pending_wait_frames >= 5:
                 self._pending_click_phase = "capture"
         elif self._pending_click_phase == "capture":
             self._do_clean_capture()
