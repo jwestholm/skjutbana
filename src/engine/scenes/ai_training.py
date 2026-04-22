@@ -93,7 +93,7 @@ class AITrainingScene(Scene):
         # Animation — frozen_at is set the instant audio fires
         self.t = 0.0
         self._animation_frozen = False
-        self._last_audio_count = 0
+        self._last_audio_ts = 0.0
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -102,10 +102,20 @@ class AITrainingScene(Scene):
         self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state()
-        self._last_audio_count = hit_scanner.audio_event_count
+        # Subscribe to audio peaks for instant animation freeze
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        audio_peak_detector.subscribe(self._on_audio_peak)
 
     def on_exit(self) -> None:
-        pass
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        try:
+            audio_peak_detector.unsubscribe(self._on_audio_peak)
+        except Exception:
+            pass
+
+    def _on_audio_peak(self, event) -> None:
+        """Freeze animation the instant a shot is heard."""
+        self._animation_frozen = True
 
     def _reset_shot_state(self) -> None:
         self.awaiting_click = False
@@ -114,7 +124,6 @@ class AITrainingScene(Scene):
         self.last_learning_result = None
         self.click_flash_timer = 0.0
         self._animation_frozen = False
-        self._last_audio_count = hit_scanner.audio_event_count
 
     # ------------------------------------------------------------------
     # Events
@@ -153,11 +162,8 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
 
     def update(self, dt: float):
-        # Freeze animation instantly when a new audio peak is detected
-        current_audio = hit_scanner.audio_event_count
-        if current_audio > self._last_audio_count:
-            self._animation_frozen = True
-            self._last_audio_count = current_audio
+        # _animation_frozen is set by _on_audio_peak callback (runs in main thread
+        # during audio_peak_detector.update(), before scene.update())
 
         # Only advance animation time when not frozen
         if not self._animation_frozen:
