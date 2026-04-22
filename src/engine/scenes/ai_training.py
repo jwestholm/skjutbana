@@ -15,6 +15,7 @@ shown candidates and learns positive/negative examples.
 from __future__ import annotations
 
 import math
+import random
 import time
 from typing import Any
 
@@ -60,11 +61,13 @@ class AITrainingScene(Scene):
     wants_hit_scanning = True
     wants_camera_preview = False
 
-    MODE_NAMES = ["white", "black", "grid"]
+    MODE_NAMES = ["white", "white_grid", "gray", "black", "checker", "checker_anim", "bubbles"]
 
     def __init__(self, bg_color=None, **kwargs) -> None:
         super().__init__()
         self.runtime = get_ai_runtime()
+
+        self._bubbles: list[dict] = []  # For bubbles mode
 
         # Determine initial background mode from bg_color hint
         if isinstance(bg_color, (tuple, list)) and len(bg_color) >= 3:
@@ -227,17 +230,119 @@ class AITrainingScene(Scene):
     def _render_background(self, screen: pygame.Surface, mode: str, vp: pygame.Rect) -> None:
         if mode == "black":
             pygame.draw.rect(screen, BG_BLACK, vp)
-        elif mode == "grid":
+        elif mode == "gray":
+            pygame.draw.rect(screen, (128, 128, 128), vp)
+        elif mode == "white_grid":
             pygame.draw.rect(screen, BG_WHITE, vp)
             for x in range(vp.left, vp.right, 48):
                 pygame.draw.line(screen, GRID_LINE, (x, vp.top), (x, vp.bottom), 1)
             for y in range(vp.top, vp.bottom, 48):
                 pygame.draw.line(screen, GRID_LINE, (vp.left, y), (vp.right, y), 1)
+        elif mode == "checker":
+            self._draw_checker_static(screen, vp)
+        elif mode == "checker_anim":
+            self._draw_checker_anim(screen, vp)
+        elif mode == "bubbles":
+            self._draw_bubbles(screen, vp)
         else:
             pygame.draw.rect(screen, BG_WHITE, vp)
 
         # Viewport border
         pygame.draw.rect(screen, (0, 180, 0), vp, 2)
+
+    def _draw_checker_static(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Static checkerboard — tests detection against high-contrast edges."""
+        cell = 40
+        colors = [(220, 220, 220), (60, 60, 60)]
+        for row, y in enumerate(range(vp.top, vp.bottom, cell)):
+            for col, x in enumerate(range(vp.left, vp.right, cell)):
+                color = colors[(row + col) % 2]
+                rect = pygame.Rect(x, y, min(cell, vp.right - x), min(cell, vp.bottom - y))
+                pygame.draw.rect(screen, color, rect)
+
+    def _draw_checker_anim(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Animated checkerboard — scrolls diagonally, freezes on shot."""
+        cell = 40
+        colors = [(220, 220, 220), (60, 60, 60)]
+        # Offset scrolls when not awaiting click
+        if not self.awaiting_click:
+            offset = int(self.t * 60) % (cell * 2)
+        else:
+            if not hasattr(self, "_checker_frozen_offset"):
+                self._checker_frozen_offset = 0
+            offset = self._checker_frozen_offset
+
+        if not self.awaiting_click:
+            self._checker_frozen_offset = offset
+
+        for y in range(vp.top - cell, vp.bottom + cell, cell):
+            for x in range(vp.left - cell, vp.right + cell, cell):
+                ax = x + offset
+                ay = y + offset
+                row = (ay - vp.top) // cell
+                col = (ax - vp.left) // cell
+                color = colors[(row + col) % 2]
+                rect = pygame.Rect(ax, ay, cell, cell).clip(vp)
+                if rect.w > 0 and rect.h > 0:
+                    pygame.draw.rect(screen, color, rect)
+
+    def _draw_bubbles(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Moving shapes that freeze when awaiting click — fun to shoot at."""
+        pygame.draw.rect(screen, BG_WHITE, vp)
+
+        # Spawn bubbles if empty
+        if not self._bubbles:
+            for _ in range(15):
+                self._bubbles.append({
+                    "x": random.uniform(0.1, 0.9),
+                    "y": random.uniform(0.1, 0.9),
+                    "r": random.uniform(0.03, 0.08),
+                    "dx": random.uniform(-0.15, 0.15),
+                    "dy": random.uniform(-0.15, 0.15),
+                    "color": (
+                        random.randint(40, 220),
+                        random.randint(40, 220),
+                        random.randint(40, 220),
+                    ),
+                    "shape": random.choice(["circle", "rect", "triangle"]),
+                })
+
+        # Move bubbles only when NOT awaiting click (freeze on shot)
+        if not self.awaiting_click:
+            dt = 1.0 / 60.0  # Approximate
+            for b in self._bubbles:
+                b["x"] += b["dx"] * dt
+                b["y"] += b["dy"] * dt
+                # Bounce off edges
+                if b["x"] < 0.05 or b["x"] > 0.95:
+                    b["dx"] *= -1
+                    b["x"] = max(0.05, min(0.95, b["x"]))
+                if b["y"] < 0.05 or b["y"] > 0.95:
+                    b["dy"] *= -1
+                    b["y"] = max(0.05, min(0.95, b["y"]))
+
+        # Draw
+        for b in self._bubbles:
+            cx = int(vp.left + b["x"] * vp.w)
+            cy = int(vp.top + b["y"] * vp.h)
+            r = int(b["r"] * min(vp.w, vp.h))
+            color = b["color"]
+
+            if b["shape"] == "circle":
+                pygame.draw.circle(screen, color, (cx, cy), r)
+                pygame.draw.circle(screen, (30, 30, 30), (cx, cy), r, 2)
+            elif b["shape"] == "rect":
+                rect = pygame.Rect(cx - r, cy - r, r * 2, r * 2)
+                pygame.draw.rect(screen, color, rect)
+                pygame.draw.rect(screen, (30, 30, 30), rect, 2)
+            elif b["shape"] == "triangle":
+                points = [
+                    (cx, cy - r),
+                    (cx + r, cy + r),
+                    (cx - r, cy + r),
+                ]
+                pygame.draw.polygon(screen, color, points)
+                pygame.draw.polygon(screen, (30, 30, 30), points, 2)
 
     def _render_candidates(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         if not self.awaiting_click or not self.ranked_candidates:
@@ -321,7 +426,15 @@ class AITrainingScene(Scene):
         top_bar.fill(HUD_BG)
         screen.blit(top_bar, (0, 0))
 
-        mode_label = {"white": "Vit", "black": "Svart", "grid": "Rutnät"}.get(mode, mode)
+        mode_label = {
+            "white": "Vit",
+            "white_grid": "Vit + rutnät",
+            "gray": "Grå",
+            "black": "Svart",
+            "checker": "Rutmönster",
+            "checker_anim": "Rutmönster (video)",
+            "bubbles": "Bubblor",
+        }.get(mode, mode)
         summary = self.runtime.memory.summary()
         header = (
             f"AI-träning • {mode_label} • "
