@@ -90,6 +90,11 @@ class AITrainingScene(Scene):
         self.click_flash_timer = 0.0
         self.status_message = ""
 
+        # Deferred capture state — clean render before camera capture
+        self._pending_click_camera: tuple[float, float] | None = None
+        self._pending_click_phase: str | None = None  # "clean_render" → "wait_frame" → "capture"
+        self._pending_wait_frames: int = 0
+
         # Review state — shows pre/post patches after training
         self._reviewing = False
         self._review_pre_surface: pygame.Surface | None = None
@@ -124,24 +129,27 @@ class AITrainingScene(Scene):
         self._reviewing = False
         self._review_pre_surface = None
         self._review_post_surface = None
+        self._pending_click_camera = None
+        self._pending_click_phase = None
+        self._pending_wait_frames = 0
         # Sync so old peaks don't re-trigger freeze
         from src.engine.audio.audio_peak_detector import audio_peak_detector
         self._last_peak_ts = audio_peak_detector.last_peak_ts
 
-    def _enter_review(self, click_camera_xy: tuple[float, float]) -> None:
+    def _enter_review(self, click_camera_xy: tuple[float, float], fresh_post_gray=None) -> None:
         """Build zoomed pre/post patch surfaces for visual review."""
         self._reviewing = True
         self._review_pre_surface = None
         self._review_post_surface = None
 
         gray_pre = self.runtime.pre_shot_gray
-        gray_post = self.runtime.post_shot_gray
+        gray_post = fresh_post_gray if fresh_post_gray is not None else self.runtime.post_shot_gray
         if gray_post is None:
             return
 
         ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
         h, w = gray_post.shape[:2]
-        patch_r = 30  # Capture a decent area around the click
+        patch_r = 50  # Larger area to see the hole clearly at 4K
         x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
         x1, y1 = min(w, ix + patch_r + 1), min(h, iy + patch_r + 1)
 
@@ -218,8 +226,6 @@ class AITrainingScene(Scene):
 
     def update(self, dt: float):
         # Check for audio peak directly from audio thread's last_peak_ts.
-        # This is faster than waiting for main-thread dispatch since
-        # last_peak_ts is set in the audio thread immediately.
         from src.engine.audio.audio_peak_detector import audio_peak_detector
         current_peak_ts = audio_peak_detector.last_peak_ts
         if current_peak_ts > self._last_peak_ts and not self._animation_frozen:
@@ -230,55 +236,60 @@ class AITrainingScene(Scene):
         if not self._animation_frozen:
             self.t += dt
 
-        # Check if AI runtime detected a new shot (for candidate display)
-        if not self.awaiting_click and self.runtime.has_new_shot:
-            self._on_shot_detected()
+        # Deferred capture: after click, we render a clean frame (no overlays),
+        # wait for projector+camera to update, then capture.
+        if self._pending_click_phase == "wait_frame":
+            self._pending_wait_frames += 1
+            # Wait 3 frames: 1 for pygame flip, 1 for projector, 1 for camera
+            if self._pending_wait_frames >= 3:
+                self._pending_click_phase = "capture"
+        elif self._pending_click_phase == "capture":
+            self._do_deferred_capture()
 
-        # Clear click flash after a short time
-        if self.clicked_camera_xy is not None and not self.awaiting_click:
-            self.click_flash_timer += dt
-            if self.click_flash_timer > 0.4:
-                self.clicked_camera_xy = None
-                self.click_flash_timer = 0.0
+        # Check if AI runtime detected a new shot (for candidate display)
+        if not self.awaiting_click and not self._pending_click_phase and self.runtime.has_new_shot:
+            self._on_shot_detected()
 
         return None
 
-    def _on_shot_detected(self) -> None:
-        """A shot was detected — rank candidates and wait for click."""
-        # Get all candidates from hit_scanner (not just top 10)
-        all_candidates = list(hit_scanner.last_candidates)
-        if not all_candidates:
-            self.status_message = "Skott detekterat men inga kandidater."
+    def _do_deferred_capture(self) -> None:
+        """Capture clean camera frame and complete training + review."""
+        click_camera = self._pending_click_camera
+        self._pending_click_phase = None
+        self._pending_click_camera = None
+        self._pending_wait_frames = 0
+
+        # Restore mouse cursor
+        pygame.mouse.set_visible(True)
+
+        if click_camera is None:
             return
 
-        self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
-        self.awaiting_click = True
-        self.clicked_camera_xy = None
-        self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
+        # Capture fresh post-shot from camera (projector now shows clean background)
+        fresh_post_gray = None
+        try:
+            frame_bgr = camera_manager.get_latest_frame()
+            if frame_bgr is not None and cv2 is not None:
+                fresh_post_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        except Exception:
+            pass
 
-    def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
-        """User clicked to indicate where the hit was."""
-        # Transform screen click to camera coordinates
-        projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
-        click_camera = (projected.camera_x, projected.camera_y)
-        self.clicked_camera_xy = click_camera
+        post_gray = fresh_post_gray if fresh_post_gray is not None else self.runtime.post_shot_gray
 
-        # Train the AI with candidates
+        # Train the AI
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
             shown_candidates=self.ranked_candidates,
             gray_pre=self.runtime.pre_shot_gray,
-            gray_post=self.runtime.post_shot_gray,
+            gray_post=post_gray,
         )
         self.last_learning_result = result
 
-        # Additionally: let AI study the actual click area as a "hole signature".
-        # This gives the AI direct visual knowledge of what a real hit looks like,
-        # regardless of whether a candidate was nearby.
+        # Study the click area
         self.runtime.study_click_area(
             click_camera_xy=click_camera,
             gray_pre=self.runtime.pre_shot_gray,
-            gray_post=self.runtime.post_shot_gray,
+            gray_post=post_gray,
         )
 
         if result.get("positive_added"):
@@ -296,8 +307,33 @@ class AITrainingScene(Scene):
                     f"Totalt: {result['total_positives']} pos / {result['total_negatives']} neg"
                 )
 
-        # Enter review mode — show pre/post patches before resuming
-        self._enter_review(click_camera)
+        # Enter review mode
+        self._enter_review(click_camera, post_gray)
+
+    def _on_shot_detected(self) -> None:
+        """A shot was detected — rank candidates and wait for click."""
+        # Get all candidates from hit_scanner (not just top 10)
+        all_candidates = list(hit_scanner.last_candidates)
+        if not all_candidates:
+            self.status_message = "Skott detekterat men inga kandidater."
+            return
+
+        self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
+        self.awaiting_click = True
+        self.clicked_camera_xy = None
+        self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
+
+    def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
+        """User clicked to indicate where the hit was."""
+        projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
+        click_camera = (projected.camera_x, projected.camera_y)
+        self.clicked_camera_xy = click_camera
+
+        # Schedule a clean capture: we need to render one frame WITHOUT overlays
+        # so the projector shows a clean image, then capture the camera frame.
+        # Store click data and defer the actual training to next update.
+        self._pending_click_camera = click_camera
+        self._pending_click_phase = "clean_render"
         self.awaiting_click = False
 
     # ------------------------------------------------------------------
@@ -312,6 +348,21 @@ class AITrainingScene(Scene):
         screen.fill((30, 30, 30))
 
         self._render_background(screen, mode, vp)
+
+        # During clean capture phase: render ONLY background, no overlays.
+        # This ensures the projector shows a clean image for the camera.
+        if self._pending_click_phase in ("clean_render", "wait_frame", "capture"):
+            if self._pending_click_phase == "clean_render":
+                self._pending_click_phase = "wait_frame"
+                self._pending_wait_frames = 0
+                # Hide mouse cursor so it doesn't appear in the camera image
+                pygame.mouse.set_visible(False)
+            # Minimal HUD only
+            if self.tiny:
+                hint = self.tiny.render("Tar bild...", True, (180, 180, 180))
+                screen.blit(hint, (vp.x + 8, vp.y + 8))
+            return
+
         self._render_candidates(screen, vp)
         self._render_click_feedback(screen)
 

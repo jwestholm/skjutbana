@@ -341,8 +341,11 @@ class AIRuntime:
         all_candidates = list(getattr(scanner, "last_candidates", []))
         if all_candidates:
             self._latest_candidates = all_candidates
-            if self._shot_detected and self._latest_gray is not None:
-                self._post_shot_gray = self._latest_gray.copy()
+
+        # Capture post-shot gray: take a fresh copy from the latest camera frame
+        # every frame while shot is detected (so we get the most recent post-shot image)
+        if self._shot_detected and self._latest_gray is not None:
+            self._post_shot_gray = self._latest_gray.copy()
 
     def _capture_pre_shot_frame(self, scanner) -> None:
         """Get a frame from before the shot using scanner's frame_history."""
