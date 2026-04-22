@@ -168,7 +168,7 @@ class AITrainingScene(Scene):
             self.status_message = "Skott detekterat men inga kandidater."
             return
 
-        self.ranked_candidates = self.runtime.rank_candidates(all_candidates)
+        self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
         self.awaiting_click = True
         self.clicked_camera_xy = None
         self.status_message = f"Skott! {len(self.ranked_candidates)} kandidater. Klicka var du träffade."
@@ -243,7 +243,7 @@ class AITrainingScene(Scene):
         if not self.awaiting_click or not self.ranked_candidates:
             return
 
-        for cand in self.ranked_candidates[:10]:
+        for cand in self.ranked_candidates:
             rank = int(cand.get("rank", 99))
             cam_x = cand.get("camera_x", 0.0)
             cam_y = cand.get("camera_y", 0.0)
