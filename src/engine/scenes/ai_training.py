@@ -149,7 +149,7 @@ class AITrainingScene(Scene):
 
         ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
         h, w = gray_post.shape[:2]
-        patch_r = 50  # Larger area to see the hole clearly at 4K
+        patch_r = 80  # Large area — ~160x160 pixels from 4K camera
         x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
         x1, y1 = min(w, ix + patch_r + 1), min(h, iy + patch_r + 1)
 
@@ -374,9 +374,8 @@ class AITrainingScene(Scene):
 
     def _render_review(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         """Show zoomed pre/post patches side by side in the center of viewport."""
-        zoom = 4  # Scale factor for the small patches
-        gap = 20  # Gap between the two images
-        label_h = 24
+        zoom = 3  # Scale factor — 160px patch × 3 = 480px display
+        gap = 24
 
         pre = self._review_pre_surface
         post = self._review_post_surface
@@ -386,8 +385,9 @@ class AITrainingScene(Scene):
 
         pw, ph = post.get_size()
         scaled_w, scaled_h = pw * zoom, ph * zoom
+        label_h = 22
         total_w = scaled_w * 2 + gap if pre is not None else scaled_w
-        total_h = scaled_h + label_h + 30  # Extra for labels and hint
+        total_h = scaled_h + label_h + 30
 
         # Background panel
         panel_rect = pygame.Rect(0, 0, total_w + 40, total_h + 20)
@@ -405,6 +405,10 @@ class AITrainingScene(Scene):
             scaled_pre = pygame.transform.scale(pre, (scaled_w, scaled_h))
             screen.blit(scaled_pre, (x_start, y_start + label_h))
             pygame.draw.rect(screen, CYAN, (x_start, y_start + label_h, scaled_w, scaled_h), 2)
+            cx_pre = x_start + scaled_w // 2
+            cy_pre = y_start + label_h + scaled_h // 2
+            pygame.draw.line(screen, CYAN, (cx_pre - 10, cy_pre), (cx_pre + 10, cy_pre), 1)
+            pygame.draw.line(screen, CYAN, (cx_pre, cy_pre - 10), (cx_pre, cy_pre + 10), 1)
             if self.tiny:
                 label = self.tiny.render("FÖRE skott", True, CYAN)
                 screen.blit(label, (x_start, y_start))
@@ -414,6 +418,10 @@ class AITrainingScene(Scene):
         scaled_post = pygame.transform.scale(post, (scaled_w, scaled_h))
         screen.blit(scaled_post, (post_x, y_start + label_h))
         pygame.draw.rect(screen, ORANGE, (post_x, y_start + label_h, scaled_w, scaled_h), 2)
+        cx_post = post_x + scaled_w // 2
+        cy_post = y_start + label_h + scaled_h // 2
+        pygame.draw.line(screen, ORANGE, (cx_post - 10, cy_post), (cx_post + 10, cy_post), 1)
+        pygame.draw.line(screen, ORANGE, (cx_post, cy_post - 10), (cx_post, cy_post + 10), 1)
         if self.tiny:
             label = self.tiny.render("EFTER skott", True, ORANGE)
             screen.blit(label, (post_x, y_start))
