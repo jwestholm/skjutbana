@@ -300,6 +300,8 @@ class AIRuntime:
         self._latest_gray: Optional[np.ndarray] = None
         self._pre_shot_gray: Optional[np.ndarray] = None
         self._pre_shot_ts: float = 0.0
+        # Ring buffer of last 3 clean frames (before any shot detected)
+        self._clean_frame_ring: list[tuple[np.ndarray, float]] = []
         self._post_shot_gray: Optional[np.ndarray] = None
         self._latest_snapshot: Optional[Dict[str, Any]] = None
         self._shot_detected: bool = False
@@ -329,11 +331,27 @@ class AIRuntime:
         camera_gray = debug_frames.get("camera_gray")
         if camera_gray is not None:
             self._latest_gray = camera_gray
+            # Keep a ring buffer of the last 3 clean frames.
+            # When a shot fires, we pick the oldest one (2 frames back)
+            # which is guaranteed to be before the bullet hit.
+            if not self._shot_detected:
+                frame_ts = getattr(scanner, '_last_frame_ts', 0.0) or 0.0
+                self._clean_frame_ring.append((camera_gray.copy(), frame_ts))
+                if len(self._clean_frame_ring) > 3:
+                    self._clean_frame_ring.pop(0)
 
         # Detect new shot by watching audio_event_count
         current_count = getattr(scanner, "audio_event_count", 0)
         if current_count > self._last_audio_count:
-            self._capture_pre_shot_frame(scanner)
+            # Use the oldest clean frame (2-3 frames back = 66-100ms at 30fps)
+            if self._clean_frame_ring:
+                oldest = self._clean_frame_ring[0]
+                self._pre_shot_gray = oldest[0]
+                self._pre_shot_ts = oldest[1]
+                import time as _t
+                print(f"[AI PRE-SHOT] using clean frame #{len(self._clean_frame_ring)} back, age={((_t.time() - self._pre_shot_ts) * 1000):.0f}ms")
+            else:
+                self._capture_pre_shot_frame(scanner)
             self._shot_detected = True
             self.session_stats["shots_seen"] += 1
         self._last_audio_count = current_count
