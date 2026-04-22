@@ -300,8 +300,6 @@ class AIRuntime:
         self._latest_gray: Optional[np.ndarray] = None
         self._pre_shot_gray: Optional[np.ndarray] = None
         self._pre_shot_ts: float = 0.0
-        # Ring buffer of last 3 clean frames (before any shot detected)
-        self._clean_frame_ring: list[tuple[np.ndarray, float]] = []
         self._post_shot_gray: Optional[np.ndarray] = None
         self._latest_snapshot: Optional[Dict[str, Any]] = None
         self._shot_detected: bool = False
@@ -331,25 +329,27 @@ class AIRuntime:
         camera_gray = debug_frames.get("camera_gray")
         if camera_gray is not None:
             self._latest_gray = camera_gray
-            # Keep a ring buffer of the last 3 clean frames.
-            # When a shot fires, we pick the oldest one (2 frames back)
-            # which is guaranteed to be before the bullet hit.
-            if not self._shot_detected:
-                frame_ts = getattr(scanner, '_last_frame_ts', 0.0) or 0.0
-                self._clean_frame_ring.append((camera_gray.copy(), frame_ts))
-                if len(self._clean_frame_ring) > 3:
-                    self._clean_frame_ring.pop(0)
 
         # Detect new shot by watching audio_event_count
         current_count = getattr(scanner, "audio_event_count", 0)
         if current_count > self._last_audio_count:
-            # Use the oldest clean frame (2-3 frames back = 66-100ms at 30fps)
-            if self._clean_frame_ring:
-                oldest = self._clean_frame_ring[0]
-                self._pre_shot_gray = oldest[0]
-                self._pre_shot_ts = oldest[1]
+            # Get pre-shot frame from frame_history — go back enough frames
+            # to guarantee we're before the bullet hit.
+            # At 30fps, 5 frames back = ~167ms — well before any bullet.
+            frame_history = getattr(scanner, "frame_history", None)
+            if frame_history is not None and len(frame_history) >= 6:
+                # frame_history[-1] = current frame (may have hole)
+                # frame_history[-6] = 5 frames ago (~167ms) — safe
+                target_frame = frame_history[-6]
+                self._pre_shot_gray = target_frame.gray.copy()
+                self._pre_shot_ts = target_frame.timestamp
                 import time as _t
-                print(f"[AI PRE-SHOT] using clean frame #{len(self._clean_frame_ring)} back, age={((_t.time() - self._pre_shot_ts) * 1000):.0f}ms")
+                print(f"[AI PRE-SHOT] using frame_history[-6], age={((_t.time() - self._pre_shot_ts) * 1000):.0f}ms")
+            elif frame_history is not None and len(frame_history) >= 2:
+                target_frame = frame_history[0]  # Oldest available
+                self._pre_shot_gray = target_frame.gray.copy()
+                self._pre_shot_ts = target_frame.timestamp
+                print(f"[AI PRE-SHOT] using oldest frame, history_len={len(frame_history)}")
             else:
                 self._capture_pre_shot_frame(scanner)
             self._shot_detected = True
