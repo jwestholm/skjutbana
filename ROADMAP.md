@@ -1,23 +1,24 @@
 # Roadmap
 
+## Nyligen klart
+
+- [x] Multi-frame post-shot capture (8 frames vid ~40ms intervall)
+- [x] Tvåstegs AI-pipeline: noise rejection → AI ranking
+- [x] Persistence-scoring per hotspot
+- [x] Funnel-diagnostik med CSV-rapporter
+- [x] GT-matchning med konfigurerbar radie (5/10/15/20px)
+- [x] Ökat max hotspots från 50 till 150
+- [x] Kamerabuffring fixad (CAP_PROP_BUFFERSIZE=1)
+- [x] Pre-shot frame timing fixad (60 frames bak)
+- [x] Hole image bank — sparar skotthålsbilder automatiskt vid träning
+- [x] Konservativare noise rejection (existed_before threshold 0.8)
+- [x] Syntetisk autoträning med funnel-diagnostik och CSV-rapport
+
 ## Pågående
 
-- [ ] Verifiera kalibrering med 24 markörer — mål: reprojection error < 1.0px
-- [ ] Testa AI-träning med viewport-respekt
-- [ ] Verifiera zonbias efter ny kalibrering
-
-## Kort sikt
-
-- [ ] Förbättra hit_scanner pre-shot diff — lösa projektorflicker/skakning
-- [ ] AI: lokal diff vid klick — bättre träningsdata när kandidat saknas
-- [ ] Rensa oanvända settings-nycklar i content/ai/settings.json
-- [ ] Verifiera AI-logik med riktig data (normalisering, viktning, neg-sampling)
-- [ ] Prestanda-verifiering av AI-scoring på target-hårdvara
-
-## Medel sikt
-
-- [ ] AI-overlay i spelscener — visa AI:ns förslag under vanligt spel
-- [ ] Auto-learn i spelläge — AI lär av egna beslut (kräver feedback-loop-skydd)
+- [ ] Verifiera funnel-diagnostik med autoträning
+- [ ] Analysera var i pipelinen hål försvinner
+- [ ] Syntetisk bildbank-baserad träning (hole images → autotrain)
 - [ ] Scen-medvetenhet i AI — feature-vektorn inkluderar scen-typ
 - [ ] Readiness-indikator — visa i UI hur redo AI:n är
 - [ ] Bilder och video som bakgrund i AI-träningsläge

@@ -133,35 +133,65 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 
 ## Träffdetektionspipeline
 
-1. **Mikrofon** hör smällen → `AudioPeakEvent` (mikrofon ~50cm från tavla, kulan har redan träffat)
+### Hotspot-generering (hit_scanner)
+1. **Mikrofon** hör smällen → `AudioPeakEvent`
 2. **HitScanner** öppnar sökfönster (`association_lag_s = 1.5s`)
-3. **Pre-shot-bakgrund** byggs från frames 40-200ms före `peak_ts`
-4. **Diff**: `cv2.subtract(pre_shot_blur, current_blur)` — detekterar mörkare förändringar
-5. **Blackhat**: `cv2.morphologyEx(MORPH_BLACKHAT)` — hittar små mörka fläckar
-6. **Combined**: `max(pre_shot_delta, blackhat)` — båda signalerna bidrar
-7. **Konturer** → kandidater (area 2-180, radius 0.8-12, circularity ≥ 0.02)
-8. **Patch-verifiering**: center_change, local_contrast, pre_shot_change
-9. **Known-hole penalty**: kandidater nära redan kända hål nedviktas (0.15-0.7×)
-10. **Zonloggning**: raw blobs och kept candidates per zon (L/M/R)
-11. **Tracking**: 3 hits över ≥90ms → stable → emission
-12. **AI observerar** (`observe_scanner`) och kan påverka emission (`choose_for_emission`)
+3. **Pre-shot-bakgrund** byggs från frames ~1s före `peak_ts`
+4. **Diff + Blackhat** → combined signal
+5. **Konturer** → upp till 150 raw hotspots
+6. **Known-hole penalty** → nedviktar gamla hål
+
+### AI-pipeline (tvåstegs)
+7. **Stage 1: Noise Rejection** (`reject_noise_hotspots`)
+   - Fanns hotspotten före skottet? → reject
+   - Är den persistent i flera post-frames? → behåll
+   - Är förändringen för stor? → reject
+   - Konservativ: hellre behålla brus än döda rätt hål
+8. **Stage 2: AI Ranking** (`rank_candidates`)
+   - Feature-extraktion + AI-scoring + persistence-bonus
+   - Adaptiv viktning: detector → AI (10% → 65% baserat på datamängd)
+9. **Funnel-diagnostik** loggar var i pipelinen rätt hål försvinner
+
+### Multi-frame post-shot
+- Sparar 5 post-shot frames vid ~50ms intervall efter skott
+- Persistence-scoring: hotspot som syns i alla frames = troligt hål
+- Flimmer/skuggor som bara syns i 1 frame = brus
+
+### Tracking & Emission
+10. **Tracking**: 3 hits över ≥90ms → stable → emission
+11. **AI kan påverka emission** (`choose_for_emission`) i blended/ai_priority/ai_only-läge
 
 ---
 
 ## Vad AI:n ÄR och INTE ÄR
 
 ### AI:n ÄR:
-- En omrankare av kandidater från detektorn
-- En inlärare som minns positiva/negativa exempel från klick
-- Ett lager som KAN ta över emission i framtiden (blended/ai_priority/ai_only)
+- En domare över hotspots — dödar brus och rankar kvarvarande
+- En inlärare som minns positiva/negativa exempel
+- Kapabel att använda persistence-data för bättre beslut
+- Ett lager som KAN ta över emission (blended/ai_priority/ai_only)
 
 ### AI:n ÄR INTE:
-- En ersättare för detektorn (ännu)
-- En egen kandidatgenerator (den använder hit_scanners kandidater)
-- Kapabel att kompensera för dålig kalibrering eller dåliga kandidater
+- En ersättare för hotspot-generatorn (den behöver hit_scanner)
+- Kapabel att kompensera för dålig kalibrering
 
-### AI:ns begränsning:
-AI:n lär sig BARA från visade kandidater. Därför visas upp till 50 kandidater i träningsläget. Klick matchar närmaste kandidat inom 42px. Om ingen kandidat finns nära klicket skapas ett syntetiskt positivt exempel — men det är sämre träningsdata.
+### AI:ns pipeline:
+```
+Raw hotspots (150) → Noise rejection → Surviving (~50-80) → AI ranking → Top-K → Selected hit
+```
+
+### Funnel-diagnostik (per skott):
+```json
+{
+  "raw_hotspots": 150,
+  "raw_contains_gt": true,
+  "filtered_count": 80,
+  "gt_survived_filter": true,
+  "gt_in_topk": true,
+  "selected_dist": 8.3,
+  "ai_selected_correct": true
+}
+```
 
 **Konsekvens:** Om detektorn inte genererar en kandidat nära det riktiga hålet kan AI:n inte lära sig rätt. Fixa detektorn/kalibreringen FÖRST.
 

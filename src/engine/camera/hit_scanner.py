@@ -737,7 +737,7 @@ class HitScanner:
                 candidate["near_known_hole_dist"] = float(dist)
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-        self.last_candidates = candidates[:50]
+        self.last_candidates = candidates[:150]
 
         # Zone stats for kept candidates
         kept_zones = {"left": 0, "mid": 0, "right": 0}

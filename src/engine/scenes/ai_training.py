@@ -257,6 +257,63 @@ class AITrainingScene(Scene):
         except Exception:
             return None
 
+    @staticmethod
+    def _save_hole_image(click_camera_xy, post_gray) -> None:
+        """Save the post-shot patch as a transparent PNG for the hole image bank."""
+        if post_gray is None or np is None:
+            return
+        try:
+            from pathlib import Path
+
+            ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
+            h, w = post_gray.shape[:2]
+            patch_r = 64  # 128x128 patch
+            x0, y0 = max(0, ix - patch_r), max(0, iy - patch_r)
+            x1, y1 = min(w, ix + patch_r), min(h, iy + patch_r)
+
+            if x1 <= x0 or y1 <= y0:
+                return
+
+            patch = post_gray[y0:y1, x0:x1]
+            if patch.size == 0:
+                return
+
+            # Create RGBA with alpha based on distance from white (background).
+            if cv2 is not None:
+                rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
+            else:
+                rgb = np.stack([patch, patch, patch], axis=-1)
+
+            alpha = (255 - patch).astype(np.float32) * (191.0 / 255.0)
+            alpha = alpha.astype(np.uint8)
+
+            rgba = np.zeros((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
+            rgba[:, :, :3] = rgb
+            rgba[:, :, 3] = alpha
+
+            holes_dir = Path("content/ai/holes")
+            holes_dir.mkdir(parents=True, exist_ok=True)
+
+            existing = sorted(holes_dir.glob("*.png"))
+            next_num = 1
+            for f in existing:
+                try:
+                    num = int(f.stem)
+                    next_num = max(next_num, num + 1)
+                except ValueError:
+                    pass
+
+            path = holes_dir / f"{next_num}.png"
+
+            if cv2 is not None:
+                bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+                cv2.imwrite(str(path), bgra)
+            else:
+                surf = pygame.image.frombuffer(rgba.tobytes(), (rgba.shape[1], rgba.shape[0]), "RGBA")
+                pygame.image.save(surf, str(path))
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Auto report / stats
     # ------------------------------------------------------------------
@@ -309,6 +366,9 @@ class AITrainingScene(Scene):
             if dist_count > 0 else 0.0
         )
 
+        # Funnel diagnostics summary
+        funnel_lines = self.runtime.funnel.format_summary_lines()
+
         self.auto_report_lines = [
             "Autoträning klar",
             "",
@@ -321,9 +381,20 @@ class AITrainingScene(Scene):
             f"Missade: {missed} / {total}",
             f"Medelavstånd bästa kandidat: {avg_dist:.1f} px" if dist_count > 0 else "Medelavstånd bästa kandidat: n/a",
             "",
+            "--- Funnel-diagnostik ---",
+        ] + funnel_lines + [
+            "",
             "Klicka eller tryck en tangent för att stänga rapporten.",
         ]
         self.auto_report_visible = True
+
+        # Save CSV report
+        try:
+            csv_path = self.runtime.funnel.save_csv("autotrain")
+            if csv_path:
+                self.auto_report_lines.insert(-1, f"CSV sparad: {csv_path.name}")
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Synthetic shot setup / firing
@@ -335,6 +406,7 @@ class AITrainingScene(Scene):
 
         if self.auto_training_enabled:
             self._reset_auto_stats()
+            self.runtime.funnel.clear()  # Clear funnel diagnostics for new session
             self.auto_iteration = 0
             self.auto_phase = "waiting_next"
             self.auto_next_iteration_ts = time.time() + 0.2
@@ -634,6 +706,9 @@ class AITrainingScene(Scene):
             gray_post=post_gray,
         )
 
+        # Save hole image to build training image bank
+        self._save_hole_image(click_camera, post_gray)
+
         self._enter_review(click_camera, post_gray)
 
         if self.auto_training_enabled:
@@ -665,7 +740,19 @@ class AITrainingScene(Scene):
                 self._set_cursor_visible(True)
             return
 
-        self.ranked_candidates = self.runtime.rank_candidates(all_candidates, limit=50)
+        # Determine ground truth for funnel diagnostics
+        gt_xy = None
+        if self.auto_training_enabled and self.auto_target_screen_xy is not None:
+            projected = project_screen_point(
+                float(self.auto_target_screen_xy[0]),
+                float(self.auto_target_screen_xy[1]),
+            )
+            gt_xy = (projected.camera_x, projected.camera_y)
+
+        # Use full funnel pipeline: reject noise → rank → diagnostics
+        self.ranked_candidates, diag = self.runtime.rank_with_funnel(
+            all_candidates, gt_xy=gt_xy, limit=150,
+        )
         self.awaiting_click = True
         self.clicked_camera_xy = None
         self._record_detection_stats(self.ranked_candidates)

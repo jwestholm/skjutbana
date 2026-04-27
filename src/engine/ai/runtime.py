@@ -43,6 +43,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "trust_percent": 0,
     "show_overlay": True,
     "auto_learn": True,
+    "gt_match_radius_px": 10.0,
 }
 
 # ---- Feature keys (consistent between training and scoring) ----
@@ -301,8 +302,14 @@ class AIRuntime:
         self._pre_shot_gray: Optional[np.ndarray] = None
         self._pre_shot_ts: float = 0.0
         self._post_shot_gray: Optional[np.ndarray] = None
+        self._post_shot_frames: List[Tuple[np.ndarray, float]] = []  # (gray, timestamp)
+        self._shot_ts: float = 0.0  # When the shot was detected
         self._latest_snapshot: Optional[Dict[str, Any]] = None
         self._shot_detected: bool = False
+
+        # Funnel diagnostics
+        from src.engine.ai.diagnostics import FunnelTracker
+        self.funnel = FunnelTracker()
 
         # Session tracking
         self.session_stats: Dict[str, Any] = {
@@ -351,6 +358,8 @@ class AIRuntime:
             else:
                 self._capture_pre_shot_frame(scanner)
             self._shot_detected = True
+            self._shot_ts = time.time()
+            self._post_shot_frames = []  # Reset for new shot
             self.session_stats["shots_seen"] += 1
         self._last_audio_count = current_count
 
@@ -359,10 +368,16 @@ class AIRuntime:
         if all_candidates:
             self._latest_candidates = all_candidates
 
-        # Capture post-shot gray: take a fresh copy from the latest camera frame
-        # every frame while shot is detected (so we get the most recent post-shot image)
+        # Capture post-shot gray: collect multiple frames at different delays
+        # for persistence validation. A real hole appears in ALL post-frames.
         if self._shot_detected and self._latest_gray is not None:
             self._post_shot_gray = self._latest_gray.copy()
+            now = time.time()
+            # Collect post-frames at ~40ms intervals (limited to 8 frames ≈ 320ms)
+            if len(self._post_shot_frames) < 8:
+                elapsed = now - self._shot_ts
+                if elapsed >= 0.04 * len(self._post_shot_frames):
+                    self._post_shot_frames.append((self._latest_gray.copy(), now))
 
     def _capture_pre_shot_frame(self, scanner) -> None:
         """Get a frame from before the shot using scanner's frame_history."""
@@ -534,7 +549,125 @@ class AIRuntime:
         return patch_mean, patch_std, edge_strength
 
     # ------------------------------------------------------------------
-    # Candidate ranking
+    # Hotspot persistence & noise rejection (Stage 1)
+    # ------------------------------------------------------------------
+
+    def compute_persistence(self, candidate: Candidate) -> float:
+        """
+        Check if a hotspot is persistent across multiple post-shot frames.
+        Returns 0.0-1.0 where 1.0 = visible in all post-frames.
+        A real hole persists; flicker/shadows don't.
+        """
+        if not self._post_shot_frames or self._pre_shot_gray is None:
+            return 0.5  # No data — neutral
+
+        x = _safe_float(candidate.get("camera_x", 0.0))
+        y = _safe_float(candidate.get("camera_y", 0.0))
+        ix, iy = int(round(x)), int(round(y))
+        r = 6  # Small patch around hotspot
+
+        pre = self._pre_shot_gray
+        h, w = pre.shape[:2]
+        x0, y0 = max(0, ix - r), max(0, iy - r)
+        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
+        if x1 <= x0 or y1 <= y0:
+            return 0.0
+
+        pre_patch = pre[y0:y1, x0:x1]
+        pre_mean = float(np.mean(pre_patch))
+
+        visible_count = 0
+        for post_gray, _ in self._post_shot_frames:
+            if post_gray.shape != pre.shape:
+                continue
+            post_patch = post_gray[y0:y1, x0:x1]
+            delta = abs(float(np.mean(post_patch)) - pre_mean)
+            if delta > 3.0:  # Threshold: visible change
+                visible_count += 1
+
+        if len(self._post_shot_frames) == 0:
+            return 0.5
+        return float(visible_count) / float(len(self._post_shot_frames))
+
+    def existed_before_shot(self, candidate: Candidate) -> float:
+        """
+        Check if the hotspot evidence existed BEFORE the shot.
+        Returns 0.0-1.0 where 1.0 = definitely existed before (old hole/artifact).
+        """
+        if self._pre_shot_gray is None or self._post_shot_gray is None:
+            return 0.0
+
+        x = _safe_float(candidate.get("camera_x", 0.0))
+        y = _safe_float(candidate.get("camera_y", 0.0))
+        ix, iy = int(round(x)), int(round(y))
+        r = 6
+
+        pre = self._pre_shot_gray
+        post = self._post_shot_gray
+        h, w = pre.shape[:2]
+        x0, y0 = max(0, ix - r), max(0, iy - r)
+        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
+        if x1 <= x0 or y1 <= y0 or pre.shape != post.shape:
+            return 0.0
+
+        pre_patch = pre[y0:y1, x0:x1]
+        post_patch = post[y0:y1, x0:x1]
+
+        # If the pre-shot patch already has high contrast (dark spot),
+        # this hotspot likely existed before the shot.
+        pre_std = float(np.std(pre_patch))
+        post_std = float(np.std(post_patch))
+
+        # If pre-shot already had similar contrast → existed before
+        if pre_std > 5.0 and abs(pre_std - post_std) < pre_std * 0.5:
+            return min(1.0, pre_std / 20.0)
+        return 0.0
+
+    def reject_noise_hotspots(
+        self, hotspots: Sequence[Candidate]
+    ) -> Tuple[List[Candidate], Dict[str, int]]:
+        """
+        Stage 1: Conservative noise rejection.
+        Removes obvious non-holes while preserving the true hit.
+        Returns (surviving_hotspots, rejection_counts).
+        """
+        surviving: List[Candidate] = []
+        rejection_counts: Dict[str, int] = {
+            "existed_before": 0,
+            "no_persistence": 0,
+            "too_large_change": 0,
+        }
+
+        for hs in hotspots:
+            # Check if it existed before the shot (conservative — only reject high confidence)
+            existed = self.existed_before_shot(hs)
+            if existed > 0.8:
+                rejection_counts["existed_before"] += 1
+                continue
+
+            # Check persistence (only if we have multi-frame data)
+            if len(self._post_shot_frames) >= 2:
+                persistence = self.compute_persistence(hs)
+                if persistence < 0.2:
+                    rejection_counts["no_persistence"] += 1
+                    continue
+
+            # Check if the change region is too large (not a bullet hole)
+            area = _safe_float(hs.get("area", 0.0))
+            if area > 300:  # Very large change — probably not a hole
+                rejection_counts["too_large_change"] += 1
+                continue
+
+            # Enrich with persistence data
+            enriched = dict(hs)
+            enriched["persistence"] = self.compute_persistence(hs) if self._post_shot_frames else 0.5
+            enriched["existed_before"] = existed
+            surviving.append(enriched)
+
+        return surviving, rejection_counts
+
+    # ------------------------------------------------------------------
+    # Candidate ranking (Stage 2)
     # ------------------------------------------------------------------
 
     def rank_candidates(
@@ -567,7 +700,16 @@ class AIRuntime:
             det_weight = 1.0 - ai_weight
             # Normalize detector score to 0-1 range (typical range 3-20)
             det_norm = min(1.0, max(0.0, detector_score / 15.0))
-            combined = det_weight * det_norm + ai_weight * ai_score
+
+            # Persistence bonus: persistent hotspots get a boost
+            persistence = _safe_float(cand.get("persistence", 0.5))
+            persistence_bonus = persistence * 0.15  # Up to 0.15 bonus
+
+            # Existed-before penalty
+            existed = _safe_float(cand.get("existed_before", 0.0))
+            existed_penalty = existed * 0.2  # Up to 0.2 penalty
+
+            combined = det_weight * det_norm + ai_weight * ai_score + persistence_bonus - existed_penalty
 
             enriched = dict(cand)
             enriched["features"] = features
@@ -580,6 +722,43 @@ class AIRuntime:
         for i, c in enumerate(ranked):
             c["rank"] = i + 1
         return ranked[:top_k]
+
+    def rank_with_funnel(
+        self,
+        raw_hotspots: Sequence[Candidate],
+        gt_xy: Optional[Point] = None,
+        limit: Optional[int] = None,
+    ) -> Tuple[List[Candidate], Optional["ShotDiagnostics"]]:
+        """
+        Full hotspot pipeline: reject noise → rank → select.
+        Optionally tracks diagnostics against ground truth.
+        Returns (ranked_hotspots, diagnostics_or_None).
+        """
+        from src.engine.ai.diagnostics import ShotDiagnostics
+
+        diag = None
+        match_radius = float(self.settings.get("gt_match_radius_px", 10.0))
+
+        if gt_xy is not None:
+            diag = ShotDiagnostics(gt_xy[0], gt_xy[1], match_radius)
+            diag.evaluate_raw_hotspots(raw_hotspots)
+
+        # Stage 1: Noise rejection
+        surviving, rejection_counts = self.reject_noise_hotspots(raw_hotspots)
+
+        if diag is not None:
+            diag.evaluate_filtered(surviving, rejection_counts)
+
+        # Stage 2: AI ranking
+        ranked = self.rank_candidates(surviving, limit=limit)
+
+        if diag is not None:
+            diag.evaluate_ai_ranked(ranked, top_k=min(10, len(ranked)))
+            if ranked:
+                diag.evaluate_selected(ranked[0])
+            self.funnel.add(diag)
+
+        return ranked, diag
 
     # ------------------------------------------------------------------
     # Training (click-based learning)
@@ -649,6 +828,7 @@ class AIRuntime:
 
         self.memory.save()
         self._shot_detected = False
+        self._post_shot_frames = []  # Clear for next shot
 
         return {
             "positive_added": positive_added,
