@@ -422,7 +422,7 @@ class AITrainingScene(Scene):
             self._reset_shot_state(clear_synthetic=True)
 
     def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
-        margin = 48
+        margin = 12
         x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
         y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
         return x, y
