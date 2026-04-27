@@ -117,6 +117,7 @@ class AITrainingScene(Scene):
 
         # Auto-training configuration.
         self.auto_training_enabled = False
+        self.auto_headless = False  # F2: no visuals, no delays, just train
         self.auto_target_iterations = 1000
         self.auto_iteration = 0
         self.auto_target_screen_xy: tuple[int, int] | None = None
@@ -399,21 +400,24 @@ class AITrainingScene(Scene):
     # ------------------------------------------------------------------
     # Synthetic shot setup / firing
     # ------------------------------------------------------------------
-    def _toggle_auto_training(self) -> None:
+    def _toggle_auto_training(self, headless: bool = False) -> None:
         self.auto_training_enabled = not self.auto_training_enabled
+        self.auto_headless = headless if self.auto_training_enabled else False
         self.auto_report_visible = False
         self.auto_report_lines = []
 
         if self.auto_training_enabled:
             self._reset_auto_stats()
-            self.runtime.funnel.clear()  # Clear funnel diagnostics for new session
+            self.runtime.funnel.clear()
             self.auto_iteration = 0
             self.auto_phase = "waiting_next"
             self.auto_next_iteration_ts = time.time() + 0.2
-            self.status_message = "Autoträning startad (F1 stoppar)."
+            mode_label = "headless" if headless else "visuell"
+            self.status_message = f"Autoträning startad ({mode_label}, F1/F2 stoppar)."
             self._reset_shot_state(clear_synthetic=True)
         else:
             self.auto_phase = "idle"
+            self.auto_headless = False
             self.status_message = "Autoträning stoppad."
             self._reset_shot_state(clear_synthetic=True)
 
@@ -564,7 +568,11 @@ class AITrainingScene(Scene):
                 return SceneSwitch(MenuScene())
 
             if event.key == pygame.K_F1:
-                self._toggle_auto_training()
+                self._toggle_auto_training(headless=False)
+                return None
+
+            if event.key == pygame.K_F2:
+                self._toggle_auto_training(headless=True)
                 return None
 
             if event.key == pygame.K_TAB:
@@ -624,13 +632,19 @@ class AITrainingScene(Scene):
                         self._start_auto_iteration(screen)
 
             elif self.auto_phase == "waiting_markers" and self.awaiting_click:
-                if now >= self.auto_click_ready_ts and self.auto_target_screen_xy is not None:
+                click_ready = now >= self.auto_click_ready_ts if not self.auto_headless else True
+                if click_ready and self.auto_target_screen_xy is not None:
                     self._on_training_click(self.auto_target_screen_xy)
                     # _on_training_click starts clean capture. Next visible phase is review.
                     self.auto_phase = "waiting_review"
 
             elif self.auto_phase == "waiting_review" and self._reviewing:
-                if now >= self.auto_review_ready_ts:
+                if self.auto_headless:
+                    # Headless: skip review immediately
+                    review_ready = True
+                else:
+                    review_ready = now >= self.auto_review_ready_ts
+                if review_ready:
                     # Auto-dismiss review after it has been visible for 1 second.
                     self._reviewing = False
                     self._review_pre_surface = None
@@ -643,7 +657,8 @@ class AITrainingScene(Scene):
                         self.auto_phase = "idle"
                         self._build_auto_report()
                     else:
-                        self.auto_next_iteration_ts = now + self.auto_next_iteration_delay_s
+                        delay = 0.05 if self.auto_headless else self.auto_next_iteration_delay_s
+                        self.auto_next_iteration_ts = now + delay
                         self.auto_phase = "waiting_next"
 
         if self.synthetic_trigger_pending and now >= self.synthetic_trigger_ready_ts:
@@ -660,7 +675,8 @@ class AITrainingScene(Scene):
 
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
-            if self._pending_wait_frames >= 5:
+            needed = 1 if getattr(self, 'auto_headless', False) else 5
+            if self._pending_wait_frames >= needed:
                 self._pending_click_phase = "capture"
         elif self._pending_click_phase == "capture":
             self._do_clean_capture()
@@ -803,6 +819,16 @@ class AITrainingScene(Scene):
             if self._pending_click_phase == "clean_render":
                 self._pending_click_phase = "wait_frame"
                 self._pending_wait_frames = 0
+            return
+
+        # Headless mode: only show progress counter, no candidates/review/HUD
+        if self.auto_headless and self.auto_training_enabled:
+            if self.tiny:
+                progress = f"Headless: {self.auto_iteration}/{self.auto_target_iterations}"
+                surf = self.tiny.render(progress, True, (180, 180, 180))
+                screen.blit(surf, (vp.x + 8, vp.y + 8))
+            if self.auto_report_visible:
+                self._render_auto_report(screen, vp)
             return
 
         self._render_candidates(screen, vp)

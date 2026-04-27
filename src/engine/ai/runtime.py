@@ -633,12 +633,32 @@ class AIRuntime:
         """
         surviving: List[Candidate] = []
         rejection_counts: Dict[str, int] = {
+            "outside_viewport": 0,
             "existed_before": 0,
             "no_persistence": 0,
             "too_large_change": 0,
         }
 
+        # Get viewport bounds for out-of-bounds rejection
+        try:
+            from src.engine.settings import load_viewport_rect
+            vp = load_viewport_rect()
+            from src.engine.input.hit_input import hit_input
+        except Exception:
+            vp = None
+
         for hs in hotspots:
+            # Check if candidate is within viewport (screen space)
+            if vp is not None:
+                try:
+                    cx = _safe_float(hs.get("camera_x", 0.0))
+                    cy = _safe_float(hs.get("camera_y", 0.0))
+                    sx, sy = hit_input._canonical_camera_to_screen(cx, cy)
+                    if not vp.collidepoint(int(round(sx)), int(round(sy))):
+                        rejection_counts["outside_viewport"] += 1
+                        continue
+                except Exception:
+                    pass
             # Check if it existed before the shot (conservative — only reject high confidence)
             existed = self.existed_before_shot(hs)
             if existed > 0.8:
