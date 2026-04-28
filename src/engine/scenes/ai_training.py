@@ -237,6 +237,8 @@ class AITrainingScene(Scene):
         self.font = pygame.font.Font(None, 34)
         self.small = pygame.font.Font(None, 24)
         self.tiny = pygame.font.Font(None, 18)
+        self.report_title_font = pygame.font.Font(None, 28)
+        self.report_font = pygame.font.Font(None, 19)
         self.viewport = load_viewport_rect()
         self.runtime = get_ai_runtime()
         self._reset_shot_state(clear_synthetic=True)
@@ -825,10 +827,18 @@ class AITrainingScene(Scene):
         # Stable auto-training state machine.
         if self.auto_training_enabled:
             if self.auto_phase == "waiting_next" and not self.awaiting_click and not self._reviewing and not self.synthetic_trigger_pending:
+                # Thaw animation between rounds so checker/bubbles keep moving.
+                if self._animation_frozen:
+                    self._animation_frozen = False
                 if now >= self.auto_next_iteration_ts:
                     screen = pygame.display.get_surface()
                     if screen is not None:
                         self._start_auto_iteration(screen)
+
+            elif self.auto_phase == "waiting_fire":
+                # Hole is placed, waiting for camera settle — keep animation alive.
+                if self._animation_frozen:
+                    self._animation_frozen = False
 
             elif self.auto_phase == "waiting_markers" and self.awaiting_click:
                 click_ready = now >= self.auto_click_ready_ts if not self.auto_headless else True
@@ -1135,8 +1145,13 @@ class AITrainingScene(Scene):
     def _render_auto_report(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         lines = self.auto_report_lines or ["Autoträning klar"]
         width = min(780, max(480, vp.w - 60))
-        line_h = 28
-        height = 80 + len(lines) * line_h
+        line_h = 20
+        title_h = 26
+        height = 40 + title_h + (len(lines) - 1) * line_h
+        # Clamp height to viewport
+        max_h = vp.h - 40
+        if height > max_h:
+            height = max_h
         panel_rect = pygame.Rect(0, 0, width, height)
         panel_rect.center = vp.center
 
@@ -1145,16 +1160,28 @@ class AITrainingScene(Scene):
         pygame.draw.rect(panel, (160, 160, 160), panel.get_rect(), 2)
         screen.blit(panel, panel_rect.topleft)
 
-        y = panel_rect.y + 20
+        y = panel_rect.y + 14
+        max_y = panel_rect.bottom - 10
         for i, line in enumerate(lines):
-            font = self.font if i == 0 and self.font is not None else self.small
-            color = WHITE if i != 0 else ORANGE
+            if y >= max_y:
+                break
+            if i == 0:
+                font = self.report_title_font or self.small
+                color = ORANGE
+                step = title_h
+            else:
+                font = self.report_font or self.tiny
+                color = WHITE
+                step = line_h
             if font is None:
                 continue
+            # Section headers get a slightly brighter color
+            if line.startswith("---"):
+                color = CYAN
             surf = font.render(line, True, color)
             x = panel_rect.centerx - surf.get_width() // 2
             screen.blit(surf, (x, y))
-            y += line_h
+            y += step
 
     def _render_review(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         zoom = 3
