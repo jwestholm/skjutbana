@@ -429,9 +429,101 @@ class AITrainingScene(Scene):
         post_patch = gray_post[y0:y1, x0:x1]
         self._review_post_surface = self._gray_patch_to_surface(post_patch)
 
+        pre_patch = None
         if gray_pre is not None and gray_pre.shape == gray_post.shape:
             pre_patch = gray_pre[y0:y1, x0:x1]
             self._review_pre_surface = self._gray_patch_to_surface(pre_patch)
+
+        # Save diagnostic images (pre/post/diff/gif) for offline analysis
+        self._save_shot_diagnostic(
+            click_camera_xy, pre_patch, post_patch, pre_age)
+
+    def _save_shot_diagnostic(
+        self,
+        click_camera_xy: tuple[float, float],
+        pre_patch,
+        post_patch,
+        pre_age_ms: float,
+    ) -> None:
+        """Save pre/post/diff images + animated GIF for offline analysis."""
+        if post_patch is None or post_patch.size == 0:
+            return
+        try:
+            from pathlib import Path
+
+            diag_dir = Path("content/ai/shot_diag")
+            diag_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sequential numbering
+            existing = sorted(diag_dir.glob("shot_*.gif")) + sorted(diag_dir.glob("shot_*_post*.png"))
+            next_num = 1
+            for f in existing:
+                try:
+                    num = int(f.stem.split("_")[1])
+                    next_num = max(next_num, num + 1)
+                except (ValueError, IndexError):
+                    pass
+
+            base = f"shot_{next_num:04d}"
+            ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
+
+            # Scale up 3x for visibility
+            scale = 3
+            post_big = cv2.resize(post_patch, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+
+            # Draw crosshair at center of patch (where the click was)
+            ph, pw = post_big.shape[:2]
+            cx, cy = pw // 2, ph // 2
+
+            # Save post
+            post_marked = cv2.cvtColor(post_big, cv2.COLOR_GRAY2BGR)
+            cv2.drawMarker(post_marked, (cx, cy), (0, 0, 255), cv2.MARKER_CROSS, 20, 2)
+            cv2.putText(post_marked, "POST", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.imwrite(str(diag_dir / f"{base}_post.png"), post_marked)
+
+            if pre_patch is not None and pre_patch.size > 0 and pre_patch.shape == post_patch.shape:
+                pre_big = cv2.resize(pre_patch, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+
+                # Save pre
+                pre_marked = cv2.cvtColor(pre_big, cv2.COLOR_GRAY2BGR)
+                cv2.drawMarker(pre_marked, (cx, cy), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
+                cv2.putText(pre_marked, f"PRE ({pre_age_ms:.0f}ms)", (8, 22),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.imwrite(str(diag_dir / f"{base}_pre.png"), pre_marked)
+
+                # Save diff (amplified)
+                diff = cv2.absdiff(pre_big, post_big)
+                diff_color = cv2.applyColorMap(cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX), cv2.COLORMAP_JET)
+                cv2.drawMarker(diff_color, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 20, 2)
+                cv2.putText(diff_color, "DIFF", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                cv2.imwrite(str(diag_dir / f"{base}_diff.png"), diff_color)
+
+                # Create animated GIF: pre → post → diff, 500ms per frame
+                try:
+                    from PIL import Image
+                    frames = []
+                    for img_bgr in [pre_marked, post_marked, diff_color]:
+                        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+                        frames.append(Image.fromarray(img_rgb))
+                    if frames:
+                        frames[0].save(
+                            str(diag_dir / f"{base}.gif"),
+                            save_all=True,
+                            append_images=frames[1:],
+                            duration=500,
+                            loop=0,
+                        )
+                except ImportError:
+                    pass  # PIL not available, skip GIF
+            else:
+                # No pre-shot — save post only with warning
+                cv2.putText(post_marked, "NO PRE-SHOT", (8, ph - 12),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+                cv2.imwrite(str(diag_dir / f"{base}_post_only.png"), post_marked)
+
+            print(f"[SHOT-DIAG] Saved {base} at ({ix},{iy}) pre_age={pre_age_ms:.0f}ms")
+        except Exception as exc:
+            print(f"[SHOT-DIAG] Save failed: {exc}")
 
     @staticmethod
     def _gray_patch_to_surface(patch) -> pygame.Surface | None:
