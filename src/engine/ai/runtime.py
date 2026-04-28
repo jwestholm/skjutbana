@@ -362,73 +362,48 @@ class AIRuntime:
         # Detect new shot by watching audio_event_count
         current_count = getattr(scanner, "audio_event_count", 0)
         if current_count > self._last_audio_count:
-            # Save pre-shot frame: we need a frame from BEFORE the bullet hit.
-            #
-            # Timeline at 6m distance:
-            #   t=0:     Trigger pulled
-            #   t≈2ms:   Bullet hits target (6m / 300m/s)
-            #   t≈1.5ms: Sound reaches mic (50cm / 340m/s)
-            #   t≈now:   Audio peak detected (processing delay ~10-30ms)
-            #
-            # At audio peak, the hole has existed for ~1-3 frames (30fps).
-            # We want a frame from ~200-300ms BEFORE audio peak to be safe
-            # even with fast double-taps. At 30fps that's 6-9 frames back.
-            #
-            # Strategy: find the frame closest to (peak_ts - 0.25s).
-            # If history is too short, take the oldest available.
-            frame_history = getattr(scanner, "frame_history", None)
-            history_len = len(frame_history) if frame_history is not None else 0
-            now = time.time()
-            peak_ts = getattr(scanner, "last_audio_event_ts", now)
+            # Use the pre-shot snapshot captured by hit_scanner at audio peak time.
+            # This was captured BEFORE new frames were added to frame_history,
+            # so it's guaranteed to be from before the bullet hit.
+            snapshot = getattr(scanner, "pre_shot_snapshot", None)
+            snapshot_ts = getattr(scanner, "pre_shot_snapshot_ts", 0.0)
 
-            # Target: 250ms before the audio peak.
-            # With camera buffer flushing (grab+retrieve in camera_manager),
-            # frame timestamps are now accurate. 250ms gives safe margin for
-            # bullet travel (~2ms) + audio processing (~10-30ms) + 1-2 frame jitter.
-            # Works with double-taps down to ~300ms apart.
-            target_ts = peak_ts - 0.25
-            best_frame = None
-            best_delta = float("inf")
-
-            if frame_history is not None and history_len >= 2:
-                for fr in reversed(frame_history):
-                    # Only consider frames from BEFORE the target time
-                    if fr.timestamp > target_ts:
-                        continue
-                    delta = abs(fr.timestamp - target_ts)
-                    if delta < best_delta:
-                        best_delta = delta
-                        best_frame = fr
-                    else:
-                        break  # Moving further from target, stop
-
-                # If no frame before target_ts, take the oldest
-                if best_frame is None:
-                    best_frame = frame_history[0]
-
-            if best_frame is not None:
-                self._pre_shot_gray = best_frame.gray.copy()
-                self._pre_shot_ts = best_frame.timestamp
-                age_ms = (now - self._pre_shot_ts) * 1000
-                offset_ms = (peak_ts - self._pre_shot_ts) * 1000
-
-                # Extra diagnostic: check how many frames are before/after target
-                frames_before_target = sum(1 for fr in frame_history if fr.timestamp <= target_ts)
-                frames_after_target = sum(1 for fr in frame_history if fr.timestamp > target_ts)
-                newest_ts = frame_history[-1].timestamp if frame_history else 0
-                oldest_ts = frame_history[0].timestamp if frame_history else 0
-                span_ms = (newest_ts - oldest_ts) * 1000
-
-                print(f"[AI PRE-SHOT] OK: age={age_ms:.0f}ms, offset_from_peak={offset_ms:.0f}ms, "
-                      f"history={history_len} (span={span_ms:.0f}ms, "
-                      f"before_target={frames_before_target}, after_target={frames_after_target})")
+            if snapshot is not None:
+                self._pre_shot_gray = snapshot.copy()
+                self._pre_shot_ts = snapshot_ts
+                age_ms = (time.time() - snapshot_ts) * 1000
+                print(f"[AI PRE-SHOT] Using scanner snapshot: age={age_ms:.0f}ms")
             else:
-                if self._latest_gray is not None:
+                # Fallback: search frame_history (less reliable)
+                frame_history = getattr(scanner, "frame_history", None)
+                history_len = len(frame_history) if frame_history is not None else 0
+                now = time.time()
+                peak_ts = getattr(scanner, "last_audio_event_ts", now)
+                target_ts = peak_ts - 0.25
+                best_frame = None
+                best_delta = float("inf")
+
+                if frame_history is not None and history_len >= 2:
+                    for fr in reversed(frame_history):
+                        if fr.timestamp > target_ts:
+                            continue
+                        delta = abs(fr.timestamp - target_ts)
+                        if delta < best_delta:
+                            best_delta = delta
+                            best_frame = fr
+                        else:
+                            break
+                    if best_frame is None:
+                        best_frame = frame_history[0]
+
+                if best_frame is not None:
+                    self._pre_shot_gray = best_frame.gray.copy()
+                    self._pre_shot_ts = best_frame.timestamp
+                    print(f"[AI PRE-SHOT] Fallback from history: history={history_len}")
+                elif self._latest_gray is not None:
                     self._pre_shot_gray = self._latest_gray.copy()
                     self._pre_shot_ts = now
-                    print(f"[AI PRE-SHOT] WARNING: no history ({history_len} frames), using latest (unreliable)")
-                else:
-                    print(f"[AI PRE-SHOT] WARNING: no frames at all")
+                    print(f"[AI PRE-SHOT] WARNING: using latest (unreliable)")
             self._shot_detected = True
             self._shot_ts = time.time()
             self._post_shot_frames = []  # Reset for new shot

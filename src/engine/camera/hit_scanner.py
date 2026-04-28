@@ -144,6 +144,11 @@ class HitScanner:
         self._diag_shot_id = 0
         self._diag_frame_count = 0  # frames since last audio event
 
+        # Pre-shot snapshot: captured at audio peak time, before new frames
+        # are added to frame_history. This is the authoritative pre-shot.
+        self.pre_shot_snapshot: np.ndarray | None = None
+        self.pre_shot_snapshot_ts: float = 0.0
+
         self.last_status = "off"
         self.debug_frames: dict[str, np.ndarray] = {}
         self.last_candidates: list[dict[str, float]] = []
@@ -362,6 +367,12 @@ class HitScanner:
         self.audio_event_count += 1
         if not self.enabled or self.state != self.STATE_ACTIVE:
             return
+
+        # CRITICAL: Capture pre-shot frame RIGHT NOW, before hit_scanner.update()
+        # adds new frames to frame_history. At this point, frame_history only
+        # contains frames from PREVIOUS update cycles — guaranteed before the hole.
+        self._capture_pre_shot_snapshot(ev.timestamp)
+
         self._diag_shot_id += 1
         self._diag_frame_count = 0
         if self.shot_diag_enabled:
@@ -376,6 +387,31 @@ class HitScanner:
             )
         )
         self._next_shot_id += 1
+
+    def _capture_pre_shot_snapshot(self, peak_ts: float) -> None:
+        """Capture the best pre-shot frame from frame_history at audio peak time.
+
+        Called from _on_audio_peak BEFORE hit_scanner.update() adds new frames.
+        At this point frame_history only has frames from previous update cycles,
+        so they are guaranteed to be from before the bullet hit.
+        """
+        if not self.frame_history:
+            self.pre_shot_snapshot = None
+            self.pre_shot_snapshot_ts = 0.0
+            return
+
+        # Simply take the most recent frame in history.
+        # It's from the PREVIOUS update cycle = before the current camera frames
+        # (which may contain the hole) are added.
+        best = self.frame_history[-1]
+        self.pre_shot_snapshot = best.gray.copy()
+        self.pre_shot_snapshot_ts = best.timestamp
+
+        age_ms = (time.time() - best.timestamp) * 1000
+        offset_ms = (peak_ts - best.timestamp) * 1000 if peak_ts > 0 else -1
+        history_len = len(self.frame_history)
+        print(f"[PRE-SHOT SNAPSHOT] Captured at audio peak: age={age_ms:.0f}ms, "
+              f"offset_from_peak={offset_ms:.0f}ms, history={history_len}")
 
     def _has_open_events(self) -> bool:
         return any(ev.state == "pending" for ev in self.audio_events)
