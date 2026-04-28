@@ -259,18 +259,13 @@ class AITrainingScene(Scene):
             return None
 
     @staticmethod
-    def _save_hole_image(click_camera_xy, post_gray, hole_type: str = "hole") -> None:
-        """Save the raw post-shot patch as a grayscale PNG.
-        
-        Args:
-            click_camera_xy: camera coordinates of the hole
-            post_gray: grayscale camera frame
-            hole_type: 'synt' for synthetic, 'hole' for real shots
-        """
+    def _save_hole_image(click_camera_xy, post_gray, hole_type: str = "hole", metadata: dict | None = None) -> None:
+        """Save the raw post-shot patch as a grayscale PNG with sidecar JSON metadata."""
         if post_gray is None or np is None:
             return
         try:
             from pathlib import Path
+            import json as _json
 
             ix, iy = int(round(click_camera_xy[0])), int(round(click_camera_xy[1]))
             h, w = post_gray.shape[:2]
@@ -288,7 +283,6 @@ class AITrainingScene(Scene):
             holes_dir = Path("content/ai/holes")
             holes_dir.mkdir(parents=True, exist_ok=True)
 
-            # Find next number for this type
             prefix = str(hole_type) + "_"
             existing = sorted(holes_dir.glob(f"{prefix}*.png"))
             next_num = 1
@@ -299,14 +293,25 @@ class AITrainingScene(Scene):
                 except ValueError:
                     pass
 
-            path = holes_dir / f"{prefix}{next_num:07d}.png"
+            base_name = f"{prefix}{next_num:07d}"
+            png_path = holes_dir / f"{base_name}.png"
 
             if cv2 is not None:
-                cv2.imwrite(str(path), patch)
+                cv2.imwrite(str(png_path), patch)
             else:
                 rgb = np.stack([patch, patch, patch], axis=-1)
                 surf = pygame.image.frombuffer(rgb.tobytes(), (rgb.shape[1], rgb.shape[0]), "RGB")
-                pygame.image.save(surf, str(path))
+                pygame.image.save(surf, str(png_path))
+
+            # Save sidecar JSON metadata
+            meta = dict(metadata) if metadata else {}
+            meta["image_file"] = f"{base_name}.png"
+            meta["image_type"] = hole_type
+            meta["gt_camera_x"] = float(click_camera_xy[0])
+            meta["gt_camera_y"] = float(click_camera_xy[1])
+            meta["patch_size"] = [int(patch.shape[1]), int(patch.shape[0])]
+            json_path = holes_dir / f"{base_name}.json"
+            json_path.write_text(_json.dumps(meta, indent=2), encoding="utf-8")
         except Exception:
             pass
 
@@ -720,7 +725,36 @@ class AITrainingScene(Scene):
         # Save hole image to build training image bank
         if self.runtime.settings.get("save_hole_images", True):
             is_synthetic = self.auto_training_enabled or self.single_synth_round_active
-            self._save_hole_image(click_camera, post_gray, hole_type="synt" if is_synthetic else "hole")
+            hole_type = "synt" if is_synthetic else "hole"
+
+            # Build metadata for offline training
+            gt_screen_xy = self.auto_target_screen_xy or self.single_target_screen_xy
+            meta = {
+                "round_id": self.auto_iteration if self.auto_training_enabled else 0,
+                "background_mode": self.MODE_NAMES[self.bg_mode_index],
+                "headless_mode": self.auto_headless,
+                "auto_training": self.auto_training_enabled,
+                "match_radius_px": float(self.runtime.settings.get("click_match_radius_px", 42.0)),
+                "candidate_count_raw": len(self.ranked_candidates),
+            }
+            if gt_screen_xy is not None:
+                meta["gt_screen_x"] = float(gt_screen_xy[0])
+                meta["gt_screen_y"] = float(gt_screen_xy[1])
+            if result:
+                meta["positive_added"] = result.get("positive_added", False)
+                meta["nearest_candidate_dist"] = result.get("nearest_distance", 9999.0)
+                meta["nearest_candidate_index"] = result.get("nearest_index")
+                meta["total_positives"] = result.get("total_positives", 0)
+                meta["total_negatives"] = result.get("total_negatives", 0)
+
+            # Add top candidate info
+            if self.ranked_candidates:
+                top = self.ranked_candidates[0]
+                meta["top1_camera_x"] = float(top.get("camera_x", 0.0))
+                meta["top1_camera_y"] = float(top.get("camera_y", 0.0))
+                meta["top1_score"] = float(top.get("combined_score", top.get("score", 0.0)))
+
+            self._save_hole_image(click_camera, post_gray, hole_type=hole_type, metadata=meta)
 
         self._enter_review(click_camera, post_gray)
 
