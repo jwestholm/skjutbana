@@ -6,7 +6,8 @@
 - **Ljud** — ffmpeg-baserad peak-detektor, PulseAudio/ALSA
 - **Träffdetektion** — pre-shot diff (subtract + absdiff) + blackhat + whitehat, tracking, emission
 - **Kalibrering** — ArUco-baserad homografi med 24 markörer, RANSAC. Återanvändbar motor (`ArucoCalibrator`)
-- **Auto-kalibrering** — AI-träningsscenen kalibrerar automatiskt vid start (~1-2s)
+- **Auto-kalibrering** — AI-träningsscenen kalibrerar automatiskt vid start (~3s: ArUco + vit/svart reference)
+- **Board reference** — multi-exposure (vit + svart) ger projector response map och filtrerar bort tejp/lappningar
 - **Viewport** — separat justering av skjutgränser/rityta
 - **Koordinattransform** — kamera → screen → viewport → content via homografi
 - **Visuella träffar** — fade/persistent, kandidatvisning med snapshot
@@ -32,7 +33,7 @@
 - **Blockstatistik** — per 100 skott, visar om AI:n lär sig under körningen
 - **Kandidatstatistik** — medel/min/max, noll-rundor, >50/>100/>200
 - **Shot-diagnostik** — loggar per frame: konturer, rejections, patch-värden, tracking, emission/timeout
-- **Pre-shot timing** — 250ms före audio peak (200-350ms fönster), stöd för dubbelskott
+- **Pre-shot timing** — 500ms före audio peak (400-600ms fönster), extra marginal för kamerabuffring
 - **Shot-diagnostik bilder** — pre/post/diff PNG + animerad GIF per skott i content/ai/shot_diag/
 - **Koordinatrutnät** — nytt bakgrundsläge med A0/B1-etiketter för att verifiera pre/post-alignment
 - **HUD undertrycks** under auto-kalibrering (suppress_overlays)
@@ -57,6 +58,7 @@
 - Gray/black bakgrund har fortfarande låg recall — whitehat+absdiff bör hjälpa men ej verifierat
 - Checker-mönster förlorar GT i filter-steget — relaxade trösklar bör hjälpa men ej verifierat
 - Bubbles-läge ger inkonsistenta resultat — troligen timing/freeze-relaterat
+- Kamerabuffring ger ~100-200ms fördröjning på frame-timestamps (kompenseras med 500ms pre-shot offset)
 - AI:n är i train_only-läge — påverkar inte träffar ännu
-- Detektorn hittar ibland kanter/tejp/sprickor som kandidater
+- Detektorn hittar ibland kanter/tejp/sprickor som kandidater (board reference bör minska detta)
 - Luftgevärshål (stora) behöver verifieras med shot-diagnostik

@@ -139,7 +139,7 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 ### Hotspot-generering (hit_scanner)
 1. **Mikrofon** hör smällen → `AudioPeakEvent`
 2. **HitScanner** öppnar sökfönster (`association_lag_s = 1.5s`)
-3. **Pre-shot-bakgrund** byggs från frames ~250ms före `peak_ts` (fönster 200-350ms, fallback 150-500ms)
+3. **Pre-shot-bakgrund** byggs från frames ~500ms före `peak_ts` (fönster 400-600ms, fallback 300-800ms). Extra marginal pga kamerans interna buffring (~100-200ms).
 4. **Diff-signaler** (parallellt):
    - `subtract` (ref - current) → hittar mörkare hål
    - `absdiff` (|ref - current|) → hittar både ljusare och mörkare
@@ -261,7 +261,14 @@ TAB byter läge. Börja alltid med vit och jobba uppåt.
 2. **Kalibrera kamera** — Kamera → Kalibrera viewport via kamera. ENTER startar, 24 markörer projiceras.
 3. **Verifiera** — kolla reprojection error och per-markör error.
 
-**Auto-kalibrering:** AI-träningsscenen kör automatisk kalibrering vid start (~1-2s). Visar ArUco-markörer, fångar kamerabild, beräknar homografi. Om det misslyckas (kameran ser inte markörerna) fortsätter den med eventuell gammal kalibrering.
+**Auto-kalibrering:** AI-träningsscenen kör automatisk kalibrering + board reference vid start (~3s):
+1. ArUco-markörer visas → homografi beräknas (~1s)
+2. Ren vit bakgrund → kameran fångar "tavlan i vitt ljus" (0.5s)
+3. Ren svart bakgrund → kameran fångar "tavlan i mörker" (0.5s)
+4. Projector response map beräknas (vit - svart)
+5. White → `scene_reference_gray`, black → `surface_reference_gray`
+
+Ingen text/HUD ritas i viewporten under steg 2-3 (ren kamerabild).
 
 Båda kalibreringsflödena använder samma motor: `ArucoCalibrator` i `src/engine/camera/aruco_calibrator.py`.
 
@@ -315,7 +322,7 @@ Båda kalibreringsflödena använder samma motor: `ArucoCalibrator` i `src/engin
 | Luftgevärshål hittas inte | Kontrollera max_area (900) och max_radius (35) — stora hål behöver höga gränser |
 | Inga kandidater trots tydligt hål | Kör shot-diagnostik (loggas automatiskt) — kolla [SHOT-DIAG] i terminalen |
 | Pre/post-bilder visar fel ställe | Kolla pre_age i [REVIEW]-loggen — bör vara 200-350ms. Kolla shot_diag/ GIF:ar |
-| Pre-shot innehåller redan hålet | Pre-shot timing för nära skottet — kolla [AI PRE-SHOT] offset_from_peak |
+| Pre-shot innehåller redan hålet | Kamerabuffring — offset ökat till 500ms. Kolla [AI PRE-SHOT] offset_from_peak |
 
 ---
 
@@ -372,3 +379,5 @@ Vapen: luftgevär (5mm BB), CO2 AR-15 (stålkulor), CO2 pistol. Max 5 skott/seku
 | `absdiff` som enda diff | Projektorflicker ger diff överallt | Använd subtract som primär + absdiff som komplement |
 | Fasta center/ring-masker i patch | Stora hål (luftgevär) fick noll kontrast | Adaptiva masker baserat på konturradie |
 | Duplicerad ArUco-kod i scener | Svårt att underhålla | Extrahera till ArucoCalibrator-motor |
+| Pre-shot 250ms offset | Kamerabuffring gör att hålet redan syns | Öka till 500ms, verifiera med shot_diag GIF:ar |
+| Text i viewport under reference-capture | Kameran ser texten som artefakt | Ren vit/svart utan HUD/text |

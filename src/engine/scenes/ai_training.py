@@ -237,6 +237,8 @@ class AITrainingScene(Scene):
         self._auto_cal_max_attempts: int = 8
         self._auto_cal_result: str = ""
         self._calibrator: "ArucoCalibrator | None" = None
+        self._ref_white_gray = None
+        self._ref_black_gray = None
 
     # ------------------------------------------------------------------
     # Basic helpers
@@ -317,6 +319,50 @@ class AITrainingScene(Scene):
         self._auto_cal_result = f"Kalibrering klar: {result.message}"
         return True
 
+    def _build_board_reference(self) -> None:
+        """
+        Build board reference from white + black exposures.
+
+        White exposure: shows the board as the camera sees it with full projector light.
+        Black exposure: shows the board with no projector light (only ambient + LED).
+
+        The difference reveals:
+        - High delta pixels = projector-lit surface (paper) — these are the "active" area
+        - Low delta pixels = tape/patches/shadows that don't change with projection
+
+        We use the white exposure as scene_reference (best for subtract-based diff)
+        and build a mask of "static artifacts" that the detector can ignore.
+        """
+        if self._ref_white_gray is None:
+            print("[AUTO-CAL] No white reference, skipping board reference")
+            return
+
+        # White reference = scene reference for hit_scanner
+        hit_scanner.scene_reference_gray = self._ref_white_gray.copy()
+        hit_scanner.debug_frames["scene_reference"] = self._ref_white_gray
+        print(f"[AUTO-CAL] Scene reference set from white exposure: {self._ref_white_gray.shape}")
+
+        if self._ref_black_gray is not None and self._ref_black_gray.shape == self._ref_white_gray.shape:
+            # Build projector response map: how much each pixel changes between white and black
+            if cv2 is not None and np is not None:
+                response = cv2.absdiff(self._ref_white_gray, self._ref_black_gray)
+                # Pixels with low response (<15) are tape/patches/artifacts — they don't
+                # change with projection and will always show up as false candidates.
+                # Store as surface_reference so hit_scanner can use it in fallback diff.
+                hit_scanner.surface_reference_gray = self._ref_black_gray.copy()
+                hit_scanner.debug_frames["surface_reference"] = self._ref_black_gray
+                hit_scanner.debug_frames["projector_response"] = response
+
+                # Stats for logging
+                active_pixels = int(np.count_nonzero(response > 15))
+                total_pixels = int(response.size)
+                pct = 100.0 * active_pixels / max(1, total_pixels)
+                mean_response = float(np.mean(response))
+                print(f"[AUTO-CAL] Board map: {pct:.0f}% projector-active, "
+                      f"mean_response={mean_response:.1f}, shape={response.shape}")
+        else:
+            print("[AUTO-CAL] No black reference, using white-only scene reference")
+
     def _update_auto_calibration(self) -> None:
         """State machine for auto-calibration during scene startup."""
         if self._auto_cal_phase is None:
@@ -338,10 +384,12 @@ class AITrainingScene(Scene):
         if self._auto_cal_phase == "capture":
             self._auto_cal_attempts += 1
             if self._try_auto_calibrate():
-                # Success — transition immediately, don't wait another frame
-                self._auto_cal_phase = None
-                self.status_message = self._auto_cal_result
-                self.viewport = load_viewport_rect()
+                # Success — now capture board reference with multi-exposure
+                self._auto_cal_phase = "ref_white_settle"
+                self._auto_cal_start_ts = now
+                self._ref_white_gray = None
+                self._ref_black_gray = None
+                print("[AUTO-CAL] Calibration done, capturing board reference (white)...")
                 return
             if self._auto_cal_attempts >= self._auto_cal_max_attempts:
                 print(f"[AUTO-CAL] FAILED after {self._auto_cal_attempts} attempts")
@@ -350,6 +398,52 @@ class AITrainingScene(Scene):
                 self.status_message = self._auto_cal_result
                 self.viewport = load_viewport_rect()
                 return
+            return
+
+        # --- Multi-exposure board reference: white → capture → black → capture → mask ---
+
+        if self._auto_cal_phase == "ref_white_settle":
+            # Projector showing white — wait for settle
+            if now - self._auto_cal_start_ts < 0.5:
+                return
+            self._auto_cal_phase = "ref_white_capture"
+            return
+
+        if self._auto_cal_phase == "ref_white_capture":
+            try:
+                frame_bgr = camera_manager.get_latest_frame()
+                if frame_bgr is not None and cv2 is not None:
+                    self._ref_white_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                    print(f"[AUTO-CAL] White reference captured: {self._ref_white_gray.shape}")
+            except Exception as exc:
+                print(f"[AUTO-CAL] White capture failed: {exc}")
+            # Switch to black
+            self._auto_cal_phase = "ref_black_settle"
+            self._auto_cal_start_ts = now
+            print("[AUTO-CAL] Capturing board reference (black)...")
+            return
+
+        if self._auto_cal_phase == "ref_black_settle":
+            if now - self._auto_cal_start_ts < 0.5:
+                return
+            self._auto_cal_phase = "ref_black_capture"
+            return
+
+        if self._auto_cal_phase == "ref_black_capture":
+            try:
+                frame_bgr = camera_manager.get_latest_frame()
+                if frame_bgr is not None and cv2 is not None:
+                    self._ref_black_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                    print(f"[AUTO-CAL] Black reference captured: {self._ref_black_gray.shape}")
+            except Exception as exc:
+                print(f"[AUTO-CAL] Black capture failed: {exc}")
+
+            # Build board mask and scene reference
+            self._build_board_reference()
+
+            self._auto_cal_phase = None
+            self.status_message = self._auto_cal_result
+            self.viewport = load_viewport_rect()
             return
 
         if self._auto_cal_phase == "done":
@@ -1347,9 +1441,19 @@ class AITrainingScene(Scene):
     # Render
     # ------------------------------------------------------------------
     def render(self, screen: pygame.Surface) -> None:
-        # During auto-calibration, show ArUco markers
+        # During auto-calibration, show ArUco markers (or clean bg for ref capture)
         if self._auto_cal_phase is not None and self._auto_cal_phase != "done":
-            self._render_aruco_markers(screen)
+            if self._auto_cal_phase in ("ref_white_settle", "ref_white_capture"):
+                # Clean white — NO text, NO HUD, just pure white in viewport
+                vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+                screen.fill((30, 30, 30))
+                pygame.draw.rect(screen, (248, 248, 248), vp)
+            elif self._auto_cal_phase in ("ref_black_settle", "ref_black_capture"):
+                # Clean black — NO text, NO HUD
+                vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+                screen.fill((0, 0, 0))
+            else:
+                self._render_aruco_markers(screen)
             return
 
         overlay = self._ensure_overlay(screen)

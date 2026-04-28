@@ -61,6 +61,15 @@
 - [x] Död kod borttagen (_capture_pre_shot_frame)
 - [x] rank_with_funnel limit synkad med candidate_limit (var hardcoded 150)
 
+## Nyligen klart (board reference & pre-shot)
+
+- [x] Multi-exposure board reference: vit + svart fångas vid scen-start
+- [x] Projector response map (vit - svart) visar aktiv yta vs tejp/lappningar
+- [x] White → scene_reference, black → surface_reference i hit_scanner
+- [x] Ingen text/HUD i viewport under reference-capture (ren kamerabild)
+- [x] Pre-shot offset ökat till 500ms (kamerabuffring ger ~100-200ms fördröjning)
+- [x] Hit_scanner pre-shot fönster: 400-600ms, fallback 300-800ms
+
 ## Pågående
 
 - [ ] Benchmark-körningar med alla bakgrundslägen (white → bubbles)
