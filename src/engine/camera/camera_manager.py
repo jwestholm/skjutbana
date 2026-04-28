@@ -130,7 +130,18 @@ class CameraManager:
                 return
 
         assert self.cap is not None
-        ok, frame_bgr = self.cap.read()
+
+        # Flush the internal camera buffer by grabbing (without decoding)
+        # multiple frames, then only decode the last one. This ensures we
+        # get the most recent frame, not a stale buffered one.
+        # grab() is much faster than read() because it skips JPEG decoding.
+        for _ in range(3):
+            self.cap.grab()
+
+        ok, frame_bgr = self.cap.retrieve()
+        if not ok or frame_bgr is None:
+            # Fallback: try a normal read
+            ok, frame_bgr = self.cap.read()
         if not ok or frame_bgr is None:
             self.last_error = "Kunde inte läsa frame från kameran."
             return

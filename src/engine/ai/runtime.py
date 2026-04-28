@@ -381,11 +381,12 @@ class AIRuntime:
             now = time.time()
             peak_ts = getattr(scanner, "last_audio_event_ts", now)
 
-            # Target: 500ms before the audio peak.
-            # Camera frames may have internal buffering delay (100-200ms)
-            # even with CAP_PROP_BUFFERSIZE=1, so we need extra margin.
-            # At 30fps, 500ms = 15 frames back.
-            target_ts = peak_ts - 0.50
+            # Target: 250ms before the audio peak.
+            # With camera buffer flushing (grab+retrieve in camera_manager),
+            # frame timestamps are now accurate. 250ms gives safe margin for
+            # bullet travel (~2ms) + audio processing (~10-30ms) + 1-2 frame jitter.
+            # Works with double-taps down to ~300ms apart.
+            target_ts = peak_ts - 0.25
             best_frame = None
             best_delta = float("inf")
 

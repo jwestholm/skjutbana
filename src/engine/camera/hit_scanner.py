@@ -550,11 +550,10 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
-        # Target: 500ms before peak, window 400-600ms before peak.
-        # Camera internal buffering can add 100-200ms delay to frame timestamps,
-        # so we need extra margin beyond the theoretical 2ms bullet travel time.
-        cutoff_latest = earliest_peak_ts - 0.40
-        cutoff_earliest = earliest_peak_ts - 0.60
+        # Target: 250ms before peak, window 200-350ms before peak.
+        # Camera buffer flushing ensures frame timestamps are accurate.
+        cutoff_latest = earliest_peak_ts - 0.20
+        cutoff_earliest = earliest_peak_ts - 0.35
 
         pre_shot_frames: list[np.ndarray] = []
         for fr in reversed(self.frame_history):
@@ -566,10 +565,10 @@ class HitScanner:
             if len(pre_shot_frames) >= 5:
                 break
 
-        # If no frames in the tight window, widen to 300-800ms
+        # If no frames in the tight window, widen to 150-500ms
         if len(pre_shot_frames) < 1:
-            cutoff_latest = earliest_peak_ts - 0.30
-            cutoff_earliest = earliest_peak_ts - 0.80
+            cutoff_latest = earliest_peak_ts - 0.15
+            cutoff_earliest = earliest_peak_ts - 0.50
             for fr in reversed(self.frame_history):
                 if fr.timestamp > cutoff_latest:
                     continue
