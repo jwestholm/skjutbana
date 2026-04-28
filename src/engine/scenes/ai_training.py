@@ -32,6 +32,7 @@ except Exception:
     np = None
 
 from src.engine.ai.runtime import get_ai_runtime
+from src.engine.ai.diagnostics import RoundRecord
 from src.engine.ai.space_mapper import project_screen_point
 from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
@@ -53,6 +54,85 @@ HUD_BG = (0, 0, 0, 120)
 GRID_LINE = (222, 222, 222)
 WHITE = (240, 240, 240)
 SOFT_WHITE = (210, 210, 210)
+
+
+# ------------------------------------------------------------------
+# Sampling mode functions for auto-training hole placement
+# ------------------------------------------------------------------
+
+def _sample_center_bias(vp: pygame.Rect, margin: int = 12) -> tuple[int, int]:
+    """Current default: uniform random within viewport with margin."""
+    x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+    y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+    return x, y
+
+
+def _sample_uniform(vp: pygame.Rect, margin: int = 12) -> tuple[int, int]:
+    """Uniform random across full viewport with margin."""
+    x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+    y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+    return x, y
+
+
+def _sample_edge_bias(vp: pygame.Rect, margin: int = 12) -> tuple[int, int]:
+    """>=60% of targets within 15% of viewport edge."""
+    edge_zone = 0.15
+    if random.random() < 0.65:
+        # Place near an edge
+        edge = random.choice(["top", "bottom", "left", "right"])
+        ew = max(1, int(vp.w * edge_zone))
+        eh = max(1, int(vp.h * edge_zone))
+        if edge == "top":
+            x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+            y = random.randint(vp.top + margin, min(vp.top + margin + eh, max(vp.top + margin, vp.bottom - margin)))
+        elif edge == "bottom":
+            y_min = max(vp.top + margin, vp.bottom - margin - eh)
+            x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+            y = random.randint(y_min, max(y_min, vp.bottom - margin))
+        elif edge == "left":
+            x = random.randint(vp.left + margin, min(vp.left + margin + ew, max(vp.left + margin, vp.right - margin)))
+            y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+        else:  # right
+            x_min = max(vp.left + margin, vp.right - margin - ew)
+            x = random.randint(x_min, max(x_min, vp.right - margin))
+            y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+    else:
+        # Place anywhere (uniform)
+        x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+        y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+    return x, y
+
+
+def _sample_corners(vp: pygame.Rect, margin: int = 12) -> tuple[int, int]:
+    """Distribute across four quadrants, each within 25% of corner."""
+    qw = max(1, int(vp.w * 0.25))
+    qh = max(1, int(vp.h * 0.25))
+    corner = random.choice(["tl", "tr", "bl", "br"])
+    if corner == "tl":
+        x = random.randint(vp.left + margin, min(vp.left + margin + qw, max(vp.left + margin, vp.right - margin)))
+        y = random.randint(vp.top + margin, min(vp.top + margin + qh, max(vp.top + margin, vp.bottom - margin)))
+    elif corner == "tr":
+        x_min = max(vp.left + margin, vp.right - margin - qw)
+        x = random.randint(x_min, max(x_min, vp.right - margin))
+        y = random.randint(vp.top + margin, min(vp.top + margin + qh, max(vp.top + margin, vp.bottom - margin)))
+    elif corner == "bl":
+        x = random.randint(vp.left + margin, min(vp.left + margin + qw, max(vp.left + margin, vp.right - margin)))
+        y_min = max(vp.top + margin, vp.bottom - margin - qh)
+        y = random.randint(y_min, max(y_min, vp.bottom - margin))
+    else:  # br
+        x_min = max(vp.left + margin, vp.right - margin - qw)
+        x = random.randint(x_min, max(x_min, vp.right - margin))
+        y_min = max(vp.top + margin, vp.bottom - margin - qh)
+        y = random.randint(y_min, max(y_min, vp.bottom - margin))
+    return x, y
+
+
+SAMPLING_MODES: dict[str, Any] = {
+    "center_bias": _sample_center_bias,
+    "uniform": _sample_uniform,
+    "edge_bias": _sample_edge_bias,
+    "corners": _sample_corners,
+}
 
 
 class AITrainingScene(Scene):
@@ -137,7 +217,8 @@ class AITrainingScene(Scene):
         # Auto stats / report.
         self.auto_report_visible = False
         self.auto_report_lines: list[str] = []
-        self._reset_auto_stats()
+        self.round_records: list[RoundRecord] = []
+        self.current_round_id: int = 0
 
     # ------------------------------------------------------------------
     # Basic helpers
@@ -149,17 +230,8 @@ class AITrainingScene(Scene):
             self._cursor_visible = visible
 
     def _reset_auto_stats(self) -> None:
-        self.auto_stats: dict[str, Any] = {
-            "iterations": 0,
-            "shots_triggered": 0,
-            "candidate_rounds": 0,
-            "found": 0,
-            "top1": 0,
-            "top3": 0,
-            "missed": 0,
-            "nearest_distance_sum": 0.0,
-            "nearest_distance_count": 0,
-        }
+        self.round_records = []
+        self.current_round_id = 0
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -316,82 +388,203 @@ class AITrainingScene(Scene):
             pass
 
     # ------------------------------------------------------------------
-    # Auto report / stats
+    # Round logging & record building
     # ------------------------------------------------------------------
-    def _record_detection_stats(self, ranked_candidates: list[dict[str, Any]]) -> None:
+    def _log_round_state(self, round_id: int, state: str) -> None:
+        print(f"[ROUND {round_id}] {state}")
+
+    def _build_round_record(self, ranked_candidates: list[dict[str, Any]]) -> None:
+        """Build and append a RoundRecord from current state. Single source of truth."""
         if not self.auto_training_enabled or self.auto_target_screen_xy is None:
             return
 
-        self.auto_stats["candidate_rounds"] += 1
+        self.current_round_id += 1
+        rid = self.current_round_id
 
-        projected = project_screen_point(float(self.auto_target_screen_xy[0]), float(self.auto_target_screen_xy[1]))
-        tx, ty = float(projected.camera_x), float(projected.camera_y)
+        # Ground truth
+        gt_sx = float(self.auto_target_screen_xy[0])
+        gt_sy = float(self.auto_target_screen_xy[1])
+        projected = project_screen_point(gt_sx, gt_sy)
+        gt_cx, gt_cy = float(projected.camera_x), float(projected.camera_y)
+
         match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
 
-        nearest_rank = None
-        nearest_distance = None
+        # Candidate counts
+        raw_count = len(list(hit_scanner.last_candidates)) if hasattr(hit_scanner, "last_candidates") else 0
+        ranked_count = len(ranked_candidates)
 
+        # Detection results
+        nearest_dist = 9999.0
+        nearest_rank = 999
         for cand in ranked_candidates:
             cx = float(cand.get("camera_x", 0.0))
             cy = float(cand.get("camera_y", 0.0))
-            d = math.hypot(cx - tx, cy - ty)
-            if nearest_distance is None or d < nearest_distance:
-                nearest_distance = d
+            d = math.hypot(cx - gt_cx, cy - gt_cy)
+            if d < nearest_dist:
+                nearest_dist = d
                 nearest_rank = int(cand.get("rank", 999))
 
-        if nearest_distance is not None:
-            self.auto_stats["nearest_distance_sum"] += float(nearest_distance)
-            self.auto_stats["nearest_distance_count"] += 1
+        found = nearest_dist <= match_radius
+        top1_correct = found and nearest_rank == 1
+        top3_correct = found and nearest_rank <= 3
 
-        found = nearest_distance is not None and nearest_distance <= match_radius
-        if found:
-            self.auto_stats["found"] += 1
-            if nearest_rank == 1:
-                self.auto_stats["top1"] += 1
-            if nearest_rank is not None and nearest_rank <= 3:
-                self.auto_stats["top3"] += 1
-        else:
-            self.auto_stats["missed"] += 1
+        # AI guess pre-facit (top-1 candidate before training click)
+        ai_guess_cx = 0.0
+        ai_guess_cy = 0.0
+        ai_guess_dist = 9999.0
+        ai_guess_correct = False
+        if ranked_candidates:
+            top = ranked_candidates[0]
+            ai_guess_cx = float(top.get("camera_x", 0.0))
+            ai_guess_cy = float(top.get("camera_y", 0.0))
+            ai_guess_dist = math.hypot(ai_guess_cx - gt_cx, ai_guess_cy - gt_cy)
+            ai_guess_correct = ai_guess_dist <= match_radius
 
-    def _build_auto_report(self) -> None:
-        total = int(self.auto_stats["iterations"])
-        found = int(self.auto_stats["found"])
-        top1 = int(self.auto_stats["top1"])
-        top3 = int(self.auto_stats["top3"])
-        missed = int(self.auto_stats["missed"])
-        rounds = int(self.auto_stats["candidate_rounds"])
-        shots = int(self.auto_stats["shots_triggered"])
-        dist_count = int(self.auto_stats["nearest_distance_count"])
-        avg_dist = (
-            float(self.auto_stats["nearest_distance_sum"]) / float(dist_count)
-            if dist_count > 0 else 0.0
+        rec = RoundRecord(
+            round_id=rid,
+            timestamp=time.time(),
+            gt_screen_x=gt_sx,
+            gt_screen_y=gt_sy,
+            gt_camera_x=gt_cx,
+            gt_camera_y=gt_cy,
+            candidate_count_raw=raw_count,
+            candidate_count_ranked=ranked_count,
+            found=found,
+            top1_correct=top1_correct,
+            top3_correct=top3_correct,
+            nearest_dist=nearest_dist,
+            ai_guess_camera_x=ai_guess_cx,
+            ai_guess_camera_y=ai_guess_cy,
+            ai_guess_dist_to_gt=ai_guess_dist,
+            ai_guess_correct=ai_guess_correct,
+            sampling_mode=self.runtime.sampling_mode,
+            match_radius_px=match_radius,
+            background_mode=self.MODE_NAMES[self.bg_mode_index],
         )
+        self.round_records.append(rec)
+        self._log_round_state(rid, "candidates_ranked")
 
-        # Funnel diagnostics summary
-        funnel_lines = self.runtime.funnel.format_summary_lines()
+    # ------------------------------------------------------------------
+    # Auto report (all stats from round_records — single source of truth)
+    # ------------------------------------------------------------------
+    def _build_auto_report(self) -> None:
+        records = self.round_records
+        total = len(records)
 
-        self.auto_report_lines = [
+        # --- 5.4: Session summary logging + mismatch check ---
+        funnel_count = len(self.runtime.funnel.shots)
+        print(f"[SESSION END] round_id={self.current_round_id}, round_records={total}, funnel_shots={funnel_count}")
+        if not (self.current_round_id == total == funnel_count):
+            print(f"[MISMATCH] round_id={self.current_round_id}, records={total}, funnel={funnel_count}")
+
+        if total == 0:
+            self.auto_report_lines = ["Autoträning klar", "", "Inga rundor loggade."]
+            self.auto_report_visible = True
+            return
+
+        # Core stats from round_records
+        found = sum(1 for r in records if r.found)
+        top1 = sum(1 for r in records if r.top1_correct)
+        top3 = sum(1 for r in records if r.top3_correct)
+        missed = total - found
+        dists = [r.nearest_dist for r in records if r.nearest_dist < 9000]
+        avg_dist = sum(dists) / len(dists) if dists else 0.0
+
+        # AI guess pre-facit stats
+        records_with_cands = [r for r in records if r.candidate_count_ranked > 0]
+        ai_correct = sum(1 for r in records if r.ai_guess_correct)
+        ai_dists = [r.ai_guess_dist_to_gt for r in records_with_cands if r.ai_guess_dist_to_gt < 9000]
+        ai_avg_dist = sum(ai_dists) / len(ai_dists) if ai_dists else 0.0
+
+        # Candidate count stats
+        raw_counts = [r.candidate_count_raw for r in records]
+        avg_cands = sum(raw_counts) / len(raw_counts) if raw_counts else 0.0
+        min_cands = min(raw_counts) if raw_counts else 0
+        max_cands = max(raw_counts) if raw_counts else 0
+        zero_cands = sum(1 for c in raw_counts if c == 0)
+        over_50 = sum(1 for c in raw_counts if c > 50)
+        over_100 = sum(1 for c in raw_counts if c > 100)
+        over_200 = sum(1 for c in raw_counts if c > 200)
+
+        lines: list[str] = [
             "Autoträning klar",
             "",
             f"Iterationer: {total}",
-            f"Skott körda: {shots}",
-            f"Rundor med kandidater: {rounds}",
-            f"AI hittade hålet: {found} / {total}",
-            f"Top-1 rätt: {top1} / {total}",
-            f"Top-3 rätt: {top3} / {total}",
-            f"Missade: {missed} / {total}",
-            f"Medelavstånd bästa kandidat: {avg_dist:.1f} px" if dist_count > 0 else "Medelavstånd bästa kandidat: n/a",
+            f"Hittade hålet: {found}/{total} ({100.0 * found / total:.1f}%)",
+            f"Top-1 rätt: {top1}/{total} ({100.0 * top1 / total:.1f}%)",
+            f"Top-3 rätt: {top3}/{total} ({100.0 * top3 / total:.1f}%)",
+            f"Missade: {missed}/{total}",
+            f"Medelavstånd närmaste: {avg_dist:.1f} px" if dists else "Medelavstånd: n/a",
             "",
-            "--- Funnel-diagnostik ---",
-        ] + funnel_lines + [
-            "",
-            "Klicka eller tryck en tangent för att stänga rapporten.",
+            "--- AI-gissning (före facit) ---",
+            f"AI guess correct: {ai_correct}/{total} ({100.0 * ai_correct / total:.1f}%)",
+            f"AI guess medelavstånd: {ai_avg_dist:.1f} px" if ai_dists else "AI guess medelavstånd: n/a",
         ]
+
+        # First-100 vs Last-100 comparison (only if >= 200 rounds)
+        if total >= 200:
+            first100 = records[:100]
+            last100 = records[-100:]
+            f_found = sum(1 for r in first100 if r.found)
+            l_found = sum(1 for r in last100 if r.found)
+            f_top1 = sum(1 for r in first100 if r.top1_correct)
+            l_top1 = sum(1 for r in last100 if r.top1_correct)
+            f_ai = sum(1 for r in first100 if r.ai_guess_correct)
+            l_ai = sum(1 for r in last100 if r.ai_guess_correct)
+            f_dists = [r.nearest_dist for r in first100 if r.nearest_dist < 9000]
+            l_dists = [r.nearest_dist for r in last100 if r.nearest_dist < 9000]
+            f_avg = sum(f_dists) / len(f_dists) if f_dists else 0.0
+            l_avg = sum(l_dists) / len(l_dists) if l_dists else 0.0
+            lines += [
+                "",
+                "--- Första 100 vs Sista 100 ---",
+                f"  Found:     {f_found} → {l_found}",
+                f"  Top-1:     {f_top1} → {l_top1}",
+                f"  AI guess:  {f_ai} → {l_ai}",
+                f"  Avg dist:  {f_avg:.1f} → {l_avg:.1f} px",
+            ]
+
+        # Candidate count stats
+        lines += [
+            "",
+            "--- Kandidatstatistik ---",
+            f"Medel: {avg_cands:.1f} | Min: {min_cands} | Max: {max_cands}",
+            f"Noll-kandidat-rundor: {zero_cands}",
+            f">50: {over_50} | >100: {over_100} | >200: {over_200}",
+        ]
+
+        # Block statistics per 100 shots (only if > 100 rounds)
+        if total > 100:
+            import math as _math
+            n_blocks = _math.ceil(total / 100)
+            lines += ["", "--- Blockstatistik (per 100 skott) ---"]
+            lines.append("Block  Found  Top1  Top3  AIguess  AvgDist")
+            for b in range(n_blocks):
+                start = b * 100
+                end = min(start + 100, total)
+                block = records[start:end]
+                b_found = sum(1 for r in block if r.found)
+                b_top1 = sum(1 for r in block if r.top1_correct)
+                b_top3 = sum(1 for r in block if r.top3_correct)
+                b_ai = sum(1 for r in block if r.ai_guess_correct)
+                b_dists = [r.nearest_dist for r in block if r.nearest_dist < 9000]
+                b_avg = sum(b_dists) / len(b_dists) if b_dists else 0.0
+                block_label = f"{start + 1}-{end}"
+                lines.append(f"  {block_label:<8} {b_found:>4}  {b_top1:>4}  {b_top3:>4}  {b_ai:>7}  {b_avg:>7.1f}")
+
+        # Funnel diagnostics summary
+        funnel_lines = self.runtime.funnel.format_summary_lines()
+        lines += ["", "--- Funnel-diagnostik ---"] + funnel_lines
+
+        lines.append("")
+        lines.append("Klicka eller tryck en tangent för att stänga rapporten.")
+
+        self.auto_report_lines = lines
         self.auto_report_visible = True
 
-        # Save CSV report
+        # Save CSV report with round_records as source of truth
         try:
-            csv_path = self.runtime.funnel.save_csv("autotrain")
+            csv_path = self.runtime.funnel.save_csv("autotrain", round_records=self.round_records)
             if csv_path:
                 self.auto_report_lines.insert(-1, f"CSV sparad: {csv_path.name}")
         except Exception:
@@ -422,10 +615,12 @@ class AITrainingScene(Scene):
             self._reset_shot_state(clear_synthetic=True)
 
     def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
-        margin = 12
-        x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
-        y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
-        return x, y
+        mode = self.runtime.sampling_mode
+        sampler = SAMPLING_MODES.get(mode)
+        if sampler is None:
+            print(f"[AI-TRAINING] Unknown sampling_mode '{mode}', using center_bias")
+            sampler = _sample_center_bias
+        return sampler(vp)
 
     def _start_auto_iteration(self, screen: pygame.Surface) -> None:
         if self.auto_iteration >= self.auto_target_iterations:
@@ -434,6 +629,7 @@ class AITrainingScene(Scene):
             self._build_auto_report()
             return
 
+        self._log_round_state(self.current_round_id + 1, "round_started")
         vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
         target_xy = self._choose_auto_screen_point(vp)
         if self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True):
@@ -478,6 +674,9 @@ class AITrainingScene(Scene):
             strength=random.uniform(0.90, 1.18),
             opacity=random.uniform(0.94, 1.0),
         )
+
+        if batch_mode:
+            self._log_round_state(self.current_round_id + 1, "hole_created")
 
         # Hide cursor before the camera sees the setup.
         self._set_cursor_visible(False)
@@ -528,10 +727,10 @@ class AITrainingScene(Scene):
         self._animation_frozen = True
         self._last_peak_ts = event_ts
         self.auto_last_trigger_ts = event_ts
-        self.auto_stats["shots_triggered"] += 1
 
         if batch_mode:
             self.auto_phase = "waiting_detection"
+            self._log_round_state(self.current_round_id + 1, "shot_triggered")
             self.status_message = (
                 f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
                 "syntetiskt skott triggat."
@@ -794,7 +993,7 @@ class AITrainingScene(Scene):
 
         if self.auto_training_enabled:
             self.auto_iteration += 1
-            self.auto_stats["iterations"] = self.auto_iteration
+            self._log_round_state(self.current_round_id, "round_completed")
             self.status_message = f"Autoträning: iteration {self.auto_iteration}/{self.auto_target_iterations} klar."
             self.auto_review_ready_ts = time.time() + self.auto_review_delay_s
             self.auto_phase = "waiting_review"
@@ -807,9 +1006,30 @@ class AITrainingScene(Scene):
         if not all_candidates:
             self.status_message = "Skott detekterat men inga kandidater."
             if self.auto_training_enabled:
-                self.auto_stats["missed"] += 1
+                # Record a missed round (zero candidates)
+                self.current_round_id += 1
+                rid = self.current_round_id
+                gt_sx = float(self.auto_target_screen_xy[0]) if self.auto_target_screen_xy else 0.0
+                gt_sy = float(self.auto_target_screen_xy[1]) if self.auto_target_screen_xy else 0.0
+                gt_cx, gt_cy = 0.0, 0.0
+                if self.auto_target_screen_xy:
+                    projected = project_screen_point(gt_sx, gt_sy)
+                    gt_cx, gt_cy = float(projected.camera_x), float(projected.camera_y)
+                self.round_records.append(RoundRecord(
+                    round_id=rid,
+                    timestamp=time.time(),
+                    gt_screen_x=gt_sx, gt_screen_y=gt_sy,
+                    gt_camera_x=gt_cx, gt_camera_y=gt_cy,
+                    candidate_count_raw=0, candidate_count_ranked=0,
+                    found=False, top1_correct=False, top3_correct=False,
+                    nearest_dist=9999.0,
+                    ai_guess_dist_to_gt=9999.0, ai_guess_correct=False,
+                    sampling_mode=self.runtime.sampling_mode,
+                    match_radius_px=float(self.runtime.settings.get("click_match_radius_px", 42.0)),
+                    background_mode=self.MODE_NAMES[self.bg_mode_index],
+                ))
+                self._log_round_state(rid, "round_completed (no candidates)")
                 self.auto_iteration += 1
-                self.auto_stats["iterations"] = self.auto_iteration
                 if self.auto_iteration >= self.auto_target_iterations:
                     self.auto_training_enabled = False
                     self.auto_phase = "idle"
@@ -838,7 +1058,7 @@ class AITrainingScene(Scene):
         )
         self.awaiting_click = True
         self.clicked_camera_xy = None
-        self._record_detection_stats(self.ranked_candidates)
+        self._build_round_record(self.ranked_candidates)
 
         if self.auto_training_enabled:
             self.auto_click_ready_ts = time.time() + self.auto_click_delay_s
@@ -855,6 +1075,9 @@ class AITrainingScene(Scene):
     def _on_training_click(self, screen_pos: tuple[int, int]) -> None:
         # Hide mouse immediately after click so only the projected world remains for photo/capture.
         self._set_cursor_visible(False)
+
+        if self.auto_training_enabled:
+            self._log_round_state(self.current_round_id, "selection_made")
 
         projected = project_screen_point(float(screen_pos[0]), float(screen_pos[1]))
         click_camera = (projected.camera_x, projected.camera_y)
@@ -911,7 +1134,7 @@ class AITrainingScene(Scene):
 
     def _render_auto_report(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         lines = self.auto_report_lines or ["Autoträning klar"]
-        width = min(720, max(420, vp.w - 80))
+        width = min(780, max(480, vp.w - 60))
         line_h = 28
         height = 80 + len(lines) * line_h
         panel_rect = pygame.Rect(0, 0, width, height)
@@ -1215,11 +1438,16 @@ class AITrainingScene(Scene):
         screen.blit(help_surf, (sw - help_surf.get_width() - 12, sh - 48))
 
         if self.auto_training_enabled:
+            recs = self.round_records
+            _found = sum(1 for r in recs if r.found)
+            _top1 = sum(1 for r in recs if r.top1_correct)
+            _top3 = sum(1 for r in recs if r.top3_correct)
+            _miss = len(recs) - _found
             stats_text = (
-                f"Hittat: {self.auto_stats['found']}  "
-                f"Top-1: {self.auto_stats['top1']}  "
-                f"Top-3: {self.auto_stats['top3']}  "
-                f"Miss: {self.auto_stats['missed']}"
+                f"Hittat: {_found}  "
+                f"Top-1: {_top1}  "
+                f"Top-3: {_top3}  "
+                f"Miss: {_miss}"
             )
             stats_surf = self.tiny.render(stats_text, True, ORANGE)
             screen.blit(stats_surf, (12, sh - 48))

@@ -11,11 +11,81 @@ from __future__ import annotations
 import csv
 import math
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 AI_DIR = Path("content/ai")
 REPORTS_DIR = AI_DIR / "reports"
+
+
+@dataclass
+class RoundRecord:
+    """Per-round metrics — single source of truth for all reporting."""
+
+    round_id: int
+    timestamp: float
+
+    # Ground truth
+    gt_screen_x: float = 0.0
+    gt_screen_y: float = 0.0
+    gt_camera_x: float = 0.0
+    gt_camera_y: float = 0.0
+
+    # Candidate counts
+    candidate_count_raw: int = 0
+    candidate_count_ranked: int = 0
+
+    # Detection results
+    found: bool = False
+    top1_correct: bool = False
+    top3_correct: bool = False
+    nearest_dist: float = 9999.0
+
+    # AI guess pre-facit
+    ai_guess_camera_x: float = 0.0
+    ai_guess_camera_y: float = 0.0
+    ai_guess_dist_to_gt: float = 9999.0
+    ai_guess_correct: bool = False
+
+    # Context
+    sampling_mode: str = "center_bias"
+    match_radius_px: float = 42.0
+    background_mode: str = "white"
+
+    def to_csv_dict(self) -> Dict[str, Any]:
+        """Flat dict suitable for CSV export."""
+        return {
+            "round_id": self.round_id,
+            "timestamp": self.timestamp,
+            "gt_screen_x": round(self.gt_screen_x, 1),
+            "gt_screen_y": round(self.gt_screen_y, 1),
+            "gt_camera_x": round(self.gt_camera_x, 1),
+            "gt_camera_y": round(self.gt_camera_y, 1),
+            "candidate_count_raw": self.candidate_count_raw,
+            "candidate_count_ranked": self.candidate_count_ranked,
+            "found": self.found,
+            "top1_correct": self.top1_correct,
+            "top3_correct": self.top3_correct,
+            "nearest_dist": round(self.nearest_dist, 1),
+            "ai_guess_camera_x": round(self.ai_guess_camera_x, 1),
+            "ai_guess_camera_y": round(self.ai_guess_camera_y, 1),
+            "ai_guess_dist_to_gt": round(self.ai_guess_dist_to_gt, 1),
+            "ai_guess_correct": self.ai_guess_correct,
+            "sampling_mode": self.sampling_mode,
+            "match_radius_px": self.match_radius_px,
+            "background_mode": self.background_mode,
+        }
+
+
+ROUND_RECORD_CSV_FIELDS = [
+    "round_id", "timestamp",
+    "gt_screen_x", "gt_screen_y", "gt_camera_x", "gt_camera_y",
+    "candidate_count_raw", "candidate_count_ranked",
+    "found", "top1_correct", "top3_correct", "nearest_dist",
+    "ai_guess_camera_x", "ai_guess_camera_y", "ai_guess_dist_to_gt", "ai_guess_correct",
+    "sampling_mode", "match_radius_px", "background_mode",
+]
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
@@ -208,8 +278,15 @@ class FunnelTracker:
             "avg_selected_dist": round(sum(sel_dists) / len(sel_dists), 1) if sel_dists else 0.0,
         }
 
-    def save_csv(self, label: str = "session") -> Optional[Path]:
-        """Save per-shot diagnostics as CSV."""
+    def save_csv(self, label: str = "session", round_records: Optional[List["RoundRecord"]] = None) -> Optional[Path]:
+        """Save per-shot diagnostics as CSV.
+
+        If round_records is provided, writes one row per RoundRecord with all
+        fields (single source of truth). Otherwise falls back to ShotDiagnostics.
+        """
+        if round_records is not None:
+            return self._save_round_records_csv(label, round_records)
+
         if not self.shots:
             return None
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -230,6 +307,38 @@ class FunnelTracker:
             writer.writeheader()
             for shot in self.shots:
                 writer.writerow(shot.to_dict())
+
+        return path
+
+    def _save_round_records_csv(self, label: str, records: List["RoundRecord"]) -> Optional[Path]:
+        """Save round records as CSV — includes all RoundRecord fields + funnel data."""
+        if not records:
+            return None
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        path = REPORTS_DIR / f"funnel_{label}_{stamp}.csv"
+
+        # Merge RoundRecord fields with ShotDiagnostics fields
+        funnel_fields = [
+            "raw_hotspot_count", "raw_contains_gt", "raw_closest_dist",
+            "filtered_count", "gt_survived_filter", "filter_killed_gt",
+            "ai_topk_count", "gt_in_topk", "selected_dist", "ai_selected_correct",
+            "within_5px", "within_10px", "within_15px", "within_20px",
+        ]
+        all_fields = list(ROUND_RECORD_CSV_FIELDS) + funnel_fields
+
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=all_fields, extrasaction="ignore")
+            writer.writeheader()
+            for i, rec in enumerate(records):
+                row = rec.to_csv_dict()
+                # Merge funnel data if available
+                if i < len(self.shots):
+                    shot_dict = self.shots[i].to_dict()
+                    for key in funnel_fields:
+                        if key in shot_dict:
+                            row[key] = shot_dict[key]
+                writer.writerow(row)
 
         return path
 

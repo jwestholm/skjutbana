@@ -59,6 +59,7 @@ def _patch_hit_scanner() -> None:
 
             runtime = get_ai_runtime()
             runtime.observe_scanner(self)
+            self.candidate_limit = runtime.candidate_limit
         except Exception:
             pass
         return result

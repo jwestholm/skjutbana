@@ -45,6 +45,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_learn": True,
     "gt_match_radius_px": 10.0,
     "save_hole_images": True,
+    "candidate_limit": 200,
+    "sampling_mode": "center_bias",  # center_bias | uniform | edge_bias | corners
 }
 
 # ---- Feature keys (consistent between training and scoring) ----
@@ -322,6 +324,24 @@ class AIRuntime:
     def save_settings(self) -> None:
         AI_DIR.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
+
+    @property
+    def candidate_limit(self) -> int:
+        """Max raw hotspot candidates retained by HitScanner. Clamped to [1, 2000]."""
+        try:
+            val = int(self.settings.get("candidate_limit", 200))
+        except (TypeError, ValueError):
+            val = 200
+        return max(1, min(2000, val))
+
+    @property
+    def sampling_mode(self) -> str:
+        """Sampling strategy for synthetic hole placement during auto-training."""
+        mode = str(self.settings.get("sampling_mode", "center_bias")).strip().lower()
+        if mode not in ("center_bias", "uniform", "edge_bias", "corners"):
+            print(f"[AI] Unknown sampling_mode '{mode}', falling back to center_bias")
+            return "center_bias"
+        return mode
 
     # ------------------------------------------------------------------
     # Bootstrap hooks (called from patched HitScanner)

@@ -128,6 +128,7 @@ class HitScanner:
         self.rehit_gain_required = 4.0
         self.max_known_holes = 512
         self.known_holes: list[dict[str, float]] = []
+        self.candidate_limit: int = 200
 
         self._active_tracks: dict[int, HoleTrack] = {}
 
@@ -737,7 +738,7 @@ class HitScanner:
                 candidate["near_known_hole_dist"] = float(dist)
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
-        self.last_candidates = candidates[:150]
+        self.last_candidates = candidates[:self.candidate_limit]
 
         # Zone stats for kept candidates
         kept_zones = {"left": 0, "mid": 0, "right": 0}

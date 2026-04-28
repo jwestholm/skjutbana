@@ -14,6 +14,20 @@
 - [x] Konservativare noise rejection (existed_before threshold 0.8)
 - [x] Syntetisk autoträning med funnel-diagnostik och CSV-rapport
 
+## Nyligen klart (observability-sprint)
+
+- [x] RoundRecord som enda sanningskälla — ersätter auto_stats dict
+- [x] AI guess pre-facit i grafiska rapporten (ai_guess_correct, avg dist)
+- [x] Första 100 vs sista 100 jämförelse i rapporten
+- [x] Blockstatistik per 100 skott i rapporten
+- [x] Kandidatstatistik (medel/min/max, noll-rundor, >50/>100/>200)
+- [x] Synkad UI-rapport, funnel och CSV (alla från round_records)
+- [x] Round-ID + state logging per runda ([ROUND N] state)
+- [x] Session-summary med mismatch-varning
+- [x] Konfigurerbar candidate_limit via settings.json (default 200, range 1-2000)
+- [x] Sampling modes förberett (center_bias, uniform, edge_bias, corners)
+- [x] CSV-export med alla RoundRecord-fält + funnel-data
+
 ## Pågående
 
 - [ ] Verifiera funnel-diagnostik med autoträning
