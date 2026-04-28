@@ -763,24 +763,25 @@ class AITrainingScene(Scene):
                 meta["total_positives"] = result.get("total_positives", 0)
                 meta["total_negatives"] = result.get("total_negatives", 0)
 
-            # Top candidate info + GT comparison
+            # Top candidate info + GT comparison (AI's guess BEFORE training)
             match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
             if self.ranked_candidates:
                 top = self.ranked_candidates[0]
                 top_x = float(top.get("camera_x", 0.0))
                 top_y = float(top.get("camera_y", 0.0))
                 top_dist = math.hypot(top_x - click_camera[0], top_y - click_camera[1])
-                meta["top1_camera_x"] = round(top_x, 1)
-                meta["top1_camera_y"] = round(top_y, 1)
-                meta["top1_score"] = round(float(top.get("combined_score", top.get("score", 0.0))), 3)
-                meta["top1_dist_to_gt_camera"] = round(top_dist, 1)
+                meta["ai_guess_camera_x"] = round(top_x, 1)
+                meta["ai_guess_camera_y"] = round(top_y, 1)
+                meta["ai_guess_score"] = round(float(top.get("combined_score", top.get("score", 0.0))), 3)
+                meta["ai_guess_ai_score"] = round(float(top.get("ai_score", 0.5)), 3)
+                meta["ai_guess_dist_to_gt"] = round(top_dist, 1)
+                meta["ai_guess_correct"] = top_dist <= match_radius
                 meta["top1_correct"] = top_dist <= match_radius
                 meta["found_within_match_radius"] = any(
                     math.hypot(float(c.get("camera_x", 0)) - click_camera[0],
                                float(c.get("camera_y", 0)) - click_camera[1]) <= match_radius
                     for c in self.ranked_candidates
                 )
-                # Top-3 check
                 meta["top3_correct"] = any(
                     math.hypot(float(c.get("camera_x", 0)) - click_camera[0],
                                float(c.get("camera_y", 0)) - click_camera[1]) <= match_radius
