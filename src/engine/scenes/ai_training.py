@@ -224,6 +224,15 @@ class AITrainingScene(Scene):
         self.round_records: list[RoundRecord] = []
         self.current_round_id: int = 0
 
+        # Auto-calibration state
+        self._auto_cal_phase: str | None = None
+        self._auto_cal_start_ts: float = 0.0
+        self._auto_cal_settle_s: float = 0.6
+        self._auto_cal_attempts: int = 0
+        self._auto_cal_max_attempts: int = 8
+        self._auto_cal_result: str = ""
+        self._calibrator: "ArucoCalibrator | None" = None
+
     # ------------------------------------------------------------------
     # Basic helpers
     # ------------------------------------------------------------------
@@ -236,15 +245,6 @@ class AITrainingScene(Scene):
     def _reset_auto_stats(self) -> None:
         self.round_records = []
         self.current_round_id = 0
-
-        # Auto-calibration state
-        self._auto_cal_phase: str | None = None  # None | "show_markers" | "wait_settle" | "capture" | "done"
-        self._auto_cal_start_ts: float = 0.0
-        self._auto_cal_settle_s: float = 0.6  # Wait for projector to show markers
-        self._auto_cal_attempts: int = 0
-        self._auto_cal_max_attempts: int = 8
-        self._auto_cal_result: str = ""
-        self._calibrator: "ArucoCalibrator | None" = None
 
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
@@ -333,12 +333,17 @@ class AITrainingScene(Scene):
         if self._auto_cal_phase == "capture":
             self._auto_cal_attempts += 1
             if self._try_auto_calibrate():
-                self._auto_cal_phase = "done"
+                # Success — transition immediately, don't wait another frame
+                self._auto_cal_phase = None
+                self.status_message = self._auto_cal_result
+                self.viewport = load_viewport_rect()
                 return
             if self._auto_cal_attempts >= self._auto_cal_max_attempts:
                 print(f"[AUTO-CAL] FAILED after {self._auto_cal_attempts} attempts")
                 self._auto_cal_result = "Autokalibrering misslyckades — kör manuellt via menyn"
-                self._auto_cal_phase = "done"
+                self._auto_cal_phase = None
+                self.status_message = self._auto_cal_result
+                self.viewport = load_viewport_rect()
                 return
             return
 
