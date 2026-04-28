@@ -237,22 +237,38 @@ class HitScanner:
             self.last_stable_tracks = []
             return
 
-        frame_bgr = camera_manager.get_latest_frame()
-        if frame_bgr is None:
-            self.last_status = "no_camera_frame"
-            return
-
-        frame_ts = camera_manager.get_latest_timestamp() or time.time()
-        now = time.time()
-
-        is_new_frame = self._last_frame_ts is None or abs(frame_ts - self._last_frame_ts) > 1e-6
-        if is_new_frame:
-            self._last_frame_ts = frame_ts
+        # Ingest ALL drained frames into history for accurate pre-shot timing.
+        # camera_manager drains the internal buffer each update(), giving us
+        # every frame the camera produced — not just the latest.
+        drained = camera_manager.get_drained_frames()
+        if drained:
+            for cf in drained:
+                gray_f = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY)
+                self.frame_history.append(ScanportFrame(timestamp=cf.timestamp, gray=gray_f))
+            # Use the newest frame for detection
+            frame_bgr = drained[-1].frame_bgr
+            frame_ts = drained[-1].timestamp
             gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-            self.frame_history.append(ScanportFrame(timestamp=frame_ts, gray=gray))
             self.debug_frames["camera_gray"] = gray
+            self._last_frame_ts = frame_ts
+            is_new_frame = True
         else:
-            gray = self.frame_history[-1].gray if self.frame_history else cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            # Fallback: single frame from get_latest_frame
+            frame_bgr = camera_manager.get_latest_frame()
+            if frame_bgr is None:
+                self.last_status = "no_camera_frame"
+                return
+            frame_ts = camera_manager.get_latest_timestamp() or time.time()
+            is_new_frame = self._last_frame_ts is None or abs(frame_ts - self._last_frame_ts) > 1e-6
+            if is_new_frame:
+                self._last_frame_ts = frame_ts
+                gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                self.frame_history.append(ScanportFrame(timestamp=frame_ts, gray=gray))
+                self.debug_frames["camera_gray"] = gray
+            else:
+                gray = self.frame_history[-1].gray if self.frame_history else cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+        now = time.time()
 
         if self.state == self.STATE_ARMING:
             if now >= self.arm_until_ts:

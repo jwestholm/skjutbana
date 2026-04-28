@@ -131,28 +131,31 @@ class CameraManager:
 
         assert self.cap is not None
 
-        # Flush the internal camera buffer by grabbing (without decoding)
-        # multiple frames, then only decode the last one. This ensures we
-        # get the most recent frame, not a stale buffered one.
-        # grab() is much faster than read() because it skips JPEG decoding.
-        for _ in range(3):
-            self.cap.grab()
+        # Drain all buffered frames to keep timestamps accurate.
+        # Store all frames so hit_scanner can build a dense frame_history.
+        self._drained_frames: list[CameraFrame] = []
 
-        ok, frame_bgr = self.cap.retrieve()
-        if not ok or frame_bgr is None:
-            # Fallback: try a normal read
-            ok, frame_bgr = self.cap.read()
-        if not ok or frame_bgr is None:
-            self.last_error = "Kunde inte läsa frame från kameran."
-            return
+        while True:
+            grabbed = self.cap.grab()
+            if not grabbed:
+                break
+            ok, frame_bgr = self.cap.retrieve()
+            if ok and frame_bgr is not None:
+                frame_bgr = self._apply_frame_transform(frame_bgr)
+                cf = CameraFrame(frame_bgr=frame_bgr, timestamp=time.time())
+                self._drained_frames.append(cf)
+            # Safety: don't drain more than 10 frames per update
+            if len(self._drained_frames) >= 10:
+                break
 
-        frame_bgr = self._apply_frame_transform(frame_bgr)
+        if self._drained_frames:
+            self.latest_frame = self._drained_frames[-1]
+            self.last_error = None
+            self.capabilities = probe_camera_capabilities(self.cap)
 
-        self.latest_frame = CameraFrame(frame_bgr=frame_bgr, timestamp=time.time())
-        self.last_error = None
-
-        # Uppdatera faktiskt negotiated capture-läge när kameran väl levererar frames.
-        self.capabilities = probe_camera_capabilities(self.cap)
+    def get_drained_frames(self) -> list[CameraFrame]:
+        """Return all frames drained in the last update(), oldest first."""
+        return getattr(self, '_drained_frames', [])
 
     def get_latest_frame(self) -> np.ndarray | None:
         if self.latest_frame is None:
