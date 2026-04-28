@@ -727,32 +727,65 @@ class AITrainingScene(Scene):
             is_synthetic = self.auto_training_enabled or self.single_synth_round_active
             hole_type = "synt" if is_synthetic else "hole"
 
-            # Build metadata for offline training
+            # Build rich metadata for offline training
             gt_screen_xy = self.auto_target_screen_xy or self.single_target_screen_xy
-            meta = {
-                "round_id": self.auto_iteration if self.auto_training_enabled else 0,
+            import time as _meta_time
+            session_id = _meta_time.strftime("%Y-%m-%d")
+            run_id = self.runtime.session_stats.get("shots_seen", 0)
+
+            meta: dict[str, Any] = {
+                "session_id": session_id,
+                "run_id": run_id,
+                "round_id": self.auto_iteration if self.auto_training_enabled else run_id,
                 "background_mode": self.MODE_NAMES[self.bg_mode_index],
+                "lighting_mode": "unknown",
+                "clean_mode": True,
                 "headless_mode": self.auto_headless,
                 "auto_training": self.auto_training_enabled,
                 "match_radius_px": float(self.runtime.settings.get("click_match_radius_px", 42.0)),
-                "candidate_count_raw": len(self.ranked_candidates),
             }
+
+            # GT coordinates
             if gt_screen_xy is not None:
                 meta["gt_screen_x"] = float(gt_screen_xy[0])
                 meta["gt_screen_y"] = float(gt_screen_xy[1])
+
+            # Candidate counts (raw from hit_scanner, ranked = after funnel)
+            raw_count = len(list(hit_scanner.last_candidates)) if hasattr(hit_scanner, "last_candidates") else 0
+            meta["candidate_count_raw"] = raw_count
+            meta["candidate_count_ranked"] = len(self.ranked_candidates)
+
+            # Training result
             if result:
                 meta["positive_added"] = result.get("positive_added", False)
-                meta["nearest_candidate_dist"] = result.get("nearest_distance", 9999.0)
+                meta["nearest_candidate_dist"] = round(result.get("nearest_distance", 9999.0), 1)
                 meta["nearest_candidate_index"] = result.get("nearest_index")
                 meta["total_positives"] = result.get("total_positives", 0)
                 meta["total_negatives"] = result.get("total_negatives", 0)
 
-            # Add top candidate info
+            # Top candidate info + GT comparison
+            match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
             if self.ranked_candidates:
                 top = self.ranked_candidates[0]
-                meta["top1_camera_x"] = float(top.get("camera_x", 0.0))
-                meta["top1_camera_y"] = float(top.get("camera_y", 0.0))
-                meta["top1_score"] = float(top.get("combined_score", top.get("score", 0.0)))
+                top_x = float(top.get("camera_x", 0.0))
+                top_y = float(top.get("camera_y", 0.0))
+                top_dist = math.hypot(top_x - click_camera[0], top_y - click_camera[1])
+                meta["top1_camera_x"] = round(top_x, 1)
+                meta["top1_camera_y"] = round(top_y, 1)
+                meta["top1_score"] = round(float(top.get("combined_score", top.get("score", 0.0))), 3)
+                meta["top1_dist_to_gt_camera"] = round(top_dist, 1)
+                meta["top1_correct"] = top_dist <= match_radius
+                meta["found_within_match_radius"] = any(
+                    math.hypot(float(c.get("camera_x", 0)) - click_camera[0],
+                               float(c.get("camera_y", 0)) - click_camera[1]) <= match_radius
+                    for c in self.ranked_candidates
+                )
+                # Top-3 check
+                meta["top3_correct"] = any(
+                    math.hypot(float(c.get("camera_x", 0)) - click_camera[0],
+                               float(c.get("camera_y", 0)) - click_camera[1]) <= match_radius
+                    for c in self.ranked_candidates[:3]
+                )
 
             self._save_hole_image(click_camera, post_gray, hole_type=hole_type, metadata=meta)
 
