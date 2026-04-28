@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 
 import cv2
@@ -21,6 +23,21 @@ class CameraFrame:
 
 
 class CameraManager:
+    """
+    Camera manager with a dedicated reader thread.
+
+    The reader thread calls cap.read() in a tight loop, timestamping each
+    frame at read time. Frames go into a thread-safe ring buffer.
+    Main thread picks up frames via update() / get_latest_frame().
+
+    This solves the camera buffering problem: timestamps reflect when
+    the frame was actually read from the driver, and the ring buffer
+    gives hit_scanner a dense frame history for accurate pre-shot selection.
+    """
+
+    # Ring buffer size: ~10 seconds at 30fps
+    RING_BUFFER_SIZE = 300
+
     def __init__(
         self,
         camera_index: int = 0,
@@ -44,6 +61,13 @@ class CameraManager:
         self.mirror_horizontal = False
         self.mirror_vertical = False
         self.reload_transform_settings()
+
+        # Reader thread state
+        self._reader_thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._ring: deque[CameraFrame] = deque(maxlen=self.RING_BUFFER_SIZE)
+        self._read_count: int = 0
+        self._last_pickup_count: int = 0
 
     def reload_transform_settings(self) -> None:
         settings = load_camera_transform_settings()
@@ -77,7 +101,7 @@ class CameraManager:
         return ", ".join(parts)
 
     def start(self) -> bool:
-        if self.cap is not None and self.cap.isOpened():
+        if self._reader_thread is not None and self._reader_thread.is_alive():
             self.running = True
             return True
 
@@ -94,9 +118,6 @@ class CameraManager:
         self.cap = cap
         self.running = True
 
-        # Minimize internal buffer to reduce frame latency.
-        # Without this, OpenCV can buffer several seconds of frames,
-        # making "current" frames actually be old.
         try:
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
@@ -109,10 +130,24 @@ class CameraManager:
             preferred_fps=self.preferred_fps,
         )
         self.capabilities = probe_camera_capabilities(self.cap)
+
+        # Start reader thread
+        with self._lock:
+            self._ring.clear()
+            self._read_count = 0
+            self._last_pickup_count = 0
+
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
         return True
 
     def stop(self) -> None:
         self.running = False
+
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=2.0)
+            self._reader_thread = None
+
         if self.cap is not None:
             try:
                 self.cap.release()
@@ -121,41 +156,59 @@ class CameraManager:
         self.cap = None
         self.latest_frame = None
 
+    def _reader_loop(self) -> None:
+        """Dedicated thread: reads frames as fast as the camera delivers them."""
+        while self.running and self.cap is not None and self.cap.isOpened():
+            try:
+                ok, frame_bgr = self.cap.read()
+            except Exception:
+                break
+
+            if not ok or frame_bgr is None:
+                time.sleep(0.001)
+                continue
+
+            ts = time.time()
+            frame_bgr = self._apply_frame_transform(frame_bgr)
+            cf = CameraFrame(frame_bgr=frame_bgr, timestamp=ts)
+
+            with self._lock:
+                self._ring.append(cf)
+                self._read_count += 1
+
     def update(self) -> None:
+        """Main thread: pick up the latest frame from the ring buffer."""
         if not self.running:
             return
 
-        if self.cap is None or not self.cap.isOpened():
-            if not self.start():
-                return
-
-        assert self.cap is not None
-
-        # Drain all buffered frames to keep timestamps accurate.
-        # Store all frames so hit_scanner can build a dense frame_history.
-        self._drained_frames: list[CameraFrame] = []
-
-        while True:
-            grabbed = self.cap.grab()
-            if not grabbed:
-                break
-            ok, frame_bgr = self.cap.retrieve()
-            if ok and frame_bgr is not None:
-                frame_bgr = self._apply_frame_transform(frame_bgr)
-                cf = CameraFrame(frame_bgr=frame_bgr, timestamp=time.time())
-                self._drained_frames.append(cf)
-            # Safety: don't drain more than 10 frames per update
-            if len(self._drained_frames) >= 10:
-                break
-
-        if self._drained_frames:
-            self.latest_frame = self._drained_frames[-1]
+        with self._lock:
+            if self._ring:
+                self.latest_frame = self._ring[-1]
+                self._last_pickup_count = self._read_count
             self.last_error = None
+
+        if self.cap is not None:
             self.capabilities = probe_camera_capabilities(self.cap)
 
-    def get_drained_frames(self) -> list[CameraFrame]:
-        """Return all frames drained in the last update(), oldest first."""
-        return getattr(self, '_drained_frames', [])
+    def get_new_frames_since_last_pickup(self) -> list[CameraFrame]:
+        """Return all frames added to the ring since the last call to this method.
+
+        Used by hit_scanner to build a dense frame_history with every frame
+        the camera produced, not just the latest per update cycle.
+        """
+        with self._lock:
+            current_count = self._read_count
+            ring_list = list(self._ring)
+
+        # How many new frames since last pickup?
+        new_count = current_count - self._last_pickup_count
+        self._last_pickup_count = current_count
+
+        if new_count <= 0:
+            return []
+        if new_count >= len(ring_list):
+            return ring_list
+        return ring_list[-new_count:]
 
     def get_latest_frame(self) -> np.ndarray | None:
         if self.latest_frame is None:
@@ -166,6 +219,11 @@ class CameraManager:
         if self.latest_frame is None:
             return None
         return self.latest_frame.timestamp
+
+    def get_ring_snapshot(self) -> list[CameraFrame]:
+        """Return a snapshot of the entire ring buffer (for pre-shot search)."""
+        with self._lock:
+            return list(self._ring)
 
     def get_status_lines(self) -> list[str]:
         lines: list[str] = []
@@ -186,6 +244,11 @@ class CameraManager:
             lines.append(f"Init props: {applied}")
 
         lines.append(f"Kameratransform: {self._transform_description()}")
+
+        with self._lock:
+            ring_len = len(self._ring)
+            total_read = self._read_count
+        lines.append(f"Ring buffer: {ring_len}/{self.RING_BUFFER_SIZE} | Total frames: {total_read}")
 
         if self.last_error:
             lines.append(f"Fel: {self.last_error}")

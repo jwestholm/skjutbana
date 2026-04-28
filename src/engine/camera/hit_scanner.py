@@ -242,23 +242,23 @@ class HitScanner:
             self.last_stable_tracks = []
             return
 
-        # Ingest ALL drained frames into history for accurate pre-shot timing.
-        # camera_manager drains the internal buffer each update(), giving us
-        # every frame the camera produced — not just the latest.
-        drained = camera_manager.get_drained_frames()
-        if drained:
-            for cf in drained:
+        # Ingest ALL new frames from camera ring buffer into history.
+        # The reader thread timestamps each frame at cap.read() time,
+        # giving us accurate timestamps independent of main loop rate.
+        new_frames = camera_manager.get_new_frames_since_last_pickup()
+        if new_frames:
+            for cf in new_frames:
                 gray_f = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY)
                 self.frame_history.append(ScanportFrame(timestamp=cf.timestamp, gray=gray_f))
             # Use the newest frame for detection
-            frame_bgr = drained[-1].frame_bgr
-            frame_ts = drained[-1].timestamp
+            frame_bgr = new_frames[-1].frame_bgr
+            frame_ts = new_frames[-1].timestamp
             gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
             self.debug_frames["camera_gray"] = gray
             self._last_frame_ts = frame_ts
             is_new_frame = True
         else:
-            # Fallback: single frame from get_latest_frame
+            # No new frames this cycle
             frame_bgr = camera_manager.get_latest_frame()
             if frame_bgr is None:
                 self.last_status = "no_camera_frame"
@@ -389,29 +389,42 @@ class HitScanner:
         self._next_shot_id += 1
 
     def _capture_pre_shot_snapshot(self, peak_ts: float) -> None:
-        """Capture the best pre-shot frame from frame_history at audio peak time.
+        """Capture pre-shot frame from camera ring buffer at audio peak time.
 
-        Called from _on_audio_peak BEFORE hit_scanner.update() adds new frames.
-        At this point frame_history only has frames from previous update cycles,
-        so they are guaranteed to be from before the bullet hit.
+        The ring buffer is filled by the camera reader thread with accurate
+        timestamps. We find the frame closest to 250ms before peak_ts
+        (closest by absolute distance, not strictly before).
         """
-        if not self.frame_history:
+        ring = camera_manager.get_ring_snapshot()
+        if not ring:
             self.pre_shot_snapshot = None
             self.pre_shot_snapshot_ts = 0.0
+            print("[PRE-SHOT SNAPSHOT] Ring buffer empty")
             return
 
-        # Simply take the most recent frame in history.
-        # It's from the PREVIOUS update cycle = before the current camera frames
-        # (which may contain the hole) are added.
-        best = self.frame_history[-1]
-        self.pre_shot_snapshot = best.gray.copy()
+        target_ts = peak_ts - 0.25
+        best = None
+        best_delta = float("inf")
+
+        for cf in ring:
+            delta = abs(cf.timestamp - target_ts)
+            if delta < best_delta:
+                best_delta = delta
+                best = cf
+
+        if best is None:
+            best = ring[0]
+
+        gray = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
+        self.pre_shot_snapshot = gray
         self.pre_shot_snapshot_ts = best.timestamp
 
         age_ms = (time.time() - best.timestamp) * 1000
-        offset_ms = (peak_ts - best.timestamp) * 1000 if peak_ts > 0 else -1
-        history_len = len(self.frame_history)
-        print(f"[PRE-SHOT SNAPSHOT] Captured at audio peak: age={age_ms:.0f}ms, "
-              f"offset_from_peak={offset_ms:.0f}ms, history={history_len}")
+        offset_ms = (peak_ts - best.timestamp) * 1000
+        ring_span_ms = (ring[-1].timestamp - ring[0].timestamp) * 1000 if len(ring) > 1 else 0
+        fps_est = len(ring) / (ring_span_ms / 1000.0) if ring_span_ms > 100 else 0
+        print(f"[PRE-SHOT SNAPSHOT] offset={offset_ms:.0f}ms, age={age_ms:.0f}ms, "
+              f"ring={len(ring)} frames, span={ring_span_ms:.0f}ms, ~{fps_est:.0f}fps")
 
     def _has_open_events(self) -> bool:
         return any(ev.state == "pending" for ev in self.audio_events)
