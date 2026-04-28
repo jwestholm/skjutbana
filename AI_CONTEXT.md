@@ -114,13 +114,15 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 | Fil | Ansvar |
 |-----|--------|
 | `src/engine/app.py` | Huvudloop, scenbyte, service-sync |
-| `src/engine/camera/hit_scanner.py` | Träffdetektion: pre-shot diff, blackhat, tracking, emission |
+| `src/engine/camera/hit_scanner.py` | Träffdetektion: pre-shot diff, blackhat, whitehat, absdiff, tracking, emission, shot-diagnostik |
+| `src/engine/camera/aruco_calibrator.py` | Återanvändbar ArUco-kalibreringsmotor (detektion, homografi, rendering) |
 | `src/engine/audio/audio_peak_detector.py` | Ljudtrigger (ffmpeg → peak-detektion) |
 | `src/engine/input/hit_input.py` | Koordinattransform: kamera ↔ screen ↔ viewport ↔ content |
 | `src/engine/ai/runtime.py` | AI-runtime: SimpleAIMemory, scoring, träning, choose_for_emission |
-| `src/engine/ai/bootstrap.py` | Monkey-patchar HitScanner för AI-observation |
+| `src/engine/ai/bootstrap.py` | Monkey-patchar HitScanner för AI-observation + candidate_limit |
+| `src/engine/ai/diagnostics.py` | RoundRecord (single source of truth), FunnelTracker, ShotDiagnostics, CSV-export |
 | `src/engine/ai/space_mapper.py` | Koordinatprojektion kamera ↔ screen ↔ viewport |
-| `src/engine/scenes/ai_training.py` | AI-träningsscen (7 bakgrundslägen, klick-baserad inlärning) |
+| `src/engine/scenes/ai_training.py` | AI-träningsscen (7 bakgrundslägen, auto-kalibrering, F1/F2 autoträning) |
 | `src/engine/scenes/ai_settings.py` | AI-inställningar (läge, vikt, export/import) |
 | `src/engine/scenes/calibrate_camera_viewport.py` | ArUco-kalibrering (24 markörer, RANSAC) |
 | `src/engine/scenes/calibrate.py` | Viewport-justering (skjutgränser) — INGEN AR |
@@ -137,9 +139,15 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 1. **Mikrofon** hör smällen → `AudioPeakEvent`
 2. **HitScanner** öppnar sökfönster (`association_lag_s = 1.5s`)
 3. **Pre-shot-bakgrund** byggs från frames ~1s före `peak_ts`
-4. **Diff + Blackhat** → combined signal
-5. **Konturer** → upp till 150 raw hotspots
-6. **Known-hole penalty** → nedviktar gamla hål
+4. **Diff-signaler** (parallellt):
+   - `subtract` (ref - current) → hittar mörkare hål
+   - `absdiff` (|ref - current|) → hittar både ljusare och mörkare
+   - `blackhat` (morfologisk) → hittar mörka fläckar oavsett bakgrund
+   - `whitehat` (tophat) → hittar ljusa fläckar (LED-genomlysning)
+5. **Combined** = max(subtract, absdiff, blackhat, whitehat)
+6. **Konturer** → upp till `candidate_limit` (default 200, konfigurerbar) raw hotspots
+7. **Known-hole penalty** → nedviktar gamla hål
+8. **Shot-diagnostik** loggar per frame: konturer, rejections, patch-värden, tracking
 
 ### AI-pipeline (tvåstegs)
 7. **Stage 1: Noise Rejection** (`reject_noise_hotspots`)
@@ -239,6 +247,9 @@ TAB byter läge. Börja alltid med vit och jobba uppåt.
 | `min_confidence` | 0.58 | Minsta confidence för AI-override |
 | `show_overlay` | true | Visa AI-overlay |
 | `auto_learn` | true | Automatisk inlärning (ej inkopplad ännu) |
+| `candidate_limit` | 200 | Max raw hotspots (1-2000, propageras till HitScanner) |
+| `sampling_mode` | `center_bias` | Sampling vid autoträning: center_bias/uniform/edge_bias/corners |
+| `save_hole_images` | true | Spara skotthålsbilder till content/ai/holes/ |
 
 ---
 
@@ -247,6 +258,10 @@ TAB byter läge. Börja alltid med vit och jobba uppåt.
 1. **Justera skjutgränser** — Inställningar → Justera skjutgränser. Flytta/skala den gröna ramen.
 2. **Kalibrera kamera** — Kamera → Kalibrera viewport via kamera. ENTER startar, 24 markörer projiceras.
 3. **Verifiera** — kolla reprojection error och per-markör error.
+
+**Auto-kalibrering:** AI-träningsscenen kör automatisk kalibrering vid start (~1-2s). Visar ArUco-markörer, fångar kamerabild, beräknar homografi. Om det misslyckas (kameran ser inte markörerna) fortsätter den med eventuell gammal kalibrering.
+
+Båda kalibreringsflödena använder samma motor: `ArucoCalibrator` i `src/engine/camera/aruco_calibrator.py`.
 
 ### Krav på kalibrering
 
@@ -293,8 +308,10 @@ TAB byter läge. Börja alltid med vit och jobba uppåt.
 | Alla kandidater på kanter/tejp | Pre-shot diff fungerar inte — projektorflicker |
 | Inga kandidater alls | Ljus för lågt, eller ROI-mask täcker inte tavlan |
 | Gamla hål rankas högre än nya | Known-hole penalty för svag |
-| Svart bakgrund = inga träffar | `subtract` detekterar bara mörkare — kräver belysning |
+| Svart bakgrund = inga träffar | Whitehat + absdiff fångar nu ljusa hål. Kräver fortfarande viss belysning |
 | Kandidat finns men på fel plats | Homografi inte aktiv — kolla `_prefers_homography()` |
+| Luftgevärshål hittas inte | Kontrollera max_area (900) och max_radius (35) — stora hål behöver höga gränser |
+| Inga kandidater trots tydligt hål | Kör shot-diagnostik (loggas automatiskt) — kolla [SHOT-DIAG] i terminalen |
 
 ---
 
@@ -348,3 +365,6 @@ Vapen: luftgevär (5mm BB), CO2 AR-15 (stålkulor), CO2 pistol. Max 5 skott/seku
 | Pre-shot-change med 0.80 vikt | För dominant, maskerade riktiga hål | Håll pre-shot som bonus (0.25) |
 | Homografi beräknad men inte använd | Zonbias (höger bra, vänster dålig) | Kontrollera `_prefers_homography()` |
 | 9 ArUco-markörer | 2.13px error, dålig i hörnen | Använd 24 markörer + RANSAC |
+| `absdiff` som enda diff | Projektorflicker ger diff överallt | Använd subtract som primär + absdiff som komplement |
+| Fasta center/ring-masker i patch | Stora hål (luftgevär) fick noll kontrast | Adaptiva masker baserat på konturradie |
+| Duplicerad ArUco-kod i scener | Svårt att underhålla | Extrahera till ArucoCalibrator-motor |

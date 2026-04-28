@@ -138,6 +138,12 @@ class HitScanner:
         self.reference_capture_kind: str | None = None
         self.reference_capture_buffer: list[np.ndarray] = []
 
+        # Diagnostic logging for debugging missed shots.
+        # Enable via hit_scanner.shot_diag_enabled = True
+        self.shot_diag_enabled = True
+        self._diag_shot_id = 0
+        self._diag_frame_count = 0  # frames since last audio event
+
         self.last_status = "off"
         self.debug_frames: dict[str, np.ndarray] = {}
         self.last_candidates: list[dict[str, float]] = []
@@ -340,6 +346,12 @@ class HitScanner:
         self.audio_event_count += 1
         if not self.enabled or self.state != self.STATE_ACTIVE:
             return
+        self._diag_shot_id += 1
+        self._diag_frame_count = 0
+        if self.shot_diag_enabled:
+            print(f"\n[SHOT-DIAG #{self._diag_shot_id}] === Audio peak detected === "
+                  f"peak={ev.peak:.3f} ts={ev.timestamp:.3f} "
+                  f"known_holes={len(self.known_holes)} tracks={len(self._active_tracks)}")
         self.audio_events.append(
             AudioShotEvent(
                 shot_id=self._next_shot_id,
@@ -370,6 +382,11 @@ class HitScanner:
                 }
 
                 if self._track_is_ready(track, now_ts, event):
+                    if self.shot_diag_enabled:
+                        print(f"[SHOT-DIAG #{self._diag_shot_id}] EMIT: "
+                              f"track={track.track_id} ({track.camera_x:.0f},{track.camera_y:.0f}) "
+                              f"hits={track.hits} score={track.best_score:.2f} "
+                              f"state={track.state} age={track.last_seen_ts - track.first_seen_ts:.3f}s")
                     if self._emit_track_result(track, event):
                         emitted_now += 1
                     continue
@@ -377,6 +394,18 @@ class HitScanner:
             if now_ts - event.peak_ts >= self.event_timeout_s:
                 event.state = "missed"
                 event.note = "timeout"
+                if self.shot_diag_enabled:
+                    n_tracks = len(self._active_tracks)
+                    track_info = ""
+                    if n_tracks > 0:
+                        best_t = max(self._active_tracks.values(), key=lambda t: t.best_score)
+                        track_info = (f" best_track=({best_t.camera_x:.0f},{best_t.camera_y:.0f}) "
+                                      f"hits={best_t.hits} score={best_t.best_score:.2f} "
+                                      f"state={best_t.state}")
+                    print(f"[SHOT-DIAG #{self._diag_shot_id}] TIMEOUT: "
+                          f"event={event.shot_id} age={now_ts - event.peak_ts:.2f}s "
+                          f"tracks={n_tracks}{track_info} "
+                          f"candidates_last={len(self.last_candidates)}")
 
         return emitted_now
 
@@ -673,6 +702,9 @@ class HitScanner:
         rejected = {"area": 0, "circ": 0, "radius": 0, "border": 0, "patch": 0}
 
         candidates: list[dict[str, float]] = []
+        # Diagnostic: track rejected blobs with reasons for the largest ones
+        _diag_rejected_blobs: list[dict[str, float | str]] = []
+
         for contour in contours:
             area = float(cv2.contourArea(contour))
             (cx, cy), _ = cv2.minEnclosingCircle(contour)
@@ -682,6 +714,8 @@ class HitScanner:
 
             if area < self.min_area or area > self.max_area:
                 rejected["area"] += 1
+                if self.shot_diag_enabled and area >= 1.0:
+                    _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": f"area ({area:.0f} vs {self.min_area}-{self.max_area})"})
                 continue
 
             perimeter = float(cv2.arcLength(contour, True))
@@ -690,12 +724,16 @@ class HitScanner:
                 circularity = float((4.0 * np.pi * area) / (perimeter * perimeter))
             if circularity < self.min_circularity:
                 rejected["circ"] += 1
+                if self.shot_diag_enabled:
+                    _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": f"circ ({circularity:.3f} < {self.min_circularity})"})
                 continue
 
             (cx, cy), radius = cv2.minEnclosingCircle(contour)
             radius = float(radius)
             if radius < self.min_radius or radius > self.max_radius:
                 rejected["radius"] += 1
+                if self.shot_diag_enabled:
+                    _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "radius": radius, "reason": f"radius ({radius:.1f} vs {self.min_radius}-{self.max_radius})"})
                 continue
 
             if (
@@ -705,6 +743,8 @@ class HitScanner:
                 or cy >= gray.shape[0] - self.border_margin
             ):
                 rejected["border"] += 1
+                if self.shot_diag_enabled:
+                    _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": "border"})
                 continue
 
             patch = self._verify_patch(
@@ -719,6 +759,12 @@ class HitScanner:
             )
             if patch is None:
                 rejected["patch"] += 1
+                if self.shot_diag_enabled:
+                    # Get patch values for diagnostic even though it was rejected
+                    _diag_rejected_blobs.append({
+                        "cx": cx, "cy": cy, "area": area, "radius": radius,
+                        "reason": "patch_verify",
+                    })
                 continue
 
             candidate = {
@@ -736,6 +782,36 @@ class HitScanner:
                 "timestamp": float(frame_ts),
             }
             candidates.append(candidate)
+
+        # --- Shot diagnostic logging ---
+        self._diag_frame_count += 1
+        if self.shot_diag_enabled and self._diag_frame_count <= 8:
+            has_pre = pre_shot_bg is not None
+            has_pre_delta = pre_shot_delta is not None
+            has_absdiff = pre_shot_absdiff is not None
+            print(f"[SHOT-DIAG #{self._diag_shot_id}] frame {self._diag_frame_count}: "
+                  f"contours={len(contours)} raw_blobs={raw_blobs['total']} "
+                  f"candidates={len(candidates)} "
+                  f"rej=[area:{rejected['area']} circ:{rejected['circ']} "
+                  f"rad:{rejected['radius']} border:{rejected['border']} patch:{rejected['patch']}] "
+                  f"pre_shot={'yes' if has_pre else 'no'} "
+                  f"pre_delta={'yes' if has_pre_delta else 'REJECTED'} "
+                  f"absdiff={'yes' if has_absdiff else 'no'} "
+                  f"thr_combined={self.last_threshold_value:.1f} thr_change={self.last_change_threshold_value:.1f}")
+            # Log top 3 rejected blobs (sorted by area, largest first)
+            if _diag_rejected_blobs:
+                top_rej = sorted(_diag_rejected_blobs, key=lambda b: b.get("area", 0), reverse=True)[:3]
+                for j, rb in enumerate(top_rej):
+                    print(f"  rejected[{j}]: ({rb.get('cx', 0):.0f},{rb.get('cy', 0):.0f}) "
+                          f"area={rb.get('area', 0):.0f} radius={rb.get('radius', '?')} "
+                          f"reason={rb.get('reason', '?')}")
+            # Log top 3 accepted candidates
+            for j, c in enumerate(candidates[:3]):
+                print(f"  candidate[{j}]: ({c['camera_x']:.0f},{c['camera_y']:.0f}) "
+                      f"area={c['area']:.0f} r={c['radius']:.1f} "
+                      f"score={c['score']:.2f} center={c['center_darkening']:.1f} "
+                      f"contrast={c['local_contrast_gain']:.1f} "
+                      f"change={c['change_value']:.1f} pre_shot={c['pre_shot_change']:.1f}")
 
         # Penalize candidates near known holes — new holes should rank higher.
         for candidate in candidates:
@@ -852,8 +928,16 @@ class HitScanner:
             abs_change = float(np.mean(patch_combined[center_mask]))
 
         if center_change < self.min_center_darkening and abs_change < self.min_center_darkening:
+            if self.shot_diag_enabled and self._diag_frame_count <= 3 and radius >= 3.0:
+                print(f"  patch_reject: ({camera_x:.0f},{camera_y:.0f}) r={radius:.1f} "
+                      f"REASON=center_too_low (center={center_change:.1f} abs={abs_change:.1f} < {self.min_center_darkening}) "
+                      f"contrast={local_contrast:.1f} change={change_value:.1f} ring={ring_value:.1f}")
             return None
         if local_contrast < self.min_local_contrast_gain:
+            if self.shot_diag_enabled and self._diag_frame_count <= 3 and radius >= 3.0:
+                print(f"  patch_reject: ({camera_x:.0f},{camera_y:.0f}) r={radius:.1f} "
+                      f"REASON=contrast_too_low ({local_contrast:.1f} < {self.min_local_contrast_gain}) "
+                      f"center={center_change:.1f} abs={abs_change:.1f} change={change_value:.1f} ring={ring_value:.1f}")
             return None
 
         # Score: blackhat och center_change bär huvudsignalen.
@@ -872,6 +956,11 @@ class HitScanner:
                 + 0.35 * local_contrast
             )
         if score < self.min_score_threshold:
+            if self.shot_diag_enabled and self._diag_frame_count <= 3 and radius >= 3.0:
+                print(f"  patch_reject: ({camera_x:.0f},{camera_y:.0f}) r={radius:.1f} "
+                      f"REASON=score_too_low ({score:.2f} < {self.min_score_threshold}) "
+                      f"center={center_change:.1f} contrast={local_contrast:.1f} "
+                      f"change={change_value:.1f} pre_shot={pre_shot_change:.1f}")
             return None
 
         return {

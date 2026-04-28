@@ -40,6 +40,17 @@
 - [x] CSV-filnamn inkluderar bakgrundsläge och antal rundor
 - [x] Rapport visar bakgrund + sampling mode i header
 
+## Nyligen klart (moduläritet + diagnostik)
+
+- [x] ArucoCalibrator — återanvändbar kalibreringsmotor i src/engine/camera/
+- [x] Auto-kalibrering vid AI-scen start (visar markörer → detekterar → sparar)
+- [x] CameraViewportCalibrationScene refaktorerad att använda ArucoCalibrator
+- [x] Adaptiva center/ring-masker i _verify_patch (skalas med konturradie)
+- [x] Höjda area/radius-gränser (max_area 900, max_radius 35) för luftgevär
+- [x] Shot-diagnostik ([SHOT-DIAG]) — per-frame loggning av hela detektionspipelinen
+- [x] Rapportfont sänkt för bättre läsbarhet
+- [x] Animationsfrysning fixad mellan autoträningsrundor
+
 ## Pågående
 
 - [ ] Benchmark-körningar med alla bakgrundslägen (white → bubbles)

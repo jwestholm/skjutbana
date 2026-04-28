@@ -20,12 +20,20 @@
 │  Detektion                              │
 │  - AudioPeakDetector → triggar sökfönster│
 │  - HitScanner → pre-shot diff + blackhat│
+│    + whitehat + absdiff                 │
 │  - Tracking → kandidater → emission     │
 ├─────────────────────────────────────────┤
 │  AI (lager ovanpå detektion)            │
 │  - observe_scanner() varje frame        │
 │  - rank_candidates() vid träning        │
 │  - choose_for_emission() vid produktion │
+│  - RoundRecord → single source of truth │
+│  - FunnelTracker → per-shot diagnostik  │
+├─────────────────────────────────────────┤
+│  Kalibrering (återanvändbar motor)      │
+│  - ArucoCalibrator (shared engine)      │
+│  - Auto-kalibrering vid AI-scen start   │
+│  - Manuell kalibrering via meny         │
 ├─────────────────────────────────────────┤
 │  Transform                              │
 │  - HitInput: kamera → screen → viewport │
@@ -57,10 +65,30 @@ Kamera (4K pixel) → Homografi → Skärm (pygame) → Viewport → Content/Gam
 ## AI-integration
 
 AI:n kopplas in via monkey-patching i `bootstrap.py`:
-- `HitScanner.update` → `ai_runtime.observe_scanner()`
+- `HitScanner.update` → `ai_runtime.observe_scanner()` + `candidate_limit` propagering
 - `HitScanner._emit_track_result` → `ai_runtime.choose_for_emission()`
 
 AI:n kan aldrig krascha appen — alla anrop i try/except.
+
+## Kalibreringsmotor (ArucoCalibrator)
+
+Återanvändbar motor i `src/engine/camera/aruco_calibrator.py`:
+- `ArucoCalibrator(viewport_rect)` — initierar ArUco-detektor
+- `detect_and_calibrate(frame_bgr)` → `CalibrationResult`
+- `render_markers(screen)` — ritar 24 ArUco-markörer
+- `save_and_apply(result)` — sparar kalibrering + laddar om hit_input
+
+Används av:
+- `CameraViewportCalibrationScene` — manuell kalibrering via meny
+- `AITrainingScene` — automatisk kalibrering vid scen-start
+
+## Observability (RoundRecord)
+
+All statistik i AI-träning flödar genom `RoundRecord` (dataclass i `diagnostics.py`):
+- Enda sanningskälla för UI-rapport, funnel-summary och CSV-export
+- Per-runda: GT-koordinater, kandidatantal, AI-gissning före facit, detektionsresultat
+- Blockstatistik per 100 skott, first-100 vs last-100 jämförelse
+- Round-ID state logging för felsökning av räknarmismatch
 
 ## Scenprotokoll
 

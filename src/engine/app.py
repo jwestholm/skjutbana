@@ -73,6 +73,14 @@ class App:
         self.running = False
 
     def run(self) -> None:
+        try:
+            self._main_loop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self._shutdown()
+
+    def _main_loop(self) -> None:
         while self.running:
             dt = self.clock.tick(FPS) / 1000.0
 
@@ -103,17 +111,36 @@ class App:
             hit_visualizer.update(dt)
             pygame.display.flip()
 
-        self.scene.on_exit()
-        hit_scanner.disable()
+    def _shutdown(self) -> None:
+        try:
+            self.scene.on_exit()
+        except Exception:
+            pass
+
+        try:
+            hit_scanner.disable()
+        except Exception:
+            pass
 
         try:
             led_service.stop()
         except Exception:
             pass
 
-        audio_peak_detector.stop()
-        camera_manager.stop()
-        pygame.quit()
+        try:
+            audio_peak_detector.stop()
+        except Exception:
+            pass
+
+        try:
+            camera_manager.stop()
+        except Exception:
+            pass
+
+        try:
+            pygame.quit()
+        except Exception:
+            pass
 
     def _sync_runtime_services(self, force: bool = False) -> None:
         wants_scanning = bool(getattr(self.scene, "wants_hit_scanning", False))

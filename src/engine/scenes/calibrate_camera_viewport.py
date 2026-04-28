@@ -1,13 +1,18 @@
+"""
+Camera → viewport calibration scene (manual, interactive).
+
+Uses the shared ArucoCalibrator engine for detection and homography.
+This scene adds the interactive UI: idle screen, ENTER to start, timeout,
+status display, per-marker error visualization.
+"""
 from __future__ import annotations
 
 import time
-from datetime import datetime
 
-import cv2
-import numpy as np
 import pygame
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH
+from src.engine.camera.aruco_calibrator import ArucoCalibrator
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.input.hit_input import hit_input
 from src.engine.scene import Scene, SceneSwitch
@@ -53,10 +58,7 @@ class CameraViewportCalibrationScene(Scene):
         self.last_frame_bgr = None
         self.last_detection_count = 0
 
-        self.aruco_available = hasattr(cv2, "aruco")
-        self.aruco_dict = None
-        self.aruco_detector = None
-        self.detector_params = None
+        self.calibrator: ArucoCalibrator | None = None
 
     def on_enter(self) -> None:
         self.font_title = pygame.font.Font(None, 44)
@@ -64,9 +66,8 @@ class CameraViewportCalibrationScene(Scene):
         self.font_small = pygame.font.Font(None, 22)
         self.viewport_rect = load_viewport_rect()
 
-        if self.aruco_available:
-            self._init_aruco()
-        else:
+        self.calibrator = ArucoCalibrator(self.viewport_rect)
+        if not self.calibrator.available:
             self.status_message = "OpenCV ArUco saknas i denna installation."
             self.status_is_error = True
 
@@ -78,178 +79,25 @@ class CameraViewportCalibrationScene(Scene):
     def _go_back(self):
         return SceneSwitch(MenuScene(menu_state=getattr(self, "return_menu_state", None)))
 
-    def _init_aruco(self) -> None:
-        dict_name = getattr(cv2.aruco, "DICT_4X4_50", None)
-        if dict_name is None:
-            self.aruco_available = False
-            self.status_message = "ArUco dictionary saknas i OpenCV."
-            self.status_is_error = True
-            return
-
-        if hasattr(cv2.aruco, "getPredefinedDictionary"):
-            self.aruco_dict = cv2.aruco.getPredefinedDictionary(dict_name)
-        else:
-            self.aruco_dict = cv2.aruco.Dictionary_get(dict_name)
-
-        if hasattr(cv2.aruco, "DetectorParameters"):
-            self.detector_params = cv2.aruco.DetectorParameters()
-        else:
-            self.detector_params = cv2.aruco.DetectorParameters_create()
-
-        if hasattr(cv2.aruco, "ArucoDetector"):
-            self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.detector_params)
-
-    def _detect_markers(self, frame_bgr):
-        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        if self.aruco_detector is not None:
-            return self.aruco_detector.detectMarkers(gray)
-        return cv2.aruco.detectMarkers(gray, self.aruco_dict, parameters=self.detector_params)
-
-    def _marker_size_px(self) -> int:
-        m = min(self.viewport_rect.w, self.viewport_rect.h)
-        return max(36, min(80, int(m * 0.06)))
-
-    def _marker_positions(self) -> dict[int, tuple[float, float]]:
-        """24 markers distributed across the viewport for robust homography."""
-        rect = self.viewport_rect
-        # Positions as (u, v) fractions of viewport, then converted to screen coords
-        specs = {
-            # Corners (close to edges for best homography support)
-            0:  (0.05, 0.05),
-            1:  (0.95, 0.05),
-            2:  (0.95, 0.95),
-            3:  (0.05, 0.95),
-            # Edges — top and bottom
-            4:  (0.30, 0.05),
-            5:  (0.70, 0.05),
-            6:  (0.30, 0.95),
-            7:  (0.70, 0.95),
-            # Edges — left and right
-            8:  (0.05, 0.30),
-            9:  (0.05, 0.70),
-            10: (0.95, 0.30),
-            11: (0.95, 0.70),
-            # Inner grid — 0.25/0.75
-            12: (0.25, 0.25),
-            13: (0.75, 0.25),
-            14: (0.75, 0.75),
-            15: (0.25, 0.75),
-            # Center cross
-            16: (0.50, 0.05),
-            17: (0.50, 0.95),
-            18: (0.05, 0.50),
-            19: (0.95, 0.50),
-            # Inner center
-            20: (0.50, 0.25),
-            21: (0.50, 0.75),
-            22: (0.25, 0.50),
-            23: (0.75, 0.50),
-        }
-        return {
-            mid: (float(rect.x + u * rect.w), float(rect.y + v * rect.h))
-            for mid, (u, v) in specs.items()
-        }
-
-    def _draw_marker_surface(self, marker_id: int, size: int) -> pygame.Surface:
-        if hasattr(cv2.aruco, "generateImageMarker"):
-            marker_img = cv2.aruco.generateImageMarker(self.aruco_dict, marker_id, size)
-        else:
-            marker_img = np.zeros((size, size), dtype=np.uint8)
-            cv2.aruco.drawMarker(self.aruco_dict, marker_id, size, marker_img, 1)
-
-        rgb = cv2.cvtColor(marker_img, cv2.COLOR_GRAY2RGB)
-        rgb = np.transpose(rgb, (1, 0, 2))
-        surf = pygame.surfarray.make_surface(rgb)
-        return surf.convert()
-
-    def _homography_error(self, H: np.ndarray, camera_pts: np.ndarray, viewport_pts: np.ndarray) -> float:
-        projected = cv2.perspectiveTransform(camera_pts.reshape(-1, 1, 2), H).reshape(-1, 2)
-        diff = projected - viewport_pts
-        distances = np.sqrt(np.sum(diff * diff, axis=1))
-        return float(np.mean(distances)) if len(distances) else 9999.0
-
-    def _extract_result(self, frame_bgr, corners, ids) -> dict | None:
-        if ids is None or len(ids) < 4:
-            return None
-
-        marker_positions = self._marker_positions()
-        camera_points = []
-        viewport_points = []
-        matched_ids = []
-
-        for idx, marker_id in enumerate(ids.flatten().tolist()):
-            if marker_id not in marker_positions:
-                continue
-            center = np.mean(corners[idx][0], axis=0).astype(np.float32)
-            camera_points.append([float(center[0]), float(center[1])])
-            vx, vy = marker_positions[marker_id]
-            viewport_points.append([float(vx), float(vy)])
-            matched_ids.append(int(marker_id))
-
-        if len(camera_points) < 4:
-            return None
-
-        cam_np = np.array(camera_points, dtype=np.float32)
-        vp_np = np.array(viewport_points, dtype=np.float32)
-
-        # Use RANSAC for robust fitting — bad markers won't drag the result
-        H, mask = cv2.findHomography(cam_np, vp_np, method=cv2.RANSAC, ransacReprojThreshold=3.0)
-        if H is None:
-            return None
-
-        H_inv, _ = cv2.findHomography(vp_np, cam_np, method=cv2.RANSAC, ransacReprojThreshold=3.0)
-        reproj = self._homography_error(H, cam_np, vp_np)
-
-        # Per-marker error
-        projected = cv2.perspectiveTransform(cam_np.reshape(-1, 1, 2), H).reshape(-1, 2)
-        per_marker_errors = {}
-        for i, mid in enumerate(matched_ids):
-            per_marker_errors[str(mid)] = float(np.linalg.norm(projected[i] - vp_np[i]))
-
-        inliers = int(mask.sum()) if mask is not None else len(camera_points)
-        frame_h, frame_w = frame_bgr.shape[:2]
-
-        return {
-            "method": "aruco_viewport_board",
-            "prefer_homography": True,
-            "calibrated_at": datetime.now().isoformat(timespec="seconds"),
-            "homography": H.tolist(),
-            "inverse_homography": H_inv.tolist() if H_inv is not None else None,
-            "marker_count": int(len(camera_points)),
-            "inliers": inliers,
-            "reprojection_error_px": float(reproj),
-            "per_marker_errors": per_marker_errors,
-            "camera_points": camera_points,
-            "viewport_points": viewport_points,
-            "matched_ids": matched_ids,
-            "camera_frame_size": [int(frame_w), int(frame_h)],
-            "viewport_rect": [
-                int(self.viewport_rect.x),
-                int(self.viewport_rect.y),
-                int(self.viewport_rect.w),
-                int(self.viewport_rect.h),
-            ],
-        }
-
     def _start_capture(self) -> None:
-        if not self.aruco_available:
+        if self.calibrator is None or not self.calibrator.available:
             self.status_message = "OpenCV ArUco saknas i denna installation."
             self.status_is_error = True
             return
         self.viewport_rect = load_viewport_rect()
+        self.calibrator.viewport_rect = self.viewport_rect
         self.capture_started_at = time.monotonic()
         self.state = "capturing"
         self.last_detection_count = 0
 
-    def _finish_capture(self, success: bool, message: str, result: dict | None = None) -> None:
+    def _finish_capture(self, success: bool, message: str, result=None) -> None:
         self.state = "idle"
         self.capture_started_at = None
         self.status_message = message
         self.status_is_error = not success
-        if success and result is not None:
-            save_camera_calibration(result)
-            self.last_saved = result
-            hit_input.reload_calibration()
+        if success and result is not None and result.success:
+            self.calibrator.save_and_apply(result)
+            self.last_saved = result.calibration_dict
 
     def _clear_calibration(self) -> None:
         save_camera_calibration({})
@@ -293,25 +141,20 @@ class CameraViewportCalibrationScene(Scene):
             self._finish_capture(False, "Timeout: kunde inte hitta tillräckligt många kalibreringsmarkörer.")
             return None
 
-        if self.last_frame_bgr is None:
+        if self.last_frame_bgr is None or self.calibrator is None:
             self.last_detection_count = 0
             return None
 
-        corners, ids, _ = self._detect_markers(self.last_frame_bgr)
-        self.last_detection_count = 0 if ids is None else int(len(ids))
+        result = self.calibrator.detect_and_calibrate(self.last_frame_bgr)
+        self.last_detection_count = result.marker_count
 
-        result = self._extract_result(self.last_frame_bgr, corners, ids)
-        if result is None:
-            return None
-
-        reproj = float(result.get("reprojection_error_px", 9999.0))
-        if reproj > 25.0:
+        if not result.success:
             return None
 
         self._finish_capture(
             True,
-            f"Kalibrering sparad. {result['marker_count']} markörer ({result.get('inliers', '?')} inliers), "
-            f"reprojection error {reproj:.1f} px.",
+            f"Kalibrering sparad. {result.marker_count} markörer ({result.inliers} inliers), "
+            f"reprojection error {result.reprojection_error_px:.1f} px.",
             result=result,
         )
 
@@ -376,23 +219,13 @@ class CameraViewportCalibrationScene(Scene):
         screen.blit(status, (42, SCREEN_HEIGHT - 69))
 
     def _render_capture(self, screen: pygame.Surface) -> None:
-        screen.fill(WHITE)
-
-        rect = self.viewport_rect
-        positions = self._marker_positions()
-        marker_size = self._marker_size_px()
-
-        fill = pygame.Surface((rect.w, rect.h))
-        fill.fill(WHITE)
-        screen.blit(fill, rect.topleft)
-
-        for marker_id, center in positions.items():
-            surf = self._draw_marker_surface(marker_id, marker_size)
-            marker_rect = surf.get_rect(center=(int(center[0]), int(center[1])))
-            screen.blit(surf, marker_rect.topleft)
+        if self.calibrator is not None:
+            self.calibrator.render_markers(screen)
 
     def render(self, screen: pygame.Surface) -> None:
         self.viewport_rect = load_viewport_rect()
+        if self.calibrator is not None:
+            self.calibrator.viewport_rect = self.viewport_rect
 
         if self.font_title is None or self.font_body is None or self.font_small is None:
             return

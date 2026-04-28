@@ -237,6 +237,15 @@ class AITrainingScene(Scene):
         self.round_records = []
         self.current_round_id = 0
 
+        # Auto-calibration state
+        self._auto_cal_phase: str | None = None  # None | "show_markers" | "wait_settle" | "capture" | "done"
+        self._auto_cal_start_ts: float = 0.0
+        self._auto_cal_settle_s: float = 0.6  # Wait for projector to show markers
+        self._auto_cal_attempts: int = 0
+        self._auto_cal_max_attempts: int = 8
+        self._auto_cal_result: str = ""
+        self._calibrator: "ArucoCalibrator | None" = None
+
     def on_enter(self) -> None:
         self.font = pygame.font.Font(None, 34)
         self.small = pygame.font.Font(None, 24)
@@ -250,8 +259,94 @@ class AITrainingScene(Scene):
         self._handled_shot_peak_ts = 0.0
         self._set_cursor_visible(True)
 
+        # Start auto-calibration
+        self._auto_cal_phase = "show_markers"
+        self._auto_cal_start_ts = time.time()
+        self._auto_cal_attempts = 0
+        self._auto_cal_result = ""
+        try:
+            from src.engine.camera.aruco_calibrator import ArucoCalibrator
+            self._calibrator = ArucoCalibrator(self.viewport)
+            if not self._calibrator.available:
+                print("[AUTO-CAL] ArUco not available")
+                self._auto_cal_phase = None
+            else:
+                print("[AUTO-CAL] Starting auto-calibration...")
+        except Exception as exc:
+            print(f"[AUTO-CAL] Init failed: {exc}")
+            self._auto_cal_phase = None
+
     def on_exit(self) -> None:
         self._set_cursor_visible(True)
+
+    # ------------------------------------------------------------------
+    # Auto-calibration (delegates to ArucoCalibrator engine)
+    # ------------------------------------------------------------------
+    def _render_aruco_markers(self, screen: pygame.Surface) -> None:
+        """Draw ArUco markers on screen for camera to see."""
+        if self._calibrator is not None:
+            self._calibrator.render_markers(screen)
+        # Show status text
+        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
+        if self.tiny:
+            msg = "Autokalibrering pågår..."
+            surf = self.tiny.render(msg, True, (80, 80, 80))
+            screen.blit(surf, (vp.x + 10, vp.bottom - 24))
+
+    def _try_auto_calibrate(self) -> bool:
+        """Try to detect markers and compute homography. Returns True if successful."""
+        if self._calibrator is None or not self._calibrator.available:
+            return False
+
+        frame_bgr = camera_manager.get_latest_frame()
+        if frame_bgr is None:
+            return False
+
+        result = self._calibrator.detect_and_calibrate(frame_bgr)
+        if not result.success:
+            print(f"[AUTO-CAL] attempt {self._auto_cal_attempts}: {result.message}")
+            return False
+
+        self._calibrator.save_and_apply(result)
+        print(f"[AUTO-CAL] SUCCESS: {result.message}")
+        self._auto_cal_result = f"Kalibrering klar: {result.message}"
+        return True
+
+    def _update_auto_calibration(self) -> None:
+        """State machine for auto-calibration during scene startup."""
+        if self._auto_cal_phase is None:
+            return
+
+        now = time.time()
+
+        if self._auto_cal_phase == "show_markers":
+            self._auto_cal_phase = "wait_settle"
+            self._auto_cal_start_ts = now
+            return
+
+        if self._auto_cal_phase == "wait_settle":
+            if now - self._auto_cal_start_ts < self._auto_cal_settle_s:
+                return
+            self._auto_cal_phase = "capture"
+            return
+
+        if self._auto_cal_phase == "capture":
+            self._auto_cal_attempts += 1
+            if self._try_auto_calibrate():
+                self._auto_cal_phase = "done"
+                return
+            if self._auto_cal_attempts >= self._auto_cal_max_attempts:
+                print(f"[AUTO-CAL] FAILED after {self._auto_cal_attempts} attempts")
+                self._auto_cal_result = "Autokalibrering misslyckades — kör manuellt via menyn"
+                self._auto_cal_phase = "done"
+                return
+            return
+
+        if self._auto_cal_phase == "done":
+            self._auto_cal_phase = None
+            self.status_message = self._auto_cal_result
+            self.viewport = load_viewport_rect()
+            return
 
     def _reset_shot_state(self, *, clear_synthetic: bool = False) -> None:
         self.awaiting_click = False
@@ -754,6 +849,16 @@ class AITrainingScene(Scene):
     # Scene events
     # ------------------------------------------------------------------
     def handle_event(self, event: pygame.event.Event):
+        # During auto-calibration, only allow ESC to abort
+        if self._auto_cal_phase is not None:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self._auto_cal_phase = None
+                self._auto_cal_result = "Autokalibrering avbruten."
+                self.status_message = self._auto_cal_result
+                from src.engine.scenes.menu import MenuScene
+                return SceneSwitch(MenuScene())
+            return None
+
         if self.auto_report_visible:
             if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
                 self.auto_report_visible = False
@@ -822,6 +927,11 @@ class AITrainingScene(Scene):
     # Update
     # ------------------------------------------------------------------
     def update(self, dt: float):
+        # Auto-calibration runs first, blocks everything else
+        if self._auto_cal_phase is not None:
+            self._update_auto_calibration()
+            return
+
         current_peak_ts = audio_peak_detector.last_peak_ts
         if current_peak_ts > self._last_peak_ts and not self._animation_frozen:
             self._animation_frozen = True
@@ -1108,6 +1218,11 @@ class AITrainingScene(Scene):
     # Render
     # ------------------------------------------------------------------
     def render(self, screen: pygame.Surface) -> None:
+        # During auto-calibration, show ArUco markers
+        if self._auto_cal_phase is not None and self._auto_cal_phase != "done":
+            self._render_aruco_markers(screen)
+            return
+
         overlay = self._ensure_overlay(screen)
         mode = self.MODE_NAMES[self.bg_mode_index]
         vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
