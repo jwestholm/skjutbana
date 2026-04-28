@@ -1243,11 +1243,23 @@ class AITrainingScene(Scene):
 
         clean_post_gray = None
         try:
-            frame_bgr = camera_manager.get_latest_frame()
+            # Use capture_fresh_frame for a guaranteed-current image.
+            # This flushes the camera buffer and reads what the camera sees RIGHT NOW
+            # (after HUD/markers have been hidden for 5 frames).
+            frame_bgr = camera_manager.capture_fresh_frame()
             if frame_bgr is not None and cv2 is not None:
                 clean_post_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         except Exception:
             pass
+
+        # Fallback to ring buffer latest if fresh capture failed
+        if clean_post_gray is None:
+            try:
+                frame_bgr = camera_manager.get_latest_frame()
+                if frame_bgr is not None and cv2 is not None:
+                    clean_post_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            except Exception:
+                pass
 
         post_gray = clean_post_gray if clean_post_gray is not None else self.runtime.post_shot_gray
         pre_gray = self.runtime.pre_shot_gray

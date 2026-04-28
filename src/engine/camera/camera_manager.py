@@ -68,6 +68,9 @@ class CameraManager:
         self._ring: deque[CameraFrame] = deque(maxlen=self.RING_BUFFER_SIZE)
         self._read_count: int = 0
         self._last_pickup_count: int = 0
+        self._fresh_request = threading.Event()
+        self._fresh_frame: CameraFrame | None = None
+        self._fresh_ready = threading.Event()
 
     def reload_transform_settings(self) -> None:
         settings = load_camera_transform_settings()
@@ -159,6 +162,25 @@ class CameraManager:
     def _reader_loop(self) -> None:
         """Dedicated thread: reads frames as fast as the camera delivers them."""
         while self.running and self.cap is not None and self.cap.isOpened():
+            # Check for fresh-frame request (main thread wants a guaranteed-current frame)
+            if self._fresh_request.is_set():
+                self._fresh_request.clear()
+                # Flush buffer: grab a few times, then read
+                try:
+                    for _ in range(3):
+                        self.cap.grab()
+                    ok, frame_bgr = self.cap.retrieve()
+                    if ok and frame_bgr is not None:
+                        ts = time.time()
+                        frame_bgr = self._apply_frame_transform(frame_bgr)
+                        self._fresh_frame = CameraFrame(frame_bgr=frame_bgr, timestamp=ts)
+                    else:
+                        self._fresh_frame = None
+                except Exception:
+                    self._fresh_frame = None
+                self._fresh_ready.set()
+                continue
+
             try:
                 ok, frame_bgr = self.cap.read()
             except Exception:
@@ -214,6 +236,25 @@ class CameraManager:
         if self.latest_frame is None:
             return None
         return self.latest_frame.frame_bgr.copy()
+
+    def capture_fresh_frame(self) -> np.ndarray | None:
+        """Request a guaranteed-current frame from the camera.
+
+        Signals the reader thread to flush the camera buffer and capture
+        a fresh frame. Blocks until the frame is ready (max 500ms).
+        Use for post-shot capture where you need what the camera sees RIGHT NOW.
+        """
+        if not self.running:
+            return None
+        self._fresh_frame = None
+        self._fresh_ready.clear()
+        self._fresh_request.set()
+
+        # Wait for reader thread to deliver
+        if self._fresh_ready.wait(timeout=0.5):
+            if self._fresh_frame is not None:
+                return self._fresh_frame.frame_bgr.copy()
+        return None
 
     def get_latest_timestamp(self) -> float | None:
         if self.latest_frame is None:

@@ -389,42 +389,77 @@ class HitScanner:
         self._next_shot_id += 1
 
     def _capture_pre_shot_snapshot(self, peak_ts: float) -> None:
-        """Capture pre-shot frame from camera ring buffer at audio peak time.
+        """Find the last clean frame before the bullet hole appeared.
 
-        The ring buffer is filled by the camera reader thread with accurate
-        timestamps. We find the frame closest to 250ms before peak_ts
-        (closest by absolute distance, not strictly before).
+        Instead of trusting timestamps (which are unreliable due to camera
+        pipeline latency), we compare image content. We take the last ~15
+        frames from the ring buffer and find where the image changed
+        significantly — that's where the hole appeared. The frame before
+        that change is our pre-shot.
+
+        Algorithm:
+        1. Take last 15 frames from ring buffer
+        2. Use the oldest as "reference" (most likely clean)
+        3. Compare each frame against reference (mean absolute diff in center region)
+        4. Find the first frame with a big jump in diff = hole appeared
+        5. Take the frame before that jump
         """
         ring = camera_manager.get_ring_snapshot()
-        if not ring:
+        if len(ring) < 5:
             self.pre_shot_snapshot = None
             self.pre_shot_snapshot_ts = 0.0
-            print("[PRE-SHOT SNAPSHOT] Ring buffer empty")
+            print("[PRE-SHOT SNAPSHOT] Ring too small")
             return
 
-        target_ts = peak_ts - 0.25
-        best = None
-        best_delta = float("inf")
+        # Take last 15 frames (or all if fewer)
+        n = min(15, len(ring))
+        recent = ring[-n:]
 
-        for cf in ring:
-            delta = abs(cf.timestamp - target_ts)
-            if delta < best_delta:
-                best_delta = delta
-                best = cf
+        # Convert to grayscale for comparison
+        grays = []
+        for cf in recent:
+            grays.append(cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY))
 
-        if best is None:
-            best = ring[0]
+        # Use oldest frame as reference (most likely before the hole)
+        ref = grays[0]
 
-        gray = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
-        self.pre_shot_snapshot = gray
+        # Compute diff of each frame against reference
+        diffs = []
+        for g in grays:
+            d = cv2.absdiff(ref, g)
+            # Mean diff across entire frame
+            diffs.append(float(np.mean(d)))
+
+        # Find the first big jump: where diff increases significantly
+        # compared to the baseline (first few frames' average diff)
+        baseline = sum(diffs[:3]) / 3.0 if len(diffs) >= 3 else diffs[0]
+        threshold = max(baseline + 1.5, baseline * 2.0, 0.5)
+
+        hole_appeared_at = None
+        for i in range(1, len(diffs)):
+            if diffs[i] > threshold and diffs[i] > baseline + 0.8:
+                hole_appeared_at = i
+                break
+
+        if hole_appeared_at is not None and hole_appeared_at > 0:
+            # Take the frame just before the hole appeared
+            best_idx = hole_appeared_at - 1
+        else:
+            # No clear jump found — take the oldest frame (safest)
+            best_idx = 0
+
+        best = recent[best_idx]
+        self.pre_shot_snapshot = grays[best_idx].copy()
         self.pre_shot_snapshot_ts = best.timestamp
 
         age_ms = (time.time() - best.timestamp) * 1000
-        offset_ms = (peak_ts - best.timestamp) * 1000
         ring_span_ms = (ring[-1].timestamp - ring[0].timestamp) * 1000 if len(ring) > 1 else 0
         fps_est = len(ring) / (ring_span_ms / 1000.0) if ring_span_ms > 100 else 0
-        print(f"[PRE-SHOT SNAPSHOT] offset={offset_ms:.0f}ms, age={age_ms:.0f}ms, "
-              f"ring={len(ring)} frames, span={ring_span_ms:.0f}ms, ~{fps_est:.0f}fps")
+        jump_info = f"hole_at_frame={hole_appeared_at}" if hole_appeared_at is not None else "no_jump_detected"
+        diff_str = " ".join(f"{d:.2f}" for d in diffs)
+        print(f"[PRE-SHOT SNAPSHOT] frame[{best_idx}] of {n}: age={age_ms:.0f}ms, "
+              f"~{fps_est:.0f}fps, {jump_info}, baseline={baseline:.2f}, thr={threshold:.2f}")
+        print(f"  diffs: [{diff_str}]")
 
     def _has_open_events(self) -> bool:
         return any(ev.state == "pending" for ev in self.audio_events)
