@@ -748,6 +748,7 @@ class AIRuntime:
         raw_hotspots: Sequence[Candidate],
         gt_xy: Optional[Point] = None,
         limit: Optional[int] = None,
+        match_radius_px: Optional[float] = None,
     ) -> Tuple[List[Candidate], Optional["ShotDiagnostics"]]:
         """
         Full hotspot pipeline: reject noise → rank → select.
@@ -757,10 +758,10 @@ class AIRuntime:
         from src.engine.ai.diagnostics import ShotDiagnostics
 
         diag = None
-        match_radius = float(self.settings.get("gt_match_radius_px", 10.0))
+        radius = float(match_radius_px or self.settings.get("gt_match_radius_px", 10.0))
 
         if gt_xy is not None:
-            diag = ShotDiagnostics(gt_xy[0], gt_xy[1], match_radius)
+            diag = ShotDiagnostics(gt_xy[0], gt_xy[1], radius)
             diag.evaluate_raw_hotspots(raw_hotspots)
 
         # Stage 1: Noise rejection

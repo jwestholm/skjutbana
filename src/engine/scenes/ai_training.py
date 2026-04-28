@@ -118,7 +118,7 @@ class AITrainingScene(Scene):
         # Auto-training configuration.
         self.auto_training_enabled = False
         self.auto_headless = False  # F2: no visuals, no delays, just train
-        self.auto_target_iterations = 1000
+        self.auto_target_iterations = 100
         self.auto_iteration = 0
         self.auto_target_screen_xy: tuple[int, int] | None = None
         self.auto_active_hole_id: str | None = None
@@ -259,8 +259,14 @@ class AITrainingScene(Scene):
             return None
 
     @staticmethod
-    def _save_hole_image(click_camera_xy, post_gray) -> None:
-        """Save the post-shot patch as a transparent PNG for the hole image bank."""
+    def _save_hole_image(click_camera_xy, post_gray, hole_type: str = "hole") -> None:
+        """Save the raw post-shot patch as a grayscale PNG.
+        
+        Args:
+            click_camera_xy: camera coordinates of the hole
+            post_gray: grayscale camera frame
+            hole_type: 'synt' for synthetic, 'hole' for real shots
+        """
         if post_gray is None or np is None:
             return
         try:
@@ -279,38 +285,27 @@ class AITrainingScene(Scene):
             if patch.size == 0:
                 return
 
-            # Create RGBA with alpha based on distance from white (background).
-            if cv2 is not None:
-                rgb = cv2.cvtColor(patch, cv2.COLOR_GRAY2RGB)
-            else:
-                rgb = np.stack([patch, patch, patch], axis=-1)
-
-            alpha = (255 - patch).astype(np.float32) * (191.0 / 255.0)
-            alpha = alpha.astype(np.uint8)
-
-            rgba = np.zeros((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
-            rgba[:, :, :3] = rgb
-            rgba[:, :, 3] = alpha
-
             holes_dir = Path("content/ai/holes")
             holes_dir.mkdir(parents=True, exist_ok=True)
 
-            existing = sorted(holes_dir.glob("*.png"))
+            # Find next number for this type
+            prefix = str(hole_type) + "_"
+            existing = sorted(holes_dir.glob(f"{prefix}*.png"))
             next_num = 1
             for f in existing:
                 try:
-                    num = int(f.stem)
+                    num = int(f.stem.replace(prefix, ""))
                     next_num = max(next_num, num + 1)
                 except ValueError:
                     pass
 
-            path = holes_dir / f"{next_num}.png"
+            path = holes_dir / f"{prefix}{next_num:07d}.png"
 
             if cv2 is not None:
-                bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
-                cv2.imwrite(str(path), bgra)
+                cv2.imwrite(str(path), patch)
             else:
-                surf = pygame.image.frombuffer(rgba.tobytes(), (rgba.shape[1], rgba.shape[0]), "RGBA")
+                rgb = np.stack([patch, patch, patch], axis=-1)
+                surf = pygame.image.frombuffer(rgb.tobytes(), (rgb.shape[1], rgb.shape[0]), "RGB")
                 pygame.image.save(surf, str(path))
         except Exception:
             pass
@@ -723,7 +718,8 @@ class AITrainingScene(Scene):
         )
 
         # Save hole image to build training image bank
-        self._save_hole_image(click_camera, post_gray)
+        is_synthetic = self.auto_training_enabled or self.single_synth_round_active
+        self._save_hole_image(click_camera, post_gray, hole_type="synt" if is_synthetic else "hole")
 
         self._enter_review(click_camera, post_gray)
 
@@ -766,8 +762,10 @@ class AITrainingScene(Scene):
             gt_xy = (projected.camera_x, projected.camera_y)
 
         # Use full funnel pipeline: reject noise → rank → diagnostics
+        # Use same match radius as UI report for consistency
+        match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
         self.ranked_candidates, diag = self.runtime.rank_with_funnel(
-            all_candidates, gt_xy=gt_xy, limit=150,
+            all_candidates, gt_xy=gt_xy, limit=150, match_radius_px=match_radius,
         )
         self.awaiting_click = True
         self.clicked_camera_xy = None
