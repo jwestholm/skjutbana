@@ -44,6 +44,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "show_overlay": True,
     "auto_learn": True,
     "gt_match_radius_px": 10.0,
+    "save_hole_images": True,
 }
 
 # ---- Feature keys (consistent between training and scoring) ----

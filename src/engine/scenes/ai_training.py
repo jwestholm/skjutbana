@@ -718,8 +718,9 @@ class AITrainingScene(Scene):
         )
 
         # Save hole image to build training image bank
-        is_synthetic = self.auto_training_enabled or self.single_synth_round_active
-        self._save_hole_image(click_camera, post_gray, hole_type="synt" if is_synthetic else "hole")
+        if self.runtime.settings.get("save_hole_images", True):
+            is_synthetic = self.auto_training_enabled or self.single_synth_round_active
+            self._save_hole_image(click_camera, post_gray, hole_type="synt" if is_synthetic else "hole")
 
         self._enter_review(click_camera, post_gray)
 
