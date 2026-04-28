@@ -15,7 +15,7 @@
 - **AI-observability** — RoundRecord (single source of truth), funnel-diagnostik, CSV-export, blockstatistik
 - **Autoträning** — F1 (visuell) och F2 (headless), 100 skott per serie
 - **Sampling modes** — center_bias, uniform, edge_bias, corners (konfigurerbar via settings.json)
-- **Shot-diagnostik** — detaljerad per-skott-loggning i terminalen ([SHOT-DIAG])
+- **Shot-diagnostik** — detaljerad per-skott-loggning i terminalen ([SHOT-DIAG]) + pre/post/diff bilder i content/ai/shot_diag/
 - **Spel** — Shoot/Don't Shoot, skjutbana med helfigur
 - **Bilder/video** — stillbilder och videoklipp med träffdetektion
 
@@ -32,7 +32,11 @@
 - **Blockstatistik** — per 100 skott, visar om AI:n lär sig under körningen
 - **Kandidatstatistik** — medel/min/max, noll-rundor, >50/>100/>200
 - **Shot-diagnostik** — loggar per frame: konturer, rejections, patch-värden, tracking, emission/timeout
-- **Konfigurerbar candidate_limit** — via settings.json (default 200)
+- **Pre-shot timing** — 250ms före audio peak (200-350ms fönster), stöd för dubbelskott
+- **Shot-diagnostik bilder** — pre/post/diff PNG + animerad GIF per skott i content/ai/shot_diag/
+- **Koordinatrutnät** — nytt bakgrundsläge med A0/B1-etiketter för att verifiera pre/post-alignment
+- **HUD undertrycks** under auto-kalibrering (suppress_overlays)
+- **Terminal-restore** — stty sane + termios vid alla exit-vägar (atexit + try/finally)
 
 ## Benchmark-resultat (F2, 100 skott per bakgrund)
 

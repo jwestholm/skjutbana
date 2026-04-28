@@ -51,6 +51,16 @@
 - [x] Rapportfont sänkt för bättre läsbarhet
 - [x] Animationsfrysning fixad mellan autoträningsrundor
 
+## Nyligen klart (pre-shot & diagnostik)
+
+- [x] Pre-shot timing fixad: 250ms före peak (var 2s) — stöd för dubbelskott
+- [x] Shot-diagnostik bilder: pre/post/diff PNG + animerad GIF per skott
+- [x] Koordinatrutnät (coord_grid) — 8:e bakgrundsläget med A0/B1-etiketter
+- [x] HUD undertrycks under auto-kalibrering (suppress_overlays i OverlayScene)
+- [x] Terminal-restore vid alla exit-vägar (atexit + termios + stty sane)
+- [x] Död kod borttagen (_capture_pre_shot_frame)
+- [x] rank_with_funnel limit synkad med candidate_limit (var hardcoded 150)
+
 ## Pågående
 
 - [ ] Benchmark-körningar med alla bakgrundslägen (white → bubbles)
@@ -90,4 +100,4 @@
 - [x] Kalibrering separerad (viewport vs kamera)
 - [x] 24 ArUco-markörer med RANSAC
 - [x] AI-träningsscen med viewport-respekt
-- [x] 7 bakgrundslägen i AI-träning (vit → bubblor)
+- [x] 8 bakgrundslägen i AI-träning (vit → koordinatrutnät → bubblor)

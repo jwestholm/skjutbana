@@ -412,12 +412,14 @@ class AITrainingScene(Scene):
 
         # Diagnostic: log pre-shot availability
         pre_ts = getattr(self.runtime, '_pre_shot_ts', 0.0)
-        pre_age = (time.time() - pre_ts) * 1000 if pre_ts > 0 else -1
+        shot_ts = getattr(self.runtime, '_shot_ts', 0.0)
+        # pre_offset = how far before the shot the pre-frame was taken (the useful metric)
+        pre_offset_ms = (shot_ts - pre_ts) * 1000 if (pre_ts > 0 and shot_ts > 0) else -1
         has_pre = gray_pre is not None
         has_post = gray_post is not None
         shapes_match = (has_pre and has_post and gray_pre.shape == gray_post.shape)
         print(f"[REVIEW] pre={'yes' if has_pre else 'NO'} post={'yes' if has_post else 'NO'} "
-              f"shapes_match={shapes_match} pre_age={pre_age:.0f}ms "
+              f"shapes_match={shapes_match} pre_offset={pre_offset_ms:.0f}ms "
               f"click=({click_camera_xy[0]:.0f},{click_camera_xy[1]:.0f})")
 
         if gray_post is None:
@@ -441,7 +443,7 @@ class AITrainingScene(Scene):
 
         # Save diagnostic images (pre/post/diff/gif) for offline analysis
         self._save_shot_diagnostic(
-            click_camera_xy, pre_patch, post_patch, pre_age)
+            click_camera_xy, pre_patch, post_patch, pre_offset_ms)
 
     def _save_shot_diagnostic(
         self,
@@ -499,7 +501,7 @@ class AITrainingScene(Scene):
                 # Save pre
                 pre_marked = cv2.cvtColor(pre_big, cv2.COLOR_GRAY2BGR)
                 cv2.drawMarker(pre_marked, (cx, cy), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
-                cv2.putText(pre_marked, f"PRE ({pre_age_ms:.0f}ms)", (8, 22),
+                cv2.putText(pre_marked, f"PRE (-{pre_age_ms:.0f}ms)", (8, 22),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.imwrite(str(diag_dir / f"{base}_pre.png"), pre_marked)
 
@@ -635,7 +637,9 @@ class AITrainingScene(Scene):
 
         match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
 
-        # Candidate counts
+        # Candidate counts:
+        # raw = from hit_scanner (after contour filtering but before AI noise rejection)
+        # ranked = after noise rejection + AI ranking (what the user/auto-click sees)
         raw_count = len(list(hit_scanner.last_candidates)) if hasattr(hit_scanner, "last_candidates") else 0
         ranked_count = len(ranked_candidates)
 
@@ -1307,7 +1311,7 @@ class AITrainingScene(Scene):
         # Use same match radius as UI report for consistency
         match_radius = float(self.runtime.settings.get("click_match_radius_px", 42.0))
         self.ranked_candidates, diag = self.runtime.rank_with_funnel(
-            all_candidates, gt_xy=gt_xy, limit=150, match_radius_px=match_radius,
+            all_candidates, gt_xy=gt_xy, limit=self.runtime.candidate_limit, match_radius_px=match_radius,
         )
         self.awaiting_click = True
         self.clicked_camera_xy = None

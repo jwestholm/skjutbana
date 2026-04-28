@@ -122,13 +122,14 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 | `src/engine/ai/bootstrap.py` | Monkey-patchar HitScanner för AI-observation + candidate_limit |
 | `src/engine/ai/diagnostics.py` | RoundRecord (single source of truth), FunnelTracker, ShotDiagnostics, CSV-export |
 | `src/engine/ai/space_mapper.py` | Koordinatprojektion kamera ↔ screen ↔ viewport |
-| `src/engine/scenes/ai_training.py` | AI-träningsscen (7 bakgrundslägen, auto-kalibrering, F1/F2 autoträning) |
+| `src/engine/scenes/ai_training.py` | AI-träningsscen (8 bakgrundslägen, auto-kalibrering, F1/F2 autoträning, shot-diagnostik) |
 | `src/engine/scenes/ai_settings.py` | AI-inställningar (läge, vikt, export/import) |
 | `src/engine/scenes/calibrate_camera_viewport.py` | ArUco-kalibrering (24 markörer, RANSAC) |
 | `src/engine/scenes/calibrate.py` | Viewport-justering (skjutgränser) — INGEN AR |
 | `src/engine/visual/hit_visualizer.py` | Visuella träffmarkeringar + kandidatvisning |
 | `content/ai/memory.json` | AI-minne (lokalt, gitignored) |
 | `content/ai/settings.json` | AI-inställningar (lokalt, gitignored) |
+| `content/ai/shot_diag/` | Diagnostikbilder per skott: pre/post/diff PNG + animerad GIF (gitignored) |
 | `content/settings.json` | Viewport, scanport, kamerakalibrering (lokalt, gitignored) |
 
 ---
@@ -138,7 +139,7 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 ### Hotspot-generering (hit_scanner)
 1. **Mikrofon** hör smällen → `AudioPeakEvent`
 2. **HitScanner** öppnar sökfönster (`association_lag_s = 1.5s`)
-3. **Pre-shot-bakgrund** byggs från frames ~1s före `peak_ts`
+3. **Pre-shot-bakgrund** byggs från frames ~250ms före `peak_ts` (fönster 200-350ms, fallback 150-500ms)
 4. **Diff-signaler** (parallellt):
    - `subtract` (ref - current) → hittar mörkare hål
    - `absdiff` (|ref - current|) → hittar både ljusare och mörkare
@@ -207,17 +208,18 @@ Raw hotspots (150) → Noise rejection → Surviving (~50-80) → AI ranking →
 
 ## AI-träning (curriculum)
 
-Träningsscenen har 7 bakgrundslägen i progression från enklast till svårast:
+Träningsscenen har 8 bakgrundslägen i progression från enklast till svårast:
 
 | # | Läge | Typ | Syfte |
 |---|------|-----|-------|
 | 1 | Vit | Stillbild | Enklast — ren bakgrund, tydliga hål |
 | 2 | Vit + rutnät | Stillbild | Lägger till linjer — testar kantfiltrering |
-| 3 | Grå | Stillbild | Lägre kontrast |
-| 4 | Svart | Stillbild | Svårast statisk (kräver belysning) |
-| 5 | Rutmönster | Stillbild | Hög kontrast, testar kantfiltrering |
-| 6 | Rutmönster (video) | Animerad | Rör sig, fryser vid skott |
-| 7 | Bubblor | Spel | Rörliga former, fryser vid skott |
+| 3 | Koordinatrutnät | Stillbild | Finmaskigt rutnät med A0/B1-etiketter — verifierar pre/post-alignment |
+| 4 | Grå | Stillbild | Lägre kontrast |
+| 5 | Svart | Stillbild | Svårast statisk (kräver belysning) |
+| 6 | Rutmönster | Stillbild | Hög kontrast, testar kantfiltrering |
+| 7 | Rutmönster (video) | Animerad | Rör sig, fryser vid skott |
+| 8 | Bubblor | Spel | Rörliga former, fryser vid skott |
 
 TAB byter läge. Börja alltid med vit och jobba uppåt.
 
@@ -312,6 +314,8 @@ Båda kalibreringsflödena använder samma motor: `ArucoCalibrator` i `src/engin
 | Kandidat finns men på fel plats | Homografi inte aktiv — kolla `_prefers_homography()` |
 | Luftgevärshål hittas inte | Kontrollera max_area (900) och max_radius (35) — stora hål behöver höga gränser |
 | Inga kandidater trots tydligt hål | Kör shot-diagnostik (loggas automatiskt) — kolla [SHOT-DIAG] i terminalen |
+| Pre/post-bilder visar fel ställe | Kolla pre_age i [REVIEW]-loggen — bör vara 200-350ms. Kolla shot_diag/ GIF:ar |
+| Pre-shot innehåller redan hålet | Pre-shot timing för nära skottet — kolla [AI PRE-SHOT] offset_from_peak |
 
 ---
 

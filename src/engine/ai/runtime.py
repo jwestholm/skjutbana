@@ -437,51 +437,6 @@ class AIRuntime:
                 if elapsed >= 0.04 * len(self._post_shot_frames):
                     self._post_shot_frames.append((self._latest_gray.copy(), now))
 
-    def _capture_pre_shot_frame(self, scanner) -> None:
-        """Get a frame from before the shot using scanner's frame_history."""
-        frame_history = getattr(scanner, "frame_history", None)
-        if frame_history is None or len(frame_history) < 2:
-            if self._latest_gray is not None:
-                self._pre_shot_gray = self._latest_gray.copy()
-            return
-
-        # Use last_audio_event_ts — this is set immediately when audio fires
-        peak_ts = getattr(scanner, "last_audio_event_ts", 0.0)
-        if peak_ts <= 0:
-            # Fallback: try pending events
-            for ev in getattr(scanner, "audio_events", []):
-                ts = getattr(ev, "peak_ts", None)
-                if ts is not None and (peak_ts <= 0 or ts < peak_ts):
-                    peak_ts = ts
-
-        if peak_ts > 0:
-            # Find frame well before the peak (200ms margin)
-            import time as _time
-            now = _time.time()
-            for fr in reversed(frame_history):
-                if fr.timestamp < peak_ts - 0.20:
-                    age_ms = (now - fr.timestamp) * 1000
-                    peak_age_ms = (now - peak_ts) * 1000
-                    print(f"[AI PRE-SHOT] peak_ts age={peak_age_ms:.0f}ms, frame age={age_ms:.0f}ms, history_len={len(frame_history)}")
-                    self._pre_shot_gray = fr.gray.copy()
-                    self._pre_shot_ts = fr.timestamp
-                    return
-
-        # Fallback: use a frame from 500ms ago (well before any recent shot)
-        import time
-        target_ts = time.time() - 0.5
-        for fr in reversed(frame_history):
-            if fr.timestamp < target_ts:
-                self._pre_shot_gray = fr.gray.copy()
-                self._pre_shot_ts = fr.timestamp
-                return
-
-        # Last resort: oldest frame in history
-        if len(frame_history) > 0:
-            self._pre_shot_gray = frame_history[0].gray.copy()
-        elif self._latest_gray is not None:
-            self._pre_shot_gray = self._latest_gray.copy()
-
     def choose_for_emission(
         self, default_x: float, default_y: float
     ) -> Dict[str, Any]:
