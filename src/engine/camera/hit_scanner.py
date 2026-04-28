@@ -529,18 +529,17 @@ class HitScanner:
         """
         Bygg en bakgrundsbild från frames INNAN kulan träffade tavlan.
 
-        Mikrofonen sitter i kameran, ~50cm från tavlan.
         Tidslinje vid 6m avstånd:
         - t=0: Avfyrning
-        - t=30-60ms: Kulan träffar tavlan → hål uppstår
-        - t=~1.5ms efter träff: Mikrofon hör smällen (50cm / 340m/s)
+        - t≈2ms: Kulan träffar tavlan (6m / 300m/s)
+        - t≈1.5ms efter träff: Mikrofon hör smällen (50cm / 340m/s)
 
         Audio peak ≈ kulan har redan träffat. Hålet finns redan i bilden.
-        Vi behöver frames från INNAN peak_ts för att ha en ren bakgrund.
+        Vi behöver frames från ~200-300ms INNAN peak_ts.
 
-        Vid 30fps (33ms/frame) och snabbskytte (5 skott/s = 200ms mellanrum)
-        tar vi frames som är minst 40ms äldre än peak_ts (säkerhetsmarginal
-        för att kulan kan ha träffat 1-2 frames innan ljudet nådde mikrofonen).
+        Vid dubbelskott (200ms mellanrum) måste vi vara nära nog att inte
+        fånga det förra hålet, men långt nog att inte fånga det nya.
+        250ms offset + 100ms fönster = frames från 200-350ms före peak.
         """
         earliest_peak_ts = None
         for ev in self.audio_events:
@@ -551,12 +550,11 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
-        # Go back 1 second to be safely before the bullet hit.
-        # Audio peak detection has variable delay depending on weapon.
-        pre_shot_frames: list[np.ndarray] = []
-        cutoff_latest = earliest_peak_ts - 1.0
-        cutoff_earliest = earliest_peak_ts - 1.5
+        # Target: 250ms before peak, window 200-350ms before peak
+        cutoff_latest = earliest_peak_ts - 0.20
+        cutoff_earliest = earliest_peak_ts - 0.35
 
+        pre_shot_frames: list[np.ndarray] = []
         for fr in reversed(self.frame_history):
             if fr.timestamp > cutoff_latest:
                 continue
@@ -565,6 +563,19 @@ class HitScanner:
             pre_shot_frames.append(fr.gray)
             if len(pre_shot_frames) >= 5:
                 break
+
+        # If no frames in the tight window, widen to 150-500ms
+        if len(pre_shot_frames) < 1:
+            cutoff_latest = earliest_peak_ts - 0.15
+            cutoff_earliest = earliest_peak_ts - 0.50
+            for fr in reversed(self.frame_history):
+                if fr.timestamp > cutoff_latest:
+                    continue
+                if fr.timestamp < cutoff_earliest:
+                    break
+                pre_shot_frames.append(fr.gray)
+                if len(pre_shot_frames) >= 3:
+                    break
 
         if len(pre_shot_frames) < 1:
             return None

@@ -404,6 +404,17 @@ class AITrainingScene(Scene):
 
         gray_pre = self.runtime.pre_shot_gray
         gray_post = fresh_post_gray if fresh_post_gray is not None else self.runtime.post_shot_gray
+
+        # Diagnostic: log pre-shot availability
+        pre_ts = getattr(self.runtime, '_pre_shot_ts', 0.0)
+        pre_age = (time.time() - pre_ts) * 1000 if pre_ts > 0 else -1
+        has_pre = gray_pre is not None
+        has_post = gray_post is not None
+        shapes_match = (has_pre and has_post and gray_pre.shape == gray_post.shape)
+        print(f"[REVIEW] pre={'yes' if has_pre else 'NO'} post={'yes' if has_post else 'NO'} "
+              f"shapes_match={shapes_match} pre_age={pre_age:.0f}ms "
+              f"click=({click_camera_xy[0]:.0f},{click_camera_xy[1]:.0f})")
+
         if gray_post is None:
             return
 

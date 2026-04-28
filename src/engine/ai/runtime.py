@@ -362,23 +362,59 @@ class AIRuntime:
         # Detect new shot by watching audio_event_count
         current_count = getattr(scanner, "audio_event_count", 0)
         if current_count > self._last_audio_count:
-            # Save pre-shot frame RIGHT NOW — frame_history[-30] at this moment
-            # is guaranteed to be from before the shot. If we wait until click
-            # (seconds later), frame_history has been overwritten.
+            # Save pre-shot frame: we need a frame from BEFORE the bullet hit.
+            #
+            # Timeline at 6m distance:
+            #   t=0:     Trigger pulled
+            #   t≈2ms:   Bullet hits target (6m / 300m/s)
+            #   t≈1.5ms: Sound reaches mic (50cm / 340m/s)
+            #   t≈now:   Audio peak detected (processing delay ~10-30ms)
+            #
+            # At audio peak, the hole has existed for ~1-3 frames (30fps).
+            # We want a frame from ~200-300ms BEFORE audio peak to be safe
+            # even with fast double-taps. At 30fps that's 6-9 frames back.
+            #
+            # Strategy: find the frame closest to (peak_ts - 0.25s).
+            # If history is too short, take the oldest available.
             frame_history = getattr(scanner, "frame_history", None)
-            if frame_history is not None and len(frame_history) >= 62:
-                target_frame = frame_history[-60]
-                self._pre_shot_gray = target_frame.gray.copy()
-                self._pre_shot_ts = target_frame.timestamp
-                import time as _t
-                print(f"[AI PRE-SHOT] saved at shot time, frame[-30] age={((_t.time() - self._pre_shot_ts) * 1000):.0f}ms")
-            elif frame_history is not None and len(frame_history) >= 2:
-                target_frame = frame_history[0]
-                self._pre_shot_gray = target_frame.gray.copy()
-                self._pre_shot_ts = target_frame.timestamp
-                print(f"[AI PRE-SHOT] saved oldest, history_len={len(frame_history)}")
+            history_len = len(frame_history) if frame_history is not None else 0
+            now = time.time()
+            peak_ts = getattr(scanner, "last_audio_event_ts", now)
+
+            # Target: 250ms before the audio peak
+            target_ts = peak_ts - 0.25
+            best_frame = None
+            best_delta = float("inf")
+
+            if frame_history is not None and history_len >= 2:
+                for fr in reversed(frame_history):
+                    # Only consider frames from BEFORE the target time
+                    if fr.timestamp > target_ts:
+                        continue
+                    delta = abs(fr.timestamp - target_ts)
+                    if delta < best_delta:
+                        best_delta = delta
+                        best_frame = fr
+                    else:
+                        break  # Moving further from target, stop
+
+                # If no frame before target_ts, take the oldest
+                if best_frame is None:
+                    best_frame = frame_history[0]
+
+            if best_frame is not None:
+                self._pre_shot_gray = best_frame.gray.copy()
+                self._pre_shot_ts = best_frame.timestamp
+                age_ms = (now - self._pre_shot_ts) * 1000
+                offset_ms = (peak_ts - self._pre_shot_ts) * 1000
+                print(f"[AI PRE-SHOT] OK: age={age_ms:.0f}ms, offset_from_peak={offset_ms:.0f}ms, history={history_len}")
             else:
-                self._capture_pre_shot_frame(scanner)
+                if self._latest_gray is not None:
+                    self._pre_shot_gray = self._latest_gray.copy()
+                    self._pre_shot_ts = now
+                    print(f"[AI PRE-SHOT] WARNING: no history ({history_len} frames), using latest (unreliable)")
+                else:
+                    print(f"[AI PRE-SHOT] WARNING: no frames at all")
             self._shot_detected = True
             self._shot_ts = time.time()
             self._post_shot_frames = []  # Reset for new shot
