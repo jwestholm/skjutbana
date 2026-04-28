@@ -67,6 +67,9 @@ class OverlayScene(Scene):
 
     def render(self, screen):
         self.inner.render(screen)
+        # Suppress overlays when inner scene requests it (e.g. during calibration)
+        if getattr(self.inner, "suppress_overlays", False):
+            return
         hit_visualizer.render(screen)
         scanner_debug_overlay.render(screen)
         scanner_status_overlay.render(screen)

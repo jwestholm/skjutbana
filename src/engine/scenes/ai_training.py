@@ -143,7 +143,12 @@ class AITrainingScene(Scene):
     wants_hit_scanning = True
     wants_camera_preview = False
 
-    MODE_NAMES = ["white", "white_grid", "gray", "black", "checker", "checker_anim", "bubbles"]
+    @property
+    def suppress_overlays(self) -> bool:
+        """Suppress HUD/overlays during auto-calibration."""
+        return self._auto_cal_phase is not None
+
+    MODE_NAMES = ["white", "white_grid", "coord_grid", "gray", "black", "checker", "checker_anim", "bubbles"]
 
     def __init__(self, bg_color=None, **kwargs) -> None:
         super().__init__()
@@ -446,7 +451,14 @@ class AITrainingScene(Scene):
         pre_age_ms: float,
     ) -> None:
         """Save pre/post/diff images + animated GIF for offline analysis."""
-        if post_patch is None or post_patch.size == 0:
+        if cv2 is None or np is None:
+            print("[SHOT-DIAG] cv2/numpy not available, skipping")
+            return
+        if post_patch is None:
+            print("[SHOT-DIAG] No post_patch, skipping")
+            return
+        if post_patch.size == 0:
+            print("[SHOT-DIAG] Empty post_patch, skipping")
             return
         try:
             from pathlib import Path
@@ -493,7 +505,10 @@ class AITrainingScene(Scene):
 
                 # Save diff (amplified)
                 diff = cv2.absdiff(pre_big, post_big)
-                diff_color = cv2.applyColorMap(cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX), cv2.COLORMAP_JET)
+                diff_color = cv2.applyColorMap(
+                    cv2.normalize(diff, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8),
+                    cv2.COLORMAP_JET,
+                )
                 cv2.drawMarker(diff_color, (cx, cy), (255, 255, 255), cv2.MARKER_CROSS, 20, 2)
                 cv2.putText(diff_color, "DIFF", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 cv2.imwrite(str(diag_dir / f"{base}_diff.png"), diff_color)
@@ -514,16 +529,18 @@ class AITrainingScene(Scene):
                             loop=0,
                         )
                 except ImportError:
-                    pass  # PIL not available, skip GIF
+                    print("[SHOT-DIAG] PIL not installed, GIF skipped (PNG:s still saved)")
             else:
                 # No pre-shot — save post only with warning
                 cv2.putText(post_marked, "NO PRE-SHOT", (8, ph - 12),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
                 cv2.imwrite(str(diag_dir / f"{base}_post_only.png"), post_marked)
 
-            print(f"[SHOT-DIAG] Saved {base} at ({ix},{iy}) pre_age={pre_age_ms:.0f}ms")
+            print(f"[SHOT-DIAG] Saved {base} to content/ai/shot_diag/ at ({ix},{iy})")
         except Exception as exc:
+            import traceback
             print(f"[SHOT-DIAG] Save failed: {exc}")
+            traceback.print_exc()
 
     @staticmethod
     def _gray_patch_to_surface(patch) -> pygame.Surface | None:
@@ -1477,6 +1494,8 @@ class AITrainingScene(Scene):
                 pygame.draw.line(screen, GRID_LINE, (x, vp.top), (x, vp.bottom), 1)
             for y in range(vp.top, vp.bottom, 48):
                 pygame.draw.line(screen, GRID_LINE, (vp.left, y), (vp.right, y), 1)
+        elif mode == "coord_grid":
+            self._draw_coord_grid(screen, vp)
         elif mode == "checker":
             self._draw_checker_static(screen, vp)
         elif mode == "checker_anim":
@@ -1487,6 +1506,32 @@ class AITrainingScene(Scene):
             pygame.draw.rect(screen, BG_WHITE, vp)
 
         pygame.draw.rect(screen, (0, 180, 0), vp, 2)
+
+    def _draw_coord_grid(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Fine grid with coordinate labels (A1, B2, etc.) for verifying pre/post alignment."""
+        pygame.draw.rect(screen, BG_WHITE, vp)
+        cell = 32  # Fine grid
+        label_font = self.tiny or pygame.font.Font(None, 14)
+        label_color = (180, 180, 180)
+        line_color = (210, 210, 210)
+
+        # Draw grid lines
+        for x in range(vp.left, vp.right + 1, cell):
+            pygame.draw.line(screen, line_color, (x, vp.top), (x, vp.bottom), 1)
+        for y in range(vp.top, vp.bottom + 1, cell):
+            pygame.draw.line(screen, line_color, (vp.left, y), (vp.right, y), 1)
+
+        # Draw coordinate labels in each cell
+        col = 0
+        for x in range(vp.left, vp.right - cell + 1, cell):
+            row = 0
+            col_letter = chr(65 + (col % 26))  # A-Z
+            for y in range(vp.top, vp.bottom - cell + 1, cell):
+                label = f"{col_letter}{row}"
+                surf = label_font.render(label, True, label_color)
+                screen.blit(surf, (x + 2, y + 1))
+                row += 1
+            col += 1
 
     def _draw_checker_static(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         cell = 40
@@ -1654,6 +1699,7 @@ class AITrainingScene(Scene):
         mode_label = {
             "white": "Vit",
             "white_grid": "Vit + rutnät",
+            "coord_grid": "Koordinatrutnät",
             "gray": "Grå",
             "black": "Svart",
             "checker": "Rutmönster",
