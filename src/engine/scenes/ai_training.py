@@ -290,15 +290,9 @@ class AITrainingScene(Scene):
     # Auto-calibration (delegates to ArucoCalibrator engine)
     # ------------------------------------------------------------------
     def _render_aruco_markers(self, screen: pygame.Surface) -> None:
-        """Draw ArUco markers on screen for camera to see."""
+        """Draw ArUco markers on screen for camera to see. No text — clean image only."""
         if self._calibrator is not None:
             self._calibrator.render_markers(screen)
-        # Show status text
-        vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
-        if self.tiny:
-            msg = "Autokalibrering pågår..."
-            surf = self.tiny.render(msg, True, (80, 80, 80))
-            screen.blit(surf, (vp.x + 10, vp.bottom - 24))
 
     def _try_auto_calibrate(self) -> bool:
         """Try to detect markers and compute homography. Returns True if successful."""

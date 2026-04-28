@@ -411,7 +411,17 @@ class AIRuntime:
                 self._pre_shot_ts = best_frame.timestamp
                 age_ms = (now - self._pre_shot_ts) * 1000
                 offset_ms = (peak_ts - self._pre_shot_ts) * 1000
-                print(f"[AI PRE-SHOT] OK: age={age_ms:.0f}ms, offset_from_peak={offset_ms:.0f}ms, history={history_len}")
+
+                # Extra diagnostic: check how many frames are before/after target
+                frames_before_target = sum(1 for fr in frame_history if fr.timestamp <= target_ts)
+                frames_after_target = sum(1 for fr in frame_history if fr.timestamp > target_ts)
+                newest_ts = frame_history[-1].timestamp if frame_history else 0
+                oldest_ts = frame_history[0].timestamp if frame_history else 0
+                span_ms = (newest_ts - oldest_ts) * 1000
+
+                print(f"[AI PRE-SHOT] OK: age={age_ms:.0f}ms, offset_from_peak={offset_ms:.0f}ms, "
+                      f"history={history_len} (span={span_ms:.0f}ms, "
+                      f"before_target={frames_before_target}, after_target={frames_after_target})")
             else:
                 if self._latest_gray is not None:
                     self._pre_shot_gray = self._latest_gray.copy()
