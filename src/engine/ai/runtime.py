@@ -338,7 +338,8 @@ class AIRuntime:
     def sampling_mode(self) -> str:
         """Sampling strategy for synthetic hole placement during auto-training."""
         mode = str(self.settings.get("sampling_mode", "center_bias")).strip().lower()
-        if mode not in ("center_bias", "uniform", "edge_bias", "corners"):
+        valid = ("center_bias", "center", "uniform", "full_uniform", "edge_bias", "edge", "corners", "corner")
+        if mode not in valid:
             print(f"[AI] Unknown sampling_mode '{mode}', falling back to center_bias")
             return "center_bias"
         return mode
@@ -634,12 +635,22 @@ class AIRuntime:
         pre_patch = pre[y0:y1, x0:x1]
         post_patch = post[y0:y1, x0:x1]
 
-        # If the pre-shot patch already has high contrast (dark spot),
-        # this hotspot likely existed before the shot.
         pre_std = float(np.std(pre_patch))
         post_std = float(np.std(post_patch))
 
-        # If pre-shot already had similar contrast → existed before
+        # High-contrast backgrounds (checker, grid) naturally have high std.
+        # Only flag as "existed before" if the pre-shot patch has moderate
+        # contrast AND the post-shot didn't change much.
+        # On checker patterns pre_std can be 20-40 — don't penalize those.
+        if pre_std > 15.0:
+            # High-contrast region — need a much stronger signal to reject.
+            # Only reject if pre and post are nearly identical (no new hole).
+            delta_mean = float(np.mean(np.abs(post_patch.astype(np.int16) - pre_patch.astype(np.int16))))
+            if delta_mean < 2.0:
+                return min(1.0, 0.3 + pre_std / 80.0)
+            return 0.0
+
+        # Low-contrast region: original logic
         if pre_std > 5.0 and abs(pre_std - post_std) < pre_std * 0.5:
             return min(1.0, pre_std / 20.0)
         return 0.0
@@ -689,13 +700,13 @@ class AIRuntime:
             # Check persistence (only if we have multi-frame data)
             if len(self._post_shot_frames) >= 2:
                 persistence = self.compute_persistence(hs)
-                if persistence < 0.2:
+                if persistence < 0.1:  # Very low: visible in <10% of frames
                     rejection_counts["no_persistence"] += 1
                     continue
 
             # Check if the change region is too large (not a bullet hole)
             area = _safe_float(hs.get("area", 0.0))
-            if area > 300:  # Very large change — probably not a hole
+            if area > 1200:  # Very large change — probably not a hole
                 rejection_counts["too_large_change"] += 1
                 continue
 

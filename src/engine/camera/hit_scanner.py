@@ -101,9 +101,9 @@ class HitScanner:
         self.max_background_frames = 12
 
         self.min_area = 2.0
-        self.max_area = 180.0
+        self.max_area = 900.0
         self.min_radius = 0.8
-        self.max_radius = 12.0
+        self.max_radius = 35.0
         self.min_circularity = 0.02
         self.border_margin = 3
 
@@ -591,6 +591,9 @@ class HitScanner:
         # ---- Fallback: scene/surface/recent ----
         blackhat_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         blackhat = cv2.morphologyEx(gray_blur, cv2.MORPH_BLACKHAT, blackhat_kernel)
+        # Whitehat detects BRIGHT spots — holes on dark backgrounds where LED
+        # backlight shines through appear brighter than surroundings.
+        whitehat = cv2.morphologyEx(gray_blur, cv2.MORPH_TOPHAT, blackhat_kernel)
 
         fallback_delta = np.zeros_like(gray_blur)
         if pre_shot_delta is None:
@@ -611,15 +614,26 @@ class HitScanner:
                     fallback_delta = np.maximum(fallback_delta, dmap)
 
         # ---- Bygg combined ----
+        # Morphological signals: blackhat (dark spots) + whitehat (bright spots)
+        morph_signal = np.maximum(blackhat, whitehat)
+
+        # Also compute absdiff for pre-shot — catches both bright and dark holes
+        pre_shot_absdiff: np.ndarray | None = None
+        if pre_shot_bg is not None and pre_shot_bg.shape == gray.shape:
+            pre_shot_blur_abs = cv2.GaussianBlur(pre_shot_bg, (5, 5), 0)
+            pre_shot_absdiff = cv2.absdiff(pre_shot_blur_abs, gray_blur)
+
         if pre_shot_delta is not None:
-            # Behåll blackhat som robust signal även med pre-shot.
-            # Pre-shot kan missa pga flicker/timing, blackhat hittar
-            # mörka fläckar oavsett.
             combined_delta = pre_shot_delta
-            combined = np.maximum(pre_shot_delta, blackhat)
+            # Merge: subtract (darkening) + absdiff (any change) + morphological
+            if pre_shot_absdiff is not None:
+                combined = np.maximum(pre_shot_delta, pre_shot_absdiff)
+                combined = np.maximum(combined, morph_signal)
+            else:
+                combined = np.maximum(pre_shot_delta, morph_signal)
         else:
             combined_delta = fallback_delta
-            combined = np.maximum(fallback_delta, blackhat)
+            combined = np.maximum(fallback_delta, morph_signal)
 
         combined = cv2.bitwise_and(combined, roi_mask)
         combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
@@ -647,6 +661,7 @@ class HitScanner:
         self.debug_frames["combined_map"] = combined
         self.debug_frames["change_map"] = combined_delta
         self.debug_frames["blackhat_map"] = blackhat
+        self.debug_frames["whitehat_map"] = whitehat
         self.debug_frames["candidate_mask"] = merged
 
         contours, _ = cv2.findContours(merged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -795,9 +810,17 @@ class HitScanner:
 
         yy, xx = np.ogrid[y0:y1, x0:x1]
         dist_sq = (xx - camera_x) ** 2 + (yy - camera_y) ** 2
-        center_mask = dist_sq <= float(self.inner_radius * self.inner_radius)
-        ring_mask = (dist_sq >= float(self.outer_radius * self.outer_radius)) & (
-            dist_sq <= float((self.outer_radius + 3) * (self.outer_radius + 3))
+
+        # Adaptive center/ring radii based on contour size.
+        # For small holes (radius ~2px), use fixed inner=2, outer=7.
+        # For large holes (radius ~20px), scale up so ring is outside the hole.
+        adaptive_inner = max(float(self.inner_radius), radius * 0.4)
+        adaptive_outer = max(float(self.outer_radius), radius * 1.5)
+        adaptive_outer_end = adaptive_outer + max(3.0, radius * 0.5)
+
+        center_mask = dist_sq <= (adaptive_inner * adaptive_inner)
+        ring_mask = (dist_sq >= (adaptive_outer * adaptive_outer)) & (
+            dist_sq <= (adaptive_outer_end * adaptive_outer_end)
         )
 
         if not np.any(center_mask) or not np.any(ring_mask):
@@ -820,7 +843,15 @@ class HitScanner:
             patch_pre = pre_shot_delta[y0:y1, x0:x1]
             pre_shot_change = float(np.mean(patch_pre[center_mask]))
 
-        if center_change < self.min_center_darkening:
+        # Also check absdiff-based change (catches bright holes on dark bg)
+        abs_change = 0.0
+        if pre_shot_delta is not None:
+            # pre_shot_delta is subtract-based; compute absdiff separately
+            patch_gray = gray[y0:y1, x0:x1]
+            # Use the combined signal which already includes absdiff
+            abs_change = float(np.mean(patch_combined[center_mask]))
+
+        if center_change < self.min_center_darkening and abs_change < self.min_center_darkening:
             return None
         if local_contrast < self.min_local_contrast_gain:
             return None

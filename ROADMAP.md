@@ -28,10 +28,25 @@
 - [x] Sampling modes förberett (center_bias, uniform, edge_bias, corners)
 - [x] CSV-export med alla RoundRecord-fält + funnel-data
 
+## Nyligen klart (detection-improvement sprint)
+
+- [x] Whitehat (tophat) tillagd — hittar ljusa hål på mörk bakgrund
+- [x] Absdiff-signal tillagd parallellt med subtract — fångar båda riktningar
+- [x] existed_before_shot smartare — hanterar hög-kontrast bakgrunder (checker)
+- [x] Persistence-tröskel sänkt 0.2 → 0.1 (färre false rejections)
+- [x] Area-tröskel höjd 300 → 400 (checker-konturer kan vara större)
+- [x] _verify_patch accepterar nu ljusa hål (bright spots on dark bg)
+- [x] Sampling modes: center/full_uniform/edge/corner med alias
+- [x] CSV-filnamn inkluderar bakgrundsläge och antal rundor
+- [x] Rapport visar bakgrund + sampling mode i header
+
 ## Pågående
 
-- [ ] Verifiera funnel-diagnostik med autoträning
-- [ ] Analysera var i pipelinen hål försvinner
+- [ ] Benchmark-körningar med alla bakgrundslägen (white → bubbles)
+- [ ] Verifiera gray/black förbättring med whitehat+absdiff
+- [ ] Verifiera checker förbättring med relaxade filter-trösklar
+- [ ] Testa edge/corner sampling modes
+- [ ] Analysera bubbles-konsistens efter fix
 - [ ] Syntetisk bildbank-baserad träning (hole images → autotrain)
 - [ ] Scen-medvetenhet i AI — feature-vektorn inkluderar scen-typ
 - [ ] Readiness-indikator — visa i UI hur redo AI:n är

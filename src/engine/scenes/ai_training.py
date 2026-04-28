@@ -129,9 +129,13 @@ def _sample_corners(vp: pygame.Rect, margin: int = 12) -> tuple[int, int]:
 
 SAMPLING_MODES: dict[str, Any] = {
     "center_bias": _sample_center_bias,
+    "center": _sample_center_bias,
     "uniform": _sample_uniform,
+    "full_uniform": _sample_uniform,
     "edge_bias": _sample_edge_bias,
+    "edge": _sample_edge_bias,
     "corners": _sample_corners,
+    "corner": _sample_corners,
 }
 
 
@@ -510,6 +514,7 @@ class AITrainingScene(Scene):
 
         lines: list[str] = [
             "Autoträning klar",
+            f"Bakgrund: {self.MODE_NAMES[self.bg_mode_index]} | Sampling: {self.runtime.sampling_mode} | {total} rundor",
             "",
             f"Iterationer: {total}",
             f"Hittade hålet: {found}/{total} ({100.0 * found / total:.1f}%)",
@@ -586,7 +591,10 @@ class AITrainingScene(Scene):
 
         # Save CSV report with round_records as source of truth
         try:
-            csv_path = self.runtime.funnel.save_csv("autotrain", round_records=self.round_records)
+            bg_mode = self.MODE_NAMES[self.bg_mode_index]
+            n_rounds = len(self.round_records)
+            csv_label = f"bench_{bg_mode}_{n_rounds}r"
+            csv_path = self.runtime.funnel.save_csv(csv_label, round_records=self.round_records)
             if csv_path:
                 self.auto_report_lines.insert(-1, f"CSV sparad: {csv_path.name}")
         except Exception:
