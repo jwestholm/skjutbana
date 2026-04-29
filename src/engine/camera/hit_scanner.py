@@ -624,19 +624,15 @@ class HitScanner:
 
     def _build_pre_shot_background(self) -> np.ndarray | None:
         """
-        Bygg en bakgrundsbild från INNAN kulan träffade tavlan.
+        Bygg en bakgrundsbild för detektion.
 
-        Primary: use pre_shot_snapshot captured at audio peak time via
-        visual comparison (guaranteed clean — no hole).
-        Fallback: timestamp-based search in frame_history.
+        NOT the same as pre_shot_snapshot (which is for diagnostics/AI).
+        This needs to show the CURRENT background (grid, animation, etc)
+        without the new hole. Uses ring buffer timestamp search.
+
+        pre_shot_snapshot may be scene_reference (white) which would cause
+        false diffs against non-white backgrounds.
         """
-        # Primary: use the snapshot captured by _capture_pre_shot_snapshot
-        # at audio peak time. This was found via visual comparison and is
-        # guaranteed to be from before the hole appeared.
-        if self.pre_shot_snapshot is not None:
-            return self.pre_shot_snapshot
-
-        # Fallback: timestamp-based (less reliable due to camera latency)
         earliest_peak_ts = None
         for ev in self.audio_events:
             if ev.state == "pending":
@@ -646,6 +642,21 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
+        # Ring buffer: find frame ~500ms before peak
+        ring = camera_manager.get_ring_snapshot()
+        if ring and len(ring) >= 5:
+            target_ts = earliest_peak_ts - 0.50
+            best = None
+            best_delta = float("inf")
+            for cf in ring:
+                delta = abs(cf.timestamp - target_ts)
+                if delta < best_delta:
+                    best_delta = delta
+                    best = cf
+            if best is not None:
+                return cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
+
+        # Fallback: frame_history
         cutoff_latest = earliest_peak_ts - 0.20
         cutoff_earliest = earliest_peak_ts - 0.50
 
@@ -659,11 +670,11 @@ class HitScanner:
             if len(pre_shot_frames) >= 3:
                 break
 
-        if len(pre_shot_frames) < 1:
-            return None
-        if len(pre_shot_frames) == 1:
-            return pre_shot_frames[0]
-        return np.median(np.stack(pre_shot_frames, axis=0), axis=0).astype(np.uint8)
+        if len(pre_shot_frames) >= 1:
+            return pre_shot_frames[0] if len(pre_shot_frames) == 1 else np.median(np.stack(pre_shot_frames, axis=0), axis=0).astype(np.uint8)
+
+        # Last resort
+        return self.scene_reference_gray
 
     def _compute_diff(self, ref: np.ndarray, current: np.ndarray) -> np.ndarray:
         """Compute frame difference using configured diff_mode."""
