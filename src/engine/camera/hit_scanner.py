@@ -776,13 +776,14 @@ class HitScanner:
             pre_shot_absdiff = cv2.absdiff(pre_shot_blur_abs, gray_blur)
 
         if pre_shot_delta is not None:
-            combined_delta = pre_shot_delta
-            # Merge: subtract (darkening) + absdiff (any change) + morphological
+            # combined_delta: best available change signal for thresholding.
+            # Include absdiff so bright holes also generate contours.
             if pre_shot_absdiff is not None:
-                combined = np.maximum(pre_shot_delta, pre_shot_absdiff)
-                combined = np.maximum(combined, morph_signal)
+                combined_delta = np.maximum(pre_shot_delta, pre_shot_absdiff)
             else:
-                combined = np.maximum(pre_shot_delta, morph_signal)
+                combined_delta = pre_shot_delta
+            # combined: full signal for patch verification (includes morph)
+            combined = np.maximum(combined_delta, morph_signal)
         else:
             combined_delta = fallback_delta
             combined = np.maximum(fallback_delta, morph_signal)
@@ -1010,7 +1011,6 @@ class HitScanner:
             return None
 
         patch_combined = combined[y0:y1, x0:x1]
-        patch_delta = combined_delta[y0:y1, x0:x1]
 
         yy, xx = np.ogrid[y0:y1, x0:x1]
         dist_sq = (xx - camera_x) ** 2 + (yy - camera_y) ** 2
@@ -1030,42 +1030,37 @@ class HitScanner:
         if not np.any(center_mask) or not np.any(ring_mask):
             return None
 
-        # center_change: hur mycket har centrum förändrats (ljusare ELLER mörkare).
-        # Ersätter gamla center_darkening som bara fångade mörkare.
+        # center_change: from combined signal (includes subtract + absdiff + morph).
+        # This catches both dark and bright holes.
         center_change = float(np.mean(patch_combined[center_mask]))
-        change_value = float(np.mean(patch_delta[center_mask]))
         ring_value = float(np.mean(patch_combined[ring_mask]))
 
+        # change_value: from combined signal too (not just subtract-delta).
+        # This ensures bright holes get full credit in scoring.
+        change_value = center_change  # Same as center for combined signal
+
         # local_contrast: absolut skillnad mellan centrum och ring.
-        # Hål/märken har hög kontrast mot omgivningen oavsett riktning.
         local_contrast = abs(center_change - ring_value)
 
-        # Pre-shot change: hur mycket har denna punkt förändrats sedan
-        # precis innan skottet? Hög = nytt hål/märke.
+        # Pre-shot change: from subtract-delta specifically (directional change).
+        # This is a bonus signal when pre-shot is available and reliable.
         pre_shot_change = 0.0
         if pre_shot_delta is not None:
             patch_pre = pre_shot_delta[y0:y1, x0:x1]
             pre_shot_change = float(np.mean(patch_pre[center_mask]))
 
-        # Also check absdiff-based change (catches bright holes on dark bg)
-        abs_change = 0.0
-        if pre_shot_delta is not None:
-            # pre_shot_delta is subtract-based; compute absdiff separately
-            patch_gray = gray[y0:y1, x0:x1]
-            # Use the combined signal which already includes absdiff
-            abs_change = float(np.mean(patch_combined[center_mask]))
-
-        if center_change < self.min_center_darkening and abs_change < self.min_center_darkening:
+        # Threshold checks: pass if EITHER combined signal OR subtract signal is strong
+        if center_change < self.min_center_darkening:
             if self.shot_diag_enabled and self._diag_frame_count <= 3 and radius >= 3.0:
                 print(f"  patch_reject: ({camera_x:.0f},{camera_y:.0f}) r={radius:.1f} "
-                      f"REASON=center_too_low (center={center_change:.1f} abs={abs_change:.1f} < {self.min_center_darkening}) "
+                      f"REASON=center_too_low (center={center_change:.1f} < {self.min_center_darkening}) "
                       f"contrast={local_contrast:.1f} change={change_value:.1f} ring={ring_value:.1f}")
             return None
         if local_contrast < self.min_local_contrast_gain:
             if self.shot_diag_enabled and self._diag_frame_count <= 3 and radius >= 3.0:
                 print(f"  patch_reject: ({camera_x:.0f},{camera_y:.0f}) r={radius:.1f} "
                       f"REASON=contrast_too_low ({local_contrast:.1f} < {self.min_local_contrast_gain}) "
-                      f"center={center_change:.1f} abs={abs_change:.1f} change={change_value:.1f} ring={ring_value:.1f}")
+                      f"center={center_change:.1f} change={change_value:.1f} ring={ring_value:.1f}")
             return None
 
         # Score: blackhat och center_change bär huvudsignalen.
