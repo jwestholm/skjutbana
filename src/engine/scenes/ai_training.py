@@ -1413,6 +1413,26 @@ class AITrainingScene(Scene):
         self.clicked_camera_xy = None
         self._build_round_record(self.ranked_candidates)
 
+        # Log GT distance when ground truth is known (auto-training)
+        if gt_xy is not None and self.ranked_candidates:
+            top = self.ranked_candidates[0]
+            top_dist = math.hypot(float(top.get("camera_x", 0)) - gt_xy[0],
+                                  float(top.get("camera_y", 0)) - gt_xy[1])
+            # Find best (nearest to GT) among all ranked
+            best_dist = min(
+                math.hypot(float(c.get("camera_x", 0)) - gt_xy[0],
+                           float(c.get("camera_y", 0)) - gt_xy[1])
+                for c in self.ranked_candidates
+            )
+            found = best_dist <= match_radius
+            top1_ok = top_dist <= match_radius
+            print(f"[SHOT #{hit_scanner._diag_shot_id}] GT: "
+                  f"top1_dist={top_dist:.0f}px best_dist={best_dist:.0f}px "
+                  f"found={'YES' if found else 'no'} top1={'YES' if top1_ok else 'no'} "
+                  f"(radius={match_radius:.0f})")
+        elif gt_xy is not None and not self.ranked_candidates:
+            print(f"[SHOT #{hit_scanner._diag_shot_id}] GT: no candidates — miss")
+
         if self.auto_training_enabled:
             self.auto_click_ready_ts = time.time() + self.auto_click_delay_s
             self.auto_phase = "waiting_markers"
