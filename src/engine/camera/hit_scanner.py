@@ -480,11 +480,10 @@ class HitScanner:
                 }
 
                 if self._track_is_ready(track, now_ts, event):
-                    if self.shot_diag_enabled:
-                        print(f"[SHOT-DIAG #{self._diag_shot_id}] EMIT: "
-                              f"track={track.track_id} ({track.camera_x:.0f},{track.camera_y:.0f}) "
-                              f"hits={track.hits} score={track.best_score:.2f} "
-                              f"state={track.state} age={track.last_seen_ts - track.first_seen_ts:.3f}s")
+                    # Always log emit (compact, one line)
+                    print(f"[SHOT #{self._diag_shot_id}] HIT: ({track.camera_x:.0f},{track.camera_y:.0f}) "
+                          f"score={track.best_score:.2f} hits={track.hits} "
+                          f"candidates={len(self.last_candidates)}")
                     if self._emit_track_result(track, event):
                         emitted_now += 1
                     continue
@@ -492,18 +491,14 @@ class HitScanner:
             if now_ts - event.peak_ts >= self.event_timeout_s:
                 event.state = "missed"
                 event.note = "timeout"
-                if self.shot_diag_enabled:
-                    n_tracks = len(self._active_tracks)
-                    track_info = ""
-                    if n_tracks > 0:
-                        best_t = max(self._active_tracks.values(), key=lambda t: t.best_score)
-                        track_info = (f" best_track=({best_t.camera_x:.0f},{best_t.camera_y:.0f}) "
-                                      f"hits={best_t.hits} score={best_t.best_score:.2f} "
-                                      f"state={best_t.state}")
-                    print(f"[SHOT-DIAG #{self._diag_shot_id}] TIMEOUT: "
-                          f"event={event.shot_id} age={now_ts - event.peak_ts:.2f}s "
-                          f"tracks={n_tracks}{track_info} "
-                          f"candidates_last={len(self.last_candidates)}")
+                # Always log miss (compact)
+                n_tracks = len(self._active_tracks)
+                best_info = ""
+                if n_tracks > 0:
+                    best_t = max(self._active_tracks.values(), key=lambda t: t.best_score)
+                    best_info = f" best=({best_t.camera_x:.0f},{best_t.camera_y:.0f}) score={best_t.best_score:.2f} hits={best_t.hits}"
+                print(f"[SHOT #{self._diag_shot_id}] MISS: candidates={len(self.last_candidates)} "
+                      f"tracks={n_tracks}{best_info}")
 
         return emitted_now
 
@@ -914,6 +909,22 @@ class HitScanner:
 
         # --- Shot diagnostic logging ---
         self._diag_frame_count += 1
+
+        # Compact per-shot summary (always, first frame only)
+        if self._diag_frame_count == 1 and candidates:
+            top = candidates[0]
+            print(f"[SHOT #{self._diag_shot_id}] DETECT: raw_blobs={raw_blobs['total']} "
+                  f"candidates={len(candidates)} "
+                  f"rej=[a:{rejected['area']} c:{rejected['circ']} r:{rejected['radius']} p:{rejected['patch']}] "
+                  f"top1: area={top['area']:.0f} r={top['radius']:.1f} "
+                  f"score={top['score']:.1f} center={top['center_darkening']:.1f} "
+                  f"contrast={top['local_contrast_gain']:.1f}")
+        elif self._diag_frame_count == 1 and not candidates:
+            print(f"[SHOT #{self._diag_shot_id}] DETECT: raw_blobs={raw_blobs['total']} "
+                  f"candidates=0 "
+                  f"rej=[a:{rejected['area']} c:{rejected['circ']} r:{rejected['radius']} p:{rejected['patch']}]")
+
+        # Verbose per-frame logging (only when shot_diag_enabled)
         if self.shot_diag_enabled and self._diag_frame_count <= 8:
             has_pre = pre_shot_bg is not None
             has_pre_delta = pre_shot_delta is not None
