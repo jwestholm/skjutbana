@@ -390,28 +390,29 @@ class HitScanner:
         self._next_shot_id += 1
 
     def _capture_pre_shot_snapshot(self, peak_ts: float) -> None:
-        """Get a frame from before the bullet hit.
+        """Get a pre-shot frame (before the bullet hole).
 
-        Target: ~500ms before audio peak. At any fps, find the frame
-        in the ring buffer closest to (peak_ts - 0.5s).
-        500ms accounts for camera pipeline latency (up to ~300ms)
-        plus safety margin, while staying close enough for animations.
+        For static backgrounds: use scene_reference (captured at startup,
+        guaranteed clean). This is reliable regardless of camera latency.
+
+        For animated backgrounds: try ring buffer with 500ms offset.
+        If that fails, fall back to scene_reference.
         """
-        ring = camera_manager.get_ring_snapshot()
-        if not ring:
-            if self.scene_reference_gray is not None:
-                self.pre_shot_snapshot = self.scene_reference_gray.copy()
-                self.pre_shot_snapshot_ts = peak_ts - 1.0
-                print("[PRE-SHOT] Using scene_reference (empty ring)")
-            else:
-                self.pre_shot_snapshot = None
-                self.pre_shot_snapshot_ts = 0.0
+        # Primary: scene_reference is always clean (no holes)
+        if self.scene_reference_gray is not None:
+            self.pre_shot_snapshot = self.scene_reference_gray.copy()
+            self.pre_shot_snapshot_ts = peak_ts - 1.0
+            print("[PRE-SHOT] Using scene_reference (reliable)")
             return
 
-        # Target: 500ms before audio peak
-        target_ts = peak_ts - 0.50
+        # Fallback: ring buffer 500ms back (for when no scene_reference exists)
+        ring = camera_manager.get_ring_snapshot()
+        if not ring:
+            self.pre_shot_snapshot = None
+            self.pre_shot_snapshot_ts = 0.0
+            return
 
-        # Find frame closest to target
+        target_ts = peak_ts - 0.50
         best = None
         best_delta = float("inf")
         for cf in ring:
@@ -425,10 +426,7 @@ class HitScanner:
 
         self.pre_shot_snapshot = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
         self.pre_shot_snapshot_ts = best.timestamp
-
-        age_ms = (time.time() - best.timestamp) * 1000
-        offset_ms = (peak_ts - best.timestamp) * 1000
-        print(f"[PRE-SHOT] offset={offset_ms:.0f}ms before peak, age={age_ms:.0f}ms")
+        print(f"[PRE-SHOT] ring fallback, age={(time.time() - best.timestamp) * 1000:.0f}ms")
 
     def _has_open_events(self) -> bool:
         return any(ev.state == "pending" for ev in self.audio_events)
