@@ -1355,7 +1355,12 @@ class AITrainingScene(Scene):
             self._set_cursor_visible(True)
 
     def _on_shot_detected(self) -> None:
-        all_candidates = list(hit_scanner.last_candidates)
+        # Use runtime's snapshot of candidates (frozen at shot detection time)
+        # instead of hit_scanner.last_candidates which may have been cleared.
+        all_candidates = list(self.runtime.latest_candidates)
+        if not all_candidates:
+            # Fallback: try hit_scanner directly (in case runtime missed it)
+            all_candidates = list(hit_scanner.last_candidates)
         if not all_candidates:
             self.status_message = "Skott detekterat men inga kandidater."
             if self.auto_training_enabled:
