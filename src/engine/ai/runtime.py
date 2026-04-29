@@ -230,38 +230,46 @@ class SimpleAIMemory:
         norm = self._normalize(features)
         now = time.time()
 
-        pos_dists = self._weighted_distances(norm, self.positives[-64:], now)
-        neg_dists = self._weighted_distances(norm, self.negatives[-128:], now)
+        # Use recent memories for scoring (bounded for performance)
+        pos_sample = self.positives[-64:]
+        neg_sample = self.negatives[-128:]
 
-        pos_best = min(pos_dists) if pos_dists else 4.0
-        neg_best = min(neg_dists) if neg_dists else 4.0
+        # Vectorized distance computation for better performance
+        pos_best = self._best_distance(norm, pos_sample, now)
+        neg_best = self._best_distance(norm, neg_sample, now)
 
         # Sigmoid-ish mapping: closer to positives = higher score
         raw = 0.5 + (neg_best - pos_best) / 6.0
         return max(0.0, min(1.0, raw))
 
-    def _weighted_distances(
+    def _best_distance(
         self, norm_features: Dict[str, float], memories: List[Dict[str, Any]], now: float
-    ) -> List[float]:
-        dists = []
+    ) -> float:
+        """Find minimum weighted distance to a set of memories."""
+        if not memories:
+            return 4.0
+
+        # Build feature vector once
+        query = [norm_features.get(key, 0.5) for key in FEATURE_KEYS]
+        best = 4.0
+
         for mem in memories:
             mem_features = self._normalize(mem.get("features", {}))
-            # Euclidean distance over shared normalized features
             total = 0.0
-            count = 0
-            for key in FEATURE_KEYS:
-                a = norm_features.get(key, 0.5)
-                b = mem_features.get(key, 0.5)
-                total += (a - b) ** 2
-                count += 1
-            if count == 0:
-                continue
-            dist = math.sqrt(total / count)
+            for i, key in enumerate(FEATURE_KEYS):
+                diff = query[i] - mem_features.get(key, 0.5)
+                total += diff * diff
+            dist = math.sqrt(total / len(FEATURE_KEYS))
+
             # Time decay: memories older than 1 hour get slightly penalized
             age_hours = (now - _safe_float(mem.get("timestamp", now))) / 3600.0
-            time_penalty = 1.0 + 0.05 * max(0.0, age_hours)
-            dists.append(dist * time_penalty)
-        return dists
+            if age_hours > 0:
+                dist *= 1.0 + 0.05 * age_hours
+
+            if dist < best:
+                best = dist
+
+        return best
 
     def summary(self) -> Dict[str, Any]:
         return {
@@ -978,15 +986,14 @@ class AIRuntime:
         gray_pre: Optional[np.ndarray],
         gray_post: Optional[np.ndarray],
     ) -> Dict[str, float]:
-        """Build features for a click point that didn't match any candidate."""
+        """Build features for a click point that didn't match any candidate.
+
+        Uses actual image data at the click point instead of hardcoded values.
+        """
         x, y = camera_xy
         features: Dict[str, float] = {k: 0.0 for k in FEATURE_KEYS}
-        features["detector_score"] = 0.0
-        features["area"] = 5.0  # Typical small hole
-        features["radius"] = 1.5
-        features["circularity"] = 0.8
 
-        # Use post-shot gray for patch stats
+        # Use post-shot gray for patch stats (this is where the hole is)
         gray = gray_post if gray_post is not None else self._latest_gray
         if gray is not None:
             ix, iy = int(round(x)), int(round(y))

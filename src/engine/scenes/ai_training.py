@@ -496,17 +496,13 @@ class AITrainingScene(Scene):
         gray_pre = self.runtime.pre_shot_gray
         gray_post = fresh_post_gray if fresh_post_gray is not None else self.runtime.post_shot_gray
 
-        # Diagnostic: log pre-shot availability
+        # Compute pre-shot offset for diagnostic images
         pre_ts = getattr(self.runtime, '_pre_shot_ts', 0.0)
         shot_ts = getattr(self.runtime, '_shot_ts', 0.0)
-        # pre_offset = how far before the shot the pre-frame was taken (the useful metric)
         pre_offset_ms = (shot_ts - pre_ts) * 1000 if (pre_ts > 0 and shot_ts > 0) else -1
         has_pre = gray_pre is not None
         has_post = gray_post is not None
         shapes_match = (has_pre and has_post and gray_pre.shape == gray_post.shape)
-        print(f"[REVIEW] pre={'yes' if has_pre else 'NO'} post={'yes' if has_post else 'NO'} "
-              f"shapes_match={shapes_match} pre_offset={pre_offset_ms:.0f}ms "
-              f"click=({click_camera_xy[0]:.0f},{click_camera_xy[1]:.0f})")
 
         if gray_post is None:
             return
@@ -705,7 +701,9 @@ class AITrainingScene(Scene):
     # Round logging & record building
     # ------------------------------------------------------------------
     def _log_round_state(self, round_id: int, state: str) -> None:
-        print(f"[ROUND {round_id}] {state}")
+        # Only log in non-headless mode to avoid terminal spam during F2
+        if not self.auto_headless:
+            print(f"[ROUND {round_id}] {state}")
 
     def _build_round_record(self, ranked_candidates: list[dict[str, Any]]) -> None:
         """Build and append a RoundRecord from current state. Single source of truth."""

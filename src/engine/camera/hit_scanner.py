@@ -140,8 +140,8 @@ class HitScanner:
         self.reference_capture_buffer: list[np.ndarray] = []
 
         # Diagnostic logging for debugging missed shots.
-        # Enable via hit_scanner.shot_diag_enabled = True
-        self.shot_diag_enabled = True
+        # Set hit_scanner.shot_diag_enabled = True for verbose per-frame logging.
+        self.shot_diag_enabled = False
         self._diag_shot_id = 0
         self._diag_frame_count = 0  # frames since last audio event
 
@@ -456,11 +456,8 @@ class HitScanner:
         age_ms = (time.time() - best.timestamp) * 1000
         ring_span_ms = (ring[-1].timestamp - ring[0].timestamp) * 1000 if len(ring) > 1 else 0
         fps_est = len(ring) / (ring_span_ms / 1000.0) if ring_span_ms > 100 else 0
-        jump_info = f"hole_at_frame={hole_appeared_at}" if hole_appeared_at is not None else "no_jump_detected"
-        diff_str = " ".join(f"{d:.2f}" for d in diffs)
-        print(f"[PRE-SHOT SNAPSHOT] frame[{best_idx}] of {n}: age={age_ms:.0f}ms, "
-              f"~{fps_est:.0f}fps, {jump_info}, baseline={baseline:.2f}, thr={threshold:.2f}")
-        print(f"  diffs: [{diff_str}]")
+        jump_info = f"hole@frame{hole_appeared_at}" if hole_appeared_at is not None else "no_jump"
+        print(f"[PRE-SHOT] frame[{best_idx}/{n}] {jump_info}, ~{fps_est:.0f}fps, age={age_ms:.0f}ms")
 
     def _has_open_events(self) -> bool:
         return any(ev.state == "pending" for ev in self.audio_events)
