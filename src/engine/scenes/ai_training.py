@@ -337,17 +337,15 @@ class AITrainingScene(Scene):
         print(f"[AUTO-CAL] Scene reference set from white exposure: {self._ref_white_gray.shape}")
 
         if self._ref_black_gray is not None and self._ref_black_gray.shape == self._ref_white_gray.shape:
-            # Build projector response map: how much each pixel changes between white and black
             if cv2 is not None and np is not None:
                 response = cv2.absdiff(self._ref_white_gray, self._ref_black_gray)
-                # Pixels with low response (<15) are tape/patches/artifacts — they don't
-                # change with projection and will always show up as false candidates.
-                # Store as surface_reference so hit_scanner can use it in fallback diff.
                 hit_scanner.surface_reference_gray = self._ref_black_gray.copy()
                 hit_scanner.debug_frames["surface_reference"] = self._ref_black_gray
                 hit_scanner.debug_frames["projector_response"] = response
 
-                # Stats for logging
+                # Rebuild artifact suppression mask
+                hit_scanner._rebuild_artifact_mask()
+
                 active_pixels = int(np.count_nonzero(response > 15))
                 total_pixels = int(response.size)
                 pct = 100.0 * active_pixels / max(1, total_pixels)

@@ -134,6 +134,7 @@ class HitScanner:
 
         self.scene_reference_gray: np.ndarray | None = None
         self.surface_reference_gray: np.ndarray | None = None
+        self.artifact_suppression_mask: np.ndarray | None = None  # 0=artifact, 255=active
         self.reference_capture_frames_needed = 6
         self.reference_capture_kind: str | None = None
         self.reference_capture_buffer: list[np.ndarray] = []
@@ -603,11 +604,40 @@ class HitScanner:
         if self.reference_capture_kind == "scene":
             self.scene_reference_gray = ref
             self.debug_frames["scene_reference"] = ref
+            self._rebuild_artifact_mask()
         elif self.reference_capture_kind == "surface":
             self.surface_reference_gray = ref
             self.debug_frames["surface_reference"] = ref
+            self._rebuild_artifact_mask()
         self.reference_capture_buffer.clear()
         self.reference_capture_kind = None
+
+    def _rebuild_artifact_mask(self) -> None:
+        """Build artifact suppression mask from scene (white) and surface (black) references.
+
+        Pixels where the projector has little effect (low response between white
+        and black projection) are tape/patches/artifacts. These get suppressed
+        in the detection pipeline to reduce false candidates.
+
+        Mask: 255 = active projector surface (good), 0 = artifact (suppress).
+        """
+        if self.scene_reference_gray is None or self.surface_reference_gray is None:
+            self.artifact_suppression_mask = None
+            return
+        if self.scene_reference_gray.shape != self.surface_reference_gray.shape:
+            self.artifact_suppression_mask = None
+            return
+
+        response = cv2.absdiff(self.scene_reference_gray, self.surface_reference_gray)
+        # Pixels with response < 12 are artifacts (tape reflects similarly in both)
+        # Dilate slightly to cover edges of tape
+        mask = (response > 12).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel, iterations=1)
+        self.artifact_suppression_mask = mask
+        self.debug_frames["artifact_mask"] = mask
+        active_pct = 100.0 * np.count_nonzero(mask) / max(1, mask.size)
+        print(f"[HIT-SCANNER] Artifact mask built: {active_pct:.0f}% active surface")
 
     def _build_recent_background(self, frame_ts: float) -> np.ndarray | None:
         candidates: list[np.ndarray] = []
@@ -627,20 +657,19 @@ class HitScanner:
 
     def _build_pre_shot_background(self) -> np.ndarray | None:
         """
-        Bygg en bakgrundsbild från frames INNAN kulan träffade tavlan.
+        Bygg en bakgrundsbild från INNAN kulan träffade tavlan.
 
-        Tidslinje vid 6m avstånd:
-        - t=0: Avfyrning
-        - t≈2ms: Kulan träffar tavlan (6m / 300m/s)
-        - t≈1.5ms efter träff: Mikrofon hör smällen (50cm / 340m/s)
-
-        Audio peak ≈ kulan har redan träffat. Hålet finns redan i bilden.
-        Vi behöver frames från ~200-300ms INNAN peak_ts.
-
-        Vid dubbelskott (200ms mellanrum) måste vi vara nära nog att inte
-        fånga det förra hålet, men långt nog att inte fånga det nya.
-        250ms offset + 100ms fönster = frames från 200-350ms före peak.
+        Primary: use pre_shot_snapshot captured at audio peak time via
+        visual comparison (guaranteed clean — no hole).
+        Fallback: timestamp-based search in frame_history.
         """
+        # Primary: use the snapshot captured by _capture_pre_shot_snapshot
+        # at audio peak time. This was found via visual comparison and is
+        # guaranteed to be from before the hole appeared.
+        if self.pre_shot_snapshot is not None:
+            return self.pre_shot_snapshot
+
+        # Fallback: timestamp-based (less reliable due to camera latency)
         earliest_peak_ts = None
         for ev in self.audio_events:
             if ev.state == "pending":
@@ -650,10 +679,8 @@ class HitScanner:
         if earliest_peak_ts is None:
             return None
 
-        # Target: 250ms before peak, window 200-350ms before peak.
-        # Camera buffer flushing ensures frame timestamps are accurate.
         cutoff_latest = earliest_peak_ts - 0.20
-        cutoff_earliest = earliest_peak_ts - 0.35
+        cutoff_earliest = earliest_peak_ts - 0.50
 
         pre_shot_frames: list[np.ndarray] = []
         for fr in reversed(self.frame_history):
@@ -662,21 +689,8 @@ class HitScanner:
             if fr.timestamp < cutoff_earliest:
                 break
             pre_shot_frames.append(fr.gray)
-            if len(pre_shot_frames) >= 5:
+            if len(pre_shot_frames) >= 3:
                 break
-
-        # If no frames in the tight window, widen to 150-500ms
-        if len(pre_shot_frames) < 1:
-            cutoff_latest = earliest_peak_ts - 0.15
-            cutoff_earliest = earliest_peak_ts - 0.50
-            for fr in reversed(self.frame_history):
-                if fr.timestamp > cutoff_latest:
-                    continue
-                if fr.timestamp < cutoff_earliest:
-                    break
-                pre_shot_frames.append(fr.gray)
-                if len(pre_shot_frames) >= 3:
-                    break
 
         if len(pre_shot_frames) < 1:
             return None
@@ -778,6 +792,11 @@ class HitScanner:
 
         combined = cv2.bitwise_and(combined, roi_mask)
         combined_delta = cv2.bitwise_and(combined_delta, roi_mask)
+
+        # Suppress known artifacts (tape/patches) using the artifact mask
+        if self.artifact_suppression_mask is not None and self.artifact_suppression_mask.shape == combined.shape:
+            combined = cv2.bitwise_and(combined, self.artifact_suppression_mask)
+            combined_delta = cv2.bitwise_and(combined_delta, self.artifact_suppression_mask)
 
         roi_values = combined[roi_mask > 0]
         if roi_values.size == 0:
