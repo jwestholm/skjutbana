@@ -1210,8 +1210,19 @@ class AITrainingScene(Scene):
             and self.runtime.has_new_shot
             and audio_peak_detector.last_peak_ts > self._handled_shot_peak_ts
         ):
-            self._handled_shot_peak_ts = audio_peak_detector.last_peak_ts
-            self._on_shot_detected()
+            # Wait for candidates to appear — hit_scanner needs a few frames
+            # to detect and track the hole after audio peak.
+            candidates = list(self.runtime.latest_candidates)
+            if not candidates:
+                candidates = list(hit_scanner.last_candidates)
+
+            # If still no candidates, wait up to 1.5s (the detection window)
+            peak_age = time.time() - audio_peak_detector.last_peak_ts
+            if not candidates and peak_age < 1.5:
+                pass  # Wait — detection still running
+            else:
+                self._handled_shot_peak_ts = audio_peak_detector.last_peak_ts
+                self._on_shot_detected()
 
         if self._pending_click_phase == "wait_frame":
             self._pending_wait_frames += 1
