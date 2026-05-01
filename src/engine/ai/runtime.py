@@ -36,7 +36,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "top_k": 10,
     "memory_limit_positive": 400,
     "memory_limit_negative": 1200,
-    "click_match_radius_px": 42.0,
+    "click_match_radius_px": 70.0,
     "min_confidence": 0.58,
     "override_confidence": 0.92,
     "max_negatives_per_click": 3,
@@ -846,11 +846,21 @@ class AIRuntime:
             self.memory.add_positive(features, {"kind": "candidate_match", "distance": nearest_dist})
             positive_added = True
 
-        # Add limited negatives — pick the worst-scoring ones that aren't the match
-        neg_candidates = [
-            (i, c) for i, c in enumerate(shown_candidates)
-            if not (positive_added and i == nearest_idx)
-        ]
+        # Add limited negatives — pick the worst-scoring ones that aren't near GT
+        # IMPORTANT: never mark a candidate near the click point as negative,
+        # even if it's outside match_radius. That would teach AI to reject real holes.
+        safe_radius = click_radius * 2.0  # Don't mark anything within 2x radius as negative
+        neg_candidates = []
+        for i, c in enumerate(shown_candidates):
+            if positive_added and i == nearest_idx:
+                continue  # Skip the matched positive
+            # Check distance to click — don't mark near-GT candidates as negative
+            cx = _safe_float(c.get("camera_x", 0.0))
+            cy = _safe_float(c.get("camera_y", 0.0))
+            dist = math.hypot(click_camera_xy[0] - cx, click_camera_xy[1] - cy)
+            if dist <= safe_radius:
+                continue  # Too close to GT — might be the real hole
+            neg_candidates.append((i, c))
         # Sort by combined_score ascending (worst first) to pick the most useful negatives
         neg_candidates.sort(key=lambda ic: _safe_float(ic[1].get("combined_score", ic[1].get("score", 0.0))))
         neg_added = 0

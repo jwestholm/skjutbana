@@ -881,7 +881,7 @@ class AITrainingScene(Scene):
         over_200 = sum(1 for c in raw_counts if c > 200)
 
         lines: list[str] = [
-            "Autoträning klar",
+            f"Autoträning klar — {time.strftime('%Y-%m-%d %H:%M')}",
             f"Bakgrund: {self.MODE_NAMES[self.bg_mode_index]} | Sampling: {self.runtime.sampling_mode} | {total} rundor",
             "",
             f"Iterationer: {total}",
