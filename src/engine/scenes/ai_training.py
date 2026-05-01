@@ -286,6 +286,37 @@ class AITrainingScene(Scene):
     def on_exit(self) -> None:
         self._set_cursor_visible(True)
 
+    def _hard_reset_detection_state(self) -> None:
+        """Clear ALL detection/tracking/AI state for a fresh start.
+
+        Called when starting a new benchmark run or re-entering the scene.
+        Ensures no stale state leaks between runs.
+        """
+        # Hit scanner state
+        old_holes = len(hit_scanner.known_holes)
+        old_tracks = len(hit_scanner._active_tracks)
+        hit_scanner.reset_hole_map()  # Clears known_holes + _active_tracks
+        hit_scanner.last_candidates = []
+        hit_scanner.last_stable_tracks = []
+        hit_scanner.last_best_candidate = None
+        hit_scanner.pre_shot_snapshot = None
+        hit_scanner.pre_shot_snapshot_ts = 0.0
+
+        # Runtime state
+        self.runtime._latest_candidates = []
+        self.runtime._shot_detected = False
+        self.runtime._post_shot_frames = []
+        self.runtime._pre_shot_gray = None
+        self.runtime._post_shot_gray = None
+
+        # Scene state
+        self._reset_shot_state(clear_synthetic=True)
+        self._reset_auto_stats()
+        self.runtime.funnel.clear()
+
+        print(f"[RESET] Hard reset: cleared {old_holes} known holes, "
+              f"{old_tracks} tracks, all candidates/state")
+
     # ------------------------------------------------------------------
     # Auto-calibration (delegates to ArucoCalibrator engine)
     # ------------------------------------------------------------------
@@ -918,14 +949,12 @@ class AITrainingScene(Scene):
         self.auto_report_lines = []
 
         if self.auto_training_enabled:
-            self._reset_auto_stats()
-            self.runtime.funnel.clear()
+            self._hard_reset_detection_state()
             self.auto_iteration = 0
             self.auto_phase = "waiting_next"
             self.auto_next_iteration_ts = time.time() + 0.2
             mode_label = "headless" if headless else "visuell"
             self.status_message = f"Autoträning startad ({mode_label}, F1/F2 stoppar)."
-            self._reset_shot_state(clear_synthetic=True)
         else:
             self.auto_phase = "idle"
             self.auto_headless = False
@@ -1110,10 +1139,9 @@ class AITrainingScene(Scene):
 
             if event.key == pygame.K_r:
                 self.runtime.memory.reset()
-                self._reset_auto_stats()
-                self._reset_shot_state(clear_synthetic=True)
+                self._hard_reset_detection_state()
                 self.auto_phase = "idle"
-                self.status_message = "AI nollställd."
+                self.status_message = "AI + detektion nollställd."
                 return None
 
             if event.key == pygame.K_SPACE and not self.awaiting_click:
