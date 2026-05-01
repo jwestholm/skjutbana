@@ -979,6 +979,9 @@ class AITrainingScene(Scene):
 
         if self.auto_training_enabled:
             self._hard_reset_detection_state()
+            # Re-enable after reset (reset clears these)
+            self.auto_training_enabled = True
+            self.auto_headless = headless
             self.auto_iteration = 0
             self.auto_phase = "waiting_next"
             self.auto_next_iteration_ts = time.time() + 0.2
