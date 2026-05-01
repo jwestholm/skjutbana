@@ -41,6 +41,7 @@ from src.engine.input.hit_input import hit_input
 from src.engine.scene import Scene, SceneSwitch
 from src.engine.settings import load_viewport_rect
 from src.engine.synthetic.synthetic_hole_overlay import SyntheticHoleOverlay
+from src.engine.visual.hit_visualizer import hit_visualizer
 
 BG_WHITE = (248, 248, 248)
 BG_BLACK = (18, 18, 18)
@@ -266,6 +267,9 @@ class AITrainingScene(Scene):
         self._handled_shot_peak_ts = 0.0
         self._set_cursor_visible(True)
 
+        # Clear all stale state from previous session
+        self._hard_reset_detection_state()
+
         # Start auto-calibration
         self._auto_cal_phase = "show_markers"
         self._auto_cal_start_ts = time.time()
@@ -285,37 +289,62 @@ class AITrainingScene(Scene):
 
     def on_exit(self) -> None:
         self._set_cursor_visible(True)
+        # Clear visual markers so they don't persist to next scene
+        hit_visualizer.clear_all()
+        hit_scanner.reset_hole_map()
 
     def _hard_reset_detection_state(self) -> None:
-        """Clear ALL detection/tracking/AI state for a fresh start.
+        """Clear ALL detection/tracking/AI/visual state for a fresh start.
 
-        Called when starting a new benchmark run or re-entering the scene.
-        Ensures no stale state leaks between runs.
+        Called when entering the scene or starting a new benchmark.
+        Ensures ZERO stale state leaks between runs.
+        Only AI memory (positives/negatives) is preserved — that's the
+        learned knowledge we want to keep.
         """
-        # Hit scanner state
+        # --- Hit scanner ---
         old_holes = len(hit_scanner.known_holes)
         old_tracks = len(hit_scanner._active_tracks)
-        hit_scanner.reset_hole_map()  # Clears known_holes + _active_tracks
+        hit_scanner.reset_hole_map()  # known_holes + _active_tracks
         hit_scanner.last_candidates = []
         hit_scanner.last_stable_tracks = []
         hit_scanner.last_best_candidate = None
+        hit_scanner.last_event_debug = {}
+        hit_scanner.last_window_debug = {}
         hit_scanner.pre_shot_snapshot = None
         hit_scanner.pre_shot_snapshot_ts = 0.0
+        hit_scanner.audio_events.clear()
+        hit_scanner._diag_shot_id = 0
+        hit_scanner._diag_frame_count = 0
+        # Don't clear frame_history — camera needs continuous history
+        # Don't clear audio_event_count — audio_peak_detector tracks this
 
-        # Runtime state
+        # --- AI Runtime ---
         self.runtime._latest_candidates = []
         self.runtime._shot_detected = False
         self.runtime._post_shot_frames = []
         self.runtime._pre_shot_gray = None
         self.runtime._post_shot_gray = None
+        self.runtime._pre_shot_ts = 0.0
+        self.runtime._shot_ts = 0.0
+        self.runtime._last_audio_count = getattr(hit_scanner, 'audio_event_count', 0)
+        self.runtime.session_stats = {"shots_seen": 0, "clicks": 0, "last_click_camera": None}
 
-        # Scene state
+        # --- Visual markers ---
+        hit_visualizer.clear_all()
+
+        # --- Hit input queue ---
+        hit_input.queue.clear()
+
+        # --- Scene state ---
         self._reset_shot_state(clear_synthetic=True)
         self._reset_auto_stats()
         self.runtime.funnel.clear()
+        self.auto_report_visible = False
+        self.auto_report_lines = []
+        self.auto_training_enabled = False
+        self.auto_phase = "idle"
 
-        print(f"[RESET] Hard reset: cleared {old_holes} known holes, "
-              f"{old_tracks} tracks, all candidates/state")
+        print(f"[RESET] Full reset: {old_holes} holes, {old_tracks} tracks cleared. Clean state.")
 
     # ------------------------------------------------------------------
     # Auto-calibration (delegates to ArucoCalibrator engine)

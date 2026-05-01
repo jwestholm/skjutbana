@@ -66,6 +66,11 @@ class HitVisualizer:
         self.hits.clear()
         # Behåll _candidate_snapshots — de ska överleva scenbyte
 
+    def clear_all(self):
+        """Full reset — clear everything including candidate snapshots."""
+        self.hits.clear()
+        self._candidate_snapshots.clear()
+
     def _color_for_source(self, source: str):
         if source == "mouse":
             return self.COLOR_MOUSE
