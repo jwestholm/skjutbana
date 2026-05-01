@@ -47,6 +47,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "save_hole_images": True,
     "candidate_limit": 200,
     "sampling_mode": "center_bias",  # center_bias | uniform | edge_bias | corners
+    "benchmark_mode": False,  # True = eval only, no model updates during F1/F2
 }
 
 # ---- Feature keys (consistent between training and scoring) ----
@@ -811,19 +812,18 @@ class AIRuntime:
         shown_candidates: Sequence[Candidate],
         gray_pre: Optional[np.ndarray] = None,
         gray_post: Optional[np.ndarray] = None,
+        freeze: bool = False,
     ) -> Dict[str, Any]:
         """
-        Train the AI from a user click.
-        - Nearest shown candidate within radius → positive
-        - A few worst-scoring shown candidates → negative (balanced, not all)
-        - If no candidate near click → synthetic positive from click location
+        Train the AI from a user click (or just evaluate if freeze=True).
+
+        freeze=True: measure only, no model updates (benchmark/eval mode).
+        freeze=False: normal training — updates positives/negatives.
         """
         self.session_stats["clicks"] += 1
         self.session_stats["last_click_camera"] = [float(click_camera_xy[0]), float(click_camera_xy[1])]
-        self.memory.stats["total_clicks"] = self.memory.stats.get("total_clicks", 0) + 1
-        self.memory.stats["local_updates_since_import"] = self.memory.stats.get("local_updates_since_import", 0) + 1
 
-        click_radius = float(self.settings.get("click_match_radius_px", 42.0))
+        click_radius = float(self.settings.get("click_match_radius_px", 70.0))
         max_neg = int(self.settings.get("max_negatives_per_click", 3))
 
         # Find nearest candidate to click
@@ -838,48 +838,50 @@ class AIRuntime:
                 nearest_idx = i
 
         positive_added = False
-
-        # If a candidate is close enough, use it as positive
-        if nearest_idx is not None and nearest_dist <= click_radius:
-            cand = shown_candidates[nearest_idx]
-            features = self._ensure_features(cand)
-            self.memory.add_positive(features, {"kind": "candidate_match", "distance": nearest_dist})
-            positive_added = True
-
-        # Add limited negatives — pick the worst-scoring ones that aren't near GT
-        # IMPORTANT: never mark a candidate near the click point as negative,
-        # even if it's outside match_radius. That would teach AI to reject real holes.
-        safe_radius = click_radius * 2.0  # Don't mark anything within 2x radius as negative
-        neg_candidates = []
-        for i, c in enumerate(shown_candidates):
-            if positive_added and i == nearest_idx:
-                continue  # Skip the matched positive
-            # Check distance to click — don't mark near-GT candidates as negative
-            cx = _safe_float(c.get("camera_x", 0.0))
-            cy = _safe_float(c.get("camera_y", 0.0))
-            dist = math.hypot(click_camera_xy[0] - cx, click_camera_xy[1] - cy)
-            if dist <= safe_radius:
-                continue  # Too close to GT — might be the real hole
-            neg_candidates.append((i, c))
-        # Sort by combined_score ascending (worst first) to pick the most useful negatives
-        neg_candidates.sort(key=lambda ic: _safe_float(ic[1].get("combined_score", ic[1].get("score", 0.0))))
         neg_added = 0
-        for i, cand in neg_candidates:
-            if neg_added >= max_neg:
-                break
-            features = self._ensure_features(cand)
-            self.memory.add_negative(features, {"kind": "shown_other"})
-            neg_added += 1
 
-        # If no candidate matched, create synthetic positive from click point
-        if not positive_added:
-            features = self._synthetic_features(click_camera_xy, gray_pre, gray_post)
-            self.memory.add_positive(features, {"kind": "synthetic_click"})
-            positive_added = True
+        if not freeze:
+            # --- TRAINING MODE: update model ---
+            self.memory.stats["total_clicks"] = self.memory.stats.get("total_clicks", 0) + 1
+            self.memory.stats["local_updates_since_import"] = self.memory.stats.get("local_updates_since_import", 0) + 1
 
-        self.memory.save()
+            # If a candidate is close enough, use it as positive
+            if nearest_idx is not None and nearest_dist <= click_radius:
+                cand = shown_candidates[nearest_idx]
+                features = self._ensure_features(cand)
+                self.memory.add_positive(features, {"kind": "candidate_match", "distance": nearest_dist})
+                positive_added = True
+
+            # Add limited negatives — never mark near-GT candidates as negative
+            safe_radius = click_radius * 2.0
+            neg_candidates = []
+            for i, c in enumerate(shown_candidates):
+                if positive_added and i == nearest_idx:
+                    continue
+                cx = _safe_float(c.get("camera_x", 0.0))
+                cy = _safe_float(c.get("camera_y", 0.0))
+                dist = math.hypot(click_camera_xy[0] - cx, click_camera_xy[1] - cy)
+                if dist <= safe_radius:
+                    continue
+                neg_candidates.append((i, c))
+            neg_candidates.sort(key=lambda ic: _safe_float(ic[1].get("combined_score", ic[1].get("score", 0.0))))
+            for i, cand in neg_candidates:
+                if neg_added >= max_neg:
+                    break
+                features = self._ensure_features(cand)
+                self.memory.add_negative(features, {"kind": "shown_other"})
+                neg_added += 1
+
+            # If no candidate matched, create synthetic positive
+            if not positive_added:
+                features = self._synthetic_features(click_camera_xy, gray_pre, gray_post)
+                self.memory.add_positive(features, {"kind": "synthetic_click"})
+                positive_added = True
+
+            self.memory.save()
+
         self._shot_detected = False
-        self._post_shot_frames = []  # Clear for next shot
+        self._post_shot_frames = []
 
         return {
             "positive_added": positive_added,

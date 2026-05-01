@@ -1331,19 +1331,23 @@ class AITrainingScene(Scene):
         post_gray = clean_post_gray if clean_post_gray is not None else self.runtime.post_shot_gray
         pre_gray = self.runtime.pre_shot_gray
 
+        # Freeze learning in benchmark mode — measure only, don't train
+        is_benchmark = bool(self.runtime.settings.get("benchmark_mode", False))
         result = self.runtime.learn_from_click(
             click_camera_xy=click_camera,
             shown_candidates=self.ranked_candidates,
             gray_pre=pre_gray,
             gray_post=post_gray,
+            freeze=is_benchmark,
         )
         self.last_learning_result = result
 
-        self.runtime.study_click_area(
-            click_camera_xy=click_camera,
-            gray_pre=pre_gray,
-            gray_post=post_gray,
-        )
+        if not is_benchmark:
+            self.runtime.study_click_area(
+                click_camera_xy=click_camera,
+                gray_pre=pre_gray,
+                gray_post=post_gray,
+            )
 
         # Save hole image to build training image bank
         if self.runtime.settings.get("save_hole_images", True):
@@ -1494,16 +1498,19 @@ class AITrainingScene(Scene):
             top = self.ranked_candidates[0]
             top_dist = math.hypot(float(top.get("camera_x", 0)) - gt_xy[0],
                                   float(top.get("camera_y", 0)) - gt_xy[1])
-            # Find best (nearest to GT) among all ranked
-            best_dist = min(
-                math.hypot(float(c.get("camera_x", 0)) - gt_xy[0],
-                           float(c.get("camera_y", 0)) - gt_xy[1])
-                for c in self.ranked_candidates
-            )
+            # Find best (nearest to GT) and its rank
+            best_dist = float("inf")
+            best_rank = -1
+            for c in self.ranked_candidates:
+                d = math.hypot(float(c.get("camera_x", 0)) - gt_xy[0],
+                               float(c.get("camera_y", 0)) - gt_xy[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_rank = int(c.get("rank", -1))
             found = best_dist <= match_radius
             top1_ok = top_dist <= match_radius
             print(f"[SHOT #{hit_scanner._diag_shot_id}] GT: "
-                  f"top1_dist={top_dist:.0f}px best_dist={best_dist:.0f}px "
+                  f"top1_dist={top_dist:.0f}px best_dist={best_dist:.0f}px(rank#{best_rank}) "
                   f"found={'YES' if found else 'no'} top1={'YES' if top1_ok else 'no'} "
                   f"(radius={match_radius:.0f})")
         elif gt_xy is not None and not self.ranked_candidates:
