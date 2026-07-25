@@ -200,9 +200,23 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_batch_mode = False
         self.synthetic_trigger_screen_xy: tuple[int, int] | None = None
         self.synthetic_trigger_ready_ts = 0.0
+
+        # Shot timing model. The audio event is not the exact instant at which
+        # the pellet reaches the paper. With the microphone near the target,
+        # pellet flight time, audio-buffer detection, projector refresh and a
+        # 30 FPS camera all contribute. The synthetic hole is therefore
+        # revealed shortly after the registered audio peak and the round is not
+        # evaluated until several unique camera frames have observed it.
+        self.synthetic_hole_delay_s = 0.025
+        self.synthetic_min_camera_frames_after_reveal = 4
+        self.synthetic_detection_timeout_s = 1.80
+        self.synthetic_reveal_pending = False
+        self.synthetic_reveal_ready_ts = 0.0
+        self.synthetic_reveal_ts = 0.0
+        self.synthetic_reveal_camera_ts = 0.0
+        self.synthetic_post_frames_at_reveal = 0
+
         # The synthetic hole must not be rendered until AFTER the audio event.
-        # Otherwise it is already present in HitScanner's pre-shot snapshot and
-        # the benchmark cannot test temporal new-hole detection.
         self.synthetic_pending_hole_spec: dict[str, Any] | None = None
 
         # Single synthetic round (right click).
@@ -531,6 +545,11 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_screen_xy = None
         self.synthetic_trigger_ready_ts = 0.0
         self.synthetic_pending_hole_spec = None
+        self.synthetic_reveal_pending = False
+        self.synthetic_reveal_ready_ts = 0.0
+        self.synthetic_reveal_ts = 0.0
+        self.synthetic_reveal_camera_ts = 0.0
+        self.synthetic_post_frames_at_reveal = 0
 
         self.single_synth_round_active = False
         self.single_target_screen_xy = None
@@ -1119,18 +1138,49 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_pending = False
         self._animation_frozen = True
 
-        # Only now, after HitScanner has captured the authoritative pre-shot
-        # frame for this audio event, render the new synthetic hole. It will be
-        # visible to the camera on the next projector/camera frame, matching a
-        # real shot much more closely. Existing holes remain in the overlay.
+        # Do not reveal the hole in the same update call as the audio event. A
+        # short delay models the remaining pellet travel/audio-block latency and
+        # guarantees that HitScanner's pre-shot snapshot cannot contain the new
+        # hole. The reveal itself is handled by _reveal_pending_synthetic_hole.
+        self.synthetic_reveal_pending = True
+        self.synthetic_reveal_ready_ts = event_ts + self.synthetic_hole_delay_s
+        self.synthetic_reveal_ts = 0.0
+        self.synthetic_reveal_camera_ts = float(self.runtime.latest_camera_frame_ts)
+        self.synthetic_post_frames_at_reveal = int(self.runtime.post_shot_frame_count)
+
+        self._last_peak_ts = event_ts
+        self.auto_last_trigger_ts = event_ts
+
+        if batch_mode:
+            self.auto_phase = "waiting_reveal"
+            self._log_round_state(self.current_round_id + 1, "shot_triggered")
+            self.status_message = (
+                f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
+                "ljudtrigger registrerad, väntar på kulans träff..."
+            )
+        else:
+            self.status_message = "Ljudtrigger registrerad, väntar på syntetisk träff..."
+
+        return True
+
+    def _reveal_pending_synthetic_hole(self) -> bool:
+        """Render the pending hole after the audio event and start frame wait."""
+        if not self.synthetic_reveal_pending:
+            return False
         spec = self.synthetic_pending_hole_spec
-        self.synthetic_pending_hole_spec = None
         if spec is None or self.synthetic_overlay is None:
+            self.synthetic_reveal_pending = False
             self.status_message = "Syntetiskt skott saknade håldata."
             self.auto_training_enabled = False
             self.auto_phase = "idle"
             self._set_cursor_visible(True)
             return False
+
+        self.synthetic_pending_hole_spec = None
+        self.synthetic_reveal_pending = False
+        self.synthetic_reveal_ts = time.time()
+        self.synthetic_reveal_camera_ts = float(self.runtime.latest_camera_frame_ts)
+        self.synthetic_post_frames_at_reveal = int(self.runtime.post_shot_frame_count)
 
         self.auto_active_hole_id = self.synthetic_overlay.add_hole(
             int(spec["x"]),
@@ -1140,26 +1190,34 @@ class AITrainingScene(Scene):
             strength=float(spec["strength"]),
             opacity=float(spec["opacity"]),
         )
+        batch_mode = self.synthetic_trigger_batch_mode
         if batch_mode:
-            self._log_round_state(self.current_round_id + 1, "hole_created_after_peak")
+            self._log_round_state(self.current_round_id + 1, "hole_revealed_after_peak")
+            self.auto_phase = "waiting_detection"
         print(
-            f"[AI SYNTH] peak={event_ts:.6f} hole_created_after_peak "
+            f"[AI SYNTH] peak={self._last_peak_ts:.6f} reveal={self.synthetic_reveal_ts:.6f} "
+            f"delay_ms={(self.synthetic_reveal_ts - self._last_peak_ts) * 1000.0:.1f} "
             f"screen=({int(spec['x'])},{int(spec['y'])}) kind={spec['kind']}"
         )
-        self._last_peak_ts = event_ts
-        self.auto_last_trigger_ts = event_ts
-
-        if batch_mode:
-            self.auto_phase = "waiting_detection"
-            self._log_round_state(self.current_round_id + 1, "shot_triggered")
-            self.status_message = (
-                f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
-                "syntetiskt skott triggat."
-            )
-        else:
-            self.status_message = "Syntetiskt skott triggat på vald punkt."
-
+        self.status_message = (
+            f"Autoträning {self.auto_iteration + 1}/{self.auto_target_iterations}: "
+            "träff visad, väntar på kamerabilder..."
+            if batch_mode else "Syntetisk träff visad, väntar på kamerabilder..."
+        )
         return True
+
+    def _synthetic_camera_window_ready(self, now: float) -> bool:
+        """Return True after enough unique post-reveal camera frames exist."""
+        if self.synthetic_reveal_ts <= 0.0:
+            return False
+        frames_after_reveal = max(
+            0,
+            int(self.runtime.post_shot_frame_count) - int(self.synthetic_post_frames_at_reveal),
+        )
+        camera_advanced = float(self.runtime.latest_camera_frame_ts) > self.synthetic_reveal_camera_ts + 1e-6
+        if camera_advanced and frames_after_reveal >= self.synthetic_min_camera_frames_after_reveal:
+            return True
+        return now - self._last_peak_ts >= self.synthetic_detection_timeout_s
 
     # ------------------------------------------------------------------
     # Scene events
@@ -1269,9 +1327,14 @@ class AITrainingScene(Scene):
                         self._start_auto_iteration(screen)
 
             elif self.auto_phase == "waiting_fire":
-                # Hole is placed, waiting for camera settle — keep animation alive.
+                # Waiting for the scheduled audio event; keep animation alive.
                 if self._animation_frozen:
                     self._animation_frozen = False
+
+            elif self.auto_phase == "waiting_reveal":
+                # Audio has fired. Keep the scene frozen until the delayed hole
+                # reveal so the pre-shot and post-shot states are well defined.
+                pass
 
             elif self.auto_phase == "waiting_markers" and self.awaiting_click:
                 click_ready = now >= self.auto_click_ready_ts if not self.auto_headless else True
@@ -1306,6 +1369,9 @@ class AITrainingScene(Scene):
         if self.synthetic_trigger_pending and now >= self.synthetic_trigger_ready_ts:
             self._fire_pending_synthetic_shot()
 
+        if self.synthetic_reveal_pending and now >= self.synthetic_reveal_ready_ts:
+            self._reveal_pending_synthetic_hole()
+
         if (
             not self.awaiting_click
             and not self._reviewing
@@ -1318,11 +1384,21 @@ class AITrainingScene(Scene):
             if not candidates:
                 candidates = list(hit_scanner.last_candidates)
 
-            # If still no candidates, wait up to 1.5s (the detection window)
-            peak_age = time.time() - audio_peak_detector.last_peak_ts
-            if not candidates and peak_age < 1.5:
-                pass  # Wait — detection still running
+            # Do not evaluate a synthetic round merely because one early
+            # scanner iteration produced no candidates. First wait until the
+            # delayed hole has been revealed and at least four unique camera
+            # frames have passed. This accounts for pellet/audio timing, camera
+            # FPS, USB buffering and the program/render loop.
+            is_synthetic_round = bool(
+                self.auto_training_enabled or self.single_synth_round_active
+            )
+            if is_synthetic_round:
+                ready = self._synthetic_camera_window_ready(now)
             else:
+                peak_age = now - audio_peak_detector.last_peak_ts
+                ready = bool(candidates) or peak_age >= 1.5
+
+            if ready:
                 self._handled_shot_peak_ts = audio_peak_detector.last_peak_ts
                 self._on_shot_detected()
 

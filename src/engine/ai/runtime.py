@@ -1516,6 +1516,16 @@ class AIRuntime:
     def post_shot_gray(self) -> Optional[np.ndarray]:
         return self._post_shot_gray
 
+    @property
+    def post_shot_frame_count(self) -> int:
+        """Number of unique camera frames captured for the active shot."""
+        return len(self._post_shot_frames)
+
+    @property
+    def latest_camera_frame_ts(self) -> float:
+        """Timestamp of the newest camera frame observed by the runtime."""
+        return float(self._latest_frame_ts)
+
 
 # ======================================================================
 # Module-level singleton
