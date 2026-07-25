@@ -76,6 +76,25 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+@dataclass(frozen=True)
+class CandidateImageEvidence:
+    """Small, immutable image samples tied to one detector candidate.
+
+    Full camera frames are intentionally not stored per candidate. A compact
+    patch is enough for feature extraction and prevents later frames from
+    silently changing the visual evidence used by the AI.
+    """
+
+    evidence_id: int
+    shot_id: int
+    source_frame_ts: float
+    source_shape: Tuple[int, int]
+    patch_bounds: Tuple[int, int, int, int]
+    source_patch: Optional[np.ndarray] = None
+    pre_patch: Optional[np.ndarray] = None
+    diff_patch: Optional[np.ndarray] = None
+
+
 @dataclass
 class AIShotContext:
     """Camera observations that belong to one and only one audio shot."""
@@ -86,6 +105,7 @@ class AIShotContext:
     pre_shot_gray: Optional[np.ndarray] = None
     pre_shot_ts: float = 0.0
     candidates: List[Candidate] = field(default_factory=list)
+    candidate_evidence: Dict[int, CandidateImageEvidence] = field(default_factory=dict)
     candidate_frame_ts: float = 0.0
     post_shot_gray: Optional[np.ndarray] = None
     post_shot_frames: List[Tuple[np.ndarray, float]] = field(default_factory=list)
@@ -330,6 +350,7 @@ class AIRuntime:
         # backwards compatibility with the training UI.
         self._last_audio_count: int = 0
         self._shots: Dict[int, AIShotContext] = {}
+        self._next_evidence_id: int = 1
         self._active_shot_id: Optional[int] = None
         self._last_completed_shot_id: Optional[int] = None
         self._latest_candidates: List[Candidate] = []
@@ -356,6 +377,11 @@ class AIRuntime:
             "stale_candidate_blocks": 0,
             "duplicate_post_frames_skipped": 0,
             "emission_syncs": 0,
+            "candidate_source_patches": 0,
+            "candidate_pre_patches": 0,
+            "candidate_diff_patches": 0,
+            "candidate_patch_misses": 0,
+            "candidate_patch_fallbacks": 0,
         }
 
     def save_settings(self) -> None:
@@ -464,10 +490,32 @@ class AIRuntime:
         # candidate fix.
         if frame_ts > target.candidate_frame_ts + 1e-6:
             tagged: List[Candidate] = []
+            target.candidate_evidence = {}
+            source_frame_cache: Dict[float, Optional[np.ndarray]] = {}
             for candidate in all_candidates:
                 copied = dict(candidate)
                 copied["_ai_shot_id"] = target.shot_id
-                copied["_ai_source_frame_ts"] = _safe_float(candidate.get("timestamp", frame_ts), frame_ts)
+                source_ts = _safe_float(candidate.get("timestamp", frame_ts), frame_ts)
+                copied["_ai_source_frame_ts"] = source_ts
+
+                cache_key = round(source_ts, 6)
+                if cache_key not in source_frame_cache:
+                    source_frame_cache[cache_key] = self._resolve_candidate_source_gray(
+                        scanner=scanner,
+                        source_ts=source_ts,
+                        camera_gray=camera_gray,
+                        camera_ts=camera_ts,
+                    )
+
+                evidence = self._build_candidate_evidence(
+                    ctx=target,
+                    candidate=copied,
+                    source_ts=source_ts,
+                    source_gray=source_frame_cache[cache_key],
+                )
+                if evidence is not None:
+                    copied["_ai_evidence_id"] = evidence.evidence_id
+                    target.candidate_evidence[evidence.evidence_id] = evidence
                 tagged.append(copied)
             if not tagged and target.candidates:
                 self.session_stats["stale_candidate_blocks"] += 1
@@ -526,6 +574,128 @@ class AIRuntime:
         if self._latest_gray is not None:
             return self._latest_gray.copy(), self._latest_frame_ts or time.time()
         return None, 0.0
+
+    def _resolve_candidate_source_gray(
+        self,
+        scanner,
+        source_ts: float,
+        camera_gray: Optional[np.ndarray],
+        camera_ts: float,
+    ) -> Optional[np.ndarray]:
+        """Resolve the exact detector frame that produced a candidate.
+
+        ``scanner.last_candidates`` belongs to a specific camera timestamp.  A
+        later main-loop iteration may already expose another camera image, so
+        we first require a timestamp match and otherwise look the frame up in
+        HitScanner's grayscale history.
+        """
+        if camera_gray is not None and camera_ts > 0.0 and abs(camera_ts - source_ts) <= 1e-6:
+            return camera_gray
+
+        best_gray: Optional[np.ndarray] = None
+        best_delta = float("inf")
+        frame_history = getattr(scanner, "frame_history", None)
+        if frame_history is not None:
+            for frame in frame_history:
+                frame_ts = _safe_float(getattr(frame, "timestamp", 0.0), 0.0)
+                delta = abs(frame_ts - source_ts)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_gray = getattr(frame, "gray", None)
+
+        # At 30 FPS neighbouring frames are about 33 ms apart. 75 ms gives
+        # enough tolerance for timestamp rounding without accepting an
+        # unrelated image from a moving video.
+        if best_gray is not None and best_delta <= 0.075:
+            return best_gray
+
+        if camera_gray is not None and source_ts <= 0.0:
+            return camera_gray
+        return None
+
+    @staticmethod
+    def _crop_patch(
+        gray: Optional[np.ndarray],
+        x: float,
+        y: float,
+        radius: int = 8,
+    ) -> Tuple[Optional[np.ndarray], Optional[Tuple[int, int, int, int]]]:
+        if gray is None:
+            return None, None
+        ix, iy = int(round(x)), int(round(y))
+        h, w = gray.shape[:2]
+        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+            return None, None
+
+        r = max(1, int(radius))
+        x0, y0 = max(0, ix - r), max(0, iy - r)
+        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
+        patch = gray[y0:y1, x0:x1]
+        if patch.size == 0:
+            return None, None
+        return patch.copy(), (x0, y0, x1, y1)
+
+    def _build_candidate_evidence(
+        self,
+        *,
+        ctx: AIShotContext,
+        candidate: Candidate,
+        source_ts: float,
+        source_gray: Optional[np.ndarray],
+    ) -> Optional[CandidateImageEvidence]:
+        if source_gray is None:
+            self.session_stats["candidate_patch_misses"] += 1
+            return None
+
+        x = _safe_float(candidate.get("camera_x", 0.0))
+        y = _safe_float(candidate.get("camera_y", 0.0))
+        source_patch, bounds = self._crop_patch(source_gray, x, y, radius=8)
+        if source_patch is None or bounds is None:
+            self.session_stats["candidate_patch_misses"] += 1
+            return None
+
+        pre_patch: Optional[np.ndarray] = None
+        diff_patch: Optional[np.ndarray] = None
+        if ctx.pre_shot_gray is not None and ctx.pre_shot_gray.shape == source_gray.shape:
+            x0, y0, x1, y1 = bounds
+            candidate_pre = ctx.pre_shot_gray[y0:y1, x0:x1]
+            if candidate_pre.shape == source_patch.shape and candidate_pre.size > 0:
+                pre_patch = candidate_pre.copy()
+                diff_patch = np.abs(
+                    source_patch.astype(np.int16) - pre_patch.astype(np.int16)
+                ).astype(np.uint8)
+
+        evidence_id = self._next_evidence_id
+        self._next_evidence_id += 1
+        evidence = CandidateImageEvidence(
+            evidence_id=evidence_id,
+            shot_id=ctx.shot_id,
+            source_frame_ts=float(source_ts),
+            source_shape=(int(source_gray.shape[0]), int(source_gray.shape[1])),
+            patch_bounds=bounds,
+            source_patch=source_patch,
+            pre_patch=pre_patch,
+            diff_patch=diff_patch,
+        )
+        self.session_stats["candidate_source_patches"] += 1
+        if pre_patch is not None:
+            self.session_stats["candidate_pre_patches"] += 1
+        if diff_patch is not None:
+            self.session_stats["candidate_diff_patches"] += 1
+        return evidence
+
+    def _candidate_evidence(self, candidate: Candidate) -> Optional[CandidateImageEvidence]:
+        shot_id = int(candidate.get("_ai_shot_id", 0) or 0)
+        evidence_id = int(candidate.get("_ai_evidence_id", 0) or 0)
+        if shot_id <= 0 or evidence_id <= 0:
+            return None
+        ctx = self._shots.get(shot_id)
+        if ctx is None:
+            return None
+        evidence = ctx.candidate_evidence.get(evidence_id)
+        if evidence is None or evidence.shot_id != shot_id:
+            return None
+        return evidence
 
     def _capture_unique_post_frame(
         self,
@@ -618,7 +788,8 @@ class AIRuntime:
 
         print(
             f"[AI SHOT] finished shot_id={ctx.shot_id} state={ctx.state} "
-            f"candidates={len(ctx.candidates)} post_frames={len(ctx.post_shot_frames)}"
+            f"candidates={len(ctx.candidates)} evidence={len(ctx.candidate_evidence)} "
+            f"post_frames={len(ctx.post_shot_frames)}"
         )
         self._prune_shot_contexts()
 
@@ -721,14 +892,21 @@ class AIRuntime:
             "change_value": _safe_float(candidate.get("change_value", 0.0)),
         }
 
-        # Patch stats from camera frame
-        patch_mean, patch_std, edge_strength = self._patch_stats(x, y)
+        # Patch stats must come from the detector frame that created this
+        # candidate. Falling back to the latest frame is only for legacy or
+        # synthetic candidates that have no shot-bound image evidence.
+        evidence = self._candidate_evidence(candidate)
+        patch_mean, patch_std, edge_strength = self._patch_stats(candidate, x, y)
         features["patch_mean"] = patch_mean
         features["patch_std"] = patch_std
         features["edge_strength"] = edge_strength
 
         # Normalized position (helps AI learn edge-of-frame bias)
-        if self._latest_gray is not None:
+        if evidence is not None:
+            h, w = evidence.source_shape
+            features["x_norm"] = x / max(1.0, float(w))
+            features["y_norm"] = y / max(1.0, float(h))
+        elif self._latest_gray is not None:
             h, w = self._latest_gray.shape[:2]
             features["x_norm"] = x / max(1.0, float(w))
             features["y_norm"] = y / max(1.0, float(h))
@@ -738,19 +916,31 @@ class AIRuntime:
 
         return features
 
-    def _patch_stats(self, x: float, y: float) -> Tuple[float, float, float]:
-        """Extract patch statistics around a point from the latest gray frame."""
-        if self._latest_gray is None:
-            return 0.0, 0.0, 0.0
-        ix, iy = int(round(x)), int(round(y))
-        h, w = self._latest_gray.shape[:2]
-        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+    def _patch_stats(self, candidate: Candidate, x: float, y: float) -> Tuple[float, float, float]:
+        """Extract patch statistics from the candidate's own source frame."""
+        evidence = self._candidate_evidence(candidate)
+        if evidence is not None and evidence.source_patch is not None:
+            return self._patch_stats_from_patch(evidence.source_patch)
+
+        # A detector candidate that belongs to a concrete shot must never be
+        # evaluated against a later global frame. Missing evidence is safer as
+        # neutral/zero image features than silently using the wrong picture.
+        if int(candidate.get("_ai_shot_id", 0) or 0) > 0:
             return 0.0, 0.0, 0.0
 
-        r = 8
-        x0, y0 = max(0, ix - r), max(0, iy - r)
-        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
-        patch = self._latest_gray[y0:y1, x0:x1]
+        if self._latest_gray is None:
+            return 0.0, 0.0, 0.0
+
+        # Backwards compatibility for training/synthetic candidates that were
+        # not produced by the shot-isolated detector path.
+        self.session_stats["candidate_patch_fallbacks"] += 1
+        patch, _ = self._crop_patch(self._latest_gray, x, y, radius=8)
+        if patch is None:
+            return 0.0, 0.0, 0.0
+        return self._patch_stats_from_patch(patch)
+
+    @staticmethod
+    def _patch_stats_from_patch(patch: np.ndarray) -> Tuple[float, float, float]:
         if patch.size == 0:
             return 0.0, 0.0, 0.0
 
@@ -774,60 +964,73 @@ class AIRuntime:
         Returns 0.0-1.0 where 1.0 = visible in all post-frames.
         A real hole persists; flicker/shadows don't.
         """
-        if not self._post_shot_frames or self._pre_shot_gray is None:
+        if not self._post_shot_frames:
             return 0.5  # No data — neutral
 
-        x = _safe_float(candidate.get("camera_x", 0.0))
-        y = _safe_float(candidate.get("camera_y", 0.0))
-        ix, iy = int(round(x)), int(round(y))
-        r = 6  # Small patch around hotspot
+        evidence = self._candidate_evidence(candidate)
+        if evidence is not None and evidence.pre_patch is not None:
+            pre_patch = evidence.pre_patch
+            x0, y0, x1, y1 = evidence.patch_bounds
+            source_shape = evidence.source_shape
+        else:
+            if self._pre_shot_gray is None:
+                return 0.5
+            x = _safe_float(candidate.get("camera_x", 0.0))
+            y = _safe_float(candidate.get("camera_y", 0.0))
+            pre_patch, bounds = self._crop_patch(self._pre_shot_gray, x, y, radius=6)
+            if pre_patch is None or bounds is None:
+                return 0.0
+            x0, y0, x1, y1 = bounds
+            source_shape = (int(self._pre_shot_gray.shape[0]), int(self._pre_shot_gray.shape[1]))
 
-        pre = self._pre_shot_gray
-        h, w = pre.shape[:2]
-        x0, y0 = max(0, ix - r), max(0, iy - r)
-        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
-        if x1 <= x0 or y1 <= y0:
-            return 0.0
-
-        pre_patch = pre[y0:y1, x0:x1]
         pre_mean = float(np.mean(pre_patch))
 
         visible_count = 0
+        compatible_count = 0
         for post_gray, _ in self._post_shot_frames:
-            if post_gray.shape != pre.shape:
+            if post_gray.shape[:2] != source_shape:
                 continue
             post_patch = post_gray[y0:y1, x0:x1]
+            if post_patch.shape != pre_patch.shape or post_patch.size == 0:
+                continue
+            compatible_count += 1
             delta = abs(float(np.mean(post_patch)) - pre_mean)
             if delta > 3.0:  # Threshold: visible change
                 visible_count += 1
 
-        if len(self._post_shot_frames) == 0:
+        if compatible_count == 0:
             return 0.5
-        return float(visible_count) / float(len(self._post_shot_frames))
+        return float(visible_count) / float(compatible_count)
 
     def existed_before_shot(self, candidate: Candidate) -> float:
         """
         Check if the hotspot evidence existed BEFORE the shot.
         Returns 0.0-1.0 where 1.0 = definitely existed before (old hole/artifact).
         """
-        if self._pre_shot_gray is None or self._post_shot_gray is None:
-            return 0.0
+        evidence = self._candidate_evidence(candidate)
+        if (
+            evidence is not None
+            and evidence.pre_patch is not None
+            and evidence.source_patch is not None
+            and evidence.pre_patch.shape == evidence.source_patch.shape
+        ):
+            pre_patch = evidence.pre_patch
+            post_patch = evidence.source_patch
+        else:
+            if self._pre_shot_gray is None or self._post_shot_gray is None:
+                return 0.0
 
-        x = _safe_float(candidate.get("camera_x", 0.0))
-        y = _safe_float(candidate.get("camera_y", 0.0))
-        ix, iy = int(round(x)), int(round(y))
-        r = 6
-
-        pre = self._pre_shot_gray
-        post = self._post_shot_gray
-        h, w = pre.shape[:2]
-        x0, y0 = max(0, ix - r), max(0, iy - r)
-        x1, y1 = min(w, ix + r + 1), min(h, iy + r + 1)
-        if x1 <= x0 or y1 <= y0 or pre.shape != post.shape:
-            return 0.0
-
-        pre_patch = pre[y0:y1, x0:x1]
-        post_patch = post[y0:y1, x0:x1]
+            x = _safe_float(candidate.get("camera_x", 0.0))
+            y = _safe_float(candidate.get("camera_y", 0.0))
+            if self._pre_shot_gray.shape != self._post_shot_gray.shape:
+                return 0.0
+            pre_patch, bounds = self._crop_patch(self._pre_shot_gray, x, y, radius=6)
+            if pre_patch is None or bounds is None:
+                return 0.0
+            x0, y0, x1, y1 = bounds
+            post_patch = self._post_shot_gray[y0:y1, x0:x1]
+            if post_patch.shape != pre_patch.shape or post_patch.size == 0:
+                return 0.0
 
         pre_std = float(np.std(pre_patch))
         post_std = float(np.std(post_patch))
