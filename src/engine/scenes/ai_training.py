@@ -215,6 +215,8 @@ class AITrainingScene(Scene):
         self.synthetic_reveal_ts = 0.0
         self.synthetic_reveal_camera_ts = 0.0
         self.synthetic_post_frames_at_reveal = 0
+        self.synthetic_camera_frames_after_reveal = 0
+        self.synthetic_last_counted_camera_ts = 0.0
 
         # The synthetic hole must not be rendered until AFTER the audio event.
         self.synthetic_pending_hole_spec: dict[str, Any] | None = None
@@ -550,6 +552,8 @@ class AITrainingScene(Scene):
         self.synthetic_reveal_ts = 0.0
         self.synthetic_reveal_camera_ts = 0.0
         self.synthetic_post_frames_at_reveal = 0
+        self.synthetic_camera_frames_after_reveal = 0
+        self.synthetic_last_counted_camera_ts = 0.0
 
         self.single_synth_round_active = False
         self.single_target_screen_xy = None
@@ -1147,6 +1151,8 @@ class AITrainingScene(Scene):
         self.synthetic_reveal_ts = 0.0
         self.synthetic_reveal_camera_ts = float(self.runtime.latest_camera_frame_ts)
         self.synthetic_post_frames_at_reveal = int(self.runtime.post_shot_frame_count)
+        self.synthetic_camera_frames_after_reveal = 0
+        self.synthetic_last_counted_camera_ts = self.synthetic_reveal_camera_ts
 
         self._last_peak_ts = event_ts
         self.auto_last_trigger_ts = event_ts
@@ -1181,6 +1187,8 @@ class AITrainingScene(Scene):
         self.synthetic_reveal_ts = time.time()
         self.synthetic_reveal_camera_ts = float(self.runtime.latest_camera_frame_ts)
         self.synthetic_post_frames_at_reveal = int(self.runtime.post_shot_frame_count)
+        self.synthetic_camera_frames_after_reveal = 0
+        self.synthetic_last_counted_camera_ts = self.synthetic_reveal_camera_ts
 
         self.auto_active_hole_id = self.synthetic_overlay.add_hole(
             int(spec["x"]),
@@ -1206,18 +1214,34 @@ class AITrainingScene(Scene):
         )
         return True
 
+    def _update_synthetic_camera_progress(self) -> None:
+        """Count unique camera frames observed after the synthetic hole appeared.
+
+        This deliberately does not depend on AIRuntime's bounded post-shot list.
+        That list may already contain frames, may reach its size limit, or the
+        scanner may close the shot context before the training scene evaluates
+        it. The monotonically increasing camera timestamp is the authoritative
+        signal that a genuinely new image has reached the application.
+        """
+        if self.synthetic_reveal_ts <= 0.0:
+            return
+        camera_ts = float(self.runtime.latest_camera_frame_ts)
+        if camera_ts <= 0.0:
+            return
+        if camera_ts > self.synthetic_last_counted_camera_ts + 1e-6:
+            self.synthetic_camera_frames_after_reveal += 1
+            self.synthetic_last_counted_camera_ts = camera_ts
+
     def _synthetic_camera_window_ready(self, now: float) -> bool:
-        """Return True after enough unique post-reveal camera frames exist."""
+        """Return True after enough new camera frames, or after timeout."""
         if self.synthetic_reveal_ts <= 0.0:
             return False
-        frames_after_reveal = max(
-            0,
-            int(self.runtime.post_shot_frame_count) - int(self.synthetic_post_frames_at_reveal),
-        )
-        camera_advanced = float(self.runtime.latest_camera_frame_ts) > self.synthetic_reveal_camera_ts + 1e-6
-        if camera_advanced and frames_after_reveal >= self.synthetic_min_camera_frames_after_reveal:
+        self._update_synthetic_camera_progress()
+        if self.synthetic_camera_frames_after_reveal >= self.synthetic_min_camera_frames_after_reveal:
             return True
-        return now - self._last_peak_ts >= self.synthetic_detection_timeout_s
+        # Timeout is independent of runtime.has_new_shot. Otherwise a scanner
+        # timeout could make the training scene wait forever.
+        return now - self.synthetic_reveal_ts >= self.synthetic_detection_timeout_s
 
     # ------------------------------------------------------------------
     # Scene events
@@ -1372,8 +1396,25 @@ class AITrainingScene(Scene):
         if self.synthetic_reveal_pending and now >= self.synthetic_reveal_ready_ts:
             self._reveal_pending_synthetic_hole()
 
+        # Synthetic rounds must advance even if HitScanner has already closed
+        # its shot context. Previously this logic lived behind
+        # runtime.has_new_shot, so a scanner timeout could leave the UI stuck on
+        # "väntar på kamerabilder..." forever.
+        synthetic_waiting = bool(
+            (self.auto_training_enabled or self.single_synth_round_active)
+            and self.synthetic_reveal_ts > 0.0
+            and not self.awaiting_click
+            and not self._reviewing
+            and (self.auto_phase == "waiting_detection" or self.single_synth_round_active)
+        )
+        if synthetic_waiting and self._synthetic_camera_window_ready(now):
+            if audio_peak_detector.last_peak_ts > self._handled_shot_peak_ts:
+                self._handled_shot_peak_ts = audio_peak_detector.last_peak_ts
+                self._on_shot_detected()
+
         if (
-            not self.awaiting_click
+            not synthetic_waiting
+            and not self.awaiting_click
             and not self._reviewing
             and self.runtime.has_new_shot
             and audio_peak_detector.last_peak_ts > self._handled_shot_peak_ts
