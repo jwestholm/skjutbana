@@ -200,6 +200,10 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_batch_mode = False
         self.synthetic_trigger_screen_xy: tuple[int, int] | None = None
         self.synthetic_trigger_ready_ts = 0.0
+        # The synthetic hole must not be rendered until AFTER the audio event.
+        # Otherwise it is already present in HitScanner's pre-shot snapshot and
+        # the benchmark cannot test temporal new-hole detection.
+        self.synthetic_pending_hole_spec: dict[str, Any] | None = None
 
         # Single synthetic round (right click).
         self.single_synth_round_active = False
@@ -526,6 +530,7 @@ class AITrainingScene(Scene):
         self.synthetic_trigger_batch_mode = False
         self.synthetic_trigger_screen_xy = None
         self.synthetic_trigger_ready_ts = 0.0
+        self.synthetic_pending_hole_spec = None
 
         self.single_synth_round_active = False
         self.single_target_screen_xy = None
@@ -1048,17 +1053,22 @@ class AITrainingScene(Scene):
         )[0]
         radius_px = random.uniform(1.7, 2.9)
 
-        self.auto_active_hole_id = overlay.add_hole(
-            sx,
-            sy,
-            kind=hole_kind,
-            radius_px=radius_px,
-            strength=random.uniform(0.90, 1.18),
-            opacity=random.uniform(0.94, 1.0),
-        )
+        # Store the hole, but do NOT render it yet. The real-world sequence is:
+        # audio peak / pre-shot snapshot first, then the physical hole appears
+        # in the following camera frames. The old order rendered the hole about
+        # 200 ms before the audio event, poisoning both temporal detection and
+        # AI training on animated backgrounds.
+        self.synthetic_pending_hole_spec = {
+            "x": sx,
+            "y": sy,
+            "kind": hole_kind,
+            "radius_px": radius_px,
+            "strength": random.uniform(0.90, 1.18),
+            "opacity": random.uniform(0.94, 1.0),
+        }
 
         if batch_mode:
-            self._log_round_state(self.current_round_id + 1, "hole_created")
+            self._log_round_state(self.current_round_id + 1, "hole_scheduled")
 
         # Hide cursor before the camera sees the setup.
         self._set_cursor_visible(False)
@@ -1101,12 +1111,41 @@ class AITrainingScene(Scene):
             self.auto_training_enabled = False
             self.auto_phase = "idle"
             self.synthetic_trigger_pending = False
+            self.synthetic_pending_hole_spec = None
             self._clear_synthetic_holes()
             self._set_cursor_visible(True)
             return False
 
         self.synthetic_trigger_pending = False
         self._animation_frozen = True
+
+        # Only now, after HitScanner has captured the authoritative pre-shot
+        # frame for this audio event, render the new synthetic hole. It will be
+        # visible to the camera on the next projector/camera frame, matching a
+        # real shot much more closely. Existing holes remain in the overlay.
+        spec = self.synthetic_pending_hole_spec
+        self.synthetic_pending_hole_spec = None
+        if spec is None or self.synthetic_overlay is None:
+            self.status_message = "Syntetiskt skott saknade håldata."
+            self.auto_training_enabled = False
+            self.auto_phase = "idle"
+            self._set_cursor_visible(True)
+            return False
+
+        self.auto_active_hole_id = self.synthetic_overlay.add_hole(
+            int(spec["x"]),
+            int(spec["y"]),
+            kind=str(spec["kind"]),
+            radius_px=float(spec["radius_px"]),
+            strength=float(spec["strength"]),
+            opacity=float(spec["opacity"]),
+        )
+        if batch_mode:
+            self._log_round_state(self.current_round_id + 1, "hole_created_after_peak")
+        print(
+            f"[AI SYNTH] peak={event_ts:.6f} hole_created_after_peak "
+            f"screen=({int(spec['x'])},{int(spec['y'])}) kind={spec['kind']}"
+        )
         self._last_peak_ts = event_ts
         self.auto_last_trigger_ts = event_ts
 

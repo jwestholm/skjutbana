@@ -47,9 +47,6 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "gt_match_radius_px": 10.0,
     "save_hole_images": True,
     "candidate_limit": 200,
-    "supplement_candidates_enabled": True,
-    "supplement_min_candidates": 120,
-    "supplement_peak_percentile": 99.6,
     "sampling_mode": "center_bias",  # center_bias | uniform | edge_bias | corners
     "benchmark_mode": False,  # True = eval only, no model updates during F1/F2
 }
@@ -396,11 +393,7 @@ class AIRuntime:
             "candidate_diff_patches": 0,
             "candidate_patch_misses": 0,
             "candidate_patch_fallbacks": 0,
-            "supplemental_frames_processed": 0,
-            "supplemental_candidates_generated": 0,
-            "supplemental_candidates_merged": 0,
-            "supplemental_temporal_candidates": 0,
-            "supplemental_appearance_candidates": 0,
+            "hard_negatives_added": 0,
         }
 
     def reset_session_stats(self) -> None:
@@ -511,47 +504,12 @@ class AIRuntime:
 
         # A newer detector frame replaces the previous candidate snapshot,
         # including replacing it with an empty list. This is the key stale
-        # candidate fix. We may also supplement sparse/raw detector candidates
-        # with AI-side hotspot proposals to improve recall on moving content.
+        # candidate fix.
         if frame_ts > target.candidate_frame_ts + 1e-6:
+            tagged: List[Candidate] = []
             target.candidate_evidence = {}
             source_frame_cache: Dict[float, Optional[np.ndarray]] = {}
-
-            merged_candidates = [dict(candidate) for candidate in all_candidates]
-            if self.settings.get("supplement_candidates_enabled", True):
-                try:
-                    min_candidates = max(0, min(self.candidate_limit, int(self.settings.get("supplement_min_candidates", 120))))
-                except Exception:
-                    min_candidates = min(self.candidate_limit, 120)
-                supplement_budget = max(0, min_candidates - len(merged_candidates))
-                if supplement_budget > 0:
-                    primary_source_ts = camera_ts if camera_ts > 0.0 else frame_ts
-                    primary_cache_key = round(primary_source_ts, 6)
-                    if primary_cache_key not in source_frame_cache:
-                        source_frame_cache[primary_cache_key] = self._resolve_candidate_source_gray(
-                            scanner=scanner,
-                            source_ts=primary_source_ts,
-                            camera_gray=camera_gray,
-                            camera_ts=camera_ts,
-                        )
-                    supplemental = self._generate_supplemental_candidates(
-                        ctx=target,
-                        source_gray=source_frame_cache.get(primary_cache_key),
-                        source_ts=primary_source_ts,
-                        existing_candidates=merged_candidates,
-                        limit=supplement_budget,
-                    )
-                    if supplemental:
-                        self.session_stats["supplemental_candidates_generated"] += len(supplemental)
-                        merged_candidates = self._merge_candidate_lists(
-                            base_candidates=merged_candidates,
-                            extra_candidates=supplemental,
-                            limit=self.candidate_limit,
-                        )
-                        self.session_stats["supplemental_candidates_merged"] += max(0, len(merged_candidates) - len(all_candidates))
-
-            tagged: List[Candidate] = []
-            for candidate in merged_candidates[: self.candidate_limit]:
+            for candidate in all_candidates:
                 copied = dict(candidate)
                 copied["_ai_shot_id"] = target.shot_id
                 source_ts = _safe_float(candidate.get("timestamp", frame_ts), frame_ts)
@@ -743,270 +701,6 @@ class AIRuntime:
             self.session_stats["candidate_diff_patches"] += 1
         return evidence
 
-    def _generate_supplemental_candidates(
-        self,
-        *,
-        ctx: AIShotContext,
-        source_gray: Optional[np.ndarray],
-        source_ts: float,
-        existing_candidates: Sequence[Candidate],
-        limit: int,
-    ) -> List[Candidate]:
-        """Create extra hotspot candidates when the detector is sparse.
-
-        This is intentionally conservative on static scenes because the native
-        detector already performs well there. On moving content (video / game
-        backgrounds) the detector often returns very few hotspots; this helper
-        supplements them with small, multiscale blob-like peaks extracted from
-        the candidate source frame itself.
-        """
-        if cv2 is None or source_gray is None or limit <= 0:
-            return []
-        if source_gray.size == 0:
-            return []
-
-        gray = source_gray
-        if len(gray.shape) > 2:
-            try:
-                gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
-            except Exception:
-                return []
-        if gray.dtype != np.uint8:
-            gray = np.clip(gray, 0, 255).astype(np.uint8)
-
-        self.session_stats["supplemental_frames_processed"] += 1
-
-        h, w = gray.shape[:2]
-        median5 = cv2.medianBlur(gray, 5)
-        median9 = cv2.medianBlur(gray, 9)
-
-        # Appearance cues: small dark/bright anomalies that stand out from the
-        # local neighbourhood regardless of the projected image content.
-        dark_local = cv2.subtract(median5, gray).astype(np.float32)
-        bright_local = cv2.subtract(gray, median5).astype(np.float32)
-        dark_multi = dark_local.copy()
-        bright_multi = bright_local.copy()
-        for k in (3, 5, 7, 9, 13):
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-            dark_multi = np.maximum(dark_multi, cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel).astype(np.float32))
-            bright_multi = np.maximum(bright_multi, cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel).astype(np.float32))
-        dark_multi = np.maximum(dark_multi, cv2.subtract(median9, gray).astype(np.float32))
-        bright_multi = np.maximum(bright_multi, cv2.subtract(gray, median9).astype(np.float32))
-
-        responses: List[Tuple[str, np.ndarray, int, str]] = [
-            ("supp_dark", dark_multi, 5, "dark"),
-            ("supp_bright", bright_multi, 5, "bright"),
-        ]
-
-        # Temporal cue: retain local, hole-sized change but suppress broad
-        # scene motion by subtracting a wider blur of the diff image.
-        if ctx.pre_shot_gray is not None and ctx.pre_shot_gray.shape[:2] == gray.shape[:2]:
-            absdiff = cv2.absdiff(gray, ctx.pre_shot_gray).astype(np.float32)
-            small = cv2.GaussianBlur(absdiff, (0, 0), 1.0)
-            large = cv2.GaussianBlur(absdiff, (0, 0), 4.0)
-            temporal_local = np.clip(small - large, 0.0, 255.0)
-            responses.append(("supp_temporal", temporal_local, 6, "change"))
-
-        # Gather peaks from all response maps and merge them.
-        candidates: List[Candidate] = []
-        existing_points = [
-            (
-                _safe_float(c.get("camera_x", -1.0)),
-                _safe_float(c.get("camera_y", -1.0)),
-            )
-            for c in existing_candidates
-        ]
-
-        per_map_limit = max(12, int(math.ceil(max(1, limit) / max(1, len(responses))) * 3))
-        for source_name, response, radius_hint, polarity in responses:
-            peaks = self._extract_response_peaks(
-                response=response,
-                source_name=source_name,
-                polarity=polarity,
-                gray=gray,
-                pre_gray=ctx.pre_shot_gray if ctx.pre_shot_gray is not None and ctx.pre_shot_gray.shape[:2] == gray.shape[:2] else None,
-                source_ts=source_ts,
-                existing_points=existing_points,
-                radius_hint=radius_hint,
-                limit=per_map_limit,
-            )
-            if not peaks:
-                continue
-            if source_name == "supp_temporal":
-                self.session_stats["supplemental_temporal_candidates"] += len(peaks)
-            else:
-                self.session_stats["supplemental_appearance_candidates"] += len(peaks)
-            candidates.extend(peaks)
-
-        merged = self._merge_candidate_lists(base_candidates=[], extra_candidates=candidates, limit=limit)
-        return merged
-
-    def _extract_response_peaks(
-        self,
-        *,
-        response: np.ndarray,
-        source_name: str,
-        polarity: str,
-        gray: np.ndarray,
-        pre_gray: Optional[np.ndarray],
-        source_ts: float,
-        existing_points: Sequence[Tuple[float, float]],
-        radius_hint: int,
-        limit: int,
-    ) -> List[Candidate]:
-        if cv2 is None or response.size == 0 or limit <= 0:
-            return []
-        response32 = np.clip(response.astype(np.float32), 0.0, None)
-        positive = response32[response32 > 0.5]
-        if positive.size < 8:
-            return []
-
-        try:
-            base_percentile = float(self.settings.get("supplement_peak_percentile", 99.6))
-        except Exception:
-            base_percentile = 99.6
-        percentiles = [base_percentile, 99.3, 99.0, 98.7, 98.4]
-        local_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(5, radius_hint * 2 + 1), max(5, radius_hint * 2 + 1)))
-        local_max = cv2.dilate(response32, local_kernel)
-
-        coords: List[Tuple[float, int, int]] = []
-        for perc in percentiles:
-            threshold = float(np.percentile(positive, min(99.99, max(50.0, perc))))
-            if threshold <= 0.0:
-                continue
-            mask = (response32 >= threshold) & (response32 >= local_max - 1e-6)
-            ys, xs = np.where(mask)
-            if len(xs) == 0:
-                continue
-            ranked = sorted(((float(response32[y, x]), int(x), int(y)) for x, y in zip(xs, ys)), reverse=True)
-            coords = ranked
-            if len(coords) >= limit:
-                break
-        if not coords:
-            return []
-
-        selected: List[Candidate] = []
-        used_points = list(existing_points)
-        min_sep = max(6.0, float(radius_hint) * 1.5)
-        response_max = max(1.0, float(np.max(response32)))
-
-        for strength, x, y in coords:
-            if len(selected) >= limit:
-                break
-            if any(math.hypot(px - x, py - y) < min_sep for px, py in used_points):
-                continue
-            candidate = self._build_supplemental_candidate(
-                gray=gray,
-                pre_gray=pre_gray,
-                x=float(x),
-                y=float(y),
-                source_ts=source_ts,
-                source_name=source_name,
-                polarity=polarity,
-                radius_hint=radius_hint,
-                response_strength=float(strength),
-                response_max=response_max,
-            )
-            if candidate is None:
-                continue
-            selected.append(candidate)
-            used_points.append((float(x), float(y)))
-        return selected
-
-    def _build_supplemental_candidate(
-        self,
-        *,
-        gray: np.ndarray,
-        pre_gray: Optional[np.ndarray],
-        x: float,
-        y: float,
-        source_ts: float,
-        source_name: str,
-        polarity: str,
-        radius_hint: int,
-        response_strength: float,
-        response_max: float,
-    ) -> Optional[Candidate]:
-        patch, bounds = self._crop_patch(gray, x, y, radius=max(4, radius_hint + 2))
-        if patch is None or bounds is None:
-            return None
-        patch_mean = float(np.mean(patch))
-        patch_std = float(np.std(patch))
-        center_value = float(gray[int(round(y)), int(round(x))])
-
-        change_value = 0.0
-        pre_shot_change = 0.0
-        if pre_gray is not None and pre_gray.shape[:2] == gray.shape[:2]:
-            x0, y0, x1, y1 = bounds
-            pre_patch = pre_gray[y0:y1, x0:x1]
-            if pre_patch.shape == patch.shape and pre_patch.size > 0:
-                diff_patch = np.abs(patch.astype(np.int16) - pre_patch.astype(np.int16)).astype(np.uint8)
-                change_value = float(np.mean(diff_patch))
-                pre_shot_change = float(np.max(diff_patch))
-
-        if polarity == "bright":
-            center_change = max(0.0, center_value - patch_mean) / 255.0
-        elif polarity == "dark":
-            center_change = max(0.0, patch_mean - center_value) / 255.0
-        else:
-            center_change = min(1.0, change_value / 32.0)
-
-        local_contrast_gain = patch_std / 48.0
-        strength_norm = min(1.0, max(0.0, response_strength / max(1.0, response_max)))
-        temporal_bonus = min(1.0, change_value / 24.0) * 1.5 if polarity == "change" else min(1.0, change_value / 32.0)
-        score = 4.0 + 7.0 * strength_norm + 1.8 * min(1.5, local_contrast_gain) + 2.4 * min(1.5, temporal_bonus)
-
-        area = float(math.pi * (max(2.0, float(radius_hint)) ** 2))
-        circularity = 0.75 if polarity != "change" else 0.65
-        candidate: Candidate = {
-            "camera_x": float(x),
-            "camera_y": float(y),
-            "timestamp": float(source_ts),
-            "score": float(score),
-            "area": area,
-            "radius": float(max(2, radius_hint)),
-            "circularity": float(circularity),
-            "center_darkening": float(center_change),
-            "local_contrast_gain": float(local_contrast_gain),
-            "pre_shot_change": float(pre_shot_change),
-            "change_value": float(change_value),
-            "source": source_name,
-            "_ai_supplemental": True,
-        }
-        return candidate
-
-    @staticmethod
-    def _merge_candidate_lists(
-        *,
-        base_candidates: Sequence[Candidate],
-        extra_candidates: Sequence[Candidate],
-        limit: int,
-    ) -> List[Candidate]:
-        merged: List[Candidate] = [dict(c) for c in base_candidates]
-        for extra in extra_candidates:
-            ex_x = _safe_float(extra.get("camera_x", 0.0))
-            ex_y = _safe_float(extra.get("camera_y", 0.0))
-            ex_score = _safe_float(extra.get("score", 0.0))
-            replace_index: Optional[int] = None
-            duplicate_index: Optional[int] = None
-            for idx, current in enumerate(merged):
-                cur_x = _safe_float(current.get("camera_x", 0.0))
-                cur_y = _safe_float(current.get("camera_y", 0.0))
-                if math.hypot(cur_x - ex_x, cur_y - ex_y) <= 8.0:
-                    duplicate_index = idx
-                    cur_score = _safe_float(current.get("score", 0.0))
-                    if ex_score > cur_score:
-                        replace_index = idx
-                    break
-            if duplicate_index is not None:
-                if replace_index is not None:
-                    merged[replace_index] = dict(extra)
-                continue
-            merged.append(dict(extra))
-
-        merged.sort(key=lambda c: _safe_float(c.get("score", 0.0)), reverse=True)
-        return merged[: max(1, int(limit))]
-
     def _candidate_evidence(self, candidate: Candidate) -> Optional[CandidateImageEvidence]:
         shot_id = int(candidate.get("_ai_shot_id", 0) or 0)
         evidence_id = int(candidate.get("_ai_evidence_id", 0) or 0)
@@ -1153,9 +847,15 @@ class AIRuntime:
             result["reason"] = "no_candidates_for_shot"
             return result
 
-        # Rank candidates and pick the best. Only candidates explicitly tagged
-        # with this event's shot_id are eligible.
-        ranked = self.rank_candidates(shot_candidates)
+        # Use the same two-stage pipeline for real emission as for training:
+        # conservative noise rejection first, then AI ranking. If the filter is
+        # too aggressive and removes everything, fail open to the raw candidates
+        # rather than losing a real hit.
+        surviving, rejection_counts = self.reject_noise_hotspots(shot_candidates)
+        emission_candidates = surviving if surviving else shot_candidates
+        ranked = self.rank_candidates(emission_candidates)
+        result["funnel_rejections"] = dict(rejection_counts)
+        result["funnel_fallback_raw"] = not bool(surviving)
         if not ranked:
             return result
 
@@ -1597,13 +1297,32 @@ class AIRuntime:
                 if dist <= safe_radius:
                     continue
                 neg_candidates.append((i, c))
-            neg_candidates.sort(key=lambda ic: _safe_float(ic[1].get("combined_score", ic[1].get("score", 0.0))))
+            # Hard-negative mining: learn from the strongest wrong candidates,
+            # not from the easy low-score background noise. These are the
+            # candidates the AI is most likely to confuse with a real hole.
+            neg_candidates.sort(
+                key=lambda ic: _safe_float(
+                    ic[1].get("combined_score", ic[1].get("score", 0.0))
+                ),
+                reverse=True,
+            )
             for i, cand in neg_candidates:
                 if neg_added >= max_neg:
                     break
                 features = self._ensure_features(cand)
-                self.memory.add_negative(features, {"kind": "shown_other"})
+                self.memory.add_negative(
+                    features,
+                    {
+                        "kind": "hard_negative",
+                        "rank_score": _safe_float(
+                            cand.get("combined_score", cand.get("score", 0.0))
+                        ),
+                    },
+                )
                 neg_added += 1
+                self.session_stats["hard_negatives_added"] = (
+                    int(self.session_stats.get("hard_negatives_added", 0) or 0) + 1
+                )
 
             # If no candidate matched, create synthetic positive
             if not positive_added:
