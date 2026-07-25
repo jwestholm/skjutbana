@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -73,6 +74,23 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+@dataclass
+class AIShotContext:
+    """Camera observations that belong to one and only one audio shot."""
+
+    shot_id: int
+    peak_ts: float
+    created_at: float
+    pre_shot_gray: Optional[np.ndarray] = None
+    pre_shot_ts: float = 0.0
+    candidates: List[Candidate] = field(default_factory=list)
+    candidate_frame_ts: float = 0.0
+    post_shot_gray: Optional[np.ndarray] = None
+    post_shot_frames: List[Tuple[np.ndarray, float]] = field(default_factory=list)
+    last_post_frame_ts: float = 0.0
+    state: str = "pending"
 
 
 # ======================================================================
@@ -307,15 +325,21 @@ class AIRuntime:
             negative_limit=int(self.settings.get("memory_limit_negative", 1200)),
         )
 
-        # Observation state — updated every frame by bootstrap patch
+        # Observation state — updated every frame by bootstrap patch.
+        # _shots is authoritative. The _latest_* fields are maintained for
+        # backwards compatibility with the training UI.
         self._last_audio_count: int = 0
+        self._shots: Dict[int, AIShotContext] = {}
+        self._active_shot_id: Optional[int] = None
+        self._last_completed_shot_id: Optional[int] = None
         self._latest_candidates: List[Candidate] = []
         self._latest_gray: Optional[np.ndarray] = None
+        self._latest_frame_ts: float = 0.0
         self._pre_shot_gray: Optional[np.ndarray] = None
         self._pre_shot_ts: float = 0.0
         self._post_shot_gray: Optional[np.ndarray] = None
         self._post_shot_frames: List[Tuple[np.ndarray, float]] = []  # (gray, timestamp)
-        self._shot_ts: float = 0.0  # When the shot was detected
+        self._shot_ts: float = 0.0  # Audio peak timestamp for the active shot
         self._latest_snapshot: Optional[Dict[str, Any]] = None
         self._shot_detected: bool = False
 
@@ -328,6 +352,10 @@ class AIRuntime:
             "shots_seen": 0,
             "clicks": 0,
             "last_click_camera": None,
+            "shot_contexts_created": 0,
+            "stale_candidate_blocks": 0,
+            "duplicate_post_frames_skipped": 0,
+            "emission_syncs": 0,
         }
 
     def save_settings(self) -> None:
@@ -357,86 +385,248 @@ class AIRuntime:
     # Bootstrap hooks (called from patched HitScanner)
     # ------------------------------------------------------------------
 
-    def observe_scanner(self, scanner) -> None:
-        """Called every frame after hit_scanner.update(). Captures state for AI."""
+    def observe_scanner(self, scanner, event=None) -> None:
+        """Capture scanner state without allowing observations to cross shots.
+
+        This method is called after normal scanner updates and immediately before
+        emission. The latter is important: HitScanner can emit from inside its
+        update method, before the ordinary post-update hook has run.
+        """
         if not self.settings.get("enabled", True):
             return
 
-        # Reuse scanner's already-converted gray frame instead of converting again
         debug_frames = getattr(scanner, "debug_frames", {})
         camera_gray = debug_frames.get("camera_gray")
+        camera_ts = _safe_float(getattr(scanner, "_last_frame_ts", 0.0), 0.0)
         if camera_gray is not None:
             self._latest_gray = camera_gray
+            if camera_ts > 0.0:
+                self._latest_frame_ts = camera_ts
 
-        # Detect new shot by watching audio_event_count
-        current_count = getattr(scanner, "audio_event_count", 0)
-        if current_count > self._last_audio_count:
-            # Use the pre-shot snapshot captured by hit_scanner at audio peak time.
-            # This was captured BEFORE new frames were added to frame_history,
-            # so it's guaranteed to be from before the bullet hit.
-            snapshot = getattr(scanner, "pre_shot_snapshot", None)
-            snapshot_ts = getattr(scanner, "pre_shot_snapshot_ts", 0.0)
+        # Register every scanner event we have not seen. Passing event from the
+        # emission hook guarantees that the relevant context exists before AI
+        # is allowed to choose a candidate.
+        scanner_events = list(getattr(scanner, "audio_events", []))
+        if event is not None and all(getattr(ev, "shot_id", None) != getattr(event, "shot_id", None) for ev in scanner_events):
+            scanner_events.append(event)
 
-            if snapshot is not None:
-                self._pre_shot_gray = snapshot.copy()
-                self._pre_shot_ts = snapshot_ts
-                age_ms = (time.time() - snapshot_ts) * 1000
-                print(f"[AI PRE-SHOT] Using scanner snapshot: age={age_ms:.0f}ms")
-            else:
-                # Fallback: search frame_history (less reliable)
-                frame_history = getattr(scanner, "frame_history", None)
-                history_len = len(frame_history) if frame_history is not None else 0
-                now = time.time()
-                peak_ts = getattr(scanner, "last_audio_event_ts", now)
-                target_ts = peak_ts - 0.25
-                best_frame = None
-                best_delta = float("inf")
+        for scanner_event in scanner_events:
+            shot_id = int(getattr(scanner_event, "shot_id", 0) or 0)
+            if shot_id <= 0:
+                continue
+            if shot_id not in self._shots:
+                self._create_shot_context(scanner, scanner_event)
 
-                if frame_history is not None and history_len >= 2:
-                    for fr in reversed(frame_history):
-                        if fr.timestamp > target_ts:
-                            continue
-                        delta = abs(fr.timestamp - target_ts)
-                        if delta < best_delta:
-                            best_delta = delta
-                            best_frame = fr
-                        else:
-                            break
-                    if best_frame is None:
-                        best_frame = frame_history[0]
+        # Mirror terminal scanner states, including shots that timed out without
+        # ever reaching the emission hook.
+        for scanner_event in scanner_events:
+            shot_id = int(getattr(scanner_event, "shot_id", 0) or 0)
+            ctx = self._shots.get(shot_id)
+            scanner_state = str(getattr(scanner_event, "state", "pending") or "pending")
+            if ctx is not None and ctx.state == "pending" and scanner_state != "pending":
+                self.mark_shot_finished(shot_id, scanner_state)
 
-                if best_frame is not None:
-                    self._pre_shot_gray = best_frame.gray.copy()
-                    self._pre_shot_ts = best_frame.timestamp
-                    print(f"[AI PRE-SHOT] Fallback from history: history={history_len}")
-                elif self._latest_gray is not None:
-                    self._pre_shot_gray = self._latest_gray.copy()
-                    self._pre_shot_ts = now
-                    print(f"[AI PRE-SHOT] WARNING: using latest (unreliable)")
+        current_count = int(getattr(scanner, "audio_event_count", 0) or 0)
+        self._last_audio_count = max(self._last_audio_count, current_count)
+
+        pending_contexts = [ctx for ctx in self._shots.values() if ctx.state == "pending"]
+        if not pending_contexts:
+            self._shot_detected = False
+            return
+
+        all_candidates = [dict(c) for c in getattr(scanner, "last_candidates", [])]
+        candidate_ts = max(
+            (_safe_float(c.get("timestamp", camera_ts), camera_ts) for c in all_candidates),
+            default=camera_ts,
+        )
+        frame_ts = candidate_ts or camera_ts
+        if frame_ts <= 0.0:
+            return
+
+        association_lead = _safe_float(getattr(scanner, "association_lead_s", 0.08), 0.08)
+        association_lag = _safe_float(getattr(scanner, "association_lag_s", 1.5), 1.5)
+        eligible = [
+            ctx for ctx in pending_contexts
+            if ctx.peak_ts - association_lead <= frame_ts <= ctx.peak_ts + association_lag
+        ]
+        if not eligible:
+            return
+
+        # One detector frame must belong to one shot only. During emission the
+        # explicit event wins; otherwise use the temporally closest audio peak.
+        explicit_shot_id = int(getattr(event, "shot_id", 0) or 0) if event is not None else 0
+        target = next((ctx for ctx in eligible if ctx.shot_id == explicit_shot_id), None)
+        if target is None:
+            target = min(eligible, key=lambda ctx: (abs(frame_ts - ctx.peak_ts), -ctx.peak_ts))
+
+        # A newer detector frame replaces the previous candidate snapshot,
+        # including replacing it with an empty list. This is the key stale
+        # candidate fix.
+        if frame_ts > target.candidate_frame_ts + 1e-6:
+            tagged: List[Candidate] = []
+            for candidate in all_candidates:
+                copied = dict(candidate)
+                copied["_ai_shot_id"] = target.shot_id
+                copied["_ai_source_frame_ts"] = _safe_float(candidate.get("timestamp", frame_ts), frame_ts)
+                tagged.append(copied)
+            if not tagged and target.candidates:
+                self.session_stats["stale_candidate_blocks"] += 1
+            target.candidates = tagged
+            target.candidate_frame_ts = frame_ts
+
+        self._capture_unique_post_frame(target, camera_gray, camera_ts)
+        self._sync_legacy_state(target)
+
+    def _create_shot_context(self, scanner, scanner_event) -> AIShotContext:
+        shot_id = int(getattr(scanner_event, "shot_id", 0) or 0)
+        peak_ts = _safe_float(getattr(scanner_event, "peak_ts", time.time()), time.time())
+        pre_gray, pre_ts = self._resolve_pre_shot(scanner, scanner_event, peak_ts)
+        ctx = AIShotContext(
+            shot_id=shot_id,
+            peak_ts=peak_ts,
+            created_at=time.time(),
+            pre_shot_gray=pre_gray,
+            pre_shot_ts=pre_ts,
+        )
+        self._shots[shot_id] = ctx
+        self._active_shot_id = shot_id
+        self._shot_detected = True
+        self.session_stats["shots_seen"] += 1
+        self.session_stats["shot_contexts_created"] += 1
+        self._prune_shot_contexts()
+        self._sync_legacy_state(ctx)
+        print(f"[AI SHOT] created shot_id={shot_id} peak={peak_ts:.3f} pre={pre_ts:.3f}")
+        return ctx
+
+    def _resolve_pre_shot(self, scanner, scanner_event, peak_ts: float) -> Tuple[Optional[np.ndarray], float]:
+        # HitScanner stores one authoritative snapshot for the newest event.
+        scanner_events = list(getattr(scanner, "audio_events", []))
+        newest_id = max((int(getattr(ev, "shot_id", 0) or 0) for ev in scanner_events), default=0)
+        event_id = int(getattr(scanner_event, "shot_id", 0) or 0)
+        snapshot = getattr(scanner, "pre_shot_snapshot", None)
+        snapshot_ts = _safe_float(getattr(scanner, "pre_shot_snapshot_ts", 0.0), 0.0)
+        if snapshot is not None and (event_id == newest_id or newest_id == 0):
+            return snapshot.copy(), snapshot_ts
+
+        # For an older overlapping event, resolve its own frame from history.
+        frame_history = getattr(scanner, "frame_history", None)
+        target_ts = peak_ts - 0.25
+        best_frame = None
+        best_delta = float("inf")
+        if frame_history is not None:
+            for frame in frame_history:
+                if frame.timestamp > target_ts:
+                    continue
+                delta = abs(frame.timestamp - target_ts)
+                if delta < best_delta:
+                    best_delta = delta
+                    best_frame = frame
+        if best_frame is not None:
+            return best_frame.gray.copy(), float(best_frame.timestamp)
+        if self._latest_gray is not None:
+            return self._latest_gray.copy(), self._latest_frame_ts or time.time()
+        return None, 0.0
+
+    def _capture_unique_post_frame(
+        self,
+        ctx: AIShotContext,
+        camera_gray: Optional[np.ndarray],
+        camera_ts: float,
+    ) -> None:
+        if camera_gray is None or camera_ts <= 0.0:
+            return
+        if camera_ts <= ctx.last_post_frame_ts + 1e-6:
+            self.session_stats["duplicate_post_frames_skipped"] += 1
+            return
+        if camera_ts < ctx.peak_ts - 0.02:
+            return
+
+        ctx.post_shot_gray = camera_gray.copy()
+        # Use camera timestamps, not main-loop time. The same camera frame can
+        # therefore never be counted twice as persistence evidence.
+        if len(ctx.post_shot_frames) < 8:
+            if not ctx.post_shot_frames or camera_ts - ctx.post_shot_frames[-1][1] >= 0.025:
+                ctx.post_shot_frames.append((camera_gray.copy(), camera_ts))
+        ctx.last_post_frame_ts = camera_ts
+
+    def _select_context(self, shot_id: Optional[int]) -> Optional[AIShotContext]:
+        if shot_id is not None and shot_id in self._shots:
+            return self._shots[shot_id]
+        if self._active_shot_id is not None and self._active_shot_id in self._shots:
+            return self._shots[self._active_shot_id]
+        return None
+
+    def _sync_legacy_state(self, ctx: AIShotContext) -> None:
+        self._active_shot_id = ctx.shot_id
+        self._latest_candidates = list(ctx.candidates)
+        self._pre_shot_gray = ctx.pre_shot_gray
+        self._pre_shot_ts = ctx.pre_shot_ts
+        self._post_shot_gray = ctx.post_shot_gray
+        self._post_shot_frames = list(ctx.post_shot_frames)
+        self._shot_ts = ctx.peak_ts
+
+    def _prune_shot_contexts(self) -> None:
+        """Keep pending shots plus at most the newest completed observation.
+
+        A 4K grayscale frame is several megabytes, and each context may retain
+        multiple post-shot frames. Keeping many completed contexts would turn a
+        state-isolation fix into a memory leak.
+        """
+        protected = {self._active_shot_id, self._last_completed_shot_id}
+        completed = sorted(
+            (ctx for ctx in self._shots.values() if ctx.state != "pending"),
+            key=lambda ctx: (ctx.created_at, ctx.shot_id),
+            reverse=True,
+        )
+        keep_completed = {ctx.shot_id for ctx in completed[:1]}
+        for ctx in list(self._shots.values()):
+            if ctx.state == "pending":
+                continue
+            if ctx.shot_id in protected or ctx.shot_id in keep_completed:
+                continue
+            self._shots.pop(ctx.shot_id, None)
+
+        # Hard guard for pathological bursts: retain newest contexts, but never
+        # discard the active one.
+        if len(self._shots) > 6:
+            ordered = sorted(self._shots.values(), key=lambda ctx: (ctx.created_at, ctx.shot_id))
+            for ctx in ordered:
+                if len(self._shots) <= 6:
+                    break
+                if ctx.shot_id == self._active_shot_id:
+                    continue
+                self._shots.pop(ctx.shot_id, None)
+
+    def mark_shot_finished(self, shot_id: int, state: str = "finished") -> None:
+        ctx = self._shots.get(int(shot_id))
+        if ctx is None:
+            return
+        new_state = str(state or "finished")
+        if ctx.state == new_state and ctx.state != "pending":
+            return
+        ctx.state = new_state
+        self._last_completed_shot_id = ctx.shot_id
+
+        pending = [item for item in self._shots.values() if item.state == "pending"]
+        if pending:
+            newest_pending = max(pending, key=lambda item: (item.peak_ts, item.shot_id))
+            self._sync_legacy_state(newest_pending)
             self._shot_detected = True
-            self._shot_ts = time.time()
-            self._post_shot_frames = []  # Reset for new shot
-            self.session_stats["shots_seen"] += 1
-        self._last_audio_count = current_count
+        else:
+            self._sync_legacy_state(ctx)
+            self._shot_detected = False
 
-        # Capture all candidates (not just top 10)
-        all_candidates = list(getattr(scanner, "last_candidates", []))
-        if all_candidates:
-            self._latest_candidates = all_candidates
-
-        # Capture post-shot gray: collect multiple frames at different delays
-        # for persistence validation. A real hole appears in ALL post-frames.
-        if self._shot_detected and self._latest_gray is not None:
-            self._post_shot_gray = self._latest_gray.copy()
-            now = time.time()
-            # Collect post-frames at ~40ms intervals (limited to 8 frames ≈ 320ms)
-            if len(self._post_shot_frames) < 8:
-                elapsed = now - self._shot_ts
-                if elapsed >= 0.04 * len(self._post_shot_frames):
-                    self._post_shot_frames.append((self._latest_gray.copy(), now))
+        print(
+            f"[AI SHOT] finished shot_id={ctx.shot_id} state={ctx.state} "
+            f"candidates={len(ctx.candidates)} post_frames={len(ctx.post_shot_frames)}"
+        )
+        self._prune_shot_contexts()
 
     def choose_for_emission(
-        self, default_x: float, default_y: float
+        self,
+        default_x: float,
+        default_y: float,
+        shot_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Called from bootstrap when hit_scanner wants to emit a hit.
         Returns whether AI wants to override the position."""
@@ -446,17 +636,32 @@ class AIRuntime:
             "camera_y": float(default_y),
             "confidence": 0.0,
             "reason": "passthrough",
+            "shot_id": shot_id,
         }
+
+        ctx = self._select_context(shot_id)
+        if ctx is None or (shot_id is not None and ctx.shot_id != int(shot_id)):
+            self.session_stats["stale_candidate_blocks"] += 1
+            result["reason"] = "missing_shot_context"
+            return result
+        self._sync_legacy_state(ctx)
+        self.session_stats["emission_syncs"] += 1
 
         mode = str(self.settings.get("mode", "train_only"))
         if mode in {"off", "train_only", "advisory"}:
             return result
 
-        if not self._latest_candidates:
+        shot_candidates = [
+            candidate for candidate in ctx.candidates
+            if int(candidate.get("_ai_shot_id", ctx.shot_id)) == ctx.shot_id
+        ]
+        if not shot_candidates:
+            result["reason"] = "no_candidates_for_shot"
             return result
 
-        # Rank candidates and pick the best
-        ranked = self.rank_candidates(self._latest_candidates)
+        # Rank candidates and pick the best. Only candidates explicitly tagged
+        # with this event's shot_id are eligible.
+        ranked = self.rank_candidates(shot_candidates)
         if not ranked:
             return result
 
@@ -882,6 +1087,9 @@ class AIRuntime:
 
         self._shot_detected = False
         self._post_shot_frames = []
+        ctx = self._select_context(self._active_shot_id)
+        if ctx is not None:
+            ctx.post_shot_frames = []
 
         return {
             "positive_added": positive_added,

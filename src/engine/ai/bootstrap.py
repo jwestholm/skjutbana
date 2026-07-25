@@ -61,29 +61,62 @@ def _patch_hit_scanner() -> None:
             runtime.observe_scanner(self)
             self.candidate_limit = runtime.candidate_limit
         except Exception:
+            # AI remains fail-open: a diagnostics/runtime problem must never stop
+            # the ordinary detector from updating.
             pass
         return result
 
     def wrapped_emit(self: HitScanner, track, event):
+        """Synchronize the exact shot before AI is allowed to override it.
+
+        HitScanner can emit from inside update(), before wrapped_update gets a
+        chance to call observe_scanner(). Without this synchronization the AI
+        may still contain candidates from the preceding shot.
+        """
+        runtime = None
+        chosen = {"apply": False}
+        shot_id = int(getattr(event, "shot_id", 0) or 0)
+
         try:
             from src.engine.ai.runtime import get_ai_runtime
 
             runtime = get_ai_runtime()
-            chosen = runtime.choose_for_emission(track.camera_x, track.camera_y)
-            if chosen.get("apply"):
-                old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
-                try:
-                    track.camera_x = float(chosen["camera_x"])
-                    track.camera_y = float(chosen["camera_y"])
-                    track.best_score = max(track.best_score, float(chosen.get("confidence", 0.0)) * 10.0)
-                    return original_emit(self, track, event)
-                finally:
-                    track.camera_x = old_x
-                    track.camera_y = old_y
-                    track.best_score = old_score
+            runtime.observe_scanner(self, event=event)
+            chosen = runtime.choose_for_emission(
+                track.camera_x,
+                track.camera_y,
+                shot_id=shot_id,
+            )
         except Exception:
-            pass
-        return original_emit(self, track, event)
+            # Preserve the original detector result if the AI layer fails.
+            chosen = {"apply": False}
+
+        if chosen.get("apply"):
+            old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
+            try:
+                track.camera_x = float(chosen["camera_x"])
+                track.camera_y = float(chosen["camera_y"])
+                track.best_score = max(
+                    track.best_score,
+                    float(chosen.get("confidence", 0.0)) * 10.0,
+                )
+                result = original_emit(self, track, event)
+            finally:
+                track.camera_x = old_x
+                track.camera_y = old_y
+                track.best_score = old_score
+        else:
+            result = original_emit(self, track, event)
+
+        if runtime is not None:
+            try:
+                runtime.mark_shot_finished(
+                    shot_id,
+                    state=str(getattr(event, "state", "finished") or "finished"),
+                )
+            except Exception:
+                pass
+        return result
 
     HitScanner.update = wrapped_update
     HitScanner._emit_track_result = wrapped_emit
