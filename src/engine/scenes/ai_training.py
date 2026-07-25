@@ -327,7 +327,10 @@ class AITrainingScene(Scene):
         self.runtime._pre_shot_ts = 0.0
         self.runtime._shot_ts = 0.0
         self.runtime._last_audio_count = getattr(hit_scanner, 'audio_event_count', 0)
-        self.runtime.session_stats = {"shots_seen": 0, "clicks": 0, "last_click_camera": None}
+        # Reset through AIRuntime so every current and future diagnostics
+        # counter is initialized. Replacing the dict with the old three-key
+        # layout caused KeyError when candidate patch statistics were updated.
+        self.runtime.reset_session_stats()
 
         # --- Visual markers ---
         hit_visualizer.clear_all()

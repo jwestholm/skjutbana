@@ -369,7 +369,18 @@ class AIRuntime:
         self.funnel = FunnelTracker()
 
         # Session tracking
-        self.session_stats: Dict[str, Any] = {
+        self.session_stats: Dict[str, Any] = self._new_session_stats()
+
+    @staticmethod
+    def _new_session_stats() -> Dict[str, Any]:
+        """Return a complete, fresh set of per-session counters.
+
+        The AI training scene must use this factory instead of replacing the
+        dictionary with an older, partial set of keys. Keeping the defaults in
+        one place prevents new diagnostics counters from causing KeyError after
+        F1/F2 starts a fresh training run.
+        """
+        return {
             "shots_seen": 0,
             "clicks": 0,
             "last_click_camera": None,
@@ -383,6 +394,11 @@ class AIRuntime:
             "candidate_patch_misses": 0,
             "candidate_patch_fallbacks": 0,
         }
+
+    def reset_session_stats(self) -> None:
+        """Reset all per-session counters without dropping newer keys."""
+        self.session_stats = self._new_session_stats()
+
 
     def save_settings(self) -> None:
         AI_DIR.mkdir(parents=True, exist_ok=True)
@@ -933,7 +949,9 @@ class AIRuntime:
 
         # Backwards compatibility for training/synthetic candidates that were
         # not produced by the shot-isolated detector path.
-        self.session_stats["candidate_patch_fallbacks"] += 1
+        self.session_stats["candidate_patch_fallbacks"] = (
+            int(self.session_stats.get("candidate_patch_fallbacks", 0) or 0) + 1
+        )
         patch, _ = self._crop_patch(self._latest_gray, x, y, radius=8)
         if patch is None:
             return 0.0, 0.0, 0.0
