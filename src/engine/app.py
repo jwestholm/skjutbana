@@ -4,20 +4,35 @@ import pygame
 from pygame._sdl2.video import Window
 
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
-from src.engine.audio.audio_peak_detector import audio_peak_detector
-from src.engine.camera.camera_manager import camera_manager
-from src.engine.camera.hit_scanner import hit_scanner
-from src.engine.communication_server import (
+
+from src.engine.audio.audio_peak_detector import (
+    audio_peak_detector,
+)
+from src.engine.camera.camera_manager import (
+    camera_manager,
+)
+from src.engine.camera.hit_scanner import (
+    hit_scanner,
+)
+
+from src.engine.communication.communication_server import (
     AutomationCommand,
     CommunicationServer,
 )
-from src.engine.output.led_service import led_service
+
+from src.engine.output.led_service import (
+    led_service,
+)
 from src.engine.output.led_types import (
     LedConnectionConfig,
     RgbColor,
 )
-from src.engine.scenes.loading import LoadingScene
-from src.engine.settings import load_led_settings
+from src.engine.scenes.loading import (
+    LoadingScene,
+)
+from src.engine.settings import (
+    load_led_settings,
+)
 
 
 AUTOMATION_EVENT = pygame.event.custom_type()
@@ -28,25 +43,25 @@ class App:
         pygame.init()
 
         self.base_caption = "Skjutbana"
+
         pygame.display.set_caption(
             self.base_caption
         )
 
         self.screen = pygame.display.set_mode(
-            (SCREEN_WIDTH, SCREEN_HEIGHT)
+            (
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+            )
         )
 
         # -------------------------------------------------
         # SDL2 window wrapper
         #
-        # Important:
-        # Create this ONCE and reuse it for the entire
-        # lifetime of the application.
-        #
-        # Repeated Window.from_display_module() calls may
-        # create multiple wrappers around the same native
-        # SDL window and can cause instability.
+        # Create once and reuse for the entire lifetime
+        # of the application.
         # -------------------------------------------------
+
         self._automation_window = (
             Window.from_display_module()
         )
@@ -83,7 +98,9 @@ class App:
         self._apply_scene_led()
         self._update_window_caption()
 
-    def _init_led_runtime(self) -> None:
+    def _init_led_runtime(
+        self,
+    ) -> None:
         led_data = load_led_settings()
 
         config = LedConnectionConfig(
@@ -138,7 +155,11 @@ class App:
             default_colour=RgbColor(
                 *led_data.get(
                     "default_colour",
-                    [255, 255, 255],
+                    [
+                        255,
+                        255,
+                        255,
+                    ],
                 )
             ),
         )
@@ -153,7 +174,9 @@ class App:
         except Exception:
             pass
 
-    def _apply_scene_led(self) -> None:
+    def _apply_scene_led(
+        self,
+    ) -> None:
         try:
             scene_led_enabled = bool(
                 getattr(
@@ -167,7 +190,11 @@ class App:
                 getattr(
                     self.scene,
                     "scene_led_color",
-                    (255, 255, 255),
+                    (
+                        255,
+                        255,
+                        255,
+                    ),
                 )
             )
 
@@ -182,24 +209,32 @@ class App:
                 led_service.turn_off()
 
         except Exception:
-            # LED ska aldrig kunna krascha appen
+            # LED must never be able to crash the app.
             pass
 
-    def quit(self) -> None:
+    def quit(
+        self,
+    ) -> None:
         self.running = False
 
-    def run(self) -> None:
+    def run(
+        self,
+    ) -> None:
         while self.running:
             dt = (
-                self.clock.tick(FPS)
+                self.clock.tick(
+                    FPS
+                )
                 / 1000.0
             )
 
             camera_manager.update()
             audio_peak_detector.update()
 
-            # Read external automation commands and
-            # convert them to Pygame events.
+            #
+            # Read external TCP/JSON commands and convert
+            # them into internal Pygame automation events.
+            #
             self._post_automation_events()
 
             for event in pygame.event.get():
@@ -211,7 +246,10 @@ class App:
                 # External automation event
                 # -----------------------------------------
 
-                if event.type == AUTOMATION_EVENT:
+                if (
+                    event.type
+                    == AUTOMATION_EVENT
+                ):
                     self._handle_automation_event(
                         event
                     )
@@ -238,14 +276,18 @@ class App:
             if not self.running:
                 break
 
-            switch = self.scene.update(dt)
+            switch = self.scene.update(
+                dt
+            )
 
             if switch:
                 self._switch_to(
                     switch.new_scene
                 )
 
-            hit_scanner.update(dt)
+            hit_scanner.update(
+                dt
+            )
 
             self._update_window_caption()
 
@@ -265,6 +307,7 @@ class App:
 
         try:
             led_service.stop()
+
         except Exception:
             pass
 
@@ -282,6 +325,13 @@ class App:
     def _post_automation_events(
         self,
     ) -> None:
+        """
+        Move commands from the TCP communication queue
+        into Pygame's event queue.
+
+        This ensures that Pygame-related work happens in
+        the game's main thread.
+        """
 
         for command in (
             self.communication_server
@@ -298,12 +348,18 @@ class App:
         self,
         event: pygame.event.Event,
     ) -> None:
+        """
+        Handle one external automation command.
+        """
 
         command: AutomationCommand = (
             event.automation_command
         )
 
-        if command.command == "setWindowPos":
+        if (
+            command.command
+            == "setWindowPos"
+        ):
             self._handle_set_window_pos(
                 command
             )
@@ -311,7 +367,7 @@ class App:
             return
 
         command.reply_error(
-            f"Unknown command: "
+            "Unknown command: "
             f"{command.command}"
         )
 
@@ -319,31 +375,85 @@ class App:
         self,
         command: AutomationCommand,
     ) -> None:
+        """
+        Handle:
+
+            send_command(
+                "setWindowPos",
+                [x, y],
+            )
+
+        The previous dictionary form is also supported:
+
+            {
+                "x": x,
+                "y": y,
+            }
+        """
+
+        args = command.args
 
         try:
-            x = int(
-                command.args["x"]
-            )
+            #
+            # Preferred syntax:
+            #
+            # [x, y]
+            #
+            if isinstance(
+                args,
+                list,
+            ):
+                if len(args) != 2:
+                    raise ValueError(
+                        "Expected exactly "
+                        "two arguments"
+                    )
 
-            y = int(
-                command.args["y"]
-            )
+                x = int(
+                    args[0]
+                )
+
+                y = int(
+                    args[1]
+                )
+
+            #
+            # Backwards-compatible syntax:
+            #
+            # {"x": x, "y": y}
+            #
+            elif isinstance(
+                args,
+                dict,
+            ):
+                x = int(
+                    args["x"]
+                )
+
+                y = int(
+                    args["y"]
+                )
+
+            else:
+                raise ValueError(
+                    "Unsupported args format"
+                )
 
         except (
             KeyError,
+            IndexError,
             TypeError,
             ValueError,
         ):
             command.reply_error(
                 "setWindowPos requires "
-                "integer args 'x' and 'y'"
+                "two integer arguments: "
+                "[x, y]"
             )
 
             return
 
         try:
-            # Reuse the SDL2 Window wrapper created once
-            # during application startup.
             self._automation_window.position = (
                 x,
                 y,
@@ -358,7 +468,7 @@ class App:
             return
 
         print(
-            f"[Automation] "
+            "[Automation] "
             f"setWindowPos({x}, {y})"
         )
 
@@ -377,7 +487,6 @@ class App:
         self,
         force: bool = False,
     ) -> None:
-
         wants_scanning = bool(
             getattr(
                 self.scene,
@@ -399,7 +508,6 @@ class App:
     def _update_window_caption(
         self,
     ) -> None:
-
         if (
             hit_scanner.enabled
             and hit_scanner.state
@@ -411,7 +519,9 @@ class App:
             )
 
         else:
-            caption = self.base_caption
+            caption = (
+                self.base_caption
+            )
 
         pygame.display.set_caption(
             caption
@@ -421,7 +531,6 @@ class App:
         self,
         new_scene,
     ) -> None:
-
         self.scene.on_exit()
 
         self.scene = new_scene
