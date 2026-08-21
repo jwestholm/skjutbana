@@ -1,100 +1,35 @@
-from __future__ import annotations
-
-import json
-import socket
-
-
-HOST = "127.0.0.1"
-PORT = 8765
+from src.engine.communication.tcp_network_handler import (
+    TcpNetworkError,
+    send_command,
+)
 
 
-# -------------------------------------------------
-# CHANGE THESE VALUES WHEN TESTING
-# -------------------------------------------------
-
-WINDOW_X = 100
-WINDOW_Y = 100
-
-
-def send_command(message: dict) -> dict:
-    with socket.create_connection(
-        (HOST, PORT),
-        timeout=5.0,
-    ) as sock:
-
-        payload = json.dumps(message) + "\n"
-
-        sock.sendall(
-            payload.encode("utf-8")
-        )
-
-        buffer = b""
-
-        while b"\n" not in buffer:
-            chunk = sock.recv(4096)
-
-            if not chunk:
-                raise ConnectionError(
-                    "Skjutbana closed the connection "
-                    "before replying"
-                )
-
-            buffer += chunk
-
-    raw_response, _remainder = buffer.split(
-        b"\n",
-        1,
-    )
-
-    return json.loads(
-        raw_response.decode("utf-8")
-    )
+WINDOW_X = 2130
+WINDOW_Y = 50
 
 
 def main() -> None:
-    command = {
-        "type": "command",
-        "command": "setWindowPos",
-        "args": {
-            "x": WINDOW_X,
-            "y": WINDOW_Y,
-        },
-    }
-
-    print(
-        f"Sending setWindowPos("
-        f"{WINDOW_X}, {WINDOW_Y})..."
-    )
-
     try:
-        response = send_command(command)
-
-    except (
-        OSError,
-        ConnectionError,
-        json.JSONDecodeError,
-    ) as exc:
-
-        print(
-            "ERROR: Could not communicate "
-            f"with Skjutbana: {exc}"
+        response = send_command(
+            "setWindowPos",
+            [
+                WINDOW_X,
+                WINDOW_Y,
+            ],
         )
 
-        return
-
-    if response.get("success"):
-        data = response.get("data", {})
-
         print(
-            "OK: Skjutbana moved window to "
-            f"({data.get('x')}, "
-            f"{data.get('y')})"
+            "setWindowPos successful: "
+            f"({WINDOW_X}, {WINDOW_Y})"
         )
 
-    else:
         print(
-            "ERROR: "
-            f"{response.get('error', 'Unknown error')}"
+            f"Response: {response}"
+        )
+
+    except TcpNetworkError as exc:
+        print(
+            f"ERROR: {exc}"
         )
 
 
