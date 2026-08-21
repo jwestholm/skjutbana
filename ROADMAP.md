@@ -127,3 +127,31 @@
 - [x] 24 ArUco-markörer med RANSAC
 - [x] AI-träningsscen med viewport-respekt
 - [x] 8 bakgrundslägen i AI-träning (vit → koordinatrutnät → bubblor)
+
+---
+
+## Automation / autonomous testing — next milestones
+
+### Implemented
+
+- [x] TCP/JSON command channel
+- [x] persistent event subscription
+- [x] generic EventBus broadcast
+- [x] external `setWindowPos`
+- [x] external generic `keyPress`
+- [x] automation-enabled AI training scene
+- [x] event-driven calibration → F2 → completion flow
+- [x] repeated complete AI-training runs without game restart
+- [x] machine-readable per-run JSON + JSONL + CSV
+- [x] aggregate `summary.json` with git revision and trends
+
+### Next useful steps
+
+- [ ] automate all 8 backgrounds as one benchmark suite
+- [ ] add mouse move/click commands for game/UI testing
+- [ ] add structured log/console broadcast over the same communication layer
+- [ ] add explicit benchmark configuration/seed capture for reproducible tests
+- [ ] compare two git revisions/sessions automatically
+- [ ] define pass/fail thresholds for regression testing
+- [ ] eventually let a coding agent modify a controlled branch, run benchmarks,
+      compare results and keep/reject changes automatically

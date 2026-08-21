@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import nullcontext
 
 from src.engine.communication.tcp_network_handler import (
     EventListener,
@@ -46,46 +47,68 @@ def parse_background(value: str) -> int | str:
     return normalized
 
 
-def autostart_ai_training(background: int | str = 1) -> dict:
+def autostart_ai_training(
+    background: int | str = 1,
+    *,
+    listener: EventListener | None = None,
+    move_window: bool = True,
+    show_progress: bool = True,
+) -> dict:
     """
-    Move the running game window, create a fresh AI training scene, wait for
-    calibration, inject F2 through the game's command/event path and return
-    the final training result event.
+    Run one complete automated F2 AI training session.
+
+    The function can own its EventListener (normal one-shot use) or reuse a
+    caller-provided listener (used by ai_training_loop for many consecutive
+    runs). A fresh AutomationAITrainingScene is always created by the game.
     """
 
-    with EventListener() as listener:
-        print(f"[AUTOMATION] Event listener connected")
+    owns_listener = listener is None
+    active_listener = listener or EventListener()
+    context = active_listener if owns_listener else nullcontext(active_listener)
 
-        print(f"[AUTOMATION] Moving window to ({WINDOW_X}, {WINDOW_Y})")
-        send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
+    with context:
+        if show_progress:
+            print("[AUTOMATION] Event listener connected")
 
-        print(f"[AUTOMATION] Starting AI training scene, background={background}")
+        if move_window:
+            if show_progress:
+                print(f"[AUTOMATION] Moving window to ({WINDOW_X}, {WINDOW_Y})")
+            send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
+
+        if show_progress:
+            print(
+                "[AUTOMATION] Starting AI training scene, "
+                f"background={background}"
+            )
         send_command("startAITraining", [background])
 
         f2_sent = False
 
         while True:
-            event = listener.wait_for_event()
+            event = active_listener.wait_for_event()
             event_name = str(event.get("event", ""))
             data = event.get("data", {})
 
             if event_name == "aiTraining.started":
-                print(
-                    "[AI TRAINING] Scene started | "
-                    f"background={data.get('background')}"
-                )
+                if show_progress:
+                    print(
+                        "[AI TRAINING] Scene started | "
+                        f"background={data.get('background')}"
+                    )
 
             elif event_name == "aiTraining.calibrationStarted":
-                print(
-                    "[AI TRAINING] Starting calibration | "
-                    f"phase={data.get('phase')}"
-                )
+                if show_progress:
+                    print(
+                        "[AI TRAINING] Starting calibration | "
+                        f"phase={data.get('phase')}"
+                    )
 
             elif event_name == "aiTraining.calibrationDone":
-                print(
-                    "[AI TRAINING] Calibration done | "
-                    f"attempts={data.get('attempts')}"
-                )
+                if show_progress:
+                    print(
+                        "[AI TRAINING] Calibration done | "
+                        f"attempts={data.get('attempts')}"
+                    )
 
             elif event_name == "aiTraining.calibrationFailed":
                 raise RuntimeError(
@@ -94,21 +117,24 @@ def autostart_ai_training(background: int | str = 1) -> dict:
                 )
 
             elif event_name == "aiTraining.waitingForFirstShot":
-                print("[AI TRAINING] Ready - sending F2")
+                if show_progress:
+                    print("[AI TRAINING] Ready - sending F2")
                 if not f2_sent:
                     send_command("keyPress", ["F2"])
                     f2_sent = True
 
             elif event_name == "aiTraining.trainingStarted":
-                print(
-                    "[AI TRAINING] F2 headless training started | "
-                    f"target={data.get('target_iterations')}"
-                )
+                if show_progress:
+                    print(
+                        "[AI TRAINING] F2 headless training started | "
+                        f"target={data.get('target_iterations')}"
+                    )
 
             elif event_name == "aiTraining.iterationCompleted":
-                iteration = data.get("iteration")
-                target = data.get("target_iterations")
-                print(f"[AI TRAINING] {iteration}/{target}")
+                if show_progress:
+                    iteration = data.get("iteration")
+                    target = data.get("target_iterations")
+                    print(f"[AI TRAINING] {iteration}/{target}")
 
             elif event_name == "aiTraining.trainingStopped":
                 raise RuntimeError(
@@ -117,26 +143,42 @@ def autostart_ai_training(background: int | str = 1) -> dict:
                 )
 
             elif event_name == "aiTraining.completed":
-                print()
-                print("=" * 72)
-                print("AI TRAINING COMPLETED")
-                print("=" * 72)
-                print(f"Background: {data.get('background')}")
-                print(
-                    f"Found: {data.get('found')}/{data.get('iterations')} | "
-                    f"Top-1: {data.get('top1')} | "
-                    f"Top-3: {data.get('top3')} | "
-                    f"AI correct: {data.get('ai_guess_correct')}"
-                )
-
-                report = data.get("report", [])
-                if isinstance(report, list) and report:
-                    print()
-                    for line in report:
-                        print(line)
-
-                print("=" * 72)
+                if show_progress:
+                    _print_completed(data)
                 return event
+
+
+def _print_completed(data: dict) -> None:
+    print()
+    print("=" * 72)
+    print("AI TRAINING COMPLETED")
+    print("=" * 72)
+    print(f"Background: {data.get('background')}")
+
+    metrics = data.get("metrics", {})
+    if isinstance(metrics, dict) and metrics:
+        print(
+            f"Found: {metrics.get('found')}/{metrics.get('iterations')} "
+            f"({metrics.get('found_pct')}%) | "
+            f"Top-1: {metrics.get('top1_pct')}% | "
+            f"Top-3: {metrics.get('top3_pct')}% | "
+            f"AI correct: {metrics.get('ai_guess_correct_pct')}%"
+        )
+    else:
+        print(
+            f"Found: {data.get('found')}/{data.get('iterations')} | "
+            f"Top-1: {data.get('top1')} | "
+            f"Top-3: {data.get('top3')} | "
+            f"AI correct: {data.get('ai_guess_correct')}"
+        )
+
+    report = data.get("report", [])
+    if isinstance(report, list) and report:
+        print()
+        for line in report:
+            print(line)
+
+    print("=" * 72)
 
 
 def main() -> None:

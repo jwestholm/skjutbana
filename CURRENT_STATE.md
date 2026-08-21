@@ -72,3 +72,27 @@
 - AI:n är i train_only-läge — påverkar inte träffar ännu
 - Detektorn hittar ibland kanter/tejp/sprickor som kandidater (board reference bör minska detta)
 - Luftgevärshål (stora) behöver verifieras med shot-diagnostik
+
+---
+
+## Automation update — repeated AI training
+
+The event-driven automation path has been verified on the physical range:
+calibration completes, `waitingForFirstShot` is emitted, automation injects F2,
+progress is returned and the completed report is received. A new automation
+run can then be started without restarting the game.
+
+Added repeated-run support:
+
+```bash
+python3 -m automation.ai_training_loop 1 100
+```
+
+The loop keeps the game running and starts a fresh automation-enabled AI
+training scene for each run. Results are persisted under
+`content/ai/automation_runs/` as full JSON, compact JSONL, CSV and an aggregate
+`summary.json`.
+
+`aiTraining.completed` now carries structured AI-friendly diagnostics:
+percentages, distance statistics, candidate statistics, funnel summary,
+consistency checks, timing and all per-round `RoundRecord` rows.

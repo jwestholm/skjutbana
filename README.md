@@ -61,3 +61,19 @@ python3 -m automation.autostart_ai_training 1
 ```
 
 Automation använder den gemensamma TCP/JSON-motorn i `src/engine/communication/`. För protokoll, threading-regler, commands och events: se **`NETWORK_AUTOMATION.md`**.
+
+---
+
+## Repeated automated AI training
+
+With Skjutbana already running, complete F2 AI-training sessions can be run
+repeatedly from another terminal:
+
+```bash
+python3 -m automation.ai_training_loop 1 100
+```
+
+The first argument is the background (1-8 or name), the second is the number
+of complete runs. Results are saved under `content/ai/automation_runs/` in
+machine-readable JSON/JSONL plus CSV. See `NETWORK_AUTOMATION.md` for protocol,
+events and result schema.

@@ -338,3 +338,151 @@ Detta lager ska kunna bära:
 - en extern AI-agent som får ändra kod i isolerad git-branch, köra tester och jämföra resultat
 
 Utöka protokollet konservativt. Kommunikationsmotorn ska förbli enkel; domänlogik ska ligga i engine/scenes/tester, inte i socketservern.
+
+---
+
+# Repeated AI training / benchmark loops
+
+## Current automated loop
+
+A complete F2 training session can be repeated without restarting the game.
+The loop runner reuses one persistent event subscription and starts a fresh
+`AutomationAITrainingScene` for every run.
+
+Run from the project root:
+
+```bash
+python3 -m automation.ai_training_loop 1 100
+```
+
+Arguments:
+
+- first argument = background number/name
+- second argument = number of complete training runs
+- each F2 run currently contains 100 synthetic rounds
+
+Example: `1 100` therefore produces approximately 10,000 synthetic rounds.
+
+Background numbers:
+
+1. `white`
+2. `white_grid`
+3. `coord_grid`
+4. `gray`
+5. `black`
+6. `checker`
+7. `checker_anim`
+8. `bubbles`
+
+## Result storage — canonical machine-readable output
+
+Repeated automation sessions are stored below:
+
+```text
+content/ai/automation_runs/
+└── YYYYMMDD_HHMMSS_<background>_<N>runs/
+    ├── session.json
+    ├── run_001.json
+    ├── run_002.json
+    ├── ...
+    ├── runs.jsonl
+    ├── runs.csv
+    └── summary.json
+```
+
+### `run_NNN.json`
+
+This is the most complete artifact for one run. It contains:
+
+- schema version
+- session/run identity
+- git commit when available
+- wall-clock duration
+- the complete `aiTraining.completed` event
+- structured aggregate metrics
+- funnel diagnostics
+- consistency checks
+- every `RoundRecord` as structured JSON
+- the human-readable report as secondary information
+
+**AI rule:** use structured fields (`metrics`, `funnel`, `consistency`,
+`round_records`) instead of parsing the human `report` strings.
+
+### `runs.jsonl`
+
+One compact JSON object per completed run. This is intended for streaming,
+quick comparisons, scripts and AI analysis without loading all per-shot rows.
+
+### `runs.csv`
+
+Tabular compact overview of runs. Useful for spreadsheets/plots and quick
+manual inspection.
+
+### `summary.json`
+
+Canonical session-level summary. Contains:
+
+- requested/completed runs
+- total number of synthetic shots
+- aggregate found/top1/top3/AI-correct counts and percentages
+- average per-run metrics
+- funnel averages
+- first/last/best run points
+- first-to-last deltas
+- consistency status
+- git commit
+
+A future coding AI should normally read `summary.json` first, then
+`runs.jsonl`, and only open individual `run_NNN.json` files when detailed
+per-shot diagnosis is required.
+
+## `aiTraining.completed` schema
+
+The event currently includes compatibility fields (`found`, `top1`, etc.) and
+preferred structured fields:
+
+```json
+{
+  "schema_version": "1.0",
+  "background": "white",
+  "sampling_mode": "center_bias",
+  "match_radius_px": 42.0,
+  "training_duration_seconds": 12.3,
+  "metrics": {
+    "found": 80,
+    "found_pct": 80.0,
+    "top1": 70,
+    "top1_pct": 70.0,
+    "top3": 75,
+    "top3_pct": 75.0,
+    "ai_guess_correct": 68,
+    "ai_guess_correct_pct": 68.0,
+    "nearest_distance_px": {},
+    "ai_guess_distance_px": {},
+    "candidates_raw": {},
+    "candidates_ranked": {}
+  },
+  "funnel": {},
+  "consistency": {
+    "counts_match": true
+  },
+  "round_records": []
+}
+```
+
+Exact values vary by run. The schema is versioned so future automation can
+change safely without silently changing field meaning.
+
+## Files used by repeated training
+
+```text
+automation/autostart_ai_training.py
+automation/ai_training_loop.py
+automation/ai_training_results.py
+src/engine/scenes/automation_ai_training.py
+```
+
+`ai_training_loop.py` orchestrates multiple complete runs.
+`ai_training_results.py` owns persistent machine-readable result storage.
+The normal `src/engine/scenes/ai_training.py` remains the actual training
+implementation and is deliberately not duplicated by automation.

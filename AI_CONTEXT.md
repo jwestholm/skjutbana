@@ -438,3 +438,44 @@ Vapen: luftgevär (5mm BB), CO2 AR-15 (stålkulor), CO2 pistol. Max 5 skott/seku
 | Duplicerad ArUco-kod i scener | Svårt att underhålla | Extrahera till ArucoCalibrator-motor |
 | Pre-shot 250ms offset | Kamerabuffring gör att hålet redan syns | Öka till 500ms, verifiera med shot_diag GIF:ar |
 | Text i viewport under reference-capture | Kameran ser texten som artefakt | Ren vit/svart utan HUD/text |
+
+---
+
+## AI automation benchmark data (IMPORTANT FOR FUTURE AI)
+
+Repeated headless F2 training can now be run externally without restarting
+Skjutbana:
+
+```bash
+python3 -m automation.ai_training_loop <background> <runs>
+```
+
+Example:
+
+```bash
+python3 -m automation.ai_training_loop 1 100
+```
+
+This means 100 complete F2 sessions; with today's 100 rounds/session this is
+about 10,000 synthetic rounds.
+
+Canonical results are stored in:
+
+```text
+content/ai/automation_runs/<session>/
+```
+
+Read in this order when diagnosing performance:
+
+1. `summary.json` — session aggregate/trend
+2. `runs.jsonl` — compact run-by-run history
+3. `run_NNN.json` — full run incl. all RoundRecord rows
+4. existing `content/ai/reports/funnel_*.csv` — detector/funnel CSV
+
+**DO NOT parse the Swedish human report text if structured JSON fields exist.**
+`aiTraining.completed.data.metrics`, `.funnel`, `.consistency` and
+`.round_records` are the preferred machine interface.
+
+When comparing code changes, always record/check `git_commit` in the session
+results. A performance number without the code revision and background is not
+a reliable benchmark.

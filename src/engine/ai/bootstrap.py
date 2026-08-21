@@ -7,11 +7,14 @@ _bootstrapped = False
 
 def apply_bootstrap() -> None:
     global _bootstrapped
+
     if _bootstrapped:
         return
+
     _patch_menu_loader()
     _patch_scene_factory()
     _patch_hit_scanner()
+
     _bootstrapped = True
 
 
@@ -36,12 +39,34 @@ def _patch_scene_factory() -> None:
         if item.type == "ai_settings":
             from src.engine.scenes.ai_settings import AISettingsScene
 
-            return scene_factory._wrap(AISettingsScene(bg_color=item.bg_color), item, return_menu_state)
+            return scene_factory._wrap(
+                AISettingsScene(bg_color=item.bg_color),
+                item,
+                return_menu_state,
+            )
+
         if item.type == "ai_training":
             from src.engine.scenes.ai_training import AITrainingScene
 
-            return scene_factory._wrap(AITrainingScene(bg_color=item.bg_color), item, return_menu_state)
-        return original_build_scene_from_item(item, return_menu_state=return_menu_state)
+            return scene_factory._wrap(
+                AITrainingScene(bg_color=item.bg_color),
+                item,
+                return_menu_state,
+            )
+
+        if item.type == "ai_results":
+            from src.engine.scenes.ai_results import AIResultsScene
+
+            return scene_factory._wrap(
+                AIResultsScene(bg_color=item.bg_color),
+                item,
+                return_menu_state,
+            )
+
+        return original_build_scene_from_item(
+            item,
+            return_menu_state=return_menu_state,
+        )
 
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item
 
@@ -54,16 +79,19 @@ def _patch_hit_scanner() -> None:
 
     def wrapped_update(self: HitScanner, dt: float):
         result = original_update(self, dt)
+
         try:
             from src.engine.ai.runtime import get_ai_runtime
 
             runtime = get_ai_runtime()
             runtime.observe_scanner(self)
             self.candidate_limit = runtime.candidate_limit
+
         except Exception:
             # AI remains fail-open: a diagnostics/runtime problem must never stop
             # the ordinary detector from updating.
             pass
+
         return result
 
     def wrapped_emit(self: HitScanner, track, event):
@@ -87,12 +115,18 @@ def _patch_hit_scanner() -> None:
                 track.camera_y,
                 shot_id=shot_id,
             )
+
         except Exception:
             # Preserve the original detector result if the AI layer fails.
             chosen = {"apply": False}
 
         if chosen.get("apply"):
-            old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
+            old_x, old_y, old_score = (
+                track.camera_x,
+                track.camera_y,
+                track.best_score,
+            )
+
             try:
                 track.camera_x = float(chosen["camera_x"])
                 track.camera_y = float(chosen["camera_y"])
@@ -101,10 +135,12 @@ def _patch_hit_scanner() -> None:
                     float(chosen.get("confidence", 0.0)) * 10.0,
                 )
                 result = original_emit(self, track, event)
+
             finally:
                 track.camera_x = old_x
                 track.camera_y = old_y
                 track.best_score = old_score
+
         else:
             result = original_emit(self, track, event)
 
@@ -116,6 +152,7 @@ def _patch_hit_scanner() -> None:
                 )
             except Exception:
                 pass
+
         return result
 
     HitScanner.update = wrapped_update
