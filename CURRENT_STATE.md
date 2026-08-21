@@ -19,6 +19,9 @@
 - **Shot-diagnostik** — detaljerad per-skott-loggning i terminalen ([SHOT-DIAG]) + pre/post/diff bilder i content/ai/shot_diag/
 - **Spel** — Shoot/Don't Shoot, skjutbana med helfigur
 - **Bilder/video** — stillbilder och videoklipp med träffdetektion
+- **Automation/IPC** — lokal TCP/JSON-server på `127.0.0.1:8765`, generisk command/response-kanal och persistent event-subscription
+- **EventBus** — intern publish/subscribe-buss som broadcastas till externa lyssnare
+- **Extern AI-träningsautomation** — `automation.autostart_ai_training` kan flytta fönstret, skapa ny AI-träningsscen, vänta på kalibrering, skicka F2 och ta emot slutrapport
 
 ## Senaste förbättringar
 
@@ -38,6 +41,9 @@
 - **Koordinatrutnät** — nytt bakgrundsläge med A0/B1-etiketter för att verifiera pre/post-alignment
 - **HUD undertrycks** under auto-kalibrering (suppress_overlays)
 - **Terminal-restore** — stty sane + termios vid alla exit-vägar (atexit + try/finally)
+- **Automation command path** — nätverkstråd → thread-safe queue → `app.py` → Pygame main thread
+- **Event-driven AI automation** — kalibrering och träning signaleras via `aiTraining.*` events; automation behöver inte gissa med sleep/polling
+- **AutomationAITrainingScene** — separat subklass för event-observability så vanlig AI-träningsscen kan förbli oförändrad
 
 ## Benchmark-resultat (F2, 100 skott per bakgrund)
 
@@ -54,6 +60,10 @@
 **Mål:** white stabil som baseline, gray/black förbättra raw recall, checker förbättra filter/ranking.
 
 ## Kända begränsningar
+
+- Automation-servern är avsiktligt localhost-only och saknar autentisering/TLS; exponera inte port 8765 på nätverket utan separat säkerhetsdesign
+- Event-broadcast är best-effort i minnet; events persisteras inte och en klient som ansluter sent får inte historiska events
+- Command/response har 5 s server-timeout för att själva kommandot ska bli behandlat; långvariga operationer ska startas snabbt och följas via events
 
 - Gray/black bakgrund har fortfarande låg recall — whitehat+absdiff bör hjälpa men ej verifierat
 - Checker-mönster förlorar GT i filter-steget — relaxade trösklar bör hjälpa men ej verifierat

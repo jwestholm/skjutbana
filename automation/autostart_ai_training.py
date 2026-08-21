@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import time
-from typing import Any
 
 from src.engine.communication.tcp_network_handler import (
+    EventListener,
     TcpNetworkError,
     send_command,
 )
@@ -13,297 +12,150 @@ from src.engine.communication.tcp_network_handler import (
 WINDOW_X = 2130
 WINDOW_Y = 50
 
-POLL_INTERVAL_SECONDS = 0.5
-
-
 BACKGROUND_NAMES = {
     1: "white",
     2: "white_grid",
-    3: "gray",
-    4: "black",
-    5: "checker",
-    6: "checker_anim",
-    7: "bubbles",
+    3: "coord_grid",
+    4: "gray",
+    5: "black",
+    6: "checker",
+    7: "checker_anim",
+    8: "bubbles",
 }
 
 
-def set_window_position() -> None:
-    print(
-        f"[AUTOMATION] Moving window to "
-        f"({WINDOW_X}, {WINDOW_Y})"
-    )
-
-    send_command(
-        "setWindowPos",
-        [
-            WINDOW_X,
-            WINDOW_Y,
-        ],
-    )
-
-
-def start_ai_training(
-    background: int | str,
-) -> dict[str, Any]:
-    print(
-        f"[AUTOMATION] Starting AI training "
-        f"with background: {background}"
-    )
-
-    return send_command(
-        "startAITraining",
-        [
-            background,
-        ],
-    )
-
-
-def get_ai_training_status() -> dict[str, Any]:
-    response = send_command(
-        "getAITrainingStatus"
-    )
-
-    data = response.get(
-        "data",
-        {},
-    )
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-        return {}
-
-    return data
-
-
-def wait_for_ai_training() -> dict[str, Any]:
-    last_iteration = -1
-
-    print(
-        "[AUTOMATION] Waiting for AI training "
-        "to finish..."
-    )
-
-    while True:
-        status = get_ai_training_status()
-
-        state = status.get(
-            "state",
-            "unknown",
-        )
-
-        iteration = int(
-            status.get(
-                "iteration",
-                0,
-            )
-        )
-
-        target = int(
-            status.get(
-                "target_iterations",
-                0,
-            )
-        )
-
-        background = status.get(
-            "background",
-            "unknown",
-        )
-
-        if iteration != last_iteration:
-            if target > 0:
-                print(
-                    f"[AI TRAINING] "
-                    f"{iteration}/{target} "
-                    f"| background={background}"
-                )
-
-            last_iteration = iteration
-
-        if state == "completed":
-            print(
-                "[AUTOMATION] AI training completed."
-            )
-
-            return status
-
-        if state == "error":
-            raise RuntimeError(
-                status.get(
-                    "error",
-                    "AI training failed",
-                )
-            )
-
-        if state == "not_running":
-            raise RuntimeError(
-                "AI training is no longer running "
-                "and no completed report is available."
-            )
-
-        time.sleep(
-            POLL_INTERVAL_SECONDS
-        )
-
-
-def print_report(
-    result: dict[str, Any],
-) -> None:
-    print()
-    print("=" * 70)
-    print("AI TRAINING REPORT")
-    print("=" * 70)
-
-    print(
-        "Background: "
-        f"{result.get('background', 'unknown')}"
-    )
-
-    print(
-        "Iterations: "
-        f"{result.get('iteration', 0)}"
-        "/"
-        f"{result.get('target_iterations', 0)}"
-    )
-
-    report_lines = result.get(
-        "report",
-        [],
-    )
-
-    if (
-        isinstance(report_lines, list)
-        and report_lines
-    ):
-        print()
-
-        for line in report_lines:
-            print(line)
-
-    print("=" * 70)
-
-
-def autostart_ai_training(
-    background: int | str = 1,
-) -> dict[str, Any]:
-    """
-    Complete automation flow:
-
-        1. Move the running Skjutbana window.
-        2. Create a new AITrainingScene.
-        3. Select requested background.
-        4. Start F2 headless AI training.
-        5. Wait until training is complete.
-        6. Return the final report.
-    """
-
-    set_window_position()
-
-    start_response = start_ai_training(
-        background
-    )
-
-    start_data = start_response.get(
-        "data",
-        {},
-    )
-
-    if isinstance(
-        start_data,
-        dict,
-    ):
-        print(
-            "[AUTOMATION] AI training scene started."
-        )
-
-        print(
-            "[AUTOMATION] Background: "
-            f"{start_data.get('background', background)}"
-        )
-
-        print(
-            "[AUTOMATION] F2 event sent."
-        )
-
-    result = wait_for_ai_training()
-
-    print_report(
-        result
-    )
-
-    return result
-
-
-def parse_background(
-    value: str,
-) -> int | str:
+def parse_background(value: str) -> int | str:
     value = value.strip()
 
     try:
-        number = int(
-            value
-        )
+        number = int(value)
+    except ValueError:
+        number = None
 
+    if number is not None:
         if number not in BACKGROUND_NAMES:
-            raise argparse.ArgumentTypeError(
-                "Background number must be 1-7."
-            )
-
+            raise argparse.ArgumentTypeError("Background number must be 1-8")
         return number
 
-    except ValueError:
-        pass
-
-    lowered = value.lower()
-
-    if lowered not in BACKGROUND_NAMES.values():
-        valid_names = ", ".join(
-            BACKGROUND_NAMES.values()
-        )
-
+    normalized = value.lower()
+    if normalized not in BACKGROUND_NAMES.values():
+        valid = ", ".join(BACKGROUND_NAMES.values())
         raise argparse.ArgumentTypeError(
-            "Unknown background. "
-            f"Use 1-7 or one of: {valid_names}"
+            f"Unknown background '{value}'. Use 1-8 or: {valid}"
         )
+    return normalized
 
-    return lowered
+
+def autostart_ai_training(background: int | str = 1) -> dict:
+    """
+    Move the running game window, create a fresh AI training scene, wait for
+    calibration, inject F2 through the game's command/event path and return
+    the final training result event.
+    """
+
+    with EventListener() as listener:
+        print(f"[AUTOMATION] Event listener connected")
+
+        print(f"[AUTOMATION] Moving window to ({WINDOW_X}, {WINDOW_Y})")
+        send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
+
+        print(f"[AUTOMATION] Starting AI training scene, background={background}")
+        send_command("startAITraining", [background])
+
+        f2_sent = False
+
+        while True:
+            event = listener.wait_for_event()
+            event_name = str(event.get("event", ""))
+            data = event.get("data", {})
+
+            if event_name == "aiTraining.started":
+                print(
+                    "[AI TRAINING] Scene started | "
+                    f"background={data.get('background')}"
+                )
+
+            elif event_name == "aiTraining.calibrationStarted":
+                print(
+                    "[AI TRAINING] Starting calibration | "
+                    f"phase={data.get('phase')}"
+                )
+
+            elif event_name == "aiTraining.calibrationDone":
+                print(
+                    "[AI TRAINING] Calibration done | "
+                    f"attempts={data.get('attempts')}"
+                )
+
+            elif event_name == "aiTraining.calibrationFailed":
+                raise RuntimeError(
+                    "Calibration failed: "
+                    f"{data.get('result', 'unknown error')}"
+                )
+
+            elif event_name == "aiTraining.waitingForFirstShot":
+                print("[AI TRAINING] Ready - sending F2")
+                if not f2_sent:
+                    send_command("keyPress", ["F2"])
+                    f2_sent = True
+
+            elif event_name == "aiTraining.trainingStarted":
+                print(
+                    "[AI TRAINING] F2 headless training started | "
+                    f"target={data.get('target_iterations')}"
+                )
+
+            elif event_name == "aiTraining.iterationCompleted":
+                iteration = data.get("iteration")
+                target = data.get("target_iterations")
+                print(f"[AI TRAINING] {iteration}/{target}")
+
+            elif event_name == "aiTraining.trainingStopped":
+                raise RuntimeError(
+                    "AI training stopped before completion at iteration "
+                    f"{data.get('iteration')}"
+                )
+
+            elif event_name == "aiTraining.completed":
+                print()
+                print("=" * 72)
+                print("AI TRAINING COMPLETED")
+                print("=" * 72)
+                print(f"Background: {data.get('background')}")
+                print(
+                    f"Found: {data.get('found')}/{data.get('iterations')} | "
+                    f"Top-1: {data.get('top1')} | "
+                    f"Top-3: {data.get('top3')} | "
+                    f"AI correct: {data.get('ai_guess_correct')}"
+                )
+
+                report = data.get("report", [])
+                if isinstance(report, list) and report:
+                    print()
+                    for line in report:
+                        print(line)
+
+                print("=" * 72)
+                return event
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Start an automated F2 AI training "
-            "run in an already running Skjutbana."
-        )
+        description="Automatically start one F2 AI training run"
     )
-
     parser.add_argument(
         "background",
         nargs="?",
         default=1,
         type=parse_background,
-        help=(
-            "Background number 1-7 or name. "
-            "Default: 1 (white)"
-        ),
+        help="Background 1-8 or background name (default: 1 / white)",
     )
-
     args = parser.parse_args()
 
     try:
-        autostart_ai_training(
-            args.background
-        )
-
-    except (
-        TcpNetworkError,
-        RuntimeError,
-    ) as exc:
-        print(
-            f"ERROR: {exc}"
-        )
+        autostart_ai_training(args.background)
+    except (TcpNetworkError, RuntimeError) as exc:
+        print(f"ERROR: {exc}")
 
 
 if __name__ == "__main__":

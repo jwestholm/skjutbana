@@ -70,6 +70,19 @@
 - [x] Pre-shot offset ökat till 500ms (kamerabuffring ger ~100-200ms fördröjning)
 - [x] Hit_scanner pre-shot fönster: 400-600ms, fallback 300-800ms
 
+## Nyligen klart (automation / external control)
+
+- [x] Lokal TCP/JSON-server på `127.0.0.1:8765`
+- [x] Generisk `TcpNetworkHandler` + `send_command()` för externa scripts
+- [x] `setWindowPos` som första externa command
+- [x] `keyPress` som injicerar riktiga Pygame KEYDOWN/KEYUP-events i huvudtråden
+- [x] `startAITraining` som skapar en ny automation-anpassad AI-träningsscen
+- [x] Intern generell `EventBus`
+- [x] Persistent event-subscription via `EventListener`
+- [x] Event-driven AI-training lifecycle: calibration → ready → F2 → progress → completed
+- [x] `automation.autostart_ai_training` som första end-to-end automation
+- [x] Nätverks-/automationarkitektur dokumenterad i `NETWORK_AUTOMATION.md`
+
 ## Pågående
 
 - [ ] Benchmark-körningar med alla bakgrundslägen (white → bubbles)
@@ -82,6 +95,9 @@
 - [ ] Readiness-indikator — visa i UI hur redo AI:n är
 - [ ] Bilder och video som bakgrund i AI-träningsläge
 - [ ] Förbättra AR-kodkalibrering ytterligare om zonbias kvarstår
+- [ ] Broadcasta strukturerad Python logging/console-output till event subscribers
+- [ ] Lägg till fler generella inputkommandon (musposition, mouse down/up/click)
+- [ ] Automations-testsvit för menyer, viewport-grid, regression och längre F2-serier
 
 ## Lång sikt
 
@@ -91,6 +107,7 @@
 - [ ] Replay-system
 - [ ] Partikeleffekter vid träff
 - [ ] Community-delade AI-hjärnor via GitHub
+- [ ] Självstyrande utvecklar-agent som kan ändra kod i experimentbranch, köra automatiska benchmark och behålla/revertera ändringar baserat på metrics
 
 ## Klart
 

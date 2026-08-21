@@ -15,7 +15,13 @@
 │  - camera_manager.update()              │
 │  - audio_peak_detector.update()         │
 │  - hit_scanner.update()                 │
-│  - hit_visualizer.update()              │
+│  - automation command dispatch          │
+├─────────────────────────────────────────┤
+│  Automation / IPC                       │
+│  - TCP/JSON server (localhost:8765)     │
+│  - command queue -> Pygame main thread  │
+│  - EventBus -> event broadcast          │
+│  - external automation scripts          │
 ├─────────────────────────────────────────┤
 │  Detektion                              │
 │  - AudioPeakDetector → triggar sökfönster│
@@ -94,3 +100,44 @@ All statistik i AI-träning flödar genom `RoundRecord` (dataclass i `diagnostic
 
 Alla scener implementerar: `on_enter()`, `on_exit()`, `handle_event()`, `update()`, `render()`.
 Wrappas i `OverlayScene` som lägger till visualiseringar.
+
+
+## Automation, IPC och EventBus
+
+Automation är ett separat lager runt spelmotorn. Externa scripts kommunicerar med ett redan startat spel via TCP på `127.0.0.1:8765`. Protokollet är newline-delimited UTF-8 JSON.
+
+```text
+External automation script
+        │ command JSON
+        ▼
+CommunicationServer (network thread)
+        │ thread-safe command queue
+        ▼
+App.run() / Pygame main thread
+        │
+        ├─ setWindowPos / keyPress / startAITraining
+        │
+        ▼
+Scenes / game logic
+        │
+        │ event_bus.emit(...)
+        ▼
+EventBus (in-process)
+        │ broadcast queue
+        ▼
+CommunicationServer broadcaster
+        │ event JSON
+        ▼
+EventListener / external clients
+```
+
+Arkitekturregler:
+
+- Nätverkstrådar får aldrig anropa Pygame eller scenlogik direkt.
+- `app.py` är gränsen där inkommande automation-kommandon går över till Pygames huvudtråd.
+- `EventBus` är process-lokal och generell; den ska inte vara AI-träningsspecifik.
+- Externa scripts använder `TcpNetworkHandler`/`send_command()` och `EventListener`; duplicera inte socket/JSON-kod.
+- Långvariga/asynkrona flöden ska koordineras med events, inte fasta `sleep()`-tider.
+- Vanlig `AITrainingScene` hålls fri från automationkoppling där det går. `AutomationAITrainingScene` är en tunn subklass som publicerar livscykel-events.
+
+Se `NETWORK_AUTOMATION.md` för protokoll, message schemas, aktuella commands/events och extensionsregler.

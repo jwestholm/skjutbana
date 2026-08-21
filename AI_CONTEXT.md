@@ -22,6 +22,18 @@ Läs detta FÖRST. Det ger dig fullständig kontext om projektet, arkitekturen, 
 
 6. THE BIGGEST PROBLEM IS NEVER AI. It is always geometry + light +
    candidate quality. Fix those first.
+
+7. NETWORK THREADS MUST NEVER CALL PYGAME/GAME LOGIC DIRECTLY.
+   External commands go TCP/JSON -> command queue -> app.py -> Pygame main thread.
+
+8. AUTOMATION MUST USE THE SHARED COMMUNICATION LAYER. Do not add ad-hoc
+   sockets/JSON parsing to individual scripts. See NETWORK_AUTOMATION.md.
+
+9. ASYNC STATE CHANGES ARE EVENTS, NOT SLEEPS. Wait for EventBus/TCP events
+   such as aiTraining.waitingForFirstShot instead of guessing timing.
+
+10. KEEP NORMAL GAME LOGIC AND AUTOMATION SEPARATE. Automation-specific scene
+    behavior belongs in thin wrappers/subclasses where practical.
 ```
 
 ---
@@ -74,6 +86,14 @@ AI:n observerar och rankar men ersätter INTE detektorn (i train_only-läge). De
 
 Alla scener implementerar: `on_enter()`, `on_exit()`, `handle_event()`, `update()`, `render()`. Alla wrappas i `OverlayScene`.
 
+### 5. Automation och extern styrning är ett separat lager
+
+Skjutbana kan styras av fristående Python-skript via en lokal TCP/JSON-kanal. Kommunikationslagret får **inte** köra Pygame eller scenlogik i nätverkstråden. Inkommande kommandon läggs i en thread-safe kö och omvandlas i `app.py` till arbete i Pygames huvudtråd.
+
+Asynkrona livscykelhändelser går motsatt väg via den interna `EventBus` och broadcastas till externa event-lyssnare. Automation ska därför reagera på uttryckliga events i stället för `sleep()`-baserade antaganden.
+
+Fullständigt protokoll, threading-regler, aktuella kommandon och events finns i **`NETWORK_AUTOMATION.md`**.
+
 ---
 
 ## Koordinatkedjan (VIKTIGT — läs noga)
@@ -113,7 +133,13 @@ Hanteras av `hit_input._canonical_screen_to_camera()`.
 
 | Fil | Ansvar |
 |-----|--------|
-| `src/engine/app.py` | Huvudloop, scenbyte, service-sync |
+| `src/engine/app.py` | Huvudloop, scenbyte, service-sync, dispatch av externa automation-kommandon i Pygame-huvudtråden |
+| `src/engine/communication/communication_server.py` | TCP/JSON-server, command queue, event subscribers och broadcast |
+| `src/engine/communication/tcp_network_handler.py` | Återanvändbar klient: `send_command()` + `EventListener` |
+| `src/engine/events/event_bus.py` | Intern process-lokal publish/subscribe-buss för strukturerade engine-events |
+| `src/engine/scenes/automation_ai_training.py` | Tunn AITrainingScene-subklass som publicerar automation-events utan att ändra normal AI-träning |
+| `automation/autostart_ai_training.py` | Externt end-to-end-script: position → ny AI-träningsscen → kalibrering → F2 → slutrapport |
+| `NETWORK_AUTOMATION.md` | Canonical dokumentation för TCP/JSON, EventBus och automation |
 | `src/engine/camera/hit_scanner.py` | Träffdetektion: pre-shot diff, blackhat, whitehat, absdiff, tracking, emission, shot-diagnostik |
 | `src/engine/camera/aruco_calibrator.py` | Återanvändbar ArUco-kalibreringsmotor (detektion, homografi, rendering) |
 | `src/engine/audio/audio_peak_detector.py` | Ljudtrigger (ffmpeg → peak-detektion) |
@@ -280,6 +306,37 @@ Båda kalibreringsflödena använder samma motor: `ArucoCalibrator` i `src/engin
 - Per-markör error: grönt < 1px, gult 1-3px, rött > 3px
 
 **Om kalibreringen inte uppfyller kraven:** kör om. Kontrollera att projektorn visar rätt bild, att kameran ser alla markörer, och att inget skymmer dem.
+
+---
+
+## Automation / nätverk — snabbkontext för AI
+
+Skjutbana lyssnar lokalt på `127.0.0.1:8765`. Transporten är newline-delimited UTF-8 JSON (ett JSON-objekt per rad). Det finns två användningssätt:
+
+1. **Command/response** — `send_command(command, args)` öppnar en anslutning, skickar ett kommando och väntar på ett svar.
+2. **Event subscription** — `EventListener` håller en persistent anslutning efter `{"type":"subscribe"}` och tar emot alla strukturerade EventBus-events.
+
+Aktuella grundkommandon:
+
+- `setWindowPos` — flyttar Pygame-fönstret, t.ex. `[2130, 50]`.
+- `startAITraining` — skapar en ny automation-anpassad AI-träningsscen och startar dess normala auto-kalibrering. Den skickar **inte** F2 direkt.
+- `keyPress` — injicerar ett normalt Pygame `KEYDOWN` + `KEYUP` i huvudtråden, t.ex. `["F2"]`.
+
+AI-träningsautomation använder events för ordningen:
+
+```text
+startAITraining
+  -> aiTraining.started
+  -> aiTraining.calibrationStarted
+  -> aiTraining.calibrationDone
+  -> aiTraining.waitingForFirstShot
+  -> keyPress(F2)
+  -> aiTraining.trainingStarted
+  -> aiTraining.iterationCompleted ...
+  -> aiTraining.completed
+```
+
+**Viktigt för framtida AI:** Ändra inte protokollets semantik ad hoc. Om nya kommandon/events läggs till ska `NETWORK_AUTOMATION.md` uppdateras i samma ändring. Externa scripts ska köras från repositoryts rot, exempelvis `python3 -m automation.autostart_ai_training 1`.
 
 ---
 

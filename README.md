@@ -11,6 +11,7 @@ Digital skjutbana med projektor, kamera och ljuddetektion. Systemet projicerar b
 - **Kamerakalibrering** — ArUco-baserad homografi med 24 markörer
 - **LED-feedback** — Deltaco SH-LS3M styrs via Tuya-protokoll
 - **Ljuddetektion** — ffmpeg-baserad peak-detektor triggar bildanalys
+- **Automation/API** — lokal TCP/JSON-styrning och event-stream för externa test- och AI-skript
 
 ## Snabbstart
 
@@ -39,7 +40,24 @@ src/engine/              — Spelmotor
   visual/                — Visualisering (träffmarkeringar, overlays)
   scenes/                — Alla scener (meny, spel, inställningar, AI)
   ai/                    — AI-modul (runtime, minne, träning)
+  communication/         — TCP/JSON server + klientmotor
+  events/                — Intern EventBus
   output/                — LED-styrning
+automation/              — Fristående automations- och testscripts
 content/                 — Menydata, inställningar, AI-minne
 assets/                  — Bilder, video, spel, tavlor
 ```
+
+
+## Automation
+
+Starta spelet normalt och kör externa scripts från repositoryts rot. Exempel:
+
+```bash
+python3 main.py
+# annan terminal:
+python3 -m automation.set_window_pos
+python3 -m automation.autostart_ai_training 1
+```
+
+Automation använder den gemensamma TCP/JSON-motorn i `src/engine/communication/`. För protokoll, threading-regler, commands och events: se **`NETWORK_AUTOMATION.md`**.
