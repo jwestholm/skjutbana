@@ -3,14 +3,20 @@ from __future__ import annotations
 import pygame
 from pygame._sdl2.video import Window
 
-from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from config import (
+    SCREEN_WIDTH,
+    SCREEN_HEIGHT,
+    FPS,
+)
 
 from src.engine.audio.audio_peak_detector import (
     audio_peak_detector,
 )
+
 from src.engine.camera.camera_manager import (
     camera_manager,
 )
+
 from src.engine.camera.hit_scanner import (
     hit_scanner,
 )
@@ -23,13 +29,20 @@ from src.engine.communication.communication_server import (
 from src.engine.output.led_service import (
     led_service,
 )
+
 from src.engine.output.led_types import (
     LedConnectionConfig,
     RgbColor,
 )
+
+from src.engine.scenes.ai_training import (
+    AITrainingScene,
+)
+
 from src.engine.scenes.loading import (
     LoadingScene,
 )
+
 from src.engine.settings import (
     load_led_settings,
 )
@@ -98,6 +111,10 @@ class App:
         self._apply_scene_led()
         self._update_window_caption()
 
+    # =====================================================
+    # LED
+    # =====================================================
+
     def _init_led_runtime(
         self,
     ) -> None:
@@ -110,48 +127,56 @@ class App:
                     False,
                 )
             ),
+
             device_id=str(
                 led_data.get(
                     "device_id",
                     "",
                 )
             ),
+
             ip_address=str(
                 led_data.get(
                     "ip_address",
                     "",
                 )
             ),
+
             local_key=str(
                 led_data.get(
                     "local_key",
                     "",
                 )
             ),
+
             version=float(
                 led_data.get(
                     "version",
                     3.3,
                 )
             ),
+
             default_mode=str(
                 led_data.get(
                     "default_mode",
                     "colour",
                 )
             ),
+
             default_brightness=int(
                 led_data.get(
                     "default_brightness",
                     1000,
                 )
             ),
+
             default_temperature=int(
                 led_data.get(
                     "default_temperature",
                     500,
                 )
             ),
+
             default_colour=RgbColor(
                 *led_data.get(
                     "default_colour",
@@ -212,6 +237,10 @@ class App:
             # LED must never be able to crash the app.
             pass
 
+    # =====================================================
+    # APPLICATION
+    # =====================================================
+
     def quit(
         self,
     ) -> None:
@@ -231,10 +260,10 @@ class App:
             camera_manager.update()
             audio_peak_detector.update()
 
-            #
-            # Read external TCP/JSON commands and convert
-            # them into internal Pygame automation events.
-            #
+            # -------------------------------------------------
+            # Receive external automation commands.
+            # -------------------------------------------------
+
             self._post_automation_events()
 
             for event in pygame.event.get():
@@ -242,9 +271,9 @@ class App:
                     self.quit()
                     break
 
-                # -----------------------------------------
-                # External automation event
-                # -----------------------------------------
+                # ---------------------------------------------
+                # External automation command
+                # ---------------------------------------------
 
                 if (
                     event.type
@@ -256,9 +285,9 @@ class App:
 
                     continue
 
-                # -----------------------------------------
+                # ---------------------------------------------
                 # Existing scene event handling
-                # -----------------------------------------
+                # ---------------------------------------------
 
                 switch = (
                     self.scene.handle_event(
@@ -326,11 +355,11 @@ class App:
         self,
     ) -> None:
         """
-        Move commands from the TCP communication queue
-        into Pygame's event queue.
+        Move commands received by the TCP thread into
+        Pygame's event queue.
 
-        This ensures that Pygame-related work happens in
-        the game's main thread.
+        All actual game/Pygame operations therefore happen
+        in the application's main thread.
         """
 
         for command in (
@@ -349,12 +378,16 @@ class App:
         event: pygame.event.Event,
     ) -> None:
         """
-        Handle one external automation command.
+        Dispatch one automation command.
         """
 
         command: AutomationCommand = (
             event.automation_command
         )
+
+        # -------------------------------------------------
+        # setWindowPos
+        # -------------------------------------------------
 
         if (
             command.command
@@ -366,10 +399,42 @@ class App:
 
             return
 
+        # -------------------------------------------------
+        # startAITraining
+        # -------------------------------------------------
+
+        if (
+            command.command
+            == "startAITraining"
+        ):
+            self._handle_start_ai_training(
+                command
+            )
+
+            return
+
+        # -------------------------------------------------
+        # getAITrainingStatus
+        # -------------------------------------------------
+
+        if (
+            command.command
+            == "getAITrainingStatus"
+        ):
+            self._handle_get_ai_training_status(
+                command
+            )
+
+            return
+
         command.reply_error(
             "Unknown command: "
             f"{command.command}"
         )
+
+    # =====================================================
+    # AUTOMATION: WINDOW
+    # =====================================================
 
     def _handle_set_window_pos(
         self,
@@ -383,7 +448,7 @@ class App:
                 [x, y],
             )
 
-        The previous dictionary form is also supported:
+        Dictionary arguments are also supported:
 
             {
                 "x": x,
@@ -394,11 +459,6 @@ class App:
         args = command.args
 
         try:
-            #
-            # Preferred syntax:
-            #
-            # [x, y]
-            #
             if isinstance(
                 args,
                 list,
@@ -417,11 +477,6 @@ class App:
                     args[1]
                 )
 
-            #
-            # Backwards-compatible syntax:
-            #
-            # {"x": x, "y": y}
-            #
             elif isinstance(
                 args,
                 dict,
@@ -476,6 +531,354 @@ class App:
             {
                 "x": x,
                 "y": y,
+            }
+        )
+
+    # =====================================================
+    # AUTOMATION: AI TRAINING
+    # =====================================================
+
+    def _resolve_ai_background(
+        self,
+        value,
+    ) -> tuple[int, str]:
+        """
+        Convert an external background value into the
+        AITrainingScene's zero-based bg_mode_index.
+
+        External integer values are intentionally 1-based:
+
+            1 = white
+            2 = white_grid
+            3 = gray
+            4 = black
+            5 = checker
+            6 = checker_anim
+            7 = bubbles
+
+        Background names are also accepted.
+        """
+
+        mode_names = (
+            AITrainingScene.MODE_NAMES
+        )
+
+        if isinstance(
+            value,
+            bool,
+        ):
+            raise ValueError(
+                "Invalid background"
+            )
+
+        if isinstance(
+            value,
+            int,
+        ):
+            external_number = value
+
+            if (
+                external_number < 1
+                or external_number
+                > len(mode_names)
+            ):
+                raise ValueError(
+                    "Background number must "
+                    f"be 1-{len(mode_names)}"
+                )
+
+            index = (
+                external_number - 1
+            )
+
+            return (
+                index,
+                mode_names[index],
+            )
+
+        if isinstance(
+            value,
+            str,
+        ):
+            value = value.strip()
+
+            # Allow strings such as "1".
+            try:
+                external_number = int(
+                    value
+                )
+
+            except ValueError:
+                external_number = None
+
+            if external_number is not None:
+                return (
+                    self._resolve_ai_background(
+                        external_number
+                    )
+                )
+
+            normalized = (
+                value.lower()
+            )
+
+            if normalized in mode_names:
+                index = (
+                    mode_names.index(
+                        normalized
+                    )
+                )
+
+                return (
+                    index,
+                    mode_names[index],
+                )
+
+        raise ValueError(
+            "Unknown AI training background"
+        )
+
+    def _handle_start_ai_training(
+        self,
+        command: AutomationCommand,
+    ) -> None:
+        """
+        Create a completely new AITrainingScene,
+        set its background and then inject a real
+        Pygame F2 KEYDOWN event.
+
+        Examples:
+
+            send_command(
+                "startAITraining",
+                [1],
+            )
+
+            send_command(
+                "startAITraining",
+                ["checker"],
+            )
+        """
+
+        args = command.args
+
+        try:
+            if isinstance(
+                args,
+                list,
+            ):
+                if len(args) != 1:
+                    raise ValueError(
+                        "startAITraining expects "
+                        "one argument"
+                    )
+
+                background_value = (
+                    args[0]
+                )
+
+            elif isinstance(
+                args,
+                dict,
+            ):
+                background_value = (
+                    args["background"]
+                )
+
+            else:
+                raise ValueError(
+                    "Unsupported args format"
+                )
+
+            (
+                background_index,
+                background_name,
+            ) = self._resolve_ai_background(
+                background_value
+            )
+
+        except (
+            KeyError,
+            IndexError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            command.reply_error(
+                "startAITraining requires "
+                "a background number 1-7 "
+                "or background name. "
+                f"Error: {exc}"
+            )
+
+            return
+
+        try:
+            # ---------------------------------------------
+            # Always create a NEW training scene instance.
+            # ---------------------------------------------
+
+            new_scene = AITrainingScene()
+
+            new_scene.bg_mode_index = (
+                background_index
+            )
+
+            self._switch_to(
+                new_scene
+            )
+
+            # ---------------------------------------------
+            # Start the existing F2 code path.
+            #
+            # We deliberately send a real Pygame KEYDOWN
+            # event instead of calling the training
+            # implementation directly.
+            #
+            # AITrainingScene.handle_event() will therefore
+            # handle this exactly like a physical F2 press.
+            # ---------------------------------------------
+
+            pygame.event.post(
+                pygame.event.Event(
+                    pygame.KEYDOWN,
+                    key=pygame.K_F2,
+                    mod=pygame.KMOD_NONE,
+                    unicode="",
+                    automation=True,
+                )
+            )
+
+        except Exception as exc:
+            command.reply_error(
+                "Could not start AI training: "
+                f"{exc}"
+            )
+
+            return
+
+        print(
+            "[Automation] "
+            "startAITraining("
+            f"{background_name})"
+        )
+
+        print(
+            "[Automation] "
+            "Posted F2 KEYDOWN event"
+        )
+
+        command.reply_success(
+            {
+                "background_number": (
+                    background_index + 1
+                ),
+                "background": (
+                    background_name
+                ),
+                "f2_event_posted": True,
+            }
+        )
+
+    def _handle_get_ai_training_status(
+        self,
+        command: AutomationCommand,
+    ) -> None:
+        """
+        Return the current state of the active
+        AITrainingScene.
+
+        This command does not manipulate training.
+        It only reports state.
+        """
+
+        scene = self.scene
+
+        if not isinstance(
+            scene,
+            AITrainingScene,
+        ):
+            command.reply_success(
+                {
+                    "state": "not_running",
+                    "running": False,
+                    "completed": False,
+                    "iteration": 0,
+                    "target_iterations": 0,
+                    "background": None,
+                    "report": [],
+                }
+            )
+
+            return
+
+        running = bool(
+            scene.auto_training_enabled
+        )
+
+        report_visible = bool(
+            scene.auto_report_visible
+        )
+
+        report_lines = list(
+            scene.auto_report_lines
+        )
+
+        try:
+            background_name = (
+                scene.MODE_NAMES[
+                    scene.bg_mode_index
+                ]
+            )
+
+        except (
+            IndexError,
+            TypeError,
+        ):
+            background_name = "unknown"
+
+        # A finished F1/F2 training run builds the
+        # auto report and makes it visible.
+        completed = bool(
+            not running
+            and report_visible
+            and report_lines
+        )
+
+        if completed:
+            state = "completed"
+
+        elif running:
+            state = "running"
+
+        else:
+            state = "starting"
+
+        command.reply_success(
+            {
+                "state": state,
+                "running": running,
+                "completed": completed,
+                "iteration": int(
+                    scene.auto_iteration
+                ),
+                "target_iterations": int(
+                    scene.auto_target_iterations
+                ),
+                "background": (
+                    background_name
+                ),
+                "headless": bool(
+                    scene.auto_headless
+                ),
+                "phase": str(
+                    scene.auto_phase
+                ),
+                "report_visible": (
+                    report_visible
+                ),
+                "report": (
+                    report_lines
+                ),
             }
         )
 
