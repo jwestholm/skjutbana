@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pygame
+from pygame._sdl2.video import Window
 
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 from src.engine.audio.audio_peak_detector import audio_peak_detector
@@ -33,6 +34,21 @@ class App:
 
         self.screen = pygame.display.set_mode(
             (SCREEN_WIDTH, SCREEN_HEIGHT)
+        )
+
+        # -------------------------------------------------
+        # SDL2 window wrapper
+        #
+        # Important:
+        # Create this ONCE and reuse it for the entire
+        # lifetime of the application.
+        #
+        # Repeated Window.from_display_module() calls may
+        # create multiple wrappers around the same native
+        # SDL window and can cause instability.
+        # -------------------------------------------------
+        self._automation_window = (
+            Window.from_display_module()
         )
 
         self.clock = pygame.time.Clock()
@@ -326,15 +342,12 @@ class App:
             return
 
         try:
-            from pygame._sdl2.video import (
-                Window,
+            # Reuse the SDL2 Window wrapper created once
+            # during application startup.
+            self._automation_window.position = (
+                x,
+                y,
             )
-
-            window = (
-                Window.from_display_module()
-            )
-
-            window.position = (x, y)
 
         except Exception as exc:
             command.reply_error(
