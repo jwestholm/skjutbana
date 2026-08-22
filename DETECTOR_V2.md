@@ -1,300 +1,202 @@
-# Detector V2.1 — high-recall camera candidate pipeline
+# Detector V2.2 — hybrid candidate recall + ranking repair
 
-## Purpose
+## Why V2.2 exists
 
-Detector V2.1 is an experimental high-recall path that runs in parallel with
-the existing `HitScanner` detector.
+The V2.1 benchmark gave a much clearer picture than a single Found percentage:
 
-The legacy detector remains the baseline. V2 candidates are merged with the
-legacy candidates before the existing tracking / AI pipeline. If V2 fails on a
-frame, the legacy result is returned unchanged.
+- merged BEST/EVER recall at 42 px was around two thirds of synthetic shots;
+- the exact F2 raw snapshot still contained ground truth far more often than the
+  final selected candidate was correct;
+- filtering removed relatively few true candidates compared with ranking;
+- hundreds of shots had a useful candidate earlier in the shot window but not
+  at the exact evaluation snapshot;
+- many misses had strong temporal signal at ground truth but no emitted peak.
 
-Runtime rollback:
+V2.2 therefore changes both sides of the remaining problem:
+
+1. candidate generation/preservation;
+2. ranking/selection.
+
+The existing legacy detector remains active and V2 stays hybrid/fail-open.
+
+---
+
+## Files
+
+```text
+src/engine/camera/__init__.py
+src/engine/camera/candidate_generator_v2.py
+src/engine/ai/runtime.py
+content/ai/detector_v2.json
+automation/detector_v2_analyze.py
+DETECTOR_V2.md
+INSTALL_DETECTOR_V2.txt
+```
+
+`hit_scanner.py`, menus, games and other scenes are not replaced by this
+package.
+
+---
+
+## Candidate changes
+
+### 1. Hybrid bank instead of V2-only bank
+
+V2.1 preserved only V2 candidates. V2.2 first creates the current hybrid
+V1+V2 snapshot and then banks that snapshot.
+
+Important invariant:
+
+> Current-frame candidates are never deleted to make room for old bank data.
+
+Historical candidates only fill unused slots.
+
+A strict V1 candidate may be carried for a short interval after one observation.
+V2 primary/rescue candidates still require repeated evidence before carry.
+
+This directly targets `candidate_disappeared_before_evaluation`.
+
+### 2. Merge provenance bug fixed
+
+Older V2 merge logic searched the complete, growing merged list when matching a
+new V2 point. A V2 point could therefore match an earlier V2 point and be
+incorrectly labelled as V1+V2 agreement.
+
+V2.2 only tests V2 candidates against the original legacy candidate segment.
+Detector agreement now actually means agreement between independent detector
+paths.
+
+### 3. Legacy-biased source reservation
+
+V1 had higher measured recall than V2.1 on the latest benchmark, so dense
+candidate snapshots now reserve more capacity for V1:
+
+```text
+legacy reserved: 140
+V2 reserved:      60
+```
+
+When the union is below the scanner candidate limit, nothing is removed.
+
+### 4. Component-centre temporal rescue
+
+A tiny synthetic hole can form a ring or plateau where no single pixel is a
+stable local maximum. V2.2 adds a connected-component rescue path directly on
+strong temporal evidence.
+
+For compact components it emits a weighted centre instead of requiring one
+pixel to win local-max competition.
+
+This specifically targets the measured `strong_gt_signal_but_peak_missing`
+class.
+
+### 5. More permissive high-recall peak search
+
+V2.2 uses:
+
+```text
+primary local-max kernel: 3
+NMS radius:               3.5 px
+per-tile candidates:      6
+global extras:            80
+max V2 candidates:        200
+```
+
+Candidate generation is intentionally recall-oriented. Precision belongs in the
+later filter/ranker stages.
+
+---
+
+## Ranking V2.2
+
+The old ranker could give 65% of the score to the nearest-memory AI when memory
+was full. In the measured run, a correct candidate survived filtering much more
+often than it was selected, so the memory model was behaving as a harmful
+ranking signal.
+
+### Position no longer affects nearest-memory distance
+
+Synthetic shot position is random. `x_norm` and `y_norm` are still stored for
+compatibility/diagnostics, but have zero weight in the AI-memory distance.
+
+The learner should learn what a hole looks like, not where old holes happened to
+appear.
+
+### Feature normalization is clipped
+
+Candidate generators can change feature ranges. Values outside historical
+min/max no longer create arbitrarily large nearest-neighbour distances.
+Normalized values are clipped to 0..1.
+
+### Relative within-shot ranking
+
+Absolute V1 and V2 detector score scales are not assumed to be identical.
+V2.2 calculates relative ranks inside the current candidate snapshot for:
+
+- detector strength;
+- temporal/new-hole evidence;
+- V2 temporal evidence when present.
+
+It also adds small independent evidence for:
+
+- genuine V1+V2 detector agreement;
+- confirmed candidate-bank persistence.
+
+### AI memory is capped
+
+Default full-memory AI weight is now capped at 30% in Ranking V2.2. Detector and
+temporal evidence dominate until the learned model proves itself useful.
+
+The legacy ranker is still available. To disable Ranking V2.2, add/change this
+in `content/ai/settings.json`:
 
 ```json
-{
-  "enabled": false
-}
+"ranking_v22_enabled": false
 ```
 
-in:
-
-`content/ai/detector_v2.json`
-
-The configuration is hot-reloaded.
+Do not replace the whole settings file just for this switch.
 
 ---
 
-## Baseline that motivated V2.1
+## Diagnostics V2.2
 
-The first real V2 benchmark used 1000 synthetic white-background shots observed
-through the physical projector/camera setup.
+`automation.detector_v2_analyze` still reports BEST/EVER detector recall and the
+actual F2 funnel, and now additionally reports:
 
-At 42 px candidate recall:
+- legacy candidates lost during merge;
+- V2 candidates lost during merge;
+- hybrid-bank carried candidate counts;
+- whether carried bank evidence itself covered ground truth;
+- rank of the nearest ground-truth candidate;
+- selected-vs-ground-truth combined score margin;
+- selected-vs-ground-truth AI-score difference;
+- selected-vs-ground-truth heuristic-score difference.
 
-```text
-legacy V1 : 655 / 1000 = 65.5 %
-V2 frame  : 716 / 1000 = 71.6 %
-merged    : 751 / 1000 = 75.1 %
-```
-
-V2 recovered useful holes that V1 missed, but two important bottlenecks were
-visible:
-
-1. Many misses still had strong signal near synthetic ground truth but no V2
-   peak.
-2. The F2 training report was far lower (~11 % Found) than the best/ever
-   detector recall (~75 %), indicating that candidates seen in one camera frame
-   may disappear before the exact later evaluation snapshot.
-
-V2.1 is designed specifically around those two observations.
-
----
-
-## V2.1 changes
-
-### 1. Independent temporal rescue
-
-The original V2 temporal rescue was still indirectly gated by the composite
-saliency threshold.
-
-That could reject a true temporal signal when:
-
-- the soft projector-artifact prior lowered composite saliency,
-- the pre-existing edge prior lowered composite saliency,
-- nearby projected texture won the composite local competition.
-
-V2.1 builds an independent temporal response from:
-
-```text
-absdiff
-+ z-score
-+ multiscale temporal contrast
-```
-
-and computes a separate robust MAD-based threshold for it.
-
-This gives a small, real camera change a second way to nominate a candidate
-without simply lowering every detector threshold globally.
-
-Important configuration:
-
-```json
-{
-  "rescue_temporal_robust_sigma": 2.7,
-  "rescue_temporal_min_score": 6.0
-}
-```
-
----
-
-### 2. Peak centre refinement
-
-Candidate peaks are refined in a small bounded patch using temporal evidence.
-
-This matters because a synthetic hole can contain both a dark core and a bright
-rim. The strongest individual response can therefore be on the rim rather than
-at the physical centre.
-
-Refinement is bounded to a few pixels so a projected edge cannot drag a
-candidate across the image.
-
----
-
-### 3. Per-shot candidate bank
-
-This is the largest structural change.
-
-The existing AI runtime deliberately replaces its candidate snapshot on every
-camera frame. That protects later shots from stale data, but it also means:
-
-```text
-frame N:   true hole candidate exists
-frame N+1: candidate is weaker / absent
-...
-F2 evaluates later snapshot
-=> the earlier valid candidate is gone
-```
-
-V2.1 has a bank scoped to the current `shot_id`.
-
-It does **not** preserve arbitrary one-frame candidates.
-
-A bank entry can be carried only after repeated evidence on distinct camera
-frames.
-
-Key safeguards:
-
-- a bank entry can match at most one candidate per camera frame;
-- weak rescue candidates require a consecutive observation streak;
-- unconfirmed entries expire after a short interval;
-- an absent unconfirmed candidate is never emitted;
-- confirmed candidates may remain through the F2 evaluation window;
-- carried candidates have their own hard output budget;
-- the bank is cleared when the shot resolves / scanner resets.
-
-This was stress-tested because a first naive bank could slowly accumulate random
-noise peaks. The current design keeps no-hole output bounded instead of growing
-toward the candidate limit.
-
-Relevant configuration:
-
-```json
-{
-  "candidate_bank_enabled": true,
-  "candidate_bank_merge_radius_px": 4.0,
-  "candidate_bank_unconfirmed_max_age_s": 0.12,
-  "candidate_bank_confirm_min_span_s": 0.02,
-  "candidate_bank_primary_carry_min_hits": 2,
-  "candidate_bank_rescue_carry_min_hits": 3,
-  "candidate_bank_rescue_min_hits": 3,
-  "candidate_bank_carried_limit": 40,
-  "candidate_bank_max_age_s": 1.35
-}
-```
-
----
-
-## Full V2 pipeline
-
-```text
-existing V1 candidate generator
-               |
-               +--------------------------------------+
-                                                      |
-camera frames                                         |
-    |                                                 |
-recent pre-shot stack                                 |
-    |                                                 |
-robust pre reference + temporal noise                 |
-    |                                                 |
-small global registration                             |
-    |                                                 |
-photometric normalization                             |
-    |                                                 |
-absdiff / darkening / per-pixel z-score               |
-    |                                                 |
-multiscale local contrast                             |
-    |                                                 |
-soft artifact + edge priors                           |
-    |                                                 |
-persistent change map                                 |
-    |                                                 |
-    +--> composite saliency local maxima              |
-    |                                                 |
-    +--> lower-gate saliency rescue                   |
-    |                                                 |
-    +--> independent temporal rescue                  |
-                    |                                 |
-             peak refinement                          |
-                    |                                 |
-           spatial quota + NMS                        |
-                    |                                 |
-              frame V2 candidates                    |
-                    |                                 |
-        confirmed per-shot candidate bank            |
-                    |                                 |
-              banked V2 candidates ------------------+
-                              |
-                    hybrid V1/V2 merge
-                              |
-                       HitScanner / AI
-```
-
----
-
-## Machine-readable diagnostics
-
-File:
-
-```text
-content/ai/detector_v2/shot_diagnostics.jsonl
-```
-
-Each synthetic labelled shot can contain four different detector views:
-
-```text
-legacy       best/ever V1 candidate during the shot
-v2_frame     best/ever unbanked V2 frame candidate
-v2           best/ever V2 candidate after candidate bank
-merged       best/ever hybrid candidate
-```
-
-V2.1 also records the **actual F2 evaluation snapshot**:
-
-```text
-evaluation_funnel.raw
-evaluation_funnel.filtered
-evaluation_funnel.ranked
-evaluation_funnel.selected
-```
-
-and detector provenance in that exact raw snapshot:
-
-```text
-raw_v1_nearest_px
-raw_v2_nearest_px
-raw_v2_bank_confirmed_nearest_px
-raw_v2_bank_carried_nearest_px
-raw_v2_bank_carried_count
-```
-
-This distinction is critical.
-
-`BEST/EVER candidate recall` answers:
-
-> Did the camera/detector see the hole at any useful time?
-
-`ACTUAL F2 EVALUATION recall` answers:
-
-> Was that candidate still available when the training evaluator actually
-> looked?
-
----
-
-## Analyse a run
-
-After a new game process has run synthetic training:
+Run:
 
 ```bash
 python3 -m automation.detector_v2_analyze
 ```
 
-By default the analyzer selects the newest Detector V2 runtime session.
-
-It writes:
+The key V2.2 questions are:
 
 ```text
-content/ai/detector_v2/latest_summary.json
-```
-
-and prints:
-
-- V1 / V2-frame / V2-bank / merged recall at 10, 20 and 42 px;
-- number of shots recovered by the candidate bank;
-- actual F2 raw → filter → rank → selected funnel;
-- V1/V2/banked provenance at the F2 snapshot;
-- where ground truth was lost;
-- median signal exactly around synthetic ground truth;
-- miss/recovery classifications by background.
-
-Historical analysis:
-
-```bash
-python3 -m automation.detector_v2_analyze --all
-```
-
-One explicit runtime:
-
-```bash
-python3 -m automation.detector_v2_analyze --session SESSION_ID
+Did merged BEST/EVER recall rise?
+Did ACTUAL F2 raw recall rise?
+Did candidate_disappeared_before_evaluation fall?
+Did legacy_lost_in_merge fall?
+Did selected/top-1 improve strongly relative to filtered/ranked recall?
+What is the GT median rank when GT survives ranking?
 ```
 
 ---
 
-## Recommended next benchmark
+## Recommended test
 
-Start with 10 complete runs, not another 100-run marathon:
+Restart the game after installing the files so the new runtime and detector
+wrapper are loaded.
+
+First run a short 10 x 100 benchmark:
 
 ```bash
 python3 -m automation.ai_training_loop 1 10
@@ -306,59 +208,35 @@ Then:
 python3 -m automation.detector_v2_analyze
 ```
 
-For the first V2.1 test, compare these numbers in this order:
-
-1. `v2 frame` vs old V2 frame recall — did temporal rescue improve candidate
-   generation?
-2. `v2 bank` vs `v2 frame` — how many shots were saved by temporal candidate
-   preservation?
-3. `merged BEST/EVER` vs `ACTUAL F2 raw` — is the large snapshot-loss gap
-   shrinking?
-4. `raw -> filtered -> ranked -> selected` — where is the next bottleneck?
-
-Do not judge V2.1 only by AI Top-1. Candidate generation and AI ranking are
-different stages.
+Do not start with another 100 x 100 run. Ten complete runs are enough to see
+whether V2.2 moved the main bottlenecks before spending more time.
 
 ---
 
-## Internal smoke tests before packaging
+## Rollback / isolation
 
-The update was checked with synthetic image and candidate-bank tests.
+Disable Detector V2 while keeping the code installed:
 
-Observed properties:
-
-- weak temporal signal suppressed below composite saliency can still be nominated
-  by the independent temporal rescue;
-- a candidate observed on several consecutive frames remains available after it
-  disappears from later frames;
-- a weak rescue candidate is not carried after only one/two frames;
-- random single-frame candidate streams remain close to current-frame output
-  rather than growing toward the bank output limit;
-- full no-hole synthetic camera sequences remained bounded instead of ramping
-  toward ~150 carried candidates;
-- source files compile and the JSON configuration matches all default keys.
-
-These are software smoke tests, not substitutes for the physical
-projector/camera benchmark.
-
----
-
-## Important invariant for future AI work
-
-Candidate generation should optimise primarily for recall.
-
-A true hole that never reaches the candidate list cannot be recovered by
-ranking.
-
-But high recall must not be achieved by unbounded temporal accumulation.
-Therefore:
-
-```text
-permissive CURRENT candidate generation
-              +
-strict evidence requirement for CARRYING a candidate
-              +
-later filtering/ranking
+```json
+"enabled": false
 ```
 
-is the intended V2.1 architecture.
+in `content/ai/detector_v2.json`.
+
+Disable only the new ranker:
+
+```json
+"ranking_v22_enabled": false
+```
+
+in `content/ai/settings.json`.
+
+These two switches make it possible to test:
+
+```text
+V1 detector + legacy ranker
+V1/V2 hybrid + legacy ranker
+V1/V2 hybrid + Ranking V2.2
+```
+
+without reverting the entire branch.

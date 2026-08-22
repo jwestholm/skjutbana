@@ -72,8 +72,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "strong_temporal_change": 4.0,
 
     # Primary local-max filter followed by explicit Euclidean NMS.
-    "local_max_kernel": 5,
-    "nms_radius_px": 5.0,
+    "local_max_kernel": 3,
+    "nms_radius_px": 3.5,
 
     # Rescue path. The first V2 benchmark showed many shots with a strong
     # signal at ground truth but no accepted peak. The rescue path uses a
@@ -87,13 +87,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "rescue_min_zscore": 1.25,
     "rescue_strong_temporal_change": 4.0,
     "rescue_local_max_kernel": 3,
-    "rescue_max_raw_peaks": 60,
+    "rescue_max_raw_peaks": 120,
 
     # Temporal-only rescue has its own robust threshold. It intentionally does
     # NOT depend on the composite saliency threshold, because edge/artifact
     # priors can suppress saliency even when the true temporal change is clear.
-    "rescue_temporal_robust_sigma": 2.7,
-    "rescue_temporal_min_score": 6.0,
+    "rescue_temporal_robust_sigma": 2.35,
+    "rescue_temporal_min_score": 5.2,
+
+    # Connected-component rescue. Tiny holes can form a plateau/ring where the
+    # strongest pixel is not a stable local maximum. This path thresholds the
+    # temporal evidence itself and emits a weighted component centre.
+    "rescue_blob_enabled": True,
+    "rescue_blob_robust_sigma": 2.15,
+    "rescue_blob_min_score": 4.8,
+    "rescue_blob_min_area": 1,
+    "rescue_blob_max_area": 90,
+    "rescue_blob_max_candidates": 90,
 
     # Refine a coarse peak towards the centre of a compact temporal-change
     # blob. This is deliberately bounded to a few pixels so a nearby projected
@@ -107,9 +117,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # all candidate slots. Keep a few local maxima from every tile.
     "tile_columns": 8,
     "tile_rows": 6,
-    "per_tile_candidates": 4,
-    "global_extra_candidates": 45,
-    "max_v2_candidates": 185,
+    "per_tile_candidates": 6,
+    "global_extra_candidates": 80,
+    "max_v2_candidates": 200,
 
     # Per-shot candidate bank. A candidate that is visible in frame N must not
     # disappear solely because frame N+1 has a slightly different peak set.
@@ -120,8 +130,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Bank matching is deliberately tighter than detector NMS. A 6 px match
     # radius made unrelated dense-noise peaks accumulate "hits" by chance.
     "candidate_bank_merge_radius_px": 4.0,
-    "candidate_bank_max_entries": 180,
-    "candidate_bank_output_limit": 185,
+    "candidate_bank_max_entries": 240,
+    "candidate_bank_output_limit": 200,
     "candidate_bank_repeat_bonus": 0.85,
     "candidate_bank_max_bonus": 3.4,
 
@@ -129,22 +139,30 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # snapshot. One-frame/unconfirmed observations are kept only briefly for
     # matching and are never carried forward just because they existed once.
     "candidate_bank_max_age_s": 1.35,
-    "candidate_bank_unconfirmed_max_age_s": 0.12,
+    "candidate_bank_unconfirmed_max_age_s": 0.16,
     "candidate_bank_confirm_min_span_s": 0.020,
     "candidate_bank_primary_carry_min_hits": 2,
-    "candidate_bank_rescue_carry_min_hits": 3,
-    "candidate_bank_rescue_min_hits": 3,
+    "candidate_bank_rescue_carry_min_hits": 2,
+    "candidate_bank_rescue_min_hits": 1,
     # Confirmed but currently absent candidates are useful for the later F2
     # snapshot, but only a bounded reserve may be carried at once.
-    "candidate_bank_carried_limit": 40,
+    "candidate_bank_carried_limit": 70,
     "candidate_bank_rescue_single_frame_absdiff": 5.0,
+
+    # V2.2 banks the already-merged V1+V2 snapshot, not just V2. Legacy V1 is
+    # conservative enough that one strong V1 observation may be carried for a
+    # short window. Current-frame candidates are NEVER removed to make room for
+    # carried history; history only fills unused candidate slots.
+    "candidate_bank_legacy_carry_min_hits": 1,
+    "candidate_bank_legacy_min_score": 3.0,
+    "candidate_bank_legacy_max_age_s": 0.55,
 
     # Hybrid merge. V2 gets reserved slots so a noisy V1 list cannot crowd out
     # all high-recall V2 points before the AI gets to rank them.
     "merge_radius_px": 5.5,
     "agreement_bonus": 1.5,
-    "v2_reserved_slots": 145,
-    "legacy_reserved_slots": 40,
+    "v2_reserved_slots": 60,
+    "legacy_reserved_slots": 140,
 
     # Existing artifact mask becomes a SOFT prior for V2. A real hit may still
     # exist on a pixel that the white/black projector calibration considered an
@@ -303,7 +321,7 @@ class CandidateGeneratorV2:
     remain unchanged.
     """
 
-    SCHEMA_VERSION = "2.1"
+    SCHEMA_VERSION = "2.2"
 
     def __init__(self) -> None:
         self.config = DetectorV2Config()
@@ -614,23 +632,28 @@ class CandidateGeneratorV2:
             cfg=cfg,
         )
 
-        # Preserve useful candidates across the whole shot window. The AI
-        # runtime intentionally replaces its candidate snapshot every frame, so
-        # without this bank a true hole can be visible in frame N and vanish
-        # before the synthetic evaluator samples frame N+1/N+2.
-        v2_candidates = self._update_candidate_bank(
-            shot_id=shot_id,
-            frame_candidates=frame_v2_candidates,
-            frame_ts=frame_ts,
+        # First merge the CURRENT V1+V2 observations. V2.1 banked only V2,
+        # which could not rescue a good legacy candidate that disappeared on a
+        # later camera frame. V2.2 banks the complete hybrid snapshot instead.
+        frame_merged = self._merge_hybrid(
+            scanner=scanner,
+            legacy=list(legacy_candidates),
+            v2=frame_v2_candidates,
             cfg=cfg,
         )
 
-        merged = self._merge_hybrid(
-            scanner=scanner,
-            legacy=list(legacy_candidates),
-            v2=v2_candidates,
+        # The bank is now preservation-only: every current candidate survives;
+        # confirmed earlier candidates may fill UNUSED slots until F2 evaluates.
+        merged = self._update_candidate_bank(
+            shot_id=shot_id,
+            frame_candidates=frame_merged,
+            frame_ts=frame_ts,
             cfg=cfg,
         )
+        v2_candidates = [
+            candidate for candidate in merged
+            if _safe_float(candidate.get("detector_v2", 0.0)) > 0.5
+        ]
 
         telemetry: dict[str, Any] = {
             "enabled": True,
@@ -652,6 +675,11 @@ class CandidateGeneratorV2:
             "v2_frame_count": len(frame_v2_candidates),
             "v2_count": len(v2_candidates),
             "v2_bank_count": len(self._candidate_banks.get(shot_id, [])),
+            "frame_merged_count": len(frame_merged),
+            "carried_count": sum(
+                1 for candidate in merged
+                if _safe_float(candidate.get("candidate_bank_carried", 0.0)) > 0.5
+            ),
             "merged_count": len(merged),
             "artifact_weight_mean": artifact_weight_mean,
             "edge_weight_mean": edge_weight_mean,
@@ -1450,6 +1478,91 @@ class CandidateGeneratorV2:
                 max_raw=rescue_max,
             )
 
+
+            # V2.2 component-centre rescue. A tiny ring/plateau can have strong
+            # temporal evidence but no stable single-pixel local maximum. Build
+            # compact connected components directly from the temporal map and
+            # emit their weighted centre. This targets the large
+            # strong_gt_signal_but_peak_missing class seen in V2.1.
+            if bool(cfg.get("rescue_blob_enabled", True)):
+                blob_sigma = max(
+                    0.0,
+                    _safe_float(cfg.get("rescue_blob_robust_sigma", 2.15), 2.15),
+                )
+                blob_min_score = max(
+                    0.0,
+                    _safe_float(cfg.get("rescue_blob_min_score", 4.8), 4.8),
+                )
+                blob_threshold = max(
+                    blob_min_score,
+                    temporal_med + blob_sigma * 1.4826 * temporal_mad,
+                )
+                blob_mask = (
+                    valid
+                    & rescue_evidence
+                    & (temporal_map >= blob_threshold)
+                ).astype(np.uint8)
+
+                min_blob_area = max(
+                    1,
+                    _safe_int(cfg.get("rescue_blob_min_area", 1), 1),
+                )
+                max_blob_area = max(
+                    min_blob_area,
+                    _safe_int(cfg.get("rescue_blob_max_area", 90), 90),
+                )
+                max_blob_candidates = max(
+                    1,
+                    _safe_int(cfg.get("rescue_blob_max_candidates", 90), 90),
+                )
+
+                try:
+                    n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+                        blob_mask,
+                        connectivity=8,
+                    )
+                    blob_found: list[tuple[float, int, int]] = []
+                    for label in range(1, n_labels):
+                        area = int(stats[label, cv2.CC_STAT_AREA])
+                        if area < min_blob_area or area > max_blob_area:
+                            continue
+                        sx = int(stats[label, cv2.CC_STAT_LEFT])
+                        sy = int(stats[label, cv2.CC_STAT_TOP])
+                        sw = int(stats[label, cv2.CC_STAT_WIDTH])
+                        sh = int(stats[label, cv2.CC_STAT_HEIGHT])
+                        if sw <= 0 or sh <= 0:
+                            continue
+
+                        component = labels[sy:sy + sh, sx:sx + sw] == label
+                        weights = temporal_map[sy:sy + sh, sx:sx + sw]
+                        weights = np.where(component, np.maximum(weights, 0.0), 0.0)
+                        weight_sum = float(np.sum(weights))
+                        if weight_sum <= 1e-6:
+                            continue
+
+                        yy, xx = np.mgrid[sy:sy + sh, sx:sx + sw]
+                        cx = int(round(float(np.sum(xx * weights) / weight_sum)))
+                        cy = int(round(float(np.sum(yy * weights) / weight_sum)))
+                        cx = max(0, min(temporal_map.shape[1] - 1, cx))
+                        cy = max(0, min(temporal_map.shape[0] - 1, cy))
+                        score = float(np.max(weights))
+                        blob_found.append((score, cx, cy))
+
+                    blob_found.sort(key=lambda item: item[0], reverse=True)
+                    for score, px, py in blob_found[:max_blob_candidates]:
+                        key = (px, py)
+                        entry = peak_map.get(key)
+                        if entry is None:
+                            peak_map[key] = {
+                                "score": score,
+                                "sources": {"rescue_blob"},
+                            }
+                        else:
+                            entry["score"] = max(float(entry["score"]), score)
+                            entry["sources"].add("rescue_blob")
+                except Exception:
+                    pass
+
         if not peak_map:
             return []
 
@@ -1593,6 +1706,7 @@ class CandidateGeneratorV2:
                 "v2_primary_peak": 1.0 if "primary" in sources else 0.0,
                 "v2_rescue_saliency": 1.0 if "rescue_saliency" in sources else 0.0,
                 "v2_rescue_temporal": 1.0 if "rescue_temporal" in sources else 0.0,
+                "v2_rescue_blob": 1.0 if "rescue_blob" in sources else 0.0,
                 "v2_refine_shift_px": float(refine_shift),
             }
 
@@ -1815,24 +1929,23 @@ class CandidateGeneratorV2:
         frame_ts: float,
         cfg: dict[str, Any],
     ) -> list[dict[str, float]]:
-        """Preserve confirmed within-shot candidates without collecting noise.
+        """Preserve useful V1/V2 candidates until the F2 evaluation snapshot.
 
-        The AI runtime intentionally replaces its candidate snapshot every frame.
-        The first V2 benchmark proved that a true candidate can exist earlier in
-        the same shot but disappear before the exact F2 evaluation snapshot.
+        V2.1 banked only the V2 list and could not rescue a legacy candidate.
+        It also withheld some weak *current-frame* rescue candidates while they
+        waited for confirmation. Both behaviours work against recall.
 
-        The bank therefore carries *confirmed* candidates, but confirmation must
-        come from distinct, consecutive-ish camera frames. Total historical hits
-        alone are not enough: otherwise dense random peaks can eventually match
-        by chance and fill the bank.
+        V2.2 deliberately makes the bank preservation-only:
 
-        Rules:
-          * one bank entry can be matched at most once per camera frame
-          * weak rescue peaks need a short observation streak
-          * unconfirmed entries expire quickly and are never carried while absent
-          * once confirmed, a point may survive through the F2 evaluation window
-          * carried points have a strict output budget so the bank cannot crowd
-            out the current-frame detector
+        * every current-frame hybrid candidate is returned unchanged
+        * historical candidates are allowed to fill only UNUSED output slots
+        * a strict V1 observation may be carried briefly after one frame
+        * V2 primary/rescue candidates still need repeated observations
+        * one bank entry can match at most once per camera frame
+        * carried candidates retain detector provenance for diagnostics/ranking
+
+        This means enabling the bank cannot delete a current candidate merely to
+        make space for history.
         """
         if shot_id <= 0 or not bool(cfg.get("candidate_bank_enabled", True)):
             return list(frame_candidates)
@@ -1842,49 +1955,57 @@ class CandidateGeneratorV2:
             _safe_float(cfg.get("candidate_bank_merge_radius_px", 4.0), 4.0),
         )
         max_entries = max(
-            10,
-            _safe_int(cfg.get("candidate_bank_max_entries", 180), 180),
+            20,
+            _safe_int(cfg.get("candidate_bank_max_entries", 240), 240),
         )
         output_limit = max(
             1,
-            _safe_int(cfg.get("candidate_bank_output_limit", 185), 185),
+            _safe_int(cfg.get("candidate_bank_output_limit", 200), 200),
         )
         carried_limit = max(
             0,
             min(
                 output_limit,
-                _safe_int(cfg.get("candidate_bank_carried_limit", 40), 40),
+                _safe_int(cfg.get("candidate_bank_carried_limit", 70), 70),
             ),
         )
         max_age = max(
             0.10,
             _safe_float(cfg.get("candidate_bank_max_age_s", 1.35), 1.35),
         )
+        legacy_max_age = max(
+            0.05,
+            min(
+                max_age,
+                _safe_float(cfg.get("candidate_bank_legacy_max_age_s", 0.55), 0.55),
+            ),
+        )
         unconfirmed_max_age = max(
             0.03,
             min(
                 max_age,
-                _safe_float(
-                    cfg.get("candidate_bank_unconfirmed_max_age_s", 0.12),
-                    0.12,
-                ),
+                _safe_float(cfg.get("candidate_bank_unconfirmed_max_age_s", 0.16), 0.16),
             ),
         )
         confirm_min_span = max(
             0.0,
             _safe_float(cfg.get("candidate_bank_confirm_min_span_s", 0.020), 0.020),
         )
-        primary_confirm_streak = max(
+        v2_primary_hits = max(
             2,
             _safe_int(cfg.get("candidate_bank_primary_carry_min_hits", 2), 2),
         )
-        rescue_confirm_streak = max(
-            primary_confirm_streak,
-            _safe_int(cfg.get("candidate_bank_rescue_carry_min_hits", 3), 3),
+        v2_rescue_hits = max(
+            2,
+            _safe_int(cfg.get("candidate_bank_rescue_carry_min_hits", 2), 2),
         )
-        rescue_current_streak = max(
+        legacy_hits = max(
             1,
-            _safe_int(cfg.get("candidate_bank_rescue_min_hits", 3), 3),
+            _safe_int(cfg.get("candidate_bank_legacy_carry_min_hits", 1), 1),
+        )
+        legacy_min_score = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_legacy_min_score", 3.0), 3.0),
         )
         repeat_bonus = max(
             0.0,
@@ -1894,24 +2015,32 @@ class CandidateGeneratorV2:
             0.0,
             _safe_float(cfg.get("candidate_bank_max_bonus", 3.4), 3.4),
         )
-        rescue_single_abs = max(
-            0.0,
-            _safe_float(
-                cfg.get("candidate_bank_rescue_single_frame_absdiff", 5.0),
-                5.0,
-            ),
-        )
 
         frame_index = self._candidate_bank_frame_counters.get(shot_id, 0) + 1
         self._candidate_bank_frame_counters[shot_id] = frame_index
-
         bank = self._candidate_banks.setdefault(shot_id, [])
 
         for entry in bank:
             entry["seen_this_frame"] = False
 
-        # Candidates are already strongest first. Each previous entry is allowed
-        # to match only one point in this camera frame.
+        def merge_provenance(target: dict[str, Any], source: dict[str, Any]) -> None:
+            for key in (
+                "detector_v1",
+                "detector_v2",
+                "detector_agreement",
+                "v2_primary_peak",
+                "v2_rescue_saliency",
+                "v2_rescue_temporal",
+                "v2_rescue_blob",
+            ):
+                target[key] = max(
+                    _safe_float(target.get(key, 0.0)),
+                    _safe_float(source.get(key, 0.0)),
+                )
+
+        # Track current candidates. A bank entry can be matched only once in the
+        # same camera frame, preventing dense nearby noise from manufacturing
+        # fake hit counts.
         for candidate in frame_candidates:
             cx = _safe_float(candidate.get("camera_x", 0.0))
             cy = _safe_float(candidate.get("camera_y", 0.0))
@@ -1919,19 +2048,12 @@ class CandidateGeneratorV2:
 
             best_entry = None
             best_dist = float("inf")
-
             for entry in bank:
                 if bool(entry.get("seen_this_frame", False)):
                     continue
-
-                # Unconfirmed tracks are only allowed to build a streak from
-                # neighbouring frames. A peak from long ago must start over.
-                confirmed_before = bool(entry.get("confirmed", False))
                 last_frame = int(entry.get("last_frame_index", frame_index - 1))
-                frame_gap = max(1, frame_index - last_frame)
-                if not confirmed_before and frame_gap > 2:
+                if not bool(entry.get("confirmed", False)) and frame_index - last_frame > 2:
                     continue
-
                 dist = math.hypot(
                     float(entry.get("x", 0.0)) - cx,
                     float(entry.get("y", 0.0)) - cy,
@@ -1941,6 +2063,7 @@ class CandidateGeneratorV2:
                     best_entry = entry
 
             if best_entry is None:
+                initial = dict(candidate)
                 bank.append(
                     {
                         "x": cx,
@@ -1953,231 +2076,159 @@ class CandidateGeneratorV2:
                         "streak": 1,
                         "confirmed": False,
                         "best_score": score,
-                        "candidate": dict(candidate),
+                        "candidate": initial,
                         "seen_this_frame": True,
                     }
                 )
+                best_entry = bank[-1]
+            else:
+                previous_frame = int(best_entry.get("last_frame_index", frame_index - 1))
+                streak = int(best_entry.get("streak", 1)) + 1 if frame_index - previous_frame == 1 else 1
+                old_score = max(0.01, float(best_entry.get("best_score", 0.01)))
+                alpha = float(np.clip(score / (old_score + score + 1e-6), 0.18, 0.55))
+                best_entry["x"] = (1.0 - alpha) * float(best_entry["x"]) + alpha * cx
+                best_entry["y"] = (1.0 - alpha) * float(best_entry["y"]) + alpha * cy
+                best_entry["last_ts"] = float(frame_ts)
+                best_entry["last_frame_index"] = int(frame_index)
+                best_entry["hits"] = int(best_entry.get("hits", 1)) + 1
+                best_entry["streak"] = int(streak)
+                best_entry["seen_this_frame"] = True
+
+                stored = best_entry.get("candidate")
+                if not isinstance(stored, dict):
+                    stored = {}
+                merged_candidate = dict(stored)
+                merge_provenance(merged_candidate, candidate)
+                if score >= old_score:
+                    replacement = dict(candidate)
+                    merge_provenance(replacement, merged_candidate)
+                    best_entry["candidate"] = replacement
+                    best_entry["best_score"] = score
+                else:
+                    best_entry["candidate"] = merged_candidate
+
+            base = best_entry.get("candidate")
+            if not isinstance(base, dict):
                 continue
 
-            previous_frame = int(
-                best_entry.get("last_frame_index", frame_index - 1)
-            )
-            frame_gap = max(1, frame_index - previous_frame)
-
-            if frame_gap == 1:
-                streak = int(best_entry.get("streak", 1)) + 1
-            else:
-                # One missed frame does not add persistence evidence. If the
-                # point reappears later, it begins a new confirmation streak.
-                streak = 1
-
-            old_score = max(0.01, float(best_entry.get("best_score", 0.01)))
-            alpha = float(
-                np.clip(score / (old_score + score + 1e-6), 0.20, 0.60)
-            )
-            best_entry["x"] = (
-                (1.0 - alpha) * float(best_entry["x"]) + alpha * cx
-            )
-            best_entry["y"] = (
-                (1.0 - alpha) * float(best_entry["y"]) + alpha * cy
-            )
-            best_entry["last_ts"] = float(frame_ts)
-            best_entry["last_frame_index"] = int(frame_index)
-            best_entry["hits"] = int(best_entry.get("hits", 1)) + 1
-            best_entry["streak"] = int(streak)
-            best_entry["seen_this_frame"] = True
-
-            if score >= old_score:
-                replacement = dict(candidate)
-                old_candidate = best_entry.get("candidate")
-                if isinstance(old_candidate, dict):
-                    for key in (
-                        "v2_primary_peak",
-                        "v2_rescue_saliency",
-                        "v2_rescue_temporal",
-                    ):
-                        replacement[key] = max(
-                            _safe_float(replacement.get(key, 0.0)),
-                            _safe_float(old_candidate.get(key, 0.0)),
-                        )
-                best_entry["candidate"] = replacement
-                best_entry["best_score"] = score
-            else:
-                old_candidate = best_entry.get("candidate")
-                if isinstance(old_candidate, dict):
-                    for key in (
-                        "v2_primary_peak",
-                        "v2_rescue_saliency",
-                        "v2_rescue_temporal",
-                    ):
-                        old_candidate[key] = max(
-                            _safe_float(old_candidate.get(key, 0.0)),
-                            _safe_float(candidate.get(key, 0.0)),
-                        )
-
-            candidate_for_kind = best_entry.get("candidate")
-            is_primary = (
-                isinstance(candidate_for_kind, dict)
-                and _safe_float(
-                    candidate_for_kind.get("v2_primary_peak", 0.0)
-                ) > 0.5
-            )
-            required_streak = (
-                primary_confirm_streak if is_primary else rescue_confirm_streak
-            )
+            is_legacy = _safe_float(base.get("detector_v1", 0.0)) > 0.5
+            is_v2_primary = _safe_float(base.get("v2_primary_peak", 0.0)) > 0.5
+            is_agreement = _safe_float(base.get("detector_agreement", 0.0)) > 0.5
+            streak = max(1, int(best_entry.get("streak", 1)))
+            hits = max(1, int(best_entry.get("hits", 1)))
             span = max(
                 0.0,
                 float(best_entry.get("last_ts", frame_ts))
                 - float(best_entry.get("first_ts", frame_ts)),
             )
 
-            if streak >= required_streak and span >= confirm_min_span:
+            if is_agreement:
+                required_hits = 1
+            elif is_legacy:
+                required_hits = legacy_hits
+            elif is_v2_primary:
+                required_hits = v2_primary_hits
+            else:
+                required_hits = v2_rescue_hits
+
+            score_ok = (not is_legacy) or float(best_entry.get("best_score", 0.0)) >= legacy_min_score
+            span_ok = is_legacy or is_agreement or span >= confirm_min_span
+            if hits >= required_hits and streak >= required_hits and score_ok and span_ok:
                 best_entry["confirmed"] = True
 
-        # Unconfirmed observations are just short-lived matching hypotheses.
-        # Confirmed tracks retain their longer intra-shot TTL.
-        bank[:] = [
-            entry
-            for entry in bank
-            if (
-                frame_ts - float(entry.get("last_ts", frame_ts))
-                <= (
-                    max_age
-                    if bool(entry.get("confirmed", False))
-                    else unconfirmed_max_age
-                )
-            )
-        ]
-
-        def entry_is_primary(entry: dict[str, Any]) -> bool:
-            candidate = entry.get("candidate")
-            return (
-                isinstance(candidate, dict)
-                and _safe_float(candidate.get("v2_primary_peak", 0.0)) > 0.5
-            )
+        # Expire hypotheses. Single-frame V1 candidates get their own short TTL;
+        # confirmed repeated candidates may use the longer generic TTL.
+        retained = []
+        for entry in bank:
+            age = max(0.0, frame_ts - float(entry.get("last_ts", frame_ts)))
+            base = entry.get("candidate") if isinstance(entry.get("candidate"), dict) else {}
+            is_legacy = _safe_float(base.get("detector_v1", 0.0)) > 0.5
+            if bool(entry.get("confirmed", False)):
+                ttl = legacy_max_age if is_legacy and int(entry.get("hits", 1)) <= 1 else max_age
+            else:
+                ttl = unconfirmed_max_age
+            if age <= ttl:
+                retained.append(entry)
+        bank[:] = retained
 
         def bank_rank(entry: dict[str, Any]) -> float:
             hits = max(1, int(entry.get("hits", 1)))
             streak = max(1, int(entry.get("streak", 1)))
+            age = max(0.0, frame_ts - float(entry.get("last_ts", frame_ts)))
             bonus = min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
-            age_since_seen = max(
-                0.0,
-                frame_ts - float(entry.get("last_ts", frame_ts)),
-            )
-            recency = max(0.0, 1.0 - age_since_seen / max_age)
-            persistence_bonus = 0.40 * min(4, streak)
-            confirmed_bonus = 1.25 if bool(entry.get("confirmed", False)) else 0.0
+            agreement = 0.75 if _safe_float(
+                (entry.get("candidate") or {}).get("detector_agreement", 0.0)
+            ) > 0.5 else 0.0
             return (
                 float(entry.get("best_score", 0.0))
                 + bonus
-                + persistence_bonus
-                + 0.20 * recency
-                + confirmed_bonus
+                + 0.22 * min(5, streak)
+                + agreement
+                - 0.15 * age
             )
 
         bank.sort(key=bank_rank, reverse=True)
         if len(bank) > max_entries:
             del bank[max_entries:]
 
-        current_entries: list[dict[str, Any]] = []
-        carried_entries: list[dict[str, Any]] = []
+        # CURRENT observations are authoritative and are never removed by the
+        # bank. Historical evidence only fills empty candidate slots.
+        current_output = [dict(candidate) for candidate in frame_candidates[:output_limit]]
+        capacity = max(0, output_limit - len(current_output))
+        if capacity <= 0 or carried_limit <= 0:
+            return current_output
 
-        for entry in bank:
+        carried_entries = [
+            entry for entry in bank
+            if bool(entry.get("confirmed", False))
+            and not bool(entry.get("seen_this_frame", False))
+        ]
+        carried_entries.sort(key=bank_rank, reverse=True)
+
+        carried_output: list[dict[str, float]] = []
+        existing_xy = [
+            (
+                _safe_float(candidate.get("camera_x", 0.0)),
+                _safe_float(candidate.get("camera_y", 0.0)),
+            )
+            for candidate in current_output
+        ]
+
+        for entry in carried_entries:
+            if len(carried_output) >= min(capacity, carried_limit):
+                break
             base = entry.get("candidate")
             if not isinstance(base, dict):
                 continue
-
-            seen_now = bool(entry.get("seen_this_frame", False))
-            if seen_now:
-                current_entries.append(entry)
-            elif bool(entry.get("confirmed", False)):
-                carried_entries.append(entry)
-
-        current_entries.sort(key=bank_rank, reverse=True)
-        carried_entries.sort(key=bank_rank, reverse=True)
-        carried_entries = carried_entries[:carried_limit]
-
-        def build_candidate(
-            entry: dict[str, Any],
-            *,
-            carried: bool,
-        ) -> dict[str, float] | None:
-            base = entry.get("candidate")
-            if not isinstance(base, dict):
-                return None
+            ex = float(entry.get("x", base.get("camera_x", 0.0)))
+            ey = float(entry.get("y", base.get("camera_y", 0.0)))
+            if any(math.hypot(ex - x, ey - y) < merge_radius for x, y in existing_xy):
+                continue
 
             candidate = dict(base)
             hits = max(1, int(entry.get("hits", 1)))
             streak = max(1, int(entry.get("streak", 1)))
-            is_primary = entry_is_primary(entry)
-            abs_change = _safe_float(candidate.get("v2_absdiff", 0.0))
-
-            # A weak rescue-only point on the CURRENT frame is still withheld
-            # until it has a real consecutive observation streak. Exception:
-            # an unusually strong temporal change may be useful immediately.
-            if (
-                not carried
-                and not is_primary
-                and streak < rescue_current_streak
-                and abs_change < rescue_single_abs
-            ):
-                return None
-
-            bonus = min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
-            candidate["camera_x"] = float(
-                entry.get("x", candidate.get("camera_x", 0.0))
-            )
-            candidate["camera_y"] = float(
-                entry.get("y", candidate.get("camera_y", 0.0))
-            )
+            candidate["camera_x"] = ex
+            candidate["camera_y"] = ey
             candidate["score"] = (
                 float(entry.get("best_score", candidate.get("score", 0.0)))
-                + bonus
-                + (0.6 if carried else 0.0)
-            )
-            candidate["v2_original_timestamp"] = _safe_float(
-                candidate.get("timestamp", frame_ts)
+                + min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
+                + 0.35
             )
             candidate["timestamp"] = float(frame_ts)
+            candidate["candidate_bank_hits"] = float(hits)
+            candidate["candidate_bank_streak"] = float(streak)
+            candidate["candidate_bank_confirmed"] = 1.0
+            candidate["candidate_bank_carried"] = 1.0
+            # Compatibility with V2.1 diagnostics.
             candidate["v2_bank_hits"] = float(hits)
             candidate["v2_bank_streak"] = float(streak)
-            candidate["v2_bank_span_s"] = max(
-                0.0,
-                float(entry.get("last_ts", frame_ts))
-                - float(entry.get("first_ts", frame_ts)),
-            )
-            candidate["v2_bank_last_seen_age_s"] = max(
-                0.0,
-                frame_ts - float(entry.get("last_ts", frame_ts)),
-            )
-            candidate["v2_bank_confirmed"] = (
-                1.0 if bool(entry.get("confirmed", False)) else 0.0
-            )
-            candidate["v2_bank_carried"] = 1.0 if carried else 0.0
-            return candidate
+            candidate["v2_bank_confirmed"] = 1.0
+            candidate["v2_bank_carried"] = 1.0
+            carried_output.append(candidate)
+            existing_xy.append((ex, ey))
 
-        current_output = [
-            candidate
-            for entry in current_entries
-            if (candidate := build_candidate(entry, carried=False)) is not None
-        ]
-        carried_output = [
-            candidate
-            for entry in carried_entries
-            if (candidate := build_candidate(entry, carried=True)) is not None
-        ]
-
-        # Reserve room for confirmed older evidence, then let unused carried
-        # capacity flow back to current-frame candidates.
-        actual_carried = min(len(carried_output), carried_limit, output_limit)
-        current_capacity = max(0, output_limit - actual_carried)
-
-        output = (
-            current_output[:current_capacity]
-            + carried_output[:actual_carried]
-        )
-        output.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
-        return output[:output_limit]
+        return current_output + carried_output
 
 
     def _merge_hybrid(
@@ -2196,11 +2247,11 @@ class CandidateGeneratorV2:
         limit = max(1, int(getattr(scanner, "candidate_limit", 200)))
         v2_reserved = min(
             limit,
-            max(0, _safe_int(cfg.get("v2_reserved_slots", 145), 145)),
+            max(0, _safe_int(cfg.get("v2_reserved_slots", 60), 60)),
         )
         legacy_reserved = min(
             limit,
-            max(0, _safe_int(cfg.get("legacy_reserved_slots", 40), 40)),
+            max(0, _safe_int(cfg.get("legacy_reserved_slots", 140), 140)),
         )
 
         merged: list[dict[str, float]] = []
@@ -2212,11 +2263,19 @@ class CandidateGeneratorV2:
             candidate.setdefault("detector_v2", 0.0)
             merged.append(candidate)
 
+        # IMPORTANT: V2 candidates may only claim detector agreement when they
+        # match an ORIGINAL legacy candidate. Older code searched the growing
+        # merged list, so one V2 point could match a previously appended V2
+        # neighbour and be falsely labelled as V1+V2 agreement. That corrupted
+        # provenance and could distort ranking.
+        legacy_count = len(merged)
+
         for v2_candidate in v2:
             best_index = -1
             best_dist = float("inf")
 
-            for index, existing in enumerate(merged):
+            for index in range(legacy_count):
+                existing = merged[index]
                 dist = math.hypot(
                     float(existing.get("camera_x", 0.0)) - float(v2_candidate["camera_x"]),
                     float(existing.get("camera_y", 0.0)) - float(v2_candidate["camera_y"]),
@@ -2226,7 +2285,10 @@ class CandidateGeneratorV2:
                     best_index = index
 
             if best_index < 0:
-                merged.append(dict(v2_candidate))
+                standalone = dict(v2_candidate)
+                standalone["detector_v2"] = 1.0
+                standalone.setdefault("detector_v1", 0.0)
+                merged.append(standalone)
                 continue
 
             old = merged[best_index]
@@ -2559,6 +2621,10 @@ class CandidateGeneratorV2:
         funnel["raw_v2_bank_carried_count"] = sum(
             1 for c in raw_hotspots if _safe_float(c.get("v2_bank_carried", 0.0)) > 0.5
         )
+        funnel["raw_candidate_bank_carried_count"] = sum(
+            1 for c in raw_hotspots
+            if _safe_float(c.get("candidate_bank_carried", c.get("v2_bank_carried", 0.0))) > 0.5
+        )
 
         def nearest_where(predicate: Callable[[dict[str, Any]], bool]) -> float | None:
             selected = [candidate for candidate in raw_hotspots if predicate(candidate)]
@@ -2582,6 +2648,53 @@ class CandidateGeneratorV2:
                 and _safe_float(c.get("v2_bank_confirmed", 0.0)) > 0.5
             )
         )
+        funnel["raw_candidate_bank_carried_nearest_px"] = nearest_where(
+            lambda c: _safe_float(
+                c.get("candidate_bank_carried", c.get("v2_bank_carried", 0.0))
+            ) > 0.5
+        )
+
+        # Ranking diagnostics: capture the nearest-to-GT ranked candidate and
+        # the actually selected candidate with all score components. This makes
+        # it possible to distinguish a detector problem from a bad ranking
+        # decision without parsing console text.
+        if ranked:
+            gt_candidate = min(
+                ranked,
+                key=lambda c: math.hypot(
+                    _safe_float(c.get("camera_x", 0.0)) - gt_x,
+                    _safe_float(c.get("camera_y", 0.0)) - gt_y,
+                ),
+            )
+            gt_rank_distance = math.hypot(
+                _safe_float(gt_candidate.get("camera_x", 0.0)) - gt_x,
+                _safe_float(gt_candidate.get("camera_y", 0.0)) - gt_y,
+            )
+
+            def rank_snapshot(candidate: dict[str, Any]) -> dict[str, Any]:
+                return {
+                    "rank": int(candidate.get("rank", 0) or 0),
+                    "combined_score": _safe_float(candidate.get("combined_score", 0.0)),
+                    "ai_score": _safe_float(candidate.get("ai_score", 0.0)),
+                    "heuristic_score": _safe_float(candidate.get("heuristic_score", 0.0)),
+                    "detector_relative_score": _safe_float(candidate.get("detector_relative_score", 0.0)),
+                    "temporal_relative_score": _safe_float(candidate.get("temporal_relative_score", 0.0)),
+                    "ai_weight": _safe_float(candidate.get("ai_weight", 0.0)),
+                    "detector_v1": _safe_float(candidate.get("detector_v1", 0.0)),
+                    "detector_v2": _safe_float(candidate.get("detector_v2", 0.0)),
+                    "detector_agreement": _safe_float(candidate.get("detector_agreement", 0.0)),
+                    "candidate_bank_carried": _safe_float(
+                        candidate.get("candidate_bank_carried", candidate.get("v2_bank_carried", 0.0))
+                    ),
+                }
+
+            funnel["ranking_gt_candidate_distance_px"] = float(gt_rank_distance)
+            funnel["ranking_gt_candidate"] = rank_snapshot(gt_candidate)
+            funnel["ranking_selected_candidate"] = rank_snapshot(ranked[0])
+            funnel["ranking_score_margin_selected_minus_gt"] = float(
+                _safe_float(ranked[0].get("combined_score", 0.0))
+                - _safe_float(gt_candidate.get("combined_score", 0.0))
+            )
 
         record["evaluation_funnel"] = funnel
 

@@ -49,6 +49,15 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "candidate_limit": 200,
     "sampling_mode": "center_bias",  # center_bias | uniform | edge_bias | corners
     "benchmark_mode": False,  # True = eval only, no model updates during F1/F2
+
+    # Ranking V2.2. The old learner reached a state where a correct candidate
+    # survived filtering in ~42% of synthetic shots but was selected only ~3%.
+    # Keep the legacy implementation available via this switch.
+    "ranking_v22_enabled": True,
+    "ranking_ai_max_weight": 0.30,
+    "ranking_ai_min_weight": 0.05,
+    "ranking_existed_penalty": 0.12,
+    "ranking_persistence_bonus": 0.05,
 }
 
 # ---- Feature keys (consistent between training and scoring) ----
@@ -67,6 +76,26 @@ FEATURE_KEYS = [
     "x_norm",
     "y_norm",
 ]
+
+# The synthetic hole position is deliberately random. Treating x/y as equally
+# important nearest-neighbour dimensions makes the memory learn *where* old
+# examples happened to land instead of what a new hole looks like. Keep the
+# fields for compatibility/diagnostics, but give them zero distance weight.
+FEATURE_DISTANCE_WEIGHTS: Dict[str, float] = {
+    "detector_score": 1.00,
+    "area": 0.35,
+    "radius": 0.35,
+    "circularity": 0.35,
+    "center_change": 1.25,
+    "local_contrast": 1.30,
+    "pre_shot_change": 1.35,
+    "change_value": 1.25,
+    "patch_mean": 0.20,
+    "patch_std": 0.45,
+    "edge_strength": 0.35,
+    "x_norm": 0.0,
+    "y_norm": 0.0,
+}
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -254,11 +283,15 @@ class SimpleAIMemory:
                 lo, hi = self.feature_ranges[key]
                 span = hi - lo
                 if span > 1e-9:
-                    result[key] = (raw - lo) / span
+                    # Candidate generators can evolve and briefly produce
+                    # values outside the historical min/max range. Clipping
+                    # prevents one outlier dimension from dominating the whole
+                    # nearest-neighbour distance.
+                    result[key] = max(0.0, min(1.0, (raw - lo) / span))
                 else:
                     result[key] = 0.5
             else:
-                result[key] = raw
+                result[key] = max(0.0, min(1.0, raw))
         return result
 
     def score(self, features: Dict[str, float]) -> float:
@@ -288,17 +321,22 @@ class SimpleAIMemory:
         if not memories:
             return 4.0
 
-        # Build feature vector once
+        # Build feature vector once. Position features remain persisted for
+        # compatibility but intentionally carry zero distance weight.
         query = [norm_features.get(key, 0.5) for key in FEATURE_KEYS]
         best = 4.0
+        total_weight = max(1e-6, sum(FEATURE_DISTANCE_WEIGHTS.get(k, 1.0) for k in FEATURE_KEYS))
 
         for mem in memories:
             mem_features = self._normalize(mem.get("features", {}))
             total = 0.0
             for i, key in enumerate(FEATURE_KEYS):
+                weight = max(0.0, float(FEATURE_DISTANCE_WEIGHTS.get(key, 1.0)))
+                if weight <= 0.0:
+                    continue
                 diff = query[i] - mem_features.get(key, 0.5)
-                total += diff * diff
-            dist = math.sqrt(total / len(FEATURE_KEYS))
+                total += weight * diff * diff
+            dist = math.sqrt(total / total_weight)
 
             # Time decay: memories older than 1 hour get slightly penalized
             age_hours = (now - _safe_float(mem.get("timestamp", now))) / 3600.0
@@ -1147,54 +1185,188 @@ class AIRuntime:
     def rank_candidates(
         self, candidates: Sequence[Candidate], limit: Optional[int] = None
     ) -> List[Candidate]:
-        """Rank candidates using fused detector + AI score."""
+        """Rank candidates using a robust within-shot quality prior + AI memory.
+
+        V2.2 was motivated by measured funnel data: the correct candidate was
+        still present after filtering far more often than the old ranker selected
+        it. The previous full-memory state assigned 65% of the score to a simple
+        nearest-memory model and included random x/y position as normal feature
+        dimensions. That can actively prefer the wrong candidate.
+
+        The new path:
+          * uses relative ranks inside THIS candidate snapshot, so V1/V2 score
+            scales do not need to be numerically identical
+          * treats temporal/new-hole evidence as a first-class signal
+          * rewards V1+V2 detector agreement and confirmed bank persistence
+          * caps AI-memory influence at a configurable 30% by default
+          * keeps the exact legacy ranker behind ranking_v22_enabled=false
+        """
         if not candidates:
             return []
 
         top_k = int(limit or self.settings.get("top_k", 10))
+        candidate_list = [dict(candidate) for candidate in candidates]
+
+        if not bool(self.settings.get("ranking_v22_enabled", True)):
+            total_memories = len(self.memory.positives) + len(self.memory.negatives)
+            ranked: List[Candidate] = []
+            for cand in candidate_list:
+                features = self.extract_features(cand)
+                ai_score = self.memory.score(features)
+                detector_score = _safe_float(cand.get("score", 0.0))
+
+                if total_memories < 20:
+                    ai_weight = 0.1
+                elif total_memories < 100:
+                    ai_weight = 0.3
+                elif total_memories < 300:
+                    ai_weight = 0.5
+                else:
+                    ai_weight = 0.65
+
+                det_weight = 1.0 - ai_weight
+                det_norm = min(1.0, max(0.0, detector_score / 15.0))
+                persistence = _safe_float(cand.get("persistence", 0.5))
+                persistence_bonus = persistence * 0.15
+                existed = _safe_float(cand.get("existed_before", 0.0))
+                existed_penalty = existed * 0.2
+                combined = (
+                    det_weight * det_norm
+                    + ai_weight * ai_score
+                    + persistence_bonus
+                    - existed_penalty
+                )
+
+                enriched = dict(cand)
+                enriched["features"] = features
+                enriched["ai_score"] = float(ai_score)
+                enriched["combined_score"] = float(combined)
+                enriched["ai_weight"] = float(ai_weight)
+                enriched["ranking_version"] = "legacy"
+                ranked.append(enriched)
+
+            ranked.sort(
+                key=lambda c: _safe_float(c.get("combined_score", 0.0)),
+                reverse=True,
+            )
+            for i, c in enumerate(ranked):
+                c["rank"] = i + 1
+            return ranked[:top_k]
+
+        def percentile_ranks(values: List[float]) -> List[float]:
+            if len(values) <= 1:
+                return [1.0 for _ in values]
+            order = sorted(range(len(values)), key=lambda i: values[i])
+            ranks = [0.0] * len(values)
+            # Ties intentionally receive close ranks; exact tie handling is less
+            # important than avoiding dependence on absolute detector scales.
+            denom = float(max(1, len(values) - 1))
+            for pos, index in enumerate(order):
+                ranks[index] = float(pos) / denom
+            return ranks
+
+        detector_values = [
+            _safe_float(candidate.get("score", 0.0))
+            for candidate in candidate_list
+        ]
+        change_values = []
+        v2_values = []
+        for candidate in candidate_list:
+            change_values.append(
+                max(
+                    _safe_float(candidate.get("center_darkening", 0.0)),
+                    _safe_float(candidate.get("local_contrast_gain", 0.0)),
+                    _safe_float(candidate.get("pre_shot_change", 0.0)),
+                    _safe_float(candidate.get("change_value", 0.0)),
+                    _safe_float(candidate.get("v2_absdiff", 0.0)),
+                )
+            )
+            if _safe_float(candidate.get("detector_v2", 0.0)) > 0.5:
+                v2_values.append(
+                    _safe_float(candidate.get("v2_absdiff", 0.0))
+                    * (1.0 + 0.12 * min(8.0, _safe_float(candidate.get("v2_zscore", 0.0))))
+                    + 0.20 * max(0.0, _safe_float(candidate.get("v2_dog", 0.0)))
+                )
+            else:
+                # Do not punish V1 simply for not having V2-only fields. Its
+                # normal temporal/change features still participate below.
+                v2_values.append(change_values[-1])
+
+        detector_ranks = percentile_ranks(detector_values)
+        change_ranks = percentile_ranks(change_values)
+        v2_ranks = percentile_ranks(v2_values)
+
         total_memories = len(self.memory.positives) + len(self.memory.negatives)
+        ai_min = max(0.0, min(1.0, float(self.settings.get("ranking_ai_min_weight", 0.05))))
+        ai_max = max(ai_min, min(0.60, float(self.settings.get("ranking_ai_max_weight", 0.30))))
+        if total_memories < 20:
+            ai_weight = ai_min
+        elif total_memories < 100:
+            ai_weight = min(ai_max, max(ai_min, 0.12))
+        elif total_memories < 300:
+            ai_weight = min(ai_max, max(ai_min, 0.22))
+        else:
+            ai_weight = ai_max
+
+        persistence_scale = max(0.0, float(self.settings.get("ranking_persistence_bonus", 0.05)))
+        existed_scale = max(0.0, float(self.settings.get("ranking_existed_penalty", 0.12)))
 
         ranked: List[Candidate] = []
-        for cand in candidates:
+        for index, cand in enumerate(candidate_list):
             features = self.extract_features(cand)
             ai_score = self.memory.score(features)
-            detector_score = _safe_float(cand.get("score", 0.0))
+            detector_relative = detector_ranks[index]
+            temporal_relative = max(change_ranks[index], v2_ranks[index])
+            agreement = 1.0 if _safe_float(cand.get("detector_agreement", 0.0)) > 0.5 else 0.0
+            bank_confirmed = 1.0 if _safe_float(
+                cand.get("candidate_bank_confirmed", cand.get("v2_bank_confirmed", 0.0))
+            ) > 0.5 else 0.0
+            carried = 1.0 if _safe_float(
+                cand.get("candidate_bank_carried", cand.get("v2_bank_carried", 0.0))
+            ) > 0.5 else 0.0
 
-            # Adaptive weighting: trust detector more when AI has little data,
-            # shift toward AI as it accumulates memories.
-            if total_memories < 20:
-                ai_weight = 0.1
-            elif total_memories < 100:
-                ai_weight = 0.3
-            elif total_memories < 300:
-                ai_weight = 0.5
-            else:
-                ai_weight = 0.65
+            # Detector score and temporal evidence dominate. Agreement is a
+            # strong independent clue; bank confirmation is deliberately small.
+            heuristic = (
+                0.50 * detector_relative
+                + 0.31 * temporal_relative
+                + 0.14 * agreement
+                + 0.05 * bank_confirmed
+            )
+            heuristic = max(0.0, min(1.0, heuristic))
 
-            det_weight = 1.0 - ai_weight
-            # Normalize detector score to 0-1 range (typical range 3-20)
-            det_norm = min(1.0, max(0.0, detector_score / 15.0))
-
-            # Persistence bonus: persistent hotspots get a boost
-            persistence = _safe_float(cand.get("persistence", 0.5))
-            persistence_bonus = persistence * 0.15  # Up to 0.15 bonus
-
-            # Existed-before penalty
-            existed = _safe_float(cand.get("existed_before", 0.0))
-            existed_penalty = existed * 0.2  # Up to 0.2 penalty
-
-            combined = det_weight * det_norm + ai_weight * ai_score + persistence_bonus - existed_penalty
+            persistence = max(0.0, min(1.0, _safe_float(cand.get("persistence", 0.5))))
+            existed = max(0.0, min(1.0, _safe_float(cand.get("existed_before", 0.0))))
+            combined = (
+                (1.0 - ai_weight) * heuristic
+                + ai_weight * ai_score
+                + persistence_scale * persistence
+                - existed_scale * existed
+                # A carried candidate is valuable because it survived an earlier
+                # frame, but it is still slightly stale relative to evidence in
+                # the current camera snapshot. Confirmation already contributes
+                # a positive heuristic term above; this small age prior prevents
+                # stale bank entries from dominating merely due to old score.
+                - 0.025 * carried
+            )
 
             enriched = dict(cand)
             enriched["features"] = features
             enriched["ai_score"] = float(ai_score)
+            enriched["heuristic_score"] = float(heuristic)
+            enriched["detector_relative_score"] = float(detector_relative)
+            enriched["temporal_relative_score"] = float(temporal_relative)
             enriched["combined_score"] = float(combined)
             enriched["ai_weight"] = float(ai_weight)
+            enriched["ranking_version"] = "2.2"
             ranked.append(enriched)
 
-        ranked.sort(key=lambda c: _safe_float(c.get("combined_score", 0.0)), reverse=True)
-        for i, c in enumerate(ranked):
-            c["rank"] = i + 1
+        ranked.sort(
+            key=lambda c: _safe_float(c.get("combined_score", 0.0)),
+            reverse=True,
+        )
+        for i, candidate in enumerate(ranked):
+            candidate["rank"] = i + 1
         return ranked[:top_k]
 
     def rank_with_funnel(
