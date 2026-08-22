@@ -25,9 +25,13 @@ def _pct(count: int, total: int) -> float:
     return round(100.0 * count / total, 3) if total else 0.0
 
 
+def _found(value: Any, radius: float) -> bool:
+    number = _finite(value)
+    return number is not None and number <= radius
+
+
 def load_records(path: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-
     if not path.exists():
         return records
 
@@ -42,7 +46,6 @@ def load_records(path: Path) -> list[dict[str, Any]]:
                 continue
             if isinstance(value, dict):
                 records.append(value)
-
     return records
 
 
@@ -52,11 +55,7 @@ def select_records(
     session_id: str | None = None,
     include_all: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """Select one detector runtime session by default.
-
-    The diagnostics file is append-only. Without this filter, an A/B run after
-    a config/code change would silently mix old and new detector versions.
-    """
+    """Select only the newest detector runtime by default."""
     if include_all or not records:
         return records, None
 
@@ -75,7 +74,6 @@ def select_records(
             break
 
     if latest_session is None:
-        # Backward compatibility with diagnostics created before session IDs.
         return records, None
 
     return (
@@ -87,25 +85,43 @@ def select_records(
     )
 
 
-def classify(record: dict[str, Any], match_radius: float) -> str:
-    gt = record.get("ground_truth")
-    if not isinstance(gt, dict):
+def _nearest(record: dict[str, Any], key: str) -> float | None:
+    block = record.get("nearest_candidate_distance_px", {})
+    if not isinstance(block, dict):
+        return None
+    return _finite(block.get(key))
+
+
+def _evaluation(record: dict[str, Any]) -> dict[str, Any]:
+    value = record.get("evaluation_funnel", {})
+    return value if isinstance(value, dict) else {}
+
+
+def classify_detector_miss(record: dict[str, Any], match_radius: float) -> str:
+    """Classify why the best/ever merged detector did not cover GT."""
+    if not isinstance(record.get("ground_truth"), dict):
         return "unlabelled"
 
-    nearest = record.get("nearest_candidate_distance_px", {})
-    if not isinstance(nearest, dict):
-        nearest = {}
+    legacy = _nearest(record, "legacy")
+    v2_frame = _nearest(record, "v2_frame")
+    v2 = _nearest(record, "v2")
+    merged = _nearest(record, "merged")
 
-    legacy = _finite(nearest.get("legacy"))
-    v2 = _finite(nearest.get("v2"))
-    merged = _finite(nearest.get("merged"))
-
-    if merged is not None and merged <= match_radius:
-        if v2 is not None and v2 <= match_radius:
-            if legacy is not None and legacy <= match_radius:
+    if _found(merged, match_radius):
+        if _found(v2, match_radius):
+            if _found(legacy, match_radius):
+                if not _found(v2_frame, match_radius):
+                    return "found_both_bank_helped"
                 return "found_by_both"
+            if not _found(v2_frame, match_radius):
+                return "recovered_by_candidate_bank"
             return "recovered_by_v2"
         return "legacy_only"
+
+    if _found(v2, match_radius):
+        return "v2_lost_in_merge"
+    if _found(legacy, match_radius):
+        return "legacy_lost_in_merge"
 
     gt_signal = record.get("gt_signal_max", {})
     if not isinstance(gt_signal, dict):
@@ -114,23 +130,50 @@ def classify(record: dict[str, Any], match_radius: float) -> str:
     absdiff = _finite(gt_signal.get("absdiff")) or 0.0
     zscore = _finite(gt_signal.get("zscore")) or 0.0
     saliency = _finite(gt_signal.get("saliency")) or 0.0
+    margin = _finite(gt_signal.get("saliency_minus_threshold"))
 
     if absdiff < 1.2 and zscore < 1.05:
         return "weak_or_no_camera_signal"
-
-    if saliency >= 7.5:
+    if margin is not None and margin >= 0.0:
+        return "signal_above_threshold_but_no_candidate"
+    if saliency >= 7.0:
         return "strong_gt_signal_but_peak_missing"
-
-    if absdiff >= 4.0 and saliency < 7.5:
+    if absdiff >= 4.0 and saliency < 7.0:
         return "saliency_suppressed"
-
     return "candidate_generation_miss"
+
+
+def classify_pipeline_loss(record: dict[str, Any], radius: float) -> str:
+    """Classify where a candidate is lost between camera frames and AI output."""
+    if not isinstance(record.get("ground_truth"), dict):
+        return "unlabelled"
+
+    ever = _found(_nearest(record, "merged"), radius)
+    evaluation = _evaluation(record)
+    if not evaluation:
+        return "no_evaluation_telemetry"
+
+    raw = _found(evaluation.get("raw_nearest_px", evaluation.get("raw_closest_dist")), radius)
+    filtered = _found(evaluation.get("filter_closest_dist"), radius)
+    ranked = _found(evaluation.get("ranked_nearest_px", evaluation.get("ai_topk_closest_dist")), radius)
+    selected = _found(evaluation.get("selected_nearest_px", evaluation.get("selected_dist")), radius)
+
+    if not ever:
+        return "detector_never_covered_gt"
+    if not raw:
+        return "candidate_disappeared_before_evaluation"
+    if not filtered:
+        return "noise_filter_removed_gt"
+    if not ranked:
+        return "ranking_topk_removed_gt"
+    if not selected:
+        return "selected_wrong_candidate"
+    return "selected_correct"
 
 
 def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     labelled = [
-        record
-        for record in records
+        record for record in records
         if isinstance(record.get("ground_truth"), dict)
     ]
 
@@ -139,19 +182,16 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         background = str(record.get("ground_truth", {}).get("background", "unknown"))
         by_background[background].append(record)
 
-    def dist_found(record: dict[str, Any], key: str, radius: float) -> bool:
-        nearest = record.get("nearest_candidate_distance_px", {})
-        if not isinstance(nearest, dict):
-            return False
-        value = _finite(nearest.get(key))
-        return value is not None and value <= radius
-
     match_radii = [10.0, 20.0, 42.0]
+    detector_sources = ("legacy", "v2_frame", "v2", "merged")
 
     summary: dict[str, Any] = {
-        "schema_version": "2.0",
+        "schema_version": "2.1",
         "records_total": len(records),
         "records_with_ground_truth": len(labelled),
+        "records_with_evaluation_funnel": sum(
+            1 for record in labelled if bool(_evaluation(record))
+        ),
         "runtime_session_ids": sorted({
             str(record.get("runtime_session_id"))
             for record in records
@@ -168,19 +208,82 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 
     for radius in match_radii:
         key = f"within_{int(radius)}px"
-        summary["overall"][key] = {
-            source: {
-                "count": sum(1 for r in labelled if dist_found(r, source, radius)),
-                "pct": _pct(
-                    sum(1 for r in labelled if dist_found(r, source, radius)),
-                    len(labelled),
-                ),
+        summary["overall"][key] = {}
+        for source in detector_sources:
+            count = sum(
+                1 for record in labelled
+                if _found(_nearest(record, source), radius)
+            )
+            summary["overall"][key][source] = {
+                "count": count,
+                "pct": _pct(count, len(labelled)),
             }
-            for source in ("legacy", "v2", "merged")
+
+    summary["overall"]["detector_classification_42px"] = dict(
+        Counter(classify_detector_miss(record, 42.0) for record in labelled)
+    )
+    summary["overall"]["pipeline_classification_42px"] = dict(
+        Counter(classify_pipeline_loss(record, 42.0) for record in labelled)
+    )
+
+    eval_rows = [(record, _evaluation(record)) for record in labelled if _evaluation(record)]
+    evaluation_summary: dict[str, Any] = {
+        "shots": len(eval_rows),
+    }
+    for name, field in (
+        ("raw", "raw_nearest_px"),
+        ("filtered", "filter_closest_dist"),
+        ("ranked", "ranked_nearest_px"),
+        ("selected", "selected_nearest_px"),
+    ):
+        for radius in match_radii:
+            count = sum(
+                1
+                for _record, ev in eval_rows
+                if _found(ev.get(field), radius)
+            )
+            evaluation_summary[f"{name}_within_{int(radius)}px"] = {
+                "count": count,
+                "pct": _pct(count, len(eval_rows)),
+            }
+    # Provenance inside the exact F2 evaluation snapshot. This is the key
+    # measurement for the V2.1 candidate bank: did a candidate that existed
+    # earlier actually survive until the evaluator looked?
+    if eval_rows:
+        for name, field in (
+            ("raw_v1", "raw_v1_nearest_px"),
+            ("raw_v2", "raw_v2_nearest_px"),
+            ("raw_v2_carried", "raw_v2_bank_carried_nearest_px"),
+            ("raw_v2_confirmed", "raw_v2_bank_confirmed_nearest_px"),
+        ):
+            for radius in match_radii:
+                count = sum(
+                    1
+                    for _record, ev in eval_rows
+                    if _found(ev.get(field), radius)
+                )
+                evaluation_summary[f"{name}_within_{int(radius)}px"] = {
+                    "count": count,
+                    "pct": _pct(count, len(eval_rows)),
+                }
+
+        carried_counts = [
+            int(ev.get("raw_v2_bank_carried_count", 0) or 0)
+            for _record, ev in eval_rows
+        ]
+        evaluation_summary["raw_v2_bank_carried_count"] = {
+            "mean": (
+                round(sum(carried_counts) / len(carried_counts), 3)
+                if carried_counts
+                else 0.0
+            ),
+            "max": max(carried_counts) if carried_counts else 0,
+            "shots_with_carried_candidates": sum(
+                1 for value in carried_counts if value > 0
+            ),
         }
 
-    classifications = Counter(classify(record, 42.0) for record in labelled)
-    summary["overall"]["classification"] = dict(classifications)
+    summary["overall"]["evaluation_funnel"] = evaluation_summary
 
     gt_abs = [
         value
@@ -197,11 +300,35 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in labelled
         if (value := _finite(record.get("gt_signal_max", {}).get("saliency"))) is not None
     ]
+    gt_margin = [
+        value
+        for record in labelled
+        if (value := _finite(record.get("gt_signal_max", {}).get("saliency_minus_threshold"))) is not None
+    ]
 
     summary["overall"]["gt_signal"] = {
         "absdiff_median": round(statistics.median(gt_abs), 3) if gt_abs else None,
         "zscore_median": round(statistics.median(gt_z), 3) if gt_z else None,
         "saliency_median": round(statistics.median(gt_sal), 3) if gt_sal else None,
+        "saliency_minus_threshold_median": (
+            round(statistics.median(gt_margin), 3) if gt_margin else None
+        ),
+    }
+
+    # Explicit counts for the two changes introduced in V2.1.
+    bank_recovered = sum(
+        1 for record in labelled
+        if not _found(_nearest(record, "v2_frame"), 42.0)
+        and _found(_nearest(record, "v2"), 42.0)
+    )
+    v2_lost_merge = sum(
+        1 for record in labelled
+        if _found(_nearest(record, "v2"), 42.0)
+        and not _found(_nearest(record, "merged"), 42.0)
+    )
+    summary["overall"]["v21_changes"] = {
+        "candidate_bank_recovered_42px": bank_recovered,
+        "v2_lost_during_merge_42px": v2_lost_merge,
     }
 
     for background, rows in sorted(by_background.items()):
@@ -210,13 +337,13 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             key = f"within_{int(radius)}px"
             entry[key] = {
                 source: _pct(
-                    sum(1 for r in rows if dist_found(r, source, radius)),
+                    sum(1 for record in rows if _found(_nearest(record, source), radius)),
                     len(rows),
                 )
-                for source in ("legacy", "v2", "merged")
+                for source in detector_sources
             }
-        entry["classification"] = dict(
-            Counter(classify(record, 42.0) for record in rows)
+        entry["pipeline_classification_42px"] = dict(
+            Counter(classify_pipeline_loss(record, 42.0) for record in rows)
         )
         summary["by_background"][background] = entry
 
@@ -225,11 +352,12 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 def print_summary(summary: dict[str, Any]) -> None:
     print()
-    print("=" * 78)
-    print("DETECTOR V2 ANALYSIS")
-    print("=" * 78)
+    print("=" * 88)
+    print("DETECTOR V2.1 ANALYSIS")
+    print("=" * 88)
     print(f"Diagnostics: {summary['records_total']}")
     print(f"With synthetic ground truth: {summary['records_with_ground_truth']}")
+    print(f"With evaluation funnel: {summary['records_with_evaluation_funnel']}")
     sessions = summary.get("runtime_session_ids", [])
     commits = summary.get("git_commits", [])
     if sessions:
@@ -238,51 +366,108 @@ def print_summary(summary: dict[str, Any]) -> None:
         print(f"Git commit(s): {', '.join(commits)}")
 
     overall = summary.get("overall", {})
-
     for radius in (10, 20, 42):
         block = overall.get(f"within_{radius}px", {})
         print()
-        print(f"Candidate recall within {radius}px:")
-        for source in ("legacy", "v2", "merged"):
+        print(f"BEST/EVER candidate recall within {radius}px:")
+        for source in ("legacy", "v2_frame", "v2", "merged"):
             data = block.get(source, {})
+            label = {
+                "legacy": "legacy",
+                "v2_frame": "v2 frame",
+                "v2": "v2 bank",
+                "merged": "merged",
+            }[source]
             print(
-                f"  {source:7s}: "
-                f"{data.get('count', 0):5d} "
+                f"  {label:10s}: {data.get('count', 0):5d} "
                 f"({data.get('pct', 0.0):6.2f}%)"
             )
 
+    changes = overall.get("v21_changes", {})
+    print()
+    print("V2.1 candidate preservation (42px):")
+    print(
+        "  recovered by candidate bank : "
+        f"{changes.get('candidate_bank_recovered_42px', 0)}"
+    )
+    print(
+        "  V2 candidates lost in merge : "
+        f"{changes.get('v2_lost_during_merge_42px', 0)}"
+    )
+
+    ev = overall.get("evaluation_funnel", {})
+    if ev.get("shots", 0):
+        print()
+        print("ACTUAL F2 EVALUATION funnel within 42px:")
+        for name in ("raw", "filtered", "ranked", "selected"):
+            data = ev.get(f"{name}_within_42px", {})
+            print(
+                f"  {name:10s}: {data.get('count', 0):5d} "
+                f"({data.get('pct', 0.0):6.2f}%)"
+            )
+
+        print()
+        print("Detector provenance in ACTUAL F2 raw snapshot (42px):")
+        for name, label in (
+            ("raw_v1", "V1 present"),
+            ("raw_v2", "V2 present"),
+            ("raw_v2_confirmed", "V2 confirmed"),
+            ("raw_v2_carried", "V2 carried"),
+        ):
+            data = ev.get(f"{name}_within_42px", {})
+            print(
+                f"  {label:14s}: {data.get('count', 0):5d} "
+                f"({data.get('pct', 0.0):6.2f}%)"
+            )
+        carried = ev.get("raw_v2_bank_carried_count", {})
+        if isinstance(carried, dict):
+            print(
+                "  carried candidates / snapshot: "
+                f"mean={carried.get('mean', 0.0)} "
+                f"max={carried.get('max', 0)} "
+                f"shots={carried.get('shots_with_carried_candidates', 0)}"
+            )
+
+        print()
+        print("Where GT was lost (42px):")
+        classes = overall.get("pipeline_classification_42px", {})
+        for name, count in sorted(classes.items(), key=lambda item: (-item[1], item[0])):
+            print(f"  {name:38s} {count:5d}")
+
     gt_signal = overall.get("gt_signal", {})
     print()
-    print("Median signal exactly around synthetic ground truth:")
-    print(f"  absdiff : {gt_signal.get('absdiff_median')}")
-    print(f"  z-score : {gt_signal.get('zscore_median')}")
-    print(f"  saliency: {gt_signal.get('saliency_median')}")
+    print("Median signal around synthetic ground truth:")
+    print(f"  absdiff                    : {gt_signal.get('absdiff_median')}")
+    print(f"  z-score                    : {gt_signal.get('zscore_median')}")
+    print(f"  saliency                   : {gt_signal.get('saliency_median')}")
+    print(f"  saliency - frame threshold : {gt_signal.get('saliency_minus_threshold_median')}")
 
     print()
-    print("Failure / recovery classification (42px):")
-    classes = overall.get("classification", {})
+    print("Detector miss / recovery classification (42px):")
+    classes = overall.get("detector_classification_42px", {})
     for name, count in sorted(classes.items(), key=lambda item: (-item[1], item[0])):
-        print(f"  {name:32s} {count:5d}")
+        print(f"  {name:38s} {count:5d}")
 
     by_background = summary.get("by_background", {})
     if by_background:
         print()
-        print("By background (merged candidate recall within 42px):")
+        print("By background (merged BEST/EVER recall within 42px):")
         for background, data in by_background.items():
-            merged = data.get("within_42px", {}).get("merged", 0.0)
-            legacy = data.get("within_42px", {}).get("legacy", 0.0)
-            v2 = data.get("within_42px", {}).get("v2", 0.0)
+            block = data.get("within_42px", {})
             print(
                 f"  {background:16s} shots={data.get('shots', 0):5d} "
-                f"legacy={legacy:6.2f}% v2={v2:6.2f}% merged={merged:6.2f}%"
+                f"legacy={block.get('legacy', 0.0):6.2f}% "
+                f"v2frame={block.get('v2_frame', 0.0):6.2f}% "
+                f"v2bank={block.get('v2', 0.0):6.2f}% "
+                f"merged={block.get('merged', 0.0):6.2f}%"
             )
 
-    print("=" * 78)
+    print("=" * 88)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyse machine-readable Detector V2 shot diagnostics."
+        description="Analyse machine-readable Detector V2/V2.1 shot diagnostics."
     )
     parser.add_argument(
         "path",
@@ -298,7 +483,7 @@ def main() -> None:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Analyse all historical Detector V2 runtime sessions instead of only the latest.",
+        help="Analyse all historical runtime sessions instead of only the latest.",
     )
     parser.add_argument(
         "--session",
@@ -309,7 +494,6 @@ def main() -> None:
 
     path = Path(args.path)
     all_records = load_records(path)
-
     if not all_records:
         print(f"No Detector V2 diagnostics found in: {path}")
         return
@@ -319,7 +503,6 @@ def main() -> None:
         session_id=args.session,
         include_all=bool(args.all),
     )
-
     if not records:
         print(f"No diagnostics matched session: {args.session}")
         return

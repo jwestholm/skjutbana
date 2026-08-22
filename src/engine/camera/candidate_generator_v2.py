@@ -71,9 +71,37 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "min_zscore": 1.5,
     "strong_temporal_change": 4.0,
 
-    # Small local-max filter followed by explicit Euclidean NMS.
+    # Primary local-max filter followed by explicit Euclidean NMS.
     "local_max_kernel": 5,
     "nms_radius_px": 5.0,
+
+    # Rescue path. The first V2 benchmark showed many shots with a strong
+    # signal at ground truth but no accepted peak. The rescue path uses a
+    # smaller local-max neighbourhood and lower robust gate, and also looks at
+    # a temporal-only response so a useful absdiff/z-score peak is not lost
+    # merely because the composite saliency is dominated by a nearby texture.
+    "rescue_enabled": True,
+    "rescue_robust_sigma": 1.9,
+    "rescue_min_saliency": 7.0,
+    "rescue_min_temporal_change": 1.8,
+    "rescue_min_zscore": 1.25,
+    "rescue_strong_temporal_change": 4.0,
+    "rescue_local_max_kernel": 3,
+    "rescue_max_raw_peaks": 60,
+
+    # Temporal-only rescue has its own robust threshold. It intentionally does
+    # NOT depend on the composite saliency threshold, because edge/artifact
+    # priors can suppress saliency even when the true temporal change is clear.
+    "rescue_temporal_robust_sigma": 2.7,
+    "rescue_temporal_min_score": 6.0,
+
+    # Refine a coarse peak towards the centre of a compact temporal-change
+    # blob. This is deliberately bounded to a few pixels so a nearby projected
+    # edge can never drag a candidate across the image.
+    "peak_refine_enabled": True,
+    "peak_refine_radius_px": 4,
+    "peak_refine_min_fraction": 0.34,
+    "peak_refine_max_shift_px": 4.0,
 
     # Spatial coverage prevents one shimmering/textured region from consuming
     # all candidate slots. Keep a few local maxima from every tile.
@@ -81,13 +109,42 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tile_rows": 6,
     "per_tile_candidates": 4,
     "global_extra_candidates": 45,
-    "max_v2_candidates": 170,
+    "max_v2_candidates": 185,
+
+    # Per-shot candidate bank. A candidate that is visible in frame N must not
+    # disappear solely because frame N+1 has a slightly different peak set.
+    # This is particularly important for the synthetic F2 evaluator, which
+    # samples one later candidate snapshot even though diagnostics previously
+    # showed that a good candidate had existed earlier in the same shot.
+    "candidate_bank_enabled": True,
+    # Bank matching is deliberately tighter than detector NMS. A 6 px match
+    # radius made unrelated dense-noise peaks accumulate "hits" by chance.
+    "candidate_bank_merge_radius_px": 4.0,
+    "candidate_bank_max_entries": 180,
+    "candidate_bank_output_limit": 185,
+    "candidate_bank_repeat_bonus": 0.85,
+    "candidate_bank_max_bonus": 3.4,
+
+    # Confirmed candidates may survive long enough for the later F2 evaluation
+    # snapshot. One-frame/unconfirmed observations are kept only briefly for
+    # matching and are never carried forward just because they existed once.
+    "candidate_bank_max_age_s": 1.35,
+    "candidate_bank_unconfirmed_max_age_s": 0.12,
+    "candidate_bank_confirm_min_span_s": 0.020,
+    "candidate_bank_primary_carry_min_hits": 2,
+    "candidate_bank_rescue_carry_min_hits": 3,
+    "candidate_bank_rescue_min_hits": 3,
+    # Confirmed but currently absent candidates are useful for the later F2
+    # snapshot, but only a bounded reserve may be carried at once.
+    "candidate_bank_carried_limit": 40,
+    "candidate_bank_rescue_single_frame_absdiff": 5.0,
 
     # Hybrid merge. V2 gets reserved slots so a noisy V1 list cannot crowd out
     # all high-recall V2 points before the AI gets to rank them.
     "merge_radius_px": 5.5,
     "agreement_bonus": 1.5,
-    "v2_reserved_slots": 110,
+    "v2_reserved_slots": 145,
+    "legacy_reserved_slots": 40,
 
     # Existing artifact mask becomes a SOFT prior for V2. A real hit may still
     # exist on a pixel that the white/black projector calibration considered an
@@ -246,7 +303,7 @@ class CandidateGeneratorV2:
     remain unchanged.
     """
 
-    SCHEMA_VERSION = "2.0"
+    SCHEMA_VERSION = "2.1"
 
     def __init__(self) -> None:
         self.config = DetectorV2Config()
@@ -254,6 +311,8 @@ class CandidateGeneratorV2:
         self._diagnostics_written: set[int] = set()
         self._persistence_states: dict[int, dict[str, Any]] = {}
         self._shot_models: dict[int, dict[str, Any]] = {}
+        self._candidate_banks: dict[int, list[dict[str, Any]]] = {}
+        self._candidate_bank_frame_counters: dict[int, int] = {}
         self._git_commit = _git_commit()
         self._runtime_session_id = (
             time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
@@ -541,7 +600,7 @@ class CandidateGeneratorV2:
             cfg=cfg,
         )
 
-        v2_candidates = self._extract_candidates(
+        frame_v2_candidates = self._extract_candidates(
             scanner=scanner,
             saliency=saliency,
             absdiff=absdiff,
@@ -552,6 +611,17 @@ class CandidateGeneratorV2:
             bbox=(x0, y0, x1, y1),
             frame_ts=frame_ts,
             threshold=threshold,
+            cfg=cfg,
+        )
+
+        # Preserve useful candidates across the whole shot window. The AI
+        # runtime intentionally replaces its candidate snapshot every frame, so
+        # without this bank a true hole can be visible in frame N and vanish
+        # before the synthetic evaluator samples frame N+1/N+2.
+        v2_candidates = self._update_candidate_bank(
+            shot_id=shot_id,
+            frame_candidates=frame_v2_candidates,
+            frame_ts=frame_ts,
             cfg=cfg,
         )
 
@@ -579,7 +649,9 @@ class CandidateGeneratorV2:
             "saliency_median": robust_stats["median"],
             "saliency_mad": robust_stats["mad"],
             "legacy_count": len(legacy_candidates),
+            "v2_frame_count": len(frame_v2_candidates),
             "v2_count": len(v2_candidates),
+            "v2_bank_count": len(self._candidate_banks.get(shot_id, [])),
             "merged_count": len(merged),
             "artifact_weight_mean": artifact_weight_mean,
             "edge_weight_mean": edge_weight_mean,
@@ -635,6 +707,7 @@ class CandidateGeneratorV2:
             event=event,
             telemetry=telemetry,
             legacy=legacy_candidates,
+            v2_frame=frame_v2_candidates,
             v2=v2_candidates,
             merged=merged,
             bbox=(x0, y0, x1, y1),
@@ -649,6 +722,7 @@ class CandidateGeneratorV2:
         if not bool(self.config.get("diagnostics_enabled", True)):
             return
 
+        now = time.time()
         for event in list(getattr(scanner, "audio_events", [])):
             shot_id = int(getattr(event, "shot_id", 0) or 0)
             if shot_id <= 0 or shot_id in self._diagnostics_written:
@@ -658,27 +732,58 @@ class CandidateGeneratorV2:
 
             record = self._diagnostics.get(shot_id)
             if record is None:
+                # Even if no labelled diagnostic exists, do not retain an old
+                # candidate bank after the scanner has resolved the shot.
+                self._candidate_banks.pop(shot_id, None)
+                self._candidate_bank_frame_counters.pop(shot_id, None)
+                self._persistence_states.pop(shot_id, None)
+                self._shot_models.pop(shot_id, None)
                 continue
 
-            record["resolved"] = {
-                "state": str(getattr(event, "state", "")),
-                "emitted": bool(getattr(event, "emitted", False)),
-                "confidence": _safe_float(getattr(event, "confidence", 0.0)),
-                "note": str(getattr(event, "note", "")),
-                "matched_track_id": getattr(event, "matched_track_id", None),
-                "matched_hole_id": getattr(event, "matched_hole_id", None),
-            }
-            record["finished_at"] = time.time()
+            if not isinstance(record.get("resolved"), dict):
+                record["resolved"] = {
+                    "state": str(getattr(event, "state", "")),
+                    "emitted": bool(getattr(event, "emitted", False)),
+                    "confidence": _safe_float(getattr(event, "confidence", 0.0)),
+                    "note": str(getattr(event, "note", "")),
+                    "matched_track_id": getattr(event, "matched_track_id", None),
+                    "matched_hole_id": getattr(event, "matched_hole_id", None),
+                }
+                record["resolved_at"] = now
 
-            self._write_diagnostic(record)
-            self._diagnostics_written.add(shot_id)
-            self._diagnostics.pop(shot_id, None)
-            self._persistence_states.pop(shot_id, None)
-            self._shot_models.pop(shot_id, None)
+            # Synthetic labelled shots are much more useful if the record also
+            # contains the *actual* F2 evaluation snapshot. Scanner resolution
+            # may happen a few main-loop ticks before rank_with_funnel(), so wait
+            # briefly rather than writing the JSONL too early.
+            has_gt = isinstance(record.get("ground_truth"), dict)
+            has_eval = isinstance(record.get("evaluation_funnel"), dict)
+            resolved_at = _safe_float(record.get("resolved_at", now), now)
+            if has_gt and not has_eval and now - resolved_at < 2.0:
+                continue
 
-            gt = getattr(scanner, "_detector_v2_ground_truth", None)
-            if isinstance(gt, dict) and int(gt.get("shot_id", -1)) == shot_id:
-                scanner._detector_v2_ground_truth = None
+            self._finalize_diagnostic_record(scanner, shot_id, record)
+
+    def _finalize_diagnostic_record(
+        self,
+        scanner: Any,
+        shot_id: int,
+        record: dict[str, Any],
+    ) -> None:
+        if shot_id in self._diagnostics_written:
+            return
+
+        record["finished_at"] = time.time()
+        self._write_diagnostic(record)
+        self._diagnostics_written.add(shot_id)
+        self._diagnostics.pop(shot_id, None)
+        self._persistence_states.pop(shot_id, None)
+        self._shot_models.pop(shot_id, None)
+        self._candidate_banks.pop(shot_id, None)
+        self._candidate_bank_frame_counters.pop(shot_id, None)
+
+        gt = getattr(scanner, "_detector_v2_ground_truth", None)
+        if isinstance(gt, dict) and int(gt.get("shot_id", -1)) == shot_id:
+            scanner._detector_v2_ground_truth = None
 
     def reset_runtime_state(self) -> None:
         """Drop per-shot V2 caches when HitScanner is disabled/re-armed."""
@@ -686,6 +791,8 @@ class CandidateGeneratorV2:
         self._diagnostics_written.clear()
         self._persistence_states.clear()
         self._shot_models.clear()
+        self._candidate_banks.clear()
+        self._candidate_bank_frame_counters.clear()
 
     # ------------------------------------------------------------------
     # Reference/noise
@@ -1133,13 +1240,15 @@ class CandidateGeneratorV2:
         threshold: float,
         cfg: dict[str, Any],
     ) -> list[dict[str, float]]:
-        x0, y0, _, _ = bbox
+        """Extract permissive high-recall candidates from several signal views.
 
-        local_kernel = _odd(_safe_int(cfg.get("local_max_kernel", 5), 5), 3)
-        dilated = cv2.dilate(
-            saliency,
-            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (local_kernel, local_kernel)),
-        )
+        V2.1 deliberately uses more than one peak path. The first 1000-shot V2
+        benchmark showed a large class where signal was clearly present at the
+        synthetic ground truth but the composite saliency local-max stage did
+        not emit a candidate. A true tiny hole should not be required to win a
+        single global/composite competition.
+        """
+        x0, y0, _, _ = bbox
 
         min_change = max(
             0.0,
@@ -1151,52 +1260,242 @@ class CandidateGeneratorV2:
             _safe_float(cfg.get("strong_temporal_change", 4.0), 4.0),
         )
 
-        evidence = (absdiff >= strong_change) | (
+        primary_evidence = (absdiff >= strong_change) | (
             (absdiff >= min_change) & (zscore >= min_z)
         )
 
-        peak_mask = (
+        # key -> {score, sources}.  Keeping this as a map also de-duplicates
+        # plateaus/components that are rediscovered by several rescue paths.
+        peak_map: dict[tuple[int, int], dict[str, Any]] = {}
+
+        def add_local_maxima(
+            score_map: np.ndarray,
+            mask: np.ndarray,
+            *,
+            kernel: int,
+            source: str,
+            max_raw: int = 600,
+        ) -> None:
+            if not np.any(mask):
+                return
+
+            k = _odd(kernel, 3)
+            dilated = cv2.dilate(
+                score_map,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)),
+            )
+            peak_mask = mask & (score_map >= (dilated - 1e-6))
+            if not np.any(peak_mask):
+                return
+
+            peak_u8 = peak_mask.astype(np.uint8)
+            num_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(
+                peak_u8,
+                connectivity=8,
+            )
+
+            found: list[tuple[float, int, int]] = []
+            for label in range(1, num_labels):
+                sx = int(stats[label, cv2.CC_STAT_LEFT])
+                sy = int(stats[label, cv2.CC_STAT_TOP])
+                sw = int(stats[label, cv2.CC_STAT_WIDTH])
+                sh = int(stats[label, cv2.CC_STAT_HEIGHT])
+                if sw <= 0 or sh <= 0:
+                    continue
+
+                component = labels[sy:sy + sh, sx:sx + sw] == label
+                if not np.any(component):
+                    continue
+
+                local_score = score_map[sy:sy + sh, sx:sx + sw]
+                masked = np.where(component, local_score, -np.inf)
+                flat_index = int(np.argmax(masked))
+                py, px = np.unravel_index(flat_index, masked.shape)
+                px += sx
+                py += sy
+                found.append((float(score_map[py, px]), px, py))
+
+            found.sort(key=lambda item: item[0], reverse=True)
+            for score, px, py in found[:max_raw]:
+                key = (px, py)
+                entry = peak_map.get(key)
+                if entry is None:
+                    peak_map[key] = {"score": score, "sources": {source}}
+                else:
+                    entry["score"] = max(float(entry["score"]), score)
+                    entry["sources"].add(source)
+
+        primary_kernel = _odd(_safe_int(cfg.get("local_max_kernel", 5), 5), 3)
+        primary_mask = (
             valid
-            & evidence
+            & primary_evidence
             & (saliency >= threshold)
-            & (saliency >= (dilated - 1e-6))
+        )
+        add_local_maxima(
+            saliency,
+            primary_mask,
+            kernel=primary_kernel,
+            source="primary",
         )
 
-        peak_u8 = peak_mask.astype(np.uint8)
-        num_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(
-            peak_u8,
-            connectivity=8,
-        )
+        # Rescue paths are intentionally bounded and still require real temporal
+        # evidence. They are not simply a blanket threshold reduction.
+        if bool(cfg.get("rescue_enabled", True)) and np.any(valid):
+            rescue_sigma = max(
+                0.0,
+                _safe_float(cfg.get("rescue_robust_sigma", 1.9), 1.9),
+            )
+            rescue_min_sal = max(
+                0.0,
+                _safe_float(cfg.get("rescue_min_saliency", 7.0), 7.0),
+            )
+            rescue_change = max(
+                0.0,
+                _safe_float(cfg.get("rescue_min_temporal_change", 1.45), 1.45),
+            )
+            rescue_z = max(
+                0.0,
+                _safe_float(cfg.get("rescue_min_zscore", 1.10), 1.10),
+            )
+            rescue_strong = max(
+                rescue_change,
+                _safe_float(cfg.get("rescue_strong_temporal_change", 3.2), 3.2),
+            )
+            rescue_kernel = _odd(
+                _safe_int(cfg.get("rescue_local_max_kernel", 3), 3),
+                3,
+            )
+            rescue_max = max(
+                20,
+                _safe_int(cfg.get("rescue_max_raw_peaks", 180), 180),
+            )
 
-        raw_peaks: list[tuple[float, int, int]] = []
+            values = saliency[valid]
+            if values.size > 200_000:
+                stride = max(1, values.size // 200_000)
+                values = values[::stride]
+            med = float(np.median(values)) if values.size else 0.0
+            mad = float(np.median(np.abs(values - med))) if values.size else 0.0
+            rescue_threshold = max(
+                rescue_min_sal,
+                med + rescue_sigma * 1.4826 * mad,
+            )
 
-        for label in range(1, num_labels):
-            sx = int(stats[label, cv2.CC_STAT_LEFT])
-            sy = int(stats[label, cv2.CC_STAT_TOP])
-            sw = int(stats[label, cv2.CC_STAT_WIDTH])
-            sh = int(stats[label, cv2.CC_STAT_HEIGHT])
+            rescue_evidence = (
+                (absdiff >= rescue_strong)
+                | ((absdiff >= rescue_change) & (zscore >= rescue_z))
+            )
+            rescue_saliency_mask = (
+                valid
+                & rescue_evidence
+                & (saliency >= rescue_threshold)
+            )
+            add_local_maxima(
+                saliency,
+                rescue_saliency_mask,
+                kernel=rescue_kernel,
+                source="rescue_saliency",
+                max_raw=rescue_max,
+            )
 
-            if sw <= 0 or sh <= 0:
-                continue
+            # Independent temporal map. Nearby projected texture, artifact
+            # weighting or the edge prior can suppress COMPOSITE saliency even
+            # when a true hole still has a clear absdiff/z-score peak. The first
+            # 1000-shot V2 benchmark showed many exactly such "strong signal but
+            # peak missing" cases, so this path gets its own robust threshold.
+            temporal_map = (
+                absdiff * (1.0 + 0.55 * np.clip(zscore, 0.0, 6.0))
+                + 0.35 * np.maximum(dog, 0.0)
+            ).astype(np.float32)
 
-            component = labels[sy:sy + sh, sx:sx + sw] == label
-            if not np.any(component):
-                continue
+            temporal_values = temporal_map[valid]
+            if temporal_values.size > 200_000:
+                stride = max(1, temporal_values.size // 200_000)
+                temporal_values = temporal_values[::stride]
 
-            local_saliency = saliency[sy:sy + sh, sx:sx + sw]
-            masked = np.where(component, local_saliency, -np.inf)
-            flat_index = int(np.argmax(masked))
-            py, px = np.unravel_index(flat_index, masked.shape)
-            px += sx
-            py += sy
+            temporal_med = (
+                float(np.median(temporal_values))
+                if temporal_values.size
+                else 0.0
+            )
+            temporal_mad = (
+                float(np.median(np.abs(temporal_values - temporal_med)))
+                if temporal_values.size
+                else 0.0
+            )
+            temporal_sigma = max(
+                0.0,
+                _safe_float(cfg.get("rescue_temporal_robust_sigma", 2.7), 2.7),
+            )
+            temporal_min_score = max(
+                0.0,
+                _safe_float(cfg.get("rescue_temporal_min_score", 6.0), 6.0),
+            )
+            temporal_threshold = max(
+                temporal_min_score,
+                temporal_med + temporal_sigma * 1.4826 * temporal_mad,
+            )
 
-            score = float(saliency[py, px])
-            raw_peaks.append((score, px, py))
+            temporal_mask = (
+                valid
+                & rescue_evidence
+                & (temporal_map >= temporal_threshold)
+                & ((dog >= 0.20) | (absdiff >= rescue_strong))
+            )
+            add_local_maxima(
+                temporal_map,
+                temporal_mask,
+                kernel=rescue_kernel,
+                source="rescue_temporal",
+                max_raw=rescue_max,
+            )
 
-        if not raw_peaks:
+        if not peak_map:
             return []
 
-        # High score first.
+        # Refine each coarse maximum a few pixels towards the weighted centre of
+        # its compact temporal-change blob. This especially helps ring-shaped
+        # synthetic holes, where the strongest individual pixel may lie on the
+        # rim instead of at the physical centre.
+        refined: dict[tuple[int, int], dict[str, Any]] = {}
+        for (px, py), meta in peak_map.items():
+            rx, ry, shift = self._refine_peak(
+                px=px,
+                py=py,
+                absdiff=absdiff,
+                zscore=zscore,
+                dog=dog,
+                valid=valid,
+                cfg=cfg,
+            )
+            key = (rx, ry)
+            entry = refined.get(key)
+            score = float(meta["score"])
+            sources = set(meta["sources"])
+            if entry is None:
+                refined[key] = {
+                    "score": score,
+                    "sources": sources,
+                    "refine_shift": float(shift),
+                }
+            else:
+                entry["score"] = max(float(entry["score"]), score)
+                entry["sources"].update(sources)
+                entry["refine_shift"] = min(
+                    float(entry.get("refine_shift", shift)),
+                    float(shift),
+                )
+
+        raw_peaks: list[tuple[float, int, int, set[str], float]] = [
+            (
+                float(meta["score"]),
+                int(px),
+                int(py),
+                set(meta["sources"]),
+                float(meta.get("refine_shift", 0.0)),
+            )
+            for (px, py), meta in refined.items()
+        ]
         raw_peaks.sort(key=lambda item: item[0], reverse=True)
 
         # Spatial quota: keep local evidence all over the ROI, not only around
@@ -1205,24 +1504,24 @@ class CandidateGeneratorV2:
         rows = max(1, _safe_int(cfg.get("tile_rows", 6), 6))
         per_tile = max(1, _safe_int(cfg.get("per_tile_candidates", 4), 4))
         extra_global = max(0, _safe_int(cfg.get("global_extra_candidates", 45), 45))
-        max_candidates = max(1, _safe_int(cfg.get("max_v2_candidates", 170), 170))
+        max_candidates = max(1, _safe_int(cfg.get("max_v2_candidates", 185), 185))
         nms_radius = max(0.5, _safe_float(cfg.get("nms_radius_px", 5.0), 5.0))
 
         tile_w = max(1.0, saliency.shape[1] / float(cols))
         tile_h = max(1.0, saliency.shape[0] / float(rows))
         tile_counts: dict[tuple[int, int], int] = {}
 
-        chosen: list[tuple[float, int, int]] = []
+        chosen: list[tuple[float, int, int, set[str], float]] = []
 
         def far_enough(px: int, py: int) -> bool:
-            for _score, cx, cy in chosen:
+            for _score, cx, cy, _sources, _shift in chosen:
                 if math.hypot(float(px - cx), float(py - cy)) < nms_radius:
                     return False
             return True
 
         # Pass 1: spatial coverage.
         for peak in raw_peaks:
-            score, px, py = peak
+            _score, px, py, _sources, _shift = peak
             tx = min(cols - 1, int(px / tile_w))
             ty = min(rows - 1, int(py / tile_h))
             key = (tx, ty)
@@ -1240,12 +1539,12 @@ class CandidateGeneratorV2:
         # Pass 2: global strongest extras.
         extras_added = 0
         if len(chosen) < max_candidates and extra_global > 0:
-            chosen_xy = {(px, py) for _, px, py in chosen}
+            chosen_xy = {(px, py) for _, px, py, _, _ in chosen}
             for peak in raw_peaks:
                 if extras_added >= extra_global or len(chosen) >= max_candidates:
                     break
 
-                _score, px, py = peak
+                _score, px, py, _sources, _shift = peak
                 if (px, py) in chosen_xy:
                     continue
                 if not far_enough(px, py):
@@ -1256,10 +1555,9 @@ class CandidateGeneratorV2:
                 extras_added += 1
 
         chosen.sort(key=lambda item: item[0], reverse=True)
-
         candidates: list[dict[str, float]] = []
 
-        for peak_saliency, px, py in chosen[:max_candidates]:
+        for peak_saliency, px, py, sources, refine_shift in chosen[:max_candidates]:
             features = self._candidate_features(
                 px=px,
                 py=py,
@@ -1272,7 +1570,6 @@ class CandidateGeneratorV2:
 
             camera_x = float(px + x0)
             camera_y = float(py + y0)
-
             candidate: dict[str, float] = {
                 "camera_x": camera_x,
                 "camera_y": camera_y,
@@ -1286,9 +1583,6 @@ class CandidateGeneratorV2:
                 "change_value": float(features["center_change"]),
                 "pre_shot_change": float(features["center_change"]),
                 "timestamp": float(frame_ts),
-
-                # Extra machine-readable fields are intentionally additive.
-                # Existing AI code uses .get() and ignores unknown keys.
                 "detector_v2": 1.0,
                 "detector_v1": 0.0,
                 "v2_saliency": float(peak_saliency),
@@ -1296,6 +1590,10 @@ class CandidateGeneratorV2:
                 "v2_absdiff": float(features["absdiff"]),
                 "v2_darkening": float(features["darkening"]),
                 "v2_dog": float(features["dog_value"]),
+                "v2_primary_peak": 1.0 if "primary" in sources else 0.0,
+                "v2_rescue_saliency": 1.0 if "rescue_saliency" in sources else 0.0,
+                "v2_rescue_temporal": 1.0 if "rescue_temporal" in sources else 0.0,
+                "v2_refine_shift_px": float(refine_shift),
             }
 
             self._apply_known_hole_penalty(scanner, candidate)
@@ -1303,6 +1601,78 @@ class CandidateGeneratorV2:
 
         candidates.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
         return candidates
+
+    @staticmethod
+    def _refine_peak(
+        *,
+        px: int,
+        py: int,
+        absdiff: np.ndarray,
+        zscore: np.ndarray,
+        dog: np.ndarray,
+        valid: np.ndarray,
+        cfg: dict[str, Any],
+    ) -> tuple[int, int, float]:
+        if not bool(cfg.get("peak_refine_enabled", True)):
+            return int(px), int(py), 0.0
+
+        radius = max(1, _safe_int(cfg.get("peak_refine_radius_px", 4), 4))
+        max_shift = max(
+            0.5,
+            _safe_float(cfg.get("peak_refine_max_shift_px", float(radius)), float(radius)),
+        )
+        min_fraction = float(
+            np.clip(
+                _safe_float(cfg.get("peak_refine_min_fraction", 0.34), 0.34),
+                0.05,
+                0.95,
+            )
+        )
+
+        h, w = absdiff.shape
+        x0 = max(0, px - radius)
+        x1 = min(w, px + radius + 1)
+        y0 = max(0, py - radius)
+        y1 = min(h, py + radius + 1)
+        if x1 <= x0 or y1 <= y0:
+            return int(px), int(py), 0.0
+
+        local_abs = absdiff[y0:y1, x0:x1].astype(np.float32)
+        local_z = np.clip(zscore[y0:y1, x0:x1].astype(np.float32), 0.0, 8.0)
+        local_dog = np.maximum(dog[y0:y1, x0:x1].astype(np.float32), 0.0)
+        local_valid = valid[y0:y1, x0:x1]
+
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        circle = ((xx - px) ** 2 + (yy - py) ** 2) <= float(radius * radius)
+        usable = local_valid & circle
+        if not np.any(usable):
+            return int(px), int(py), 0.0
+
+        weights = local_abs * (0.65 + 0.35 * local_z) + 0.30 * local_dog
+        weights[~usable] = 0.0
+        maximum = float(np.max(weights))
+        if maximum <= 1e-6:
+            return int(px), int(py), 0.0
+
+        weights = np.where(weights >= maximum * min_fraction, weights, 0.0)
+        total = float(np.sum(weights))
+        if total <= 1e-6:
+            return int(px), int(py), 0.0
+
+        local_xs = np.arange(x0, x1, dtype=np.float32)[None, :]
+        local_ys = np.arange(y0, y1, dtype=np.float32)[:, None]
+        cx = float(np.sum(weights * local_xs) / total)
+        cy = float(np.sum(weights * local_ys) / total)
+        shift = math.hypot(cx - float(px), cy - float(py))
+        if not math.isfinite(shift) or shift > max_shift:
+            return int(px), int(py), 0.0
+
+        rx = int(np.clip(round(cx), 0, w - 1))
+        ry = int(np.clip(round(cy), 0, h - 1))
+        if not bool(valid[ry, rx]):
+            return int(px), int(py), 0.0
+        return rx, ry, float(shift)
+
 
     @staticmethod
     def _candidate_features(
@@ -1437,6 +1807,379 @@ class CandidateGeneratorV2:
 
         candidate["near_known_hole_dist"] = float(dist)
 
+    def _update_candidate_bank(
+        self,
+        *,
+        shot_id: int,
+        frame_candidates: list[dict[str, float]],
+        frame_ts: float,
+        cfg: dict[str, Any],
+    ) -> list[dict[str, float]]:
+        """Preserve confirmed within-shot candidates without collecting noise.
+
+        The AI runtime intentionally replaces its candidate snapshot every frame.
+        The first V2 benchmark proved that a true candidate can exist earlier in
+        the same shot but disappear before the exact F2 evaluation snapshot.
+
+        The bank therefore carries *confirmed* candidates, but confirmation must
+        come from distinct, consecutive-ish camera frames. Total historical hits
+        alone are not enough: otherwise dense random peaks can eventually match
+        by chance and fill the bank.
+
+        Rules:
+          * one bank entry can be matched at most once per camera frame
+          * weak rescue peaks need a short observation streak
+          * unconfirmed entries expire quickly and are never carried while absent
+          * once confirmed, a point may survive through the F2 evaluation window
+          * carried points have a strict output budget so the bank cannot crowd
+            out the current-frame detector
+        """
+        if shot_id <= 0 or not bool(cfg.get("candidate_bank_enabled", True)):
+            return list(frame_candidates)
+
+        merge_radius = max(
+            1.0,
+            _safe_float(cfg.get("candidate_bank_merge_radius_px", 4.0), 4.0),
+        )
+        max_entries = max(
+            10,
+            _safe_int(cfg.get("candidate_bank_max_entries", 180), 180),
+        )
+        output_limit = max(
+            1,
+            _safe_int(cfg.get("candidate_bank_output_limit", 185), 185),
+        )
+        carried_limit = max(
+            0,
+            min(
+                output_limit,
+                _safe_int(cfg.get("candidate_bank_carried_limit", 40), 40),
+            ),
+        )
+        max_age = max(
+            0.10,
+            _safe_float(cfg.get("candidate_bank_max_age_s", 1.35), 1.35),
+        )
+        unconfirmed_max_age = max(
+            0.03,
+            min(
+                max_age,
+                _safe_float(
+                    cfg.get("candidate_bank_unconfirmed_max_age_s", 0.12),
+                    0.12,
+                ),
+            ),
+        )
+        confirm_min_span = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_confirm_min_span_s", 0.020), 0.020),
+        )
+        primary_confirm_streak = max(
+            2,
+            _safe_int(cfg.get("candidate_bank_primary_carry_min_hits", 2), 2),
+        )
+        rescue_confirm_streak = max(
+            primary_confirm_streak,
+            _safe_int(cfg.get("candidate_bank_rescue_carry_min_hits", 3), 3),
+        )
+        rescue_current_streak = max(
+            1,
+            _safe_int(cfg.get("candidate_bank_rescue_min_hits", 3), 3),
+        )
+        repeat_bonus = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_repeat_bonus", 0.85), 0.85),
+        )
+        max_bonus = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_max_bonus", 3.4), 3.4),
+        )
+        rescue_single_abs = max(
+            0.0,
+            _safe_float(
+                cfg.get("candidate_bank_rescue_single_frame_absdiff", 5.0),
+                5.0,
+            ),
+        )
+
+        frame_index = self._candidate_bank_frame_counters.get(shot_id, 0) + 1
+        self._candidate_bank_frame_counters[shot_id] = frame_index
+
+        bank = self._candidate_banks.setdefault(shot_id, [])
+
+        for entry in bank:
+            entry["seen_this_frame"] = False
+
+        # Candidates are already strongest first. Each previous entry is allowed
+        # to match only one point in this camera frame.
+        for candidate in frame_candidates:
+            cx = _safe_float(candidate.get("camera_x", 0.0))
+            cy = _safe_float(candidate.get("camera_y", 0.0))
+            score = _safe_float(candidate.get("score", 0.0))
+
+            best_entry = None
+            best_dist = float("inf")
+
+            for entry in bank:
+                if bool(entry.get("seen_this_frame", False)):
+                    continue
+
+                # Unconfirmed tracks are only allowed to build a streak from
+                # neighbouring frames. A peak from long ago must start over.
+                confirmed_before = bool(entry.get("confirmed", False))
+                last_frame = int(entry.get("last_frame_index", frame_index - 1))
+                frame_gap = max(1, frame_index - last_frame)
+                if not confirmed_before and frame_gap > 2:
+                    continue
+
+                dist = math.hypot(
+                    float(entry.get("x", 0.0)) - cx,
+                    float(entry.get("y", 0.0)) - cy,
+                )
+                if dist <= merge_radius and dist < best_dist:
+                    best_dist = dist
+                    best_entry = entry
+
+            if best_entry is None:
+                bank.append(
+                    {
+                        "x": cx,
+                        "y": cy,
+                        "first_ts": float(frame_ts),
+                        "last_ts": float(frame_ts),
+                        "first_frame_index": int(frame_index),
+                        "last_frame_index": int(frame_index),
+                        "hits": 1,
+                        "streak": 1,
+                        "confirmed": False,
+                        "best_score": score,
+                        "candidate": dict(candidate),
+                        "seen_this_frame": True,
+                    }
+                )
+                continue
+
+            previous_frame = int(
+                best_entry.get("last_frame_index", frame_index - 1)
+            )
+            frame_gap = max(1, frame_index - previous_frame)
+
+            if frame_gap == 1:
+                streak = int(best_entry.get("streak", 1)) + 1
+            else:
+                # One missed frame does not add persistence evidence. If the
+                # point reappears later, it begins a new confirmation streak.
+                streak = 1
+
+            old_score = max(0.01, float(best_entry.get("best_score", 0.01)))
+            alpha = float(
+                np.clip(score / (old_score + score + 1e-6), 0.20, 0.60)
+            )
+            best_entry["x"] = (
+                (1.0 - alpha) * float(best_entry["x"]) + alpha * cx
+            )
+            best_entry["y"] = (
+                (1.0 - alpha) * float(best_entry["y"]) + alpha * cy
+            )
+            best_entry["last_ts"] = float(frame_ts)
+            best_entry["last_frame_index"] = int(frame_index)
+            best_entry["hits"] = int(best_entry.get("hits", 1)) + 1
+            best_entry["streak"] = int(streak)
+            best_entry["seen_this_frame"] = True
+
+            if score >= old_score:
+                replacement = dict(candidate)
+                old_candidate = best_entry.get("candidate")
+                if isinstance(old_candidate, dict):
+                    for key in (
+                        "v2_primary_peak",
+                        "v2_rescue_saliency",
+                        "v2_rescue_temporal",
+                    ):
+                        replacement[key] = max(
+                            _safe_float(replacement.get(key, 0.0)),
+                            _safe_float(old_candidate.get(key, 0.0)),
+                        )
+                best_entry["candidate"] = replacement
+                best_entry["best_score"] = score
+            else:
+                old_candidate = best_entry.get("candidate")
+                if isinstance(old_candidate, dict):
+                    for key in (
+                        "v2_primary_peak",
+                        "v2_rescue_saliency",
+                        "v2_rescue_temporal",
+                    ):
+                        old_candidate[key] = max(
+                            _safe_float(old_candidate.get(key, 0.0)),
+                            _safe_float(candidate.get(key, 0.0)),
+                        )
+
+            candidate_for_kind = best_entry.get("candidate")
+            is_primary = (
+                isinstance(candidate_for_kind, dict)
+                and _safe_float(
+                    candidate_for_kind.get("v2_primary_peak", 0.0)
+                ) > 0.5
+            )
+            required_streak = (
+                primary_confirm_streak if is_primary else rescue_confirm_streak
+            )
+            span = max(
+                0.0,
+                float(best_entry.get("last_ts", frame_ts))
+                - float(best_entry.get("first_ts", frame_ts)),
+            )
+
+            if streak >= required_streak and span >= confirm_min_span:
+                best_entry["confirmed"] = True
+
+        # Unconfirmed observations are just short-lived matching hypotheses.
+        # Confirmed tracks retain their longer intra-shot TTL.
+        bank[:] = [
+            entry
+            for entry in bank
+            if (
+                frame_ts - float(entry.get("last_ts", frame_ts))
+                <= (
+                    max_age
+                    if bool(entry.get("confirmed", False))
+                    else unconfirmed_max_age
+                )
+            )
+        ]
+
+        def entry_is_primary(entry: dict[str, Any]) -> bool:
+            candidate = entry.get("candidate")
+            return (
+                isinstance(candidate, dict)
+                and _safe_float(candidate.get("v2_primary_peak", 0.0)) > 0.5
+            )
+
+        def bank_rank(entry: dict[str, Any]) -> float:
+            hits = max(1, int(entry.get("hits", 1)))
+            streak = max(1, int(entry.get("streak", 1)))
+            bonus = min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
+            age_since_seen = max(
+                0.0,
+                frame_ts - float(entry.get("last_ts", frame_ts)),
+            )
+            recency = max(0.0, 1.0 - age_since_seen / max_age)
+            persistence_bonus = 0.40 * min(4, streak)
+            confirmed_bonus = 1.25 if bool(entry.get("confirmed", False)) else 0.0
+            return (
+                float(entry.get("best_score", 0.0))
+                + bonus
+                + persistence_bonus
+                + 0.20 * recency
+                + confirmed_bonus
+            )
+
+        bank.sort(key=bank_rank, reverse=True)
+        if len(bank) > max_entries:
+            del bank[max_entries:]
+
+        current_entries: list[dict[str, Any]] = []
+        carried_entries: list[dict[str, Any]] = []
+
+        for entry in bank:
+            base = entry.get("candidate")
+            if not isinstance(base, dict):
+                continue
+
+            seen_now = bool(entry.get("seen_this_frame", False))
+            if seen_now:
+                current_entries.append(entry)
+            elif bool(entry.get("confirmed", False)):
+                carried_entries.append(entry)
+
+        current_entries.sort(key=bank_rank, reverse=True)
+        carried_entries.sort(key=bank_rank, reverse=True)
+        carried_entries = carried_entries[:carried_limit]
+
+        def build_candidate(
+            entry: dict[str, Any],
+            *,
+            carried: bool,
+        ) -> dict[str, float] | None:
+            base = entry.get("candidate")
+            if not isinstance(base, dict):
+                return None
+
+            candidate = dict(base)
+            hits = max(1, int(entry.get("hits", 1)))
+            streak = max(1, int(entry.get("streak", 1)))
+            is_primary = entry_is_primary(entry)
+            abs_change = _safe_float(candidate.get("v2_absdiff", 0.0))
+
+            # A weak rescue-only point on the CURRENT frame is still withheld
+            # until it has a real consecutive observation streak. Exception:
+            # an unusually strong temporal change may be useful immediately.
+            if (
+                not carried
+                and not is_primary
+                and streak < rescue_current_streak
+                and abs_change < rescue_single_abs
+            ):
+                return None
+
+            bonus = min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
+            candidate["camera_x"] = float(
+                entry.get("x", candidate.get("camera_x", 0.0))
+            )
+            candidate["camera_y"] = float(
+                entry.get("y", candidate.get("camera_y", 0.0))
+            )
+            candidate["score"] = (
+                float(entry.get("best_score", candidate.get("score", 0.0)))
+                + bonus
+                + (0.6 if carried else 0.0)
+            )
+            candidate["v2_original_timestamp"] = _safe_float(
+                candidate.get("timestamp", frame_ts)
+            )
+            candidate["timestamp"] = float(frame_ts)
+            candidate["v2_bank_hits"] = float(hits)
+            candidate["v2_bank_streak"] = float(streak)
+            candidate["v2_bank_span_s"] = max(
+                0.0,
+                float(entry.get("last_ts", frame_ts))
+                - float(entry.get("first_ts", frame_ts)),
+            )
+            candidate["v2_bank_last_seen_age_s"] = max(
+                0.0,
+                frame_ts - float(entry.get("last_ts", frame_ts)),
+            )
+            candidate["v2_bank_confirmed"] = (
+                1.0 if bool(entry.get("confirmed", False)) else 0.0
+            )
+            candidate["v2_bank_carried"] = 1.0 if carried else 0.0
+            return candidate
+
+        current_output = [
+            candidate
+            for entry in current_entries
+            if (candidate := build_candidate(entry, carried=False)) is not None
+        ]
+        carried_output = [
+            candidate
+            for entry in carried_entries
+            if (candidate := build_candidate(entry, carried=True)) is not None
+        ]
+
+        # Reserve room for confirmed older evidence, then let unused carried
+        # capacity flow back to current-frame candidates.
+        actual_carried = min(len(carried_output), carried_limit, output_limit)
+        current_capacity = max(0, output_limit - actual_carried)
+
+        output = (
+            current_output[:current_capacity]
+            + carried_output[:actual_carried]
+        )
+        output.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
+        return output[:output_limit]
+
+
     def _merge_hybrid(
         self,
         *,
@@ -1451,9 +2194,13 @@ class CandidateGeneratorV2:
         merge_radius = max(0.5, _safe_float(cfg.get("merge_radius_px", 5.5), 5.5))
         agreement_bonus = max(0.0, _safe_float(cfg.get("agreement_bonus", 1.5), 1.5))
         limit = max(1, int(getattr(scanner, "candidate_limit", 200)))
-        reserved = min(
+        v2_reserved = min(
             limit,
-            max(0, _safe_int(cfg.get("v2_reserved_slots", 110), 110)),
+            max(0, _safe_int(cfg.get("v2_reserved_slots", 145), 145)),
+        )
+        legacy_reserved = min(
+            limit,
+            max(0, _safe_int(cfg.get("legacy_reserved_slots", 40), 40)),
         )
 
         merged: list[dict[str, float]] = []
@@ -1506,33 +2253,54 @@ class CandidateGeneratorV2:
             merged[best_index] = combined
 
         merged.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
+        if len(merged) <= limit:
+            return merged
 
-        if reserved <= 0:
-            return merged[:limit]
-
-        v2_ranked = [
-            c for c in merged
-            if float(c.get("detector_v2", 0.0)) > 0.5
+        # The first V2 benchmark showed that some true V2 candidates were found
+        # before merge but disappeared from the limited merged list. Reserve
+        # independent source budgets. Agreement candidates count towards both,
+        # which leaves extra capacity for the globally strongest remaining data.
+        v2_pool = [
+            candidate
+            for candidate in merged
+            if float(candidate.get("detector_v2", 0.0)) > 0.5
+        ]
+        legacy_pool = [
+            candidate
+            for candidate in merged
+            if float(candidate.get("detector_v1", 0.0)) > 0.5
         ]
 
         selected: list[dict[str, float]] = []
         selected_ids: set[int] = set()
 
-        for candidate in v2_ranked[:reserved]:
-            selected.append(candidate)
-            selected_ids.add(id(candidate))
+        def add_pool(pool: list[dict[str, float]], count: int) -> None:
+            added = 0
+            for candidate in pool:
+                if added >= count or len(selected) >= limit:
+                    break
+                ident = id(candidate)
+                if ident in selected_ids:
+                    continue
+                selected.append(candidate)
+                selected_ids.add(ident)
+                added += 1
+
+        add_pool(v2_pool, v2_reserved)
+        add_pool(legacy_pool, legacy_reserved)
 
         for candidate in merged:
             if len(selected) >= limit:
                 break
-            if id(candidate) in selected_ids:
+            ident = id(candidate)
+            if ident in selected_ids:
                 continue
             selected.append(candidate)
+            selected_ids.add(ident)
 
-        # Preserve score ordering for downstream AI while retaining the V2
-        # reservation guarantee.
         selected.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
         return selected[:limit]
+
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -1545,6 +2313,7 @@ class CandidateGeneratorV2:
         event: Any,
         telemetry: dict[str, Any],
         legacy: list[dict[str, float]],
+        v2_frame: list[dict[str, float]],
         v2: list[dict[str, float]],
         merged: list[dict[str, float]],
         bbox: tuple[int, int, int, int],
@@ -1568,7 +2337,12 @@ class CandidateGeneratorV2:
                 "created_at": time.time(),
                 "git_commit": self._git_commit,
                 "frames_seen": 0,
-                "max_counts": {"legacy": 0, "v2": 0, "merged": 0},
+                "max_counts": {
+                    "legacy": 0,
+                    "v2_frame": 0,
+                    "v2": 0,
+                    "merged": 0,
+                },
                 "signal_max": {
                     "absdiff": 0.0,
                     "zscore": 0.0,
@@ -1581,8 +2355,10 @@ class CandidateGeneratorV2:
                     "max_abs_dy": 0.0,
                 },
                 "ground_truth": None,
+                # These are BEST/EVER distances over all detector frames.
                 "nearest_candidate_distance_px": {
                     "legacy": None,
+                    "v2_frame": None,
                     "v2": None,
                     "merged": None,
                 },
@@ -1590,15 +2366,19 @@ class CandidateGeneratorV2:
                     "absdiff": None,
                     "zscore": None,
                     "saliency": None,
+                    "saliency_minus_threshold": None,
+                    "saliency_ratio_to_threshold": None,
                 },
+                "evaluation_funnel": None,
             },
         )
 
         record["frames_seen"] = int(record.get("frames_seen", 0)) + 1
         counts = record["max_counts"]
-        counts["legacy"] = max(int(counts["legacy"]), len(legacy))
-        counts["v2"] = max(int(counts["v2"]), len(v2))
-        counts["merged"] = max(int(counts["merged"]), len(merged))
+        counts["legacy"] = max(int(counts.get("legacy", 0)), len(legacy))
+        counts["v2_frame"] = max(int(counts.get("v2_frame", 0)), len(v2_frame))
+        counts["v2"] = max(int(counts.get("v2", 0)), len(v2))
+        counts["merged"] = max(int(counts.get("merged", 0)), len(merged))
 
         signal_max = record["signal_max"]
         signal_max["absdiff"] = max(float(signal_max["absdiff"]), float(telemetry.get("max_absdiff", 0.0)))
@@ -1627,7 +2407,6 @@ class CandidateGeneratorV2:
             return
 
         record["ground_truth"] = dict(gt)
-
         gt_x = _safe_float(gt.get("camera_x", -1.0), -1.0)
         gt_y = _safe_float(gt.get("camera_y", -1.0), -1.0)
 
@@ -1645,6 +2424,7 @@ class CandidateGeneratorV2:
         distances = record["nearest_candidate_distance_px"]
         for key, candidates in (
             ("legacy", legacy),
+            ("v2_frame", v2_frame),
             ("v2", v2),
             ("merged", merged),
         ):
@@ -1654,7 +2434,7 @@ class CandidateGeneratorV2:
             previous = distances.get(key)
             distances[key] = value if previous is None else min(float(previous), value)
 
-        x0, y0, x1, y1 = bbox
+        x0, y0, _x1, _y1 = bbox
         local_x = int(round(gt_x)) - x0
         local_y = int(round(gt_y)) - y0
 
@@ -1665,7 +2445,7 @@ class CandidateGeneratorV2:
             gy1 = min(absdiff.shape[0], local_y + 3)
 
             gt_signals = record["gt_signal_max"]
-
+            values: dict[str, float] = {}
             for key, array in (
                 ("absdiff", absdiff),
                 ("zscore", zscore),
@@ -1675,8 +2455,170 @@ class CandidateGeneratorV2:
                 if patch.size == 0:
                     continue
                 value = float(np.max(patch))
+                values[key] = value
                 previous = gt_signals.get(key)
                 gt_signals[key] = value if previous is None else max(float(previous), value)
+
+            threshold = max(1e-6, _safe_float(telemetry.get("threshold", 0.0), 0.0))
+            gt_saliency = values.get("saliency")
+            if gt_saliency is not None:
+                margin = float(gt_saliency - threshold)
+                ratio = float(gt_saliency / threshold)
+                old_margin = gt_signals.get("saliency_minus_threshold")
+                old_ratio = gt_signals.get("saliency_ratio_to_threshold")
+                gt_signals["saliency_minus_threshold"] = (
+                    margin if old_margin is None else max(float(old_margin), margin)
+                )
+                gt_signals["saliency_ratio_to_threshold"] = (
+                    ratio if old_ratio is None else max(float(old_ratio), ratio)
+                )
+
+    def record_funnel_evaluation(
+        self,
+        *,
+        scanner: Any,
+        raw_hotspots: list[dict[str, Any]],
+        ranked: list[dict[str, Any]],
+        diag: Any,
+        gt_xy: tuple[float, float],
+    ) -> None:
+        """Record what the F2 evaluator actually saw at evaluation time.
+
+        Detector diagnostics above are intentionally BEST/EVER across camera
+        frames. This method captures the single candidate snapshot that the AI
+        training pipeline actually ranks. Comparing the two reveals whether a
+        real candidate was lost because it disappeared before evaluation rather
+        than because the camera never detected it.
+        """
+        gt = getattr(scanner, "_detector_v2_ground_truth", None)
+        if not isinstance(gt, dict):
+            return
+        shot_id = int(gt.get("shot_id", 0) or 0)
+        if shot_id <= 0:
+            return
+
+        record = self._diagnostics.get(shot_id)
+        if record is None:
+            return
+
+        gt_x, gt_y = float(gt_xy[0]), float(gt_xy[1])
+
+        def nearest(candidates: list[dict[str, Any]]) -> float | None:
+            if not candidates:
+                return None
+            return min(
+                math.hypot(
+                    _safe_float(candidate.get("camera_x", 0.0)) - gt_x,
+                    _safe_float(candidate.get("camera_y", 0.0)) - gt_y,
+                )
+                for candidate in candidates
+            )
+
+        funnel: dict[str, Any] = {
+            "captured_at": time.time(),
+            "raw_count": len(raw_hotspots),
+            "raw_nearest_px": nearest(raw_hotspots),
+            "ranked_count": len(ranked),
+            "ranked_nearest_px": nearest(ranked),
+            "selected_nearest_px": (
+                math.hypot(
+                    _safe_float(ranked[0].get("camera_x", 0.0)) - gt_x,
+                    _safe_float(ranked[0].get("camera_y", 0.0)) - gt_y,
+                )
+                if ranked
+                else None
+            ),
+        }
+
+        if diag is not None:
+            for key in (
+                "raw_contains_gt",
+                "raw_closest_dist",
+                "filtered_count",
+                "gt_survived_filter",
+                "filter_killed_gt",
+                "filter_closest_dist",
+                "ai_topk_count",
+                "gt_in_topk",
+                "ai_topk_closest_dist",
+                "selected_dist",
+                "ai_selected_correct",
+                "rejected_by",
+            ):
+                if hasattr(diag, key):
+                    funnel[key] = getattr(diag, key)
+
+        # Useful provenance: how many candidates in the evaluation snapshot came
+        # from each detector/bank path.
+        funnel["raw_v1_count"] = sum(
+            1 for c in raw_hotspots if _safe_float(c.get("detector_v1", 0.0)) > 0.5
+        )
+        funnel["raw_v2_count"] = sum(
+            1 for c in raw_hotspots if _safe_float(c.get("detector_v2", 0.0)) > 0.5
+        )
+        funnel["raw_v2_bank_carried_count"] = sum(
+            1 for c in raw_hotspots if _safe_float(c.get("v2_bank_carried", 0.0)) > 0.5
+        )
+
+        def nearest_where(predicate: Callable[[dict[str, Any]], bool]) -> float | None:
+            selected = [candidate for candidate in raw_hotspots if predicate(candidate)]
+            return nearest(selected)
+
+        funnel["raw_v1_nearest_px"] = nearest_where(
+            lambda c: _safe_float(c.get("detector_v1", 0.0)) > 0.5
+        )
+        funnel["raw_v2_nearest_px"] = nearest_where(
+            lambda c: _safe_float(c.get("detector_v2", 0.0)) > 0.5
+        )
+        funnel["raw_v2_bank_carried_nearest_px"] = nearest_where(
+            lambda c: (
+                _safe_float(c.get("detector_v2", 0.0)) > 0.5
+                and _safe_float(c.get("v2_bank_carried", 0.0)) > 0.5
+            )
+        )
+        funnel["raw_v2_bank_confirmed_nearest_px"] = nearest_where(
+            lambda c: (
+                _safe_float(c.get("detector_v2", 0.0)) > 0.5
+                and _safe_float(c.get("v2_bank_confirmed", 0.0)) > 0.5
+            )
+        )
+
+        record["evaluation_funnel"] = funnel
+
+        # If scanner resolution happened first, complete the delayed diagnostic
+        # immediately now that the evaluation data is available.
+        if isinstance(record.get("resolved"), dict) and shot_id not in self._diagnostics_written:
+            self._finalize_diagnostic_record(scanner, shot_id, record)
+
+    def record_empty_evaluation(self, *, scanner: Any, gt_xy: tuple[float, float]) -> None:
+        """Record the synthetic no-candidate branch where rank_with_funnel is not called."""
+        gt = getattr(scanner, "_detector_v2_ground_truth", None)
+        if not isinstance(gt, dict):
+            return
+        shot_id = int(gt.get("shot_id", 0) or 0)
+        record = self._diagnostics.get(shot_id)
+        if shot_id <= 0 or record is None or record.get("evaluation_funnel") is not None:
+            return
+
+        record["evaluation_funnel"] = {
+            "captured_at": time.time(),
+            "raw_count": 0,
+            "raw_nearest_px": None,
+            "ranked_count": 0,
+            "ranked_nearest_px": None,
+            "selected_nearest_px": None,
+            "raw_contains_gt": False,
+            "filtered_count": 0,
+            "gt_survived_filter": False,
+            "filter_killed_gt": False,
+            "ai_topk_count": 0,
+            "gt_in_topk": False,
+            "ai_selected_correct": False,
+            "rejected_by": {},
+        }
+        if isinstance(record.get("resolved"), dict) and shot_id not in self._diagnostics_written:
+            self._finalize_diagnostic_record(scanner, shot_id, record)
+
 
     def _write_diagnostic(self, record: dict[str, Any]) -> None:
         try:
@@ -1728,17 +2670,14 @@ class CandidateGeneratorV2:
 # ----------------------------------------------------------------------
 
 
-def _install_ai_training_ground_truth_hook() -> None:
-    """
-    Lazily augment AITrainingScene once it has been imported.
+def _install_ai_training_ground_truth_hook(engine: CandidateGeneratorV2) -> None:
+    """Lazily install synthetic GT + evaluation-funnel hooks.
 
-    The normal training scene is otherwise untouched. The wrapper copies the
-    synthetic-hole spec immediately before it is revealed, calls the original
-    method, then records the exact screen+camera ground truth on HitScanner.
-    This gives detector_v2 JSONL diagnostics real labels without coupling
-    HitScanner itself to the training UI.
+    AITrainingScene and AIRuntime are imported later than the camera package.
+    Keeping this lazy avoids import cycles and leaves ordinary gameplay
+    untouched. All hooks are diagnostics-only except for the already-installed
+    detector candidate wrapper.
     """
-
     module = sys.modules.get("src.engine.scenes.ai_training")
     if module is None:
         return
@@ -1747,67 +2686,140 @@ def _install_ai_training_ground_truth_hook() -> None:
     if cls is None:
         return
 
-    if bool(getattr(cls, "_detector_v2_gt_hook_installed", False)):
-        return
+    if not bool(getattr(cls, "_detector_v2_gt_hook_installed", False)):
+        original_reveal = getattr(cls, "_reveal_pending_synthetic_hole", None)
+        if callable(original_reveal):
+            def reveal_wrapped(self: Any) -> bool:
+                spec_raw = getattr(self, "synthetic_pending_hole_spec", None)
+                spec = dict(spec_raw) if isinstance(spec_raw, dict) else None
 
-    original = getattr(cls, "_reveal_pending_synthetic_hole", None)
-    if not callable(original):
-        return
+                result = original_reveal(self)
 
-    def wrapped(self: Any) -> bool:
-        spec_raw = getattr(self, "synthetic_pending_hole_spec", None)
-        spec = dict(spec_raw) if isinstance(spec_raw, dict) else None
-
-        result = original(self)
-
-        if result and spec:
-            try:
-                from src.engine.ai.space_mapper import project_screen_point
-                from src.engine.camera.hit_scanner import hit_scanner
-
-                projected = project_screen_point(
-                    float(spec["x"]),
-                    float(spec["y"]),
-                )
-
-                pending = [
-                    event
-                    for event in hit_scanner.audio_events
-                    if str(getattr(event, "state", "")) == "pending"
-                ]
-                if pending:
-                    event = max(
-                        pending,
-                        key=lambda item: int(getattr(item, "shot_id", 0) or 0),
-                    )
-
-                    background = "unknown"
+                if result and spec:
                     try:
-                        background = self.MODE_NAMES[self.bg_mode_index]
+                        from src.engine.ai.space_mapper import project_screen_point
+                        from src.engine.camera.hit_scanner import hit_scanner
+
+                        projected = project_screen_point(
+                            float(spec["x"]),
+                            float(spec["y"]),
+                        )
+
+                        pending = [
+                            event
+                            for event in hit_scanner.audio_events
+                            if str(getattr(event, "state", "")) == "pending"
+                        ]
+                        if pending:
+                            event = max(
+                                pending,
+                                key=lambda item: int(getattr(item, "shot_id", 0) or 0),
+                            )
+
+                            background = "unknown"
+                            try:
+                                background = self.MODE_NAMES[self.bg_mode_index]
+                            except Exception:
+                                pass
+
+                            hit_scanner._detector_v2_ground_truth = {
+                                "shot_id": int(getattr(event, "shot_id", 0) or 0),
+                                "screen_x": float(spec["x"]),
+                                "screen_y": float(spec["y"]),
+                                "camera_x": float(projected.camera_x),
+                                "camera_y": float(projected.camera_y),
+                                "background": background,
+                                "kind": str(spec.get("kind", "")),
+                                "radius_px": _safe_float(spec.get("radius_px", 0.0)),
+                                "strength": _safe_float(spec.get("strength", 0.0)),
+                                "opacity": _safe_float(spec.get("opacity", 0.0)),
+                                "recorded_at": time.time(),
+                            }
                     except Exception:
+                        # Diagnostics must never be able to break training.
                         pass
 
-                    hit_scanner._detector_v2_ground_truth = {
-                        "shot_id": int(getattr(event, "shot_id", 0) or 0),
-                        "screen_x": float(spec["x"]),
-                        "screen_y": float(spec["y"]),
-                        "camera_x": float(projected.camera_x),
-                        "camera_y": float(projected.camera_y),
-                        "background": background,
-                        "kind": str(spec.get("kind", "")),
-                        "radius_px": _safe_float(spec.get("radius_px", 0.0)),
-                        "strength": _safe_float(spec.get("strength", 0.0)),
-                        "opacity": _safe_float(spec.get("opacity", 0.0)),
-                        "recorded_at": time.time(),
-                    }
-            except Exception:
-                # Diagnostics must never be able to break training.
-                pass
+                return result
 
-        return result
+            cls._reveal_pending_synthetic_hole = reveal_wrapped
+            cls._detector_v2_gt_hook_installed = True
 
-    cls._reveal_pending_synthetic_hole = wrapped
-    cls._detector_v2_gt_hook_installed = True
+    # The normal rank_with_funnel hook below records non-empty evaluations. The
+    # training scene has a special no-candidate early return, so capture that
+    # branch explicitly too.
+    if not bool(getattr(cls, "_detector_v2_empty_eval_hook_installed", False)):
+        original_on_shot = getattr(cls, "_on_shot_detected", None)
+        if callable(original_on_shot):
+            def on_shot_wrapped(self: Any) -> Any:
+                gt_xy = None
+                raw_before: list[dict[str, Any]] = []
+                try:
+                    from src.engine.ai.space_mapper import project_screen_point
+                    from src.engine.camera.hit_scanner import hit_scanner
+
+                    target = getattr(self, "auto_target_screen_xy", None)
+                    if target is not None:
+                        projected = project_screen_point(float(target[0]), float(target[1]))
+                        gt_xy = (float(projected.camera_x), float(projected.camera_y))
+                    runtime = getattr(self, "runtime", None)
+                    if runtime is not None:
+                        raw_before = list(getattr(runtime, "latest_candidates", []) or [])
+                    if not raw_before:
+                        raw_before = list(getattr(hit_scanner, "last_candidates", []) or [])
+                except Exception:
+                    pass
+
+                result = original_on_shot(self)
+
+                if gt_xy is not None and not raw_before:
+                    try:
+                        from src.engine.camera.hit_scanner import hit_scanner
+                        engine.record_empty_evaluation(scanner=hit_scanner, gt_xy=gt_xy)
+                    except Exception:
+                        pass
+                return result
+
+            cls._on_shot_detected = on_shot_wrapped
+            cls._detector_v2_empty_eval_hook_installed = True
+
+    runtime_module = sys.modules.get("src.engine.ai.runtime")
+    runtime_cls = getattr(runtime_module, "AIRuntime", None) if runtime_module is not None else None
+    if runtime_cls is not None and not bool(
+        getattr(runtime_cls, "_detector_v2_funnel_hook_installed", False)
+    ):
+        original_rank = getattr(runtime_cls, "rank_with_funnel", None)
+        if callable(original_rank):
+            def rank_wrapped(
+                self: Any,
+                raw_hotspots: Any,
+                gt_xy: Any = None,
+                limit: Any = None,
+                match_radius_px: Any = None,
+            ) -> Any:
+                ranked, diag = original_rank(
+                    self,
+                    raw_hotspots,
+                    gt_xy=gt_xy,
+                    limit=limit,
+                    match_radius_px=match_radius_px,
+                )
+                if gt_xy is not None:
+                    try:
+                        from src.engine.camera.hit_scanner import hit_scanner
+                        engine.record_funnel_evaluation(
+                            scanner=hit_scanner,
+                            raw_hotspots=[dict(c) for c in raw_hotspots],
+                            ranked=[dict(c) for c in ranked],
+                            diag=diag,
+                            gt_xy=(float(gt_xy[0]), float(gt_xy[1])),
+                        )
+                    except Exception:
+                        pass
+                return ranked, diag
+
+            runtime_cls.rank_with_funnel = rank_wrapped
+            runtime_cls._detector_v2_funnel_hook_installed = True
+
 
 
 def install_candidate_generator_v2(scanner_cls: type) -> None:
@@ -1862,7 +2874,7 @@ def install_candidate_generator_v2(scanner_cls: type) -> None:
     def update_wrapper(self: Any, dt: float) -> Any:
         # AITrainingScene is imported after the camera package. Install the
         # synthetic-ground-truth hook lazily once the class exists.
-        _install_ai_training_ground_truth_hook()
+        _install_ai_training_ground_truth_hook(engine)
 
         result = original_update(self, dt)
 
