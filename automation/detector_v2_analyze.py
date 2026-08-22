@@ -11,6 +11,7 @@ from typing import Any
 
 DEFAULT_PATH = Path("content/ai/detector_v2/shot_diagnostics.jsonl")
 DEFAULT_SUMMARY = Path("content/ai/detector_v2/latest_summary.json")
+RANKER_V3_PATH = Path("content/ai/ranker_v3.json")
 
 
 def _finite(value: Any) -> float | None:
@@ -47,6 +48,42 @@ def load_records(path: Path) -> list[dict[str, Any]]:
             if isinstance(value, dict):
                 records.append(value)
     return records
+
+
+def load_ranker_v3_summary(path: Path = RANKER_V3_PATH) -> dict[str, Any]:
+    if not path.exists():
+        return {"present": False}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"present": True, "error": str(exc)}
+    if not isinstance(payload, dict):
+        return {"present": True, "error": "invalid payload"}
+    stats = payload.get("stats", {})
+    if not isinstance(stats, dict):
+        stats = {}
+    weights = payload.get("weights", {})
+    if not isinstance(weights, dict):
+        weights = {}
+    finite_weights = []
+    for key, value in weights.items():
+        number = _finite(value)
+        if number is not None:
+            finite_weights.append((str(key), number))
+    finite_weights.sort(key=lambda item: abs(item[1]), reverse=True)
+    return {
+        "present": True,
+        "version": payload.get("version"),
+        "positive_shots": int(stats.get("positive_shots", 0) or 0),
+        "pair_updates": int(stats.get("pair_updates", 0) or 0),
+        "skipped_no_positive": int(stats.get("skipped_no_positive", 0) or 0),
+        "last_loss": stats.get("last_loss"),
+        "last_updated": stats.get("last_updated"),
+        "largest_weights": [
+            {"feature": key, "weight": round(value, 6)}
+            for key, value in finite_weights[:8]
+        ],
+    }
 
 
 def select_records(
@@ -186,7 +223,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     detector_sources = ("legacy", "v2_frame", "v2", "merged")
 
     summary: dict[str, Any] = {
-        "schema_version": "2.2",
+        "schema_version": "2.3",
         "records_total": len(records),
         "records_with_ground_truth": len(labelled),
         "records_with_evaluation_funnel": sum(
@@ -202,8 +239,15 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             for record in records
             if record.get("git_commit")
         }),
+        "benchmark_seeds": sorted({
+            int(record.get("ground_truth", {}).get("benchmark_seed"))
+            for record in labelled
+            if isinstance(record.get("ground_truth"), dict)
+            and record.get("ground_truth", {}).get("benchmark_seed") is not None
+        }),
         "overall": {},
         "by_background": {},
+        "ranker_v3_model": load_ranker_v3_summary(),
     }
 
     for radius in match_radii:
@@ -336,15 +380,28 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         ]
         ai_deltas = []
         heuristic_deltas = []
+        ranker_v3_deltas = []
+        ranker_v3_weights = []
+        ranking_versions = Counter()
         for _ev, gt, selected in ranking_rows:
             gt_ai = _finite(gt.get("ai_score"))
             selected_ai = _finite(selected.get("ai_score"))
             gt_h = _finite(gt.get("heuristic_score"))
             selected_h = _finite(selected.get("heuristic_score"))
+            gt_v3 = _finite(gt.get("ranker_v3_score"))
+            selected_v3 = _finite(selected.get("ranker_v3_score"))
+            v3_weight = _finite(selected.get("ranker_v3_weight"))
+            version = str(selected.get("ranking_version", "") or "")
+            if version:
+                ranking_versions[version] += 1
             if gt_ai is not None and selected_ai is not None:
                 ai_deltas.append(selected_ai - gt_ai)
             if gt_h is not None and selected_h is not None:
                 heuristic_deltas.append(selected_h - gt_h)
+            if gt_v3 is not None and selected_v3 is not None:
+                ranker_v3_deltas.append(selected_v3 - gt_v3)
+            if v3_weight is not None:
+                ranker_v3_weights.append(v3_weight)
 
         evaluation_summary["ranking"] = {
             "shots_with_gt_in_ranked_42px": len(ranking_rows),
@@ -361,6 +418,17 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             "selected_minus_gt_heuristic_score_median": (
                 round(statistics.median(heuristic_deltas), 5) if heuristic_deltas else None
             ),
+            "selected_minus_gt_ranker_v3_score_median": (
+                round(statistics.median(ranker_v3_deltas), 5)
+                if ranker_v3_deltas
+                else None
+            ),
+            "ranker_v3_weight_median": (
+                round(statistics.median(ranker_v3_weights), 5)
+                if ranker_v3_weights
+                else None
+            ),
+            "ranking_versions": dict(ranking_versions),
         }
 
     summary["overall"]["evaluation_funnel"] = evaluation_summary
@@ -411,7 +479,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         if _found(_nearest(record, "legacy"), 42.0)
         and not _found(_nearest(record, "merged"), 42.0)
     )
-    summary["overall"]["v22_changes"] = {
+    summary["overall"]["v23_changes"] = {
         "candidate_bank_recovered_42px": bank_recovered,
         "v2_lost_during_merge_42px": v2_lost_merge,
         "legacy_lost_during_merge_42px": legacy_lost_merge,
@@ -439,7 +507,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 def print_summary(summary: dict[str, Any]) -> None:
     print()
     print("=" * 88)
-    print("DETECTOR V2.2 ANALYSIS")
+    print("DETECTOR V2.3 ANALYSIS")
     print("=" * 88)
     print(f"Diagnostics: {summary['records_total']}")
     print(f"With synthetic ground truth: {summary['records_with_ground_truth']}")
@@ -450,6 +518,36 @@ def print_summary(summary: dict[str, Any]) -> None:
         print(f"Detector runtime session: {', '.join(sessions)}")
     if commits:
         print(f"Git commit(s): {', '.join(commits)}")
+    seeds = summary.get("benchmark_seeds", [])
+    if seeds:
+        if len(seeds) <= 12:
+            print(f"Deterministic benchmark seeds: {seeds}")
+        else:
+            print(
+                "Deterministic benchmark seeds: "
+                f"{seeds[0]}..{seeds[-1]} ({len(seeds)} unique)"
+            )
+
+    ranker_model = summary.get("ranker_v3_model", {})
+    if isinstance(ranker_model, dict):
+        print()
+        print("Pairwise Ranker V3 model:")
+        if not ranker_model.get("present", False):
+            print("  not created yet")
+        elif ranker_model.get("error"):
+            print(f"  ERROR: {ranker_model.get('error')}")
+        else:
+            print(f"  positive shots : {ranker_model.get('positive_shots', 0)}")
+            print(f"  pair updates   : {ranker_model.get('pair_updates', 0)}")
+            print(f"  skipped no GT  : {ranker_model.get('skipped_no_positive', 0)}")
+            print(f"  last loss      : {ranker_model.get('last_loss')}")
+            largest = ranker_model.get("largest_weights", [])
+            if largest:
+                rendered = ", ".join(
+                    f"{item.get('feature')}={item.get('weight')}"
+                    for item in largest[:5]
+                )
+                print(f"  strongest w    : {rendered}")
 
     overall = summary.get("overall", {})
     for radius in (10, 20, 42):
@@ -469,9 +567,9 @@ def print_summary(summary: dict[str, Any]) -> None:
                 f"({data.get('pct', 0.0):6.2f}%)"
             )
 
-    changes = overall.get("v22_changes", {})
+    changes = overall.get("v23_changes", overall.get("v22_changes", {}))
     print()
-    print("V2.2 candidate preservation (42px):")
+    print("V2.3 candidate preservation (42px):")
     print(
         "  recovered by candidate bank : "
         f"{changes.get('candidate_bank_recovered_42px', 0)}"
@@ -549,6 +647,17 @@ def print_summary(summary: dict[str, Any]) -> None:
                 "  selected-GT heuristic : "
                 f"{ranking.get('selected_minus_gt_heuristic_score_median')}"
             )
+            print(
+                "  selected-GT Ranker V3 : "
+                f"{ranking.get('selected_minus_gt_ranker_v3_score_median')}"
+            )
+            print(
+                "  Ranker V3 weight med  : "
+                f"{ranking.get('ranker_v3_weight_median')}"
+            )
+            versions = ranking.get("ranking_versions", {})
+            if versions:
+                print(f"  ranking versions      : {versions}")
 
         print()
         print("Where GT was lost (42px):")

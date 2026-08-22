@@ -23,6 +23,8 @@ except Exception:
 
 import numpy as np
 
+from src.engine.ai.pairwise_ranker import PairwiseRankerV3
+
 
 Point = Tuple[float, float]
 Candidate = Dict[str, Any]
@@ -58,6 +60,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "ranking_ai_min_weight": 0.05,
     "ranking_existed_penalty": 0.12,
     "ranking_persistence_bonus": 0.05,
+
+    # Pairwise Ranker V3. Synthetic training supplies exact ground truth, so a
+    # small online model can directly learn "GT candidate > hard negative from
+    # the same shot". The weight ramps in only after enough labelled shots.
+    "ranking_v3_enabled": True,
+    "ranking_v3_min_positive_shots": 20,
+    "ranking_v3_full_weight_shots": 120,
+    "ranking_v3_max_weight": 0.72,
+    "ranking_v3_hard_negatives": 12,
+    "ranking_v3_learning_rate": 0.075,
+    "ranking_v3_l2": 0.0008,
 }
 
 # ---- Feature keys (consistent between training and scoring) ----
@@ -173,6 +186,7 @@ class SimpleAIMemory:
             "local_updates_since_import": 0,
             "version": 2,
         }
+        self._reset_callbacks: List[Any] = []
         self.load()
 
     def load(self) -> None:
@@ -237,6 +251,10 @@ class SimpleAIMemory:
             "imported_negative": len(self.negatives),
         }
 
+    def register_reset_callback(self, callback: Any) -> None:
+        if callable(callback) and callback not in self._reset_callbacks:
+            self._reset_callbacks.append(callback)
+
     def reset(self) -> None:
         self.positives.clear()
         self.negatives.clear()
@@ -244,6 +262,15 @@ class SimpleAIMemory:
         self.stats["total_clicks"] = 0
         self.stats["local_updates_since_import"] = 0
         self.save()
+
+        # Ranker V3 is part of learned AI state. Existing UI/menu code already
+        # calls runtime.memory.reset(), so callbacks keep that single reset
+        # action authoritative without touching result history.
+        for callback in list(self._reset_callbacks):
+            try:
+                callback()
+            except Exception:
+                pass
 
     def add_positive(self, features: Dict[str, float], meta: Optional[Dict[str, Any]] = None) -> None:
         self._update_ranges(features)
@@ -382,6 +409,8 @@ class AIRuntime:
             positive_limit=int(self.settings.get("memory_limit_positive", 400)),
             negative_limit=int(self.settings.get("memory_limit_negative", 1200)),
         )
+        self.ranker_v3 = PairwiseRankerV3(self.storage_dir / "ranker_v3.json")
+        self.memory.register_reset_callback(self.ranker_v3.reset)
 
         # Observation state — updated every frame by bootstrap patch.
         # _shots is authoritative. The _latest_* fields are maintained for
@@ -1337,17 +1366,42 @@ class AIRuntime:
 
             persistence = max(0.0, min(1.0, _safe_float(cand.get("persistence", 0.5))))
             existed = max(0.0, min(1.0, _safe_float(cand.get("existed_before", 0.0))))
-            combined = (
+            base_combined = (
                 (1.0 - ai_weight) * heuristic
                 + ai_weight * ai_score
                 + persistence_scale * persistence
                 - existed_scale * existed
-                # A carried candidate is valuable because it survived an earlier
-                # frame, but it is still slightly stale relative to evidence in
-                # the current camera snapshot. Confirmation already contributes
-                # a positive heuristic term above; this small age prior prevents
-                # stale bank entries from dominating merely due to old score.
                 - 0.025 * carried
+            )
+
+            ranker_v3_score = 0.5
+            ranker_v3_weight = 0.0
+            if bool(self.settings.get("ranking_v3_enabled", True)):
+                try:
+                    # Candidate already contains the old extracted feature dict
+                    # after the assignment below; build a temporary view so the
+                    # V3 feature transform can reuse it during scoring.
+                    ranker_input = dict(cand)
+                    ranker_input["features"] = features
+                    ranker_v3_score = self.ranker_v3.score(ranker_input)
+                    ranker_v3_weight = self.ranker_v3.effective_weight(
+                        min_positive_shots=int(
+                            self.settings.get("ranking_v3_min_positive_shots", 20)
+                        ),
+                        full_weight_shots=int(
+                            self.settings.get("ranking_v3_full_weight_shots", 120)
+                        ),
+                        max_weight=float(
+                            self.settings.get("ranking_v3_max_weight", 0.72)
+                        ),
+                    )
+                except Exception:
+                    ranker_v3_score = 0.5
+                    ranker_v3_weight = 0.0
+
+            combined = (
+                (1.0 - ranker_v3_weight) * base_combined
+                + ranker_v3_weight * ranker_v3_score
             )
 
             enriched = dict(cand)
@@ -1356,9 +1410,12 @@ class AIRuntime:
             enriched["heuristic_score"] = float(heuristic)
             enriched["detector_relative_score"] = float(detector_relative)
             enriched["temporal_relative_score"] = float(temporal_relative)
+            enriched["ranker_v3_score"] = float(ranker_v3_score)
+            enriched["ranker_v3_weight"] = float(ranker_v3_weight)
+            enriched["base_combined_score"] = float(base_combined)
             enriched["combined_score"] = float(combined)
             enriched["ai_weight"] = float(ai_weight)
-            enriched["ranking_version"] = "2.2"
+            enriched["ranking_version"] = "2.3"
             ranked.append(enriched)
 
         ranked.sort(
@@ -1445,8 +1502,39 @@ class AIRuntime:
         positive_added = False
         neg_added = 0
 
+        ranker_v3_result: Dict[str, Any] = {"trained": False, "reason": "frozen"}
+
         if not freeze:
-            # --- TRAINING MODE: update model ---
+            # Pairwise ranker learns from the whole ranked candidate snapshot,
+            # not only the candidate eventually selected by the old model.
+            if bool(self.settings.get("ranking_v3_enabled", True)):
+                try:
+                    ranker_v3_result = self.ranker_v3.learn_from_ground_truth(
+                        click_camera_xy,
+                        shown_candidates,
+                        positive_radius_px=min(
+                            42.0,
+                            float(self.settings.get("click_match_radius_px", 42.0)),
+                        ),
+                        negative_safe_radius_px=max(
+                            min(42.0, float(self.settings.get("click_match_radius_px", 42.0))) * 1.5,
+                            55.0,
+                        ),
+                        hard_negative_count=int(
+                            self.settings.get("ranking_v3_hard_negatives", 12)
+                        ),
+                        learning_rate=float(
+                            self.settings.get("ranking_v3_learning_rate", 0.075)
+                        ),
+                        l2=float(self.settings.get("ranking_v3_l2", 0.0008)),
+                    )
+                except Exception as exc:
+                    ranker_v3_result = {
+                        "trained": False,
+                        "reason": f"error:{exc}",
+                    }
+
+            # --- Existing AI-memory training remains active ---
             self.memory.stats["total_clicks"] = self.memory.stats.get("total_clicks", 0) + 1
             self.memory.stats["local_updates_since_import"] = self.memory.stats.get("local_updates_since_import", 0) + 1
 
@@ -1517,6 +1605,8 @@ class AIRuntime:
             "nearest_distance": float(nearest_dist),
             "total_positives": len(self.memory.positives),
             "total_negatives": len(self.memory.negatives),
+            "ranker_v3": ranker_v3_result,
+            "ranker_v3_summary": self.ranker_v3.summary(),
         }
 
     def study_click_area(

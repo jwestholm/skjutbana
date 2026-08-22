@@ -17,6 +17,7 @@ import numpy as np
 CONFIG_PATH = Path("content/ai/detector_v2.json")
 DIAGNOSTICS_DIR = Path("content/ai/detector_v2")
 DIAGNOSTICS_JSONL = DIAGNOSTICS_DIR / "shot_diagnostics.jsonl"
+BENCHMARK_CONTROL_PATH = Path("content/ai/benchmark_control.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     # Master switch. False = exact legacy HitScanner candidate generator.
@@ -87,23 +88,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "rescue_min_zscore": 1.25,
     "rescue_strong_temporal_change": 4.0,
     "rescue_local_max_kernel": 3,
-    "rescue_max_raw_peaks": 120,
+    "rescue_max_raw_peaks": 180,
 
     # Temporal-only rescue has its own robust threshold. It intentionally does
     # NOT depend on the composite saliency threshold, because edge/artifact
     # priors can suppress saliency even when the true temporal change is clear.
-    "rescue_temporal_robust_sigma": 2.35,
-    "rescue_temporal_min_score": 5.2,
+    "rescue_temporal_robust_sigma": 1.75,
+    "rescue_temporal_min_score": 4.2,
 
     # Connected-component rescue. Tiny holes can form a plateau/ring where the
     # strongest pixel is not a stable local maximum. This path thresholds the
     # temporal evidence itself and emits a weighted component centre.
     "rescue_blob_enabled": True,
-    "rescue_blob_robust_sigma": 2.15,
-    "rescue_blob_min_score": 4.8,
+    "rescue_blob_robust_sigma": 1.65,
+    "rescue_blob_min_score": 4.0,
     "rescue_blob_min_area": 1,
     "rescue_blob_max_area": 90,
-    "rescue_blob_max_candidates": 90,
+    "rescue_blob_max_candidates": 130,
 
     # Refine a coarse peak towards the centre of a compact temporal-change
     # blob. This is deliberately bounded to a few pixels so a nearby projected
@@ -117,9 +118,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # all candidate slots. Keep a few local maxima from every tile.
     "tile_columns": 8,
     "tile_rows": 6,
-    "per_tile_candidates": 6,
-    "global_extra_candidates": 80,
-    "max_v2_candidates": 200,
+    "per_tile_candidates": 7,
+    "global_extra_candidates": 100,
+    "max_v2_candidates": 220,
 
     # Per-shot candidate bank. A candidate that is visible in frame N must not
     # disappear solely because frame N+1 has a slightly different peak set.
@@ -130,8 +131,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Bank matching is deliberately tighter than detector NMS. A 6 px match
     # radius made unrelated dense-noise peaks accumulate "hits" by chance.
     "candidate_bank_merge_radius_px": 4.0,
-    "candidate_bank_max_entries": 240,
-    "candidate_bank_output_limit": 200,
+    "candidate_bank_max_entries": 320,
+    "candidate_bank_output_limit": 240,
     "candidate_bank_repeat_bonus": 0.85,
     "candidate_bank_max_bonus": 3.4,
 
@@ -146,7 +147,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "candidate_bank_rescue_min_hits": 1,
     # Confirmed but currently absent candidates are useful for the later F2
     # snapshot, but only a bounded reserve may be carried at once.
-    "candidate_bank_carried_limit": 70,
+    "candidate_bank_carried_limit": 40,
     "candidate_bank_rescue_single_frame_absdiff": 5.0,
 
     # V2.2 banks the already-merged V1+V2 snapshot, not just V2. Legacy V1 is
@@ -161,8 +162,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # all high-recall V2 points before the AI gets to rank them.
     "merge_radius_px": 5.5,
     "agreement_bonus": 1.5,
-    "v2_reserved_slots": 60,
-    "legacy_reserved_slots": 140,
+    "v2_reserved_slots": 50,
+    "legacy_reserved_slots": 150,
 
     # Existing artifact mask becomes a SOFT prior for V2. A real hit may still
     # exist on a pixel that the white/black projector calibration considered an
@@ -321,7 +322,7 @@ class CandidateGeneratorV2:
     remain unchanged.
     """
 
-    SCHEMA_VERSION = "2.2"
+    SCHEMA_VERSION = "2.3"
 
     def __init__(self) -> None:
         self.config = DetectorV2Config()
@@ -2171,9 +2172,42 @@ class CandidateGeneratorV2:
         if len(bank) > max_entries:
             del bank[max_entries:]
 
-        # CURRENT observations are authoritative and are never removed by the
-        # bank. Historical evidence only fills empty candidate slots.
+        # CURRENT observations remain authoritative. V2.3 annotates them with
+        # the matching bank hypothesis so persistence can help ranking even
+        # while the candidate is still visible in the current frame.
         current_output = [dict(candidate) for candidate in frame_candidates[:output_limit]]
+
+        for candidate in current_output:
+            cx = _safe_float(candidate.get("camera_x", 0.0))
+            cy = _safe_float(candidate.get("camera_y", 0.0))
+            nearest_entry = None
+            nearest_distance = float("inf")
+            for entry in bank:
+                if not bool(entry.get("seen_this_frame", False)):
+                    continue
+                distance = math.hypot(
+                    float(entry.get("x", 0.0)) - cx,
+                    float(entry.get("y", 0.0)) - cy,
+                )
+                if distance <= merge_radius and distance < nearest_distance:
+                    nearest_entry = entry
+                    nearest_distance = distance
+
+            if nearest_entry is not None:
+                hits = max(1, int(nearest_entry.get("hits", 1)))
+                streak = max(1, int(nearest_entry.get("streak", 1)))
+                confirmed = bool(nearest_entry.get("confirmed", False))
+                candidate["candidate_bank_hits"] = float(hits)
+                candidate["candidate_bank_streak"] = float(streak)
+                candidate["candidate_bank_confirmed"] = 1.0 if confirmed else 0.0
+                candidate["v2_bank_hits"] = float(hits)
+                candidate["v2_bank_streak"] = float(streak)
+                candidate["v2_bank_confirmed"] = 1.0 if confirmed else 0.0
+
+        # frame_merged is capped by the normal scanner candidate_limit (usually
+        # 200), while output_limit defaults to 240. This creates a REAL reserve
+        # for up to 40 confirmed historical candidates instead of the V2.2
+        # behaviour where a full current frame left capacity=0.
         capacity = max(0, output_limit - len(current_output))
         if capacity <= 0 or carried_limit <= 0:
             return current_output
@@ -2368,6 +2402,77 @@ class CandidateGeneratorV2:
     # Diagnostics
     # ------------------------------------------------------------------
 
+    def _ensure_diagnostic_record(self, shot_id: int) -> dict[str, Any]:
+        """Create the per-shot diagnostics skeleton as early as possible.
+
+        V2.2 only created a record after at least one detector frame reached
+        ``_update_diagnostics``. Very fast/empty synthetic rounds could therefore
+        be valid benchmark shots yet disappear from the JSONL entirely. V2.3
+        registers labelled shots as soon as ground truth is revealed so benchmark
+        integrity can reach requested == completed == diagnostics.
+        """
+        return self._diagnostics.setdefault(
+            int(shot_id),
+            {
+                "schema_version": self.SCHEMA_VERSION,
+                "runtime_session_id": self._runtime_session_id,
+                "shot_id": int(shot_id),
+                "created_at": time.time(),
+                "git_commit": self._git_commit,
+                "frames_seen": 0,
+                "max_counts": {
+                    "legacy": 0,
+                    "v2_frame": 0,
+                    "v2": 0,
+                    "merged": 0,
+                },
+                "signal_max": {
+                    "absdiff": 0.0,
+                    "zscore": 0.0,
+                    "saliency": 0.0,
+                },
+                "registration": {
+                    "applied_frames": 0,
+                    "best_response": 0.0,
+                    "max_abs_dx": 0.0,
+                    "max_abs_dy": 0.0,
+                },
+                "ground_truth": None,
+                # BEST/EVER distances over all detector frames.
+                "nearest_candidate_distance_px": {
+                    "legacy": None,
+                    "v2_frame": None,
+                    "v2": None,
+                    "merged": None,
+                },
+                "gt_signal_max": {
+                    "absdiff": None,
+                    "zscore": None,
+                    "saliency": None,
+                    "saliency_minus_threshold": None,
+                    "saliency_ratio_to_threshold": None,
+                },
+                "evaluation_funnel": None,
+            },
+        )
+
+    def register_ground_truth(self, scanner: Any, ground_truth: dict[str, Any]) -> None:
+        """Register synthetic GT before the first useful detector frame."""
+        if not bool(self.config.get("diagnostics_enabled", True)):
+            return
+        if not isinstance(ground_truth, dict):
+            return
+        shot_id = int(ground_truth.get("shot_id", 0) or 0)
+        if shot_id <= 0:
+            return
+        record = self._ensure_diagnostic_record(shot_id)
+        record["ground_truth"] = dict(ground_truth)
+        record.setdefault("ground_truth_registered_at", time.time())
+        try:
+            scanner._detector_v2_ground_truth = dict(ground_truth)
+        except Exception:
+            pass
+
     def _update_diagnostics(
         self,
         *,
@@ -2390,50 +2495,7 @@ class CandidateGeneratorV2:
         if shot_id <= 0:
             return
 
-        record = self._diagnostics.setdefault(
-            shot_id,
-            {
-                "schema_version": self.SCHEMA_VERSION,
-                "runtime_session_id": self._runtime_session_id,
-                "shot_id": shot_id,
-                "created_at": time.time(),
-                "git_commit": self._git_commit,
-                "frames_seen": 0,
-                "max_counts": {
-                    "legacy": 0,
-                    "v2_frame": 0,
-                    "v2": 0,
-                    "merged": 0,
-                },
-                "signal_max": {
-                    "absdiff": 0.0,
-                    "zscore": 0.0,
-                    "saliency": 0.0,
-                },
-                "registration": {
-                    "applied_frames": 0,
-                    "best_response": 0.0,
-                    "max_abs_dx": 0.0,
-                    "max_abs_dy": 0.0,
-                },
-                "ground_truth": None,
-                # These are BEST/EVER distances over all detector frames.
-                "nearest_candidate_distance_px": {
-                    "legacy": None,
-                    "v2_frame": None,
-                    "v2": None,
-                    "merged": None,
-                },
-                "gt_signal_max": {
-                    "absdiff": None,
-                    "zscore": None,
-                    "saliency": None,
-                    "saliency_minus_threshold": None,
-                    "saliency_ratio_to_threshold": None,
-                },
-                "evaluation_funnel": None,
-            },
-        )
+        record = self._ensure_diagnostic_record(shot_id)
 
         record["frames_seen"] = int(record.get("frames_seen", 0)) + 1
         counts = record["max_counts"]
@@ -2680,6 +2742,9 @@ class CandidateGeneratorV2:
                     "detector_relative_score": _safe_float(candidate.get("detector_relative_score", 0.0)),
                     "temporal_relative_score": _safe_float(candidate.get("temporal_relative_score", 0.0)),
                     "ai_weight": _safe_float(candidate.get("ai_weight", 0.0)),
+                    "ranker_v3_score": _safe_float(candidate.get("ranker_v3_score", 0.5)),
+                    "ranker_v3_weight": _safe_float(candidate.get("ranker_v3_weight", 0.0)),
+                    "ranking_version": str(candidate.get("ranking_version", "")),
                     "detector_v1": _safe_float(candidate.get("detector_v1", 0.0)),
                     "detector_v2": _safe_float(candidate.get("detector_v2", 0.0)),
                     "detector_agreement": _safe_float(candidate.get("detector_agreement", 0.0)),
@@ -2835,7 +2900,7 @@ def _install_ai_training_ground_truth_hook(engine: CandidateGeneratorV2) -> None
                             except Exception:
                                 pass
 
-                            hit_scanner._detector_v2_ground_truth = {
+                            gt_data = {
                                 "shot_id": int(getattr(event, "shot_id", 0) or 0),
                                 "screen_x": float(spec["x"]),
                                 "screen_y": float(spec["y"]),
@@ -2846,8 +2911,12 @@ def _install_ai_training_ground_truth_hook(engine: CandidateGeneratorV2) -> None
                                 "radius_px": _safe_float(spec.get("radius_px", 0.0)),
                                 "strength": _safe_float(spec.get("strength", 0.0)),
                                 "opacity": _safe_float(spec.get("opacity", 0.0)),
+                                "benchmark_seed": getattr(
+                                    self, "_detector_v2_benchmark_seed", None
+                                ),
                                 "recorded_at": time.time(),
                             }
+                            engine.register_ground_truth(hit_scanner, gt_data)
                     except Exception:
                         # Diagnostics must never be able to break training.
                         pass
@@ -2856,6 +2925,45 @@ def _install_ai_training_ground_truth_hook(engine: CandidateGeneratorV2) -> None
 
             cls._reveal_pending_synthetic_hole = reveal_wrapped
             cls._detector_v2_gt_hook_installed = True
+
+    # Optional deterministic F2 benchmark seed. The external loop writes a
+    # small control file before each run. Seeding happens at the F2 toggle,
+    # before any synthetic target/hole sampling for that run.
+    if not bool(getattr(cls, "_detector_v2_seed_hook_installed", False)):
+        original_toggle = getattr(cls, "_toggle_auto_training", None)
+        if callable(original_toggle):
+            def toggle_wrapped(self: Any, headless: bool = False) -> Any:
+                starting = not bool(getattr(self, "auto_training_enabled", False))
+                if starting and headless:
+                    try:
+                        control = {}
+                        if BENCHMARK_CONTROL_PATH.exists():
+                            loaded = json.loads(
+                                BENCHMARK_CONTROL_PATH.read_text(encoding="utf-8")
+                            )
+                            if isinstance(loaded, dict):
+                                control = loaded
+                        if bool(control.get("enabled", False)):
+                            seed = int(control.get("seed"))
+                            random_module = getattr(module, "random", None)
+                            if random_module is not None:
+                                random_module.seed(seed)
+                            np_module = getattr(module, "np", None)
+                            if np_module is not None:
+                                try:
+                                    np_module.random.seed(seed & 0xFFFFFFFF)
+                                except Exception:
+                                    pass
+                            self._detector_v2_benchmark_seed = seed
+                        else:
+                            self._detector_v2_benchmark_seed = None
+                    except Exception:
+                        self._detector_v2_benchmark_seed = None
+
+                return original_toggle(self, headless=headless)
+
+            cls._toggle_auto_training = toggle_wrapped
+            cls._detector_v2_seed_hook_installed = True
 
     # The normal rank_with_funnel hook below records non-empty evaluations. The
     # training scene has a special no-candidate early return, so capture that
