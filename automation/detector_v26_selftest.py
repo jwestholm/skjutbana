@@ -14,6 +14,9 @@ from pathlib import Path
 # require the user's camera_manager/hit_scanner files. In the real project the
 # normal package imports are used unchanged.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 _camera_parent = types.ModuleType("src.engine.camera")
 _camera_parent.__path__ = [str(_REPO_ROOT / "src" / "engine" / "camera")]
 sys.modules.setdefault("src.engine.camera", _camera_parent)
