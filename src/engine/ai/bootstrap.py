@@ -14,6 +14,7 @@ def apply_bootstrap() -> None:
     _patch_menu_loader()
     _patch_scene_factory()
     _patch_ranker_v4()
+    _patch_ranker_v5()
     _patch_hit_scanner()
 
     _bootstrapped = True
@@ -83,6 +84,18 @@ def _patch_ranker_v4() -> None:
         install_ranker_v4_extension()
     except Exception as exc:
         print(f"[RANKER-V4] unavailable, previous ranker kept: {exc}")
+
+
+def _patch_ranker_v5() -> None:
+    # V5 wraps the already-safe V4 shadow layer. It trains only from strict
+    # generated-candidate labels and can auto-promote only after pre-train
+    # validation proves a clear advantage over the base ranker.
+    try:
+        from src.engine.ai.ranker_v5_extension import install_ranker_v5_extension
+
+        install_ranker_v5_extension()
+    except Exception as exc:
+        print(f"[RANKER-V5] unavailable, V4/base ranker kept: {exc}")
 
 
 def _patch_hit_scanner() -> None:

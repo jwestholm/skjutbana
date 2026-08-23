@@ -28,6 +28,16 @@ try:
     except Exception as exc:
         print(f"[DETECTOR-V2.5] unavailable, V2.4 kept: {exc}")
 
+    # V2.6 keeps V2.4's successful tile detector, disables V2.5's harmful
+    # centre-refinement via config, and adds a bounded per-shot spatial vault so
+    # candidates visible on an earlier camera frame survive to evaluation.
+    try:
+        from .detector_v26_extension import apply_detector_v26_extension
+
+        apply_detector_v26_extension()
+    except Exception as exc:
+        print(f"[DETECTOR-V2.6] unavailable, V2.5/V2.4 kept: {exc}")
+
     install_candidate_generator_v2(HitScanner)
 except Exception as exc:
     print(f"[DETECTOR-V2] unavailable, legacy detector kept: {exc}")

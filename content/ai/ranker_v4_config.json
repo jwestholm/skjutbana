@@ -17,5 +17,5 @@
   "ground_truth_patch_min_absdiff": 1.2,
   "ground_truth_patch_min_local_snr": 0.1,
   "shadow_mode": true,
-  "shadow_training_enabled": true
+  "shadow_training_enabled": false
 }

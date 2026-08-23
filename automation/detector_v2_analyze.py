@@ -152,10 +152,12 @@ def classify_pipeline_loss(record: dict[str, Any], radius: float) -> str:
     v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
     vectors = v25.get("best_vectors", {}) if isinstance(v25.get("best_vectors"), dict) else {}
     v25_final = vectors.get("v25_final") if isinstance(vectors.get("v25_final"), dict) else {}
+    v26 = record.get("v26", {}) if isinstance(record.get("v26"), dict) else {}
     ever = (
         _found(_nearest(record, "merged"), radius)
         or _found(v24.get("final_nearest_px"), radius)
         or _found(v25_final.get("distance_px"), radius)
+        or _found(v26.get("final_best_nearest_px"), radius)
     )
     evaluation = _evaluation(record)
     if not evaluation:
@@ -194,7 +196,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     detector_sources = ("legacy", "v2_frame", "v2", "merged")
 
     summary: dict[str, Any] = {
-        "schema_version": "2.5",
+        "schema_version": "2.6",
         "records_total": len(records),
         "records_with_ground_truth": len(labelled),
         "records_with_evaluation_funnel": sum(
@@ -266,6 +268,25 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
                 vectors = v25.get("best_vectors", {}) if isinstance(v25.get("best_vectors"), dict) else {}
                 vector = vectors.get(vector_key)
                 if isinstance(vector, dict) and _found(vector.get("distance_px"), radius):
+                    count += 1
+            summary["overall"][key][source] = {
+                "count": count,
+                "pct": _pct(count, len(labelled)),
+            }
+
+    # V2.6 shot-vault paths.  `vault` is the spatial union accumulated over
+    # the pending shot; `final` is what the detector actually emitted after
+    # adding the bounded carry set to each current frame.
+    for radius in match_radii:
+        key = f"within_{int(radius)}px"
+        for source, field in (
+            ("v26_vault", "vault_best_nearest_px"),
+            ("v26_final", "final_best_nearest_px"),
+        ):
+            count = 0
+            for record in labelled:
+                v26 = record.get("v26", {}) if isinstance(record.get("v26"), dict) else {}
+                if _found(v26.get(field), radius):
                     count += 1
             summary["overall"][key][source] = {
                 "count": count,
@@ -403,6 +424,119 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             "max": max(refined_counts) if refined_counts else 0,
             "shots_with_candidates": sum(1 for value in refined_counts if value > 0),
         }
+
+        # V2.6 vault provenance in the exact F2 snapshot.
+        for name, field in (
+            ("raw_v26_vault_carried", "raw_v26_vault_carried_nearest_px"),
+            ("raw_v26_final", "raw_v26_final_nearest_px"),
+        ):
+            for radius in match_radii:
+                count = sum(
+                    1 for _record, ev in eval_rows if _found(ev.get(field), radius)
+                )
+                evaluation_summary[f"{name}_within_{int(radius)}px"] = {
+                    "count": count,
+                    "pct": _pct(count, len(eval_rows)),
+                }
+
+        v26_carried_counts = [
+            int(ev.get("raw_v26_vault_carried_count", 0) or 0)
+            for _record, ev in eval_rows
+        ]
+        v26_final_counts = [
+            int(ev.get("raw_v26_final_count", 0) or 0)
+            for _record, ev in eval_rows
+        ]
+        evaluation_summary["raw_v26_vault_carried_count"] = {
+            "mean": round(sum(v26_carried_counts) / len(v26_carried_counts), 3) if v26_carried_counts else 0.0,
+            "median": round(statistics.median(v26_carried_counts), 3) if v26_carried_counts else 0.0,
+            "max": max(v26_carried_counts) if v26_carried_counts else 0,
+            "shots_with_candidates": sum(1 for value in v26_carried_counts if value > 0),
+        }
+        evaluation_summary["raw_v26_final_count"] = {
+            "mean": round(sum(v26_final_counts) / len(v26_final_counts), 3) if v26_final_counts else 0.0,
+            "median": round(statistics.median(v26_final_counts), 3) if v26_final_counts else 0.0,
+            "max": max(v26_final_counts) if v26_final_counts else 0,
+        }
+
+        vault_summaries = [
+            ev.get("v26_vault_summary")
+            for _record, ev in eval_rows
+            if isinstance(ev.get("v26_vault_summary"), dict)
+        ]
+        if vault_summaries:
+            def _median_int(field: str) -> float | None:
+                values = [int(block.get(field, 0) or 0) for block in vault_summaries]
+                return round(statistics.median(values), 3) if values else None
+            gt_distances = [
+                value for block in vault_summaries
+                if (value := _finite(block.get("gt_nearest_px"))) is not None
+            ]
+            evaluation_summary["v26_vault"] = {
+                "shots": len(vault_summaries),
+                "cells_median": _median_int("cells"),
+                "frames_median": _median_int("frames"),
+                "frames_with_candidates_median": _median_int("frames_with_candidates"),
+                "observations_median": _median_int("observations"),
+                "cells_hits_ge_2_median": _median_int("cells_hits_ge_2"),
+                "cells_hits_ge_3_median": _median_int("cells_hits_ge_3"),
+                "gt_within_10px_pct": _pct(sum(1 for d in gt_distances if d <= 10.0), len(vault_summaries)),
+                "gt_within_20px_pct": _pct(sum(1 for d in gt_distances if d <= 20.0), len(vault_summaries)),
+                "gt_within_42px_pct": _pct(sum(1 for d in gt_distances if d <= 42.0), len(vault_summaries)),
+            }
+
+        # Ranker V5 PRE-TRAIN validation.  These diagnostics are attached by
+        # the outer V5 wrapper after the current shot has been evaluated and
+        # before that shot is learned, so this is a genuine forward test.
+        v5_diags = [
+            ev.get("v26_ranker_v5")
+            for _record, ev in eval_rows
+            if isinstance(ev.get("v26_ranker_v5"), dict)
+        ]
+        if v5_diags:
+            base_ranks_12 = [
+                int(value) for block in v5_diags
+                if (value := block.get("base_gt_rank_12px")) is not None and int(value) > 0
+            ]
+            v5_ranks_12 = [
+                int(value) for block in v5_diags
+                if (value := block.get("v5_gt_rank_12px")) is not None and int(value) > 0
+            ]
+            paired_12 = []
+            for block in v5_diags:
+                base_rank = block.get("base_gt_rank_12px")
+                v5_rank = block.get("v5_gt_rank_12px")
+                if base_rank is not None and v5_rank is not None and int(base_rank) > 0 and int(v5_rank) > 0:
+                    paired_12.append((int(base_rank), int(v5_rank)))
+
+            train_blocks = [block.get("training", {}) for block in v5_diags if isinstance(block.get("training"), dict)]
+            gate_blocks = [block.get("gate", {}) for block in v5_diags if isinstance(block.get("gate"), dict)]
+            override_blocks = [block.get("override", {}) for block in v5_diags if isinstance(block.get("override"), dict)]
+            latest_model = next(
+                (block.get("model") for block in reversed(v5_diags) if isinstance(block.get("model"), dict)),
+                {},
+            )
+            latest_gate = gate_blocks[-1] if gate_blocks else {}
+            evaluation_summary["ranker_v5"] = {
+                "shots": len(v5_diags),
+                "strict_radius_px": _finite(v5_diags[-1].get("validation_radius_px")) if v5_diags else 12.0,
+                "paired_shots_with_gt_12px": len(paired_12),
+                "base_gt_rank_median_12px": round(statistics.median([a for a, _b in paired_12]), 3) if paired_12 else None,
+                "v5_gt_rank_median_12px": round(statistics.median([b for _a, b in paired_12]), 3) if paired_12 else None,
+                "base_top1_pct_12px": _pct(sum(1 for a, _b in paired_12 if a == 1), len(paired_12)),
+                "v5_top1_pct_12px": _pct(sum(1 for _a, b in paired_12 if b == 1), len(paired_12)),
+                "base_top3_pct_12px": _pct(sum(1 for a, _b in paired_12 if a <= 3), len(paired_12)),
+                "v5_top3_pct_12px": _pct(sum(1 for _a, b in paired_12 if b <= 3), len(paired_12)),
+                "v5_better_rank_count": sum(1 for a, b in paired_12 if b < a),
+                "v5_worse_rank_count": sum(1 for a, b in paired_12 if b > a),
+                "same_rank_count": sum(1 for a, b in paired_12 if b == a),
+                "trained_shots": sum(1 for block in train_blocks if bool(block.get("trained"))),
+                "skipped_no_positive": sum(1 for block in train_blocks if not bool(block.get("trained"))),
+                "gate_open_shots": sum(1 for block in gate_blocks if bool(block.get("open"))),
+                "override_applied_shots": sum(1 for block in override_blocks if bool(block.get("applied"))),
+                "latest_gate": latest_gate,
+                "latest_model": latest_model,
+            }
 
         # Base ranker vs V4 shadow on exactly the same surviving candidate pool.
         shadow_rows = []
@@ -752,7 +886,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 def print_summary(summary: dict[str, Any]) -> None:
     print()
     print("=" * 88)
-    print("DETECTOR V2.5 ANALYSIS")
+    print("DETECTOR V2.6 ANALYSIS")
     print("=" * 88)
     print(f"Diagnostics: {summary['records_total']}")
     print(f"With synthetic ground truth: {summary['records_with_ground_truth']}")
@@ -803,6 +937,7 @@ def print_summary(summary: dict[str, Any]) -> None:
             "legacy", "v2_frame", "v2", "merged",
             "v24_tile", "v24_accumulator", "v24_final",
             "v25_refined_tile", "v25_final",
+            "v26_vault", "v26_final",
         ):
             data = block.get(source, {})
             label = {
@@ -815,6 +950,8 @@ def print_summary(summary: dict[str, Any]) -> None:
                 "v24_final": "v24 final",
                 "v25_refined_tile": "v25 refine",
                 "v25_final": "v25 final",
+                "v26_vault": "v26 vault",
+                "v26_final": "v26 final",
             }[source]
             print(
                 f"  {label:10s}: {data.get('count', 0):5d} "
@@ -904,6 +1041,88 @@ def print_summary(summary: dict[str, Any]) -> None:
             f"mean candidates={refined_counts.get('mean', 0.0)} "
             f"max={refined_counts.get('max', 0)}"
         )
+
+        print()
+        print("V2.6 SHOT VAULT in ACTUAL F2 raw snapshot (42px):")
+        vault_gt = ev.get("raw_v26_vault_carried_within_42px", {})
+        final_gt = ev.get("raw_v26_final_within_42px", {})
+        carried_counts = ev.get("raw_v26_vault_carried_count", {})
+        final_counts = ev.get("raw_v26_final_count", {})
+        print(
+            "  carried history    : "
+            f"GT={vault_gt.get('count',0):5d} ({vault_gt.get('pct',0.0):6.2f}%) "
+            f"mean={carried_counts.get('mean',0.0)} "
+            f"median={carried_counts.get('median',0.0)} "
+            f"max={carried_counts.get('max',0)}"
+        )
+        print(
+            "  V2.6 final raw     : "
+            f"GT={final_gt.get('count',0):5d} ({final_gt.get('pct',0.0):6.2f}%) "
+            f"mean candidates={final_counts.get('mean',0.0)} "
+            f"median={final_counts.get('median',0.0)} "
+            f"max={final_counts.get('max',0)}"
+        )
+        vault = ev.get("v26_vault", {})
+        if isinstance(vault, dict) and vault.get("shots",0):
+            print(
+                "  vault GT <=10/20/42: "
+                f"{vault.get('gt_within_10px_pct')}% / "
+                f"{vault.get('gt_within_20px_pct')}% / "
+                f"{vault.get('gt_within_42px_pct')}%"
+            )
+            print(
+                "  cells / frames med : "
+                f"{vault.get('cells_median')} / {vault.get('frames_median')} "
+                f"(observations med={vault.get('observations_median')})"
+            )
+
+        ranker_v5 = ev.get("ranker_v5", {})
+        if isinstance(ranker_v5, dict) and ranker_v5.get("shots",0):
+            print()
+            print("RANKER V5 strict PRE-TRAIN validation (actual candidates):")
+            print(f"  shots with diagnostic: {ranker_v5.get('shots')}")
+            print(f"  strict radius        : {ranker_v5.get('strict_radius_px')} px")
+            print(f"  paired GT shots      : {ranker_v5.get('paired_shots_with_gt_12px')}")
+            print(
+                "  BASE / V5 median rank: "
+                f"{ranker_v5.get('base_gt_rank_median_12px')} / "
+                f"{ranker_v5.get('v5_gt_rank_median_12px')}"
+            )
+            print(
+                "  BASE top1/top3      : "
+                f"{ranker_v5.get('base_top1_pct_12px')}% / "
+                f"{ranker_v5.get('base_top3_pct_12px')}%"
+            )
+            print(
+                "  V5 top1/top3        : "
+                f"{ranker_v5.get('v5_top1_pct_12px')}% / "
+                f"{ranker_v5.get('v5_top3_pct_12px')}%"
+            )
+            print(
+                "  V5 better/worse/same: "
+                f"{ranker_v5.get('v5_better_rank_count',0)}/"
+                f"{ranker_v5.get('v5_worse_rank_count',0)}/"
+                f"{ranker_v5.get('same_rank_count',0)}"
+            )
+            print(
+                "  trained / skipped   : "
+                f"{ranker_v5.get('trained_shots',0)} / "
+                f"{ranker_v5.get('skipped_no_positive',0)}"
+            )
+            gate = ranker_v5.get("latest_gate", {})
+            if isinstance(gate, dict):
+                print(
+                    "  latest auto-gate     : "
+                    f"open={gate.get('open')} eligible={gate.get('eligible_shots')} "
+                    f"BASE={gate.get('base_top1_pct')}% "
+                    f"V5={gate.get('v5_top1_pct')}% "
+                    f"adv={gate.get('advantage_pp')}pp"
+                )
+            print(
+                "  gate-open / overrides: "
+                f"{ranker_v5.get('gate_open_shots',0)} / "
+                f"{ranker_v5.get('override_applied_shots',0)}"
+            )
 
         shadow = ev.get("ranking_v4_shadow", {})
         if isinstance(shadow, dict) and shadow.get("shots", 0):
@@ -1074,7 +1293,7 @@ def print_summary(summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyse machine-readable Detector V2 through V2.5 shot diagnostics."
+        description="Analyse machine-readable Detector V2 through V2.6 shot diagnostics."
     )
     parser.add_argument(
         "path",

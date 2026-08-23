@@ -1,4 +1,4 @@
-# Detector V2.5 — localisation diagnostics, refined centres and shadow ranking
+# Detector V2.6 — shot vault + strict-candidate Ranker V5
 
 ## Status
 
@@ -24,6 +24,146 @@ Expected startup lines:
 [DETECTOR-V2] Hybrid candidate generator installed
 [RANKER-V4] installed (V2.5 shadow mode supported)
 ```
+
+
+## V2.6 — decisions from the V2.5 deterministic benchmark
+
+The V2.5 run with seeds `12345..12354` gave the clearest split so far:
+
+```text
+V2.4/V2.5 final BEST/EVER <=42 px   81.10 %
+ACTUAL F2 raw <=42 px                58.70 %
+ACTUAL F2 filtered <=42 px           56.20 %
+ACTUAL F2 ranked <=42 px             48.90 %
+ACTUAL selected <=42 px               0.70 %
+
+candidate disappeared before eval      311
+selected wrong candidate                412
+ranking top-K removed GT                 57
+```
+
+It also disproved two V2.5 ideas:
+
+```text
+V2.5 weighted centre refinement:
+  better / worse / same = 115 / 848 / 37
+  median improvement    = -10.243 px
+
+GT localisation probe:
+  median dx / dy        = +1.594 / +1.186 px
+```
+
+The zone offsets were small and did not show a strong systematic screen-space
+bias. Therefore V2.6 does **not** apply a homography correction and disables the
+harmful centre-refinement experiment.
+
+### 1. Freeze the successful V2.4 local-tile detector
+
+`detector_v25.json` disables:
+
+```text
+gt_local_probe_enabled
+ tile_refine_enabled
+ shadow_accumulator_enabled
+```
+
+The V2.4 local-tile path remains active and unchanged. This protects the part of
+the detector that raised BEST/EVER 42 px recall to roughly 80%.
+
+### 2. Shot Candidate Vault
+
+V2.5 shadow telemetry showed that a GT hypothesis often appears on only one
+camera frame. Requiring repeated observations before carry is therefore the
+wrong rule.
+
+V2.6 stores a bounded spatial union of candidates for the complete pending
+shot:
+
+```text
+camera frame 1 --+                       
+camera frame 2 --+--> 10 px cells --> spatially balanced vault
+camera frame 3 --+                       |
+                                          +--> current frame + carried history
+```
+
+Properties:
+
+- no repeated-hit requirement;
+- one best representative per 10 px cell;
+- current-frame candidates are never removed;
+- earlier hypotheses are carried for at most ~2.2 seconds;
+- macro-cell round-robin prevents one textured region from consuming the carry
+  budget;
+- carried points are tagged with age/hit/source information;
+- the vault is bounded and fail-open.
+
+The purpose is very specific: close the gap between `BEST/EVER ~81%` and
+`ACTUAL F2 raw ~59%` without inventing candidates from GT.
+
+### 3. Ranker V5 — only real detector candidates are positive
+
+V4 learned from a synthetic descriptor sampled exactly at projected GT. V2.5
+showed that this produced implausible negative weights for strong temporal
+signal and did not improve real ranking.
+
+V5 trains only when the detector itself generated a candidate within **12 px**
+of synthetic GT:
+
+```text
+positive = nearest ACTUAL candidate <=12 px
+hard negatives = ACTUAL candidates >=55 px
+```
+
+If there is no <=12 px candidate, the shot is skipped for model training. V5
+never samples a synthetic positive patch directly at the known answer and does
+not use X/Y position as a feature.
+
+The current shot is always evaluated **before** it is learned.
+
+### 4. Conservative measured auto-gate
+
+V5 starts as a shadow ranker. It may move one candidate to rank 1 only if its
+previous strict 12 px PRE-TRAIN validation shows all of the following:
+
+- at least 80 eligible labelled shots in the rolling window;
+- conditional V5 Top-1 >= 12%;
+- at least +6 percentage points over BASE Top-1;
+- current-shot V5 confidence and score margin also pass thresholds.
+
+If those conditions are not met, the actual order remains the base ranker's
+order. A new experimental model therefore cannot repeat V4's regression simply
+because it has accumulated many training updates.
+
+### 5. Synthetic F2 keeps the complete ranked pool
+
+The V2.5 report showed 57 labelled shots where GT existed after filtering but
+was lost only because the benchmark truncated the ranked list at the normal
+candidate limit. For labelled synthetic diagnostics V2.6 requests the complete
+pool. This does not use GT coordinates to choose a candidate; it only prevents
+benchmark bookkeeping from hiding a candidate that the ranker actually had.
+
+Normal gameplay still uses its requested limit.
+
+### V2.6 benchmark
+
+Use exactly the same deterministic sequence:
+
+```bash
+python3 -m automation.ai_training_loop 1 10 --seed 12345
+python3 -m automation.detector_v2_analyze
+```
+
+The key questions are now:
+
+```text
+Did ACTUAL F2 raw rise toward V2.4 BEST/EVER?
+How many GT shots are present specifically in carried vault history?
+Did candidate_disappeared_before_evaluation fall sharply?
+How many strict <=12 px positives did V5 obtain?
+Does V5 PRE-TRAIN median rank / Top-1 beat BASE?
+Did the V5 auto-gate remain closed unless that advantage was real?
+```
+
 
 ---
 

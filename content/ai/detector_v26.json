@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "shot_vault_enabled": true,
+  "shot_vault_cell_px": 10.0,
+  "shot_vault_dedupe_radius_px": 4.5,
+  "shot_vault_macro_cell_px": 120.0,
+  "shot_vault_max_cells": 900,
+  "shot_vault_carried_slots": 420,
+  "shot_vault_output_limit": 680,
+  "shot_vault_max_age_s": 2.2,
+  "shot_vault_keep_shots": 6,
+  "shot_vault_score_decay": 0.98,
+  "diagnostics_enabled": true
+}
