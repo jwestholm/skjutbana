@@ -1,439 +1,374 @@
-# Detector / Ranking V2.3
+# Detector V2.4 — local temporal sampling, shot accumulation and patch-shape ranking
 
-## Purpose
+## Status
 
-V2.3 is the next experimental camera/AI pipeline for Skjutbana. It is built from the measured V2.2 bottlenecks rather than from blind threshold tuning.
+V2.4 is an **additive experimental layer** on top of the Detector V2/V2.3 code
+already present in the repository.
 
-The V2.2 benchmark showed roughly:
+It deliberately does **not** replace:
 
-- the correct candidate survived into the ranked list in almost half of synthetic shots,
-- but the selected candidate was correct only a few percent of the time,
-- the median ground-truth candidate rank was about 74,
-- hundreds of candidates appeared during a shot and then disappeared before F2 evaluated it,
-- many ground-truth locations had measurable camera signal even when no candidate was generated.
+- `src/engine/camera/candidate_generator_v2.py`
+- `src/engine/ai/runtime.py`
+- `content/menu.json`
+- any game/menu scene
 
-V2.3 therefore attacks three separate stages:
+The tested V2/V2.3 core remains the fallback/base implementation. V2.4 patches
+it at runtime and is fail-open: if an extension cannot load, the older detector
+or ranker remains usable.
 
-1. **candidate generation / strong-signal rescue**,
-2. **candidate persistence until the exact F2 evaluation snapshot**,
-3. **candidate ranking with a supervised pairwise learner trained directly from synthetic ground truth**.
+Expected startup lines:
 
-The existing V1 detector, existing AI memory and normal game pipeline remain in place. V2.3 is additive and fail-open where possible.
+```text
+[DETECTOR-V2.4] local-tile + shot-accumulator extension installed
+[DETECTOR-V2] Hybrid candidate generator installed
+[RANKER-V4] Patch-descriptor pairwise ranker installed
+```
 
 ---
 
-## Files in this update
+## Why V2.4 exists
+
+The deterministic V2.3 benchmark (`12345..12354`) showed approximately:
 
 ```text
-src/engine/camera/__init__.py
-src/engine/camera/candidate_generator_v2.py
-src/engine/ai/runtime.py
-src/engine/ai/pairwise_ranker.py
-content/ai/detector_v2.json
-automation/ai_training_loop.py
-automation/detector_v2_analyze.py
-DETECTOR_V2.md
-INSTALL_DETECTOR_V2.txt
+BEST/EVER merged <=42 px       64.96 %
+Actual F2 raw <=42 px          45.59 %
+Actual F2 filtered <=42 px     43.44 %
+Actual F2 selected <=42 px      1.13 %
+GT median rank                    78
+GT Top-3                        2.83 %
 ```
 
-No `menu.json` is included. No game/menu scene is removed or replaced.
+The loss classes also showed three independent bottlenecks:
 
-No learned `ranker_v3.json` is included. It is created by the running game so installing this ZIP cannot overwrite an already learned V3 model.
+```text
+detector never covered GT              ~342
+candidate disappeared before F2 eval   ~337
+selected wrong candidate               ~270
+```
+
+And roughly 243 labelled shots had strong temporal signal around ground truth
+but no useful peak.
+
+V2.4 therefore changes *representation and temporal handling*, not merely one
+threshold.
 
 ---
 
-# 1. Pairwise Ranker V3
-
-## Why
-
-V2.2 diagnostics showed that the correct candidate often existed in the final ranked candidate list but was placed far down the ranking. The old heuristic frequently preferred the wrong candidate by a large margin, while old memory similarity contributed very little separation.
-
-Synthetic F2 training gives something unusually valuable: **exact ground truth for every shot**.
-
-V2.3 uses that ground truth directly.
-
-For each labelled shot where a candidate exists within the accepted GT radius:
+## V2.4 architecture
 
 ```text
-positive = candidate nearest ground truth
-
-hard negatives = strongest wrong candidates from the same shot
-                 that are safely outside the GT area
+existing V1/V2 candidate generator
+              |
+              +--------------------+
+                                   |
+local temporal tile probes         |
+(absdiff + z-score per small tile) |
+              |                    |
+              +------ merge -------+
+                        |
+               local patch descriptors
+                        |
+               shot-level accumulator
+                        |
+           current + carried candidates
+                        |
+                 existing base ranker
+                        |
+              Ranker V4 patch model
+                        |
+                    selected
 ```
 
-The model learns pairwise statements:
+### 1. Local temporal tile probes
+
+The full projector image is divided into small tiles. Each tile contributes a
+few of its strongest **local** temporal changes.
+
+A 4-gray-level hole therefore does not have to beat the strongest artifact
+somewhere else in the image.
+
+Default V2.4 values use 10 x 8 tiles, up to 3 local probes per tile and a
+bounded high-recall reserve.
+
+### 2. Shot-level accumulator
+
+Candidates are clustered spatially across the whole shot window.
+
+The accumulator tracks:
+
+- number of separate observations
+- first/last observation time
+- positional stability
+- V1/V2/tile provenance
+- best local patch quality
+
+Repeated candidates can survive disappearance from the final camera frame.
+A single very hole-like temporal patch may also be carried for a very short
+window. Carried candidates have a strict bounded budget and never replace the
+entire current candidate set.
+
+### 3. Local patch descriptor
+
+V2.3 demonstrated that scalar fields such as detector score, area and
+persistence do not tell the ranker enough about *what the local image looks
+like*.
+
+V2.4 describes a small temporal patch around every candidate using:
+
+- core/ring/outer absdiff
+- core/ring z-score
+- dark core / bright ring response
+- local SNR
+- centre-to-outer contrast
+- compactness
+- centredness
+- isotropy / line-likeness
+- bipolar response
+- ringness
+- centroid offset
+
+It also stores three normalized 5 x 5 grids:
+
+- absolute temporal change
+- signed dark-vs-bright change
+- z-score
+
+This gives the small linear ranker an actual coarse *picture* of the local
+change without adding a neural-network dependency.
+
+### 4. Exact-ground-truth training for Ranker V4
+
+This is an important change from V3.
+
+The 42 px radius is useful as a lenient evaluation tolerance, but it is too
+loose to label local image appearance. A candidate 35-40 px from GT can be a
+nearby projection artifact.
+
+After a synthetic shot has already been ranked/evaluated, V2.4 samples the
+patch descriptor **exactly at camera-space ground truth** and uses it only as a
+training positive for the *next* shots.
 
 ```text
-positive candidate > hard negative 1
-positive candidate > hard negative 2
+rank current shot WITHOUT GT
+        |
+        v
+measure result
+        |
+        v
+sample exact GT patch for training only
+        |
+        v
+learn: true patch > hard wrong candidates
+```
+
+There is therefore no ground-truth leakage into the score being measured for
+the current round.
+
+If an exact GT patch is unavailable/too weak, V4 can fall back to a candidate
+within a much tighter 16 px training radius rather than 42 px.
+
+### 5. Ranker V4 focuses on patch shape
+
+The previous/base ranker is still present and contributes a bounded score.
+The learned V4 component focuses mainly on temporal patch appearance instead
+of relearning detector-score/blob-size biases.
+
+Pairwise training uses hard negatives from the same shot:
+
+```text
+exact GT patch > high-ranked wrong candidate #1
+exact GT patch > high-ranked wrong candidate #2
 ...
 ```
 
-This is a small online logistic ranker implemented in ordinary Python. It does not require PyTorch, TensorFlow or scikit-learn.
-
-## Model file
-
-The learned ranker is stored separately in:
+Model state:
 
 ```text
-content/ai/ranker_v3.json
+content/ai/ranker_v4.json
 ```
 
-It contains:
-
-- fixed feature names,
-- learned weights,
-- positive-shot count,
-- pair-update count,
-- last training loss,
-- update timestamp.
-
-## Position independent
-
-The V3 features deliberately do **not** learn X/Y position. Synthetic holes are randomly placed and the task is to learn what a new hole looks like, not where previous holes happened to occur.
-
-Important feature groups include:
+Training log:
 
 ```text
-detector strength
-area / radius / circularity
-center change
-local contrast
-pre-shot change
-patch variation / edge strength
-persistence
-V1 / V2 provenance
-true V1+V2 agreement
-candidate-bank confirmation
-V2 absdiff / z-score / local contrast
-V2 primary/rescue source
-peak refinement amount
+content/ai/ranker_v4/training_pairs.jsonl
 ```
 
-## Conservative ramp-in
-
-The V3 model does not immediately take over ranking.
-
-Default behaviour:
+Ranker configuration:
 
 ```text
-< 20 labelled positive shots  -> V3 ranking weight = 0
-20..120 positive shots        -> weight gradually increases
->= 120 positive shots         -> max V3 weight = 0.72
+content/ai/ranker_v4_config.json
 ```
 
-The previous ranker remains part of the score while V3 is learning.
+The model weight ramps in gradually; a fresh untrained model is not allowed to
+immediately dominate the existing ranker.
 
-## Reset behaviour
-
-The existing AI-memory reset remains authoritative.
-
-When the existing UI/action calls:
-
-```python
-runtime.memory.reset()
-```
-
-V2.3 also resets `ranker_v3.json` through a reset callback.
-
-This means the user's existing **R / reset AI memory** operation clears:
-
-```text
-content/ai/memory.json learned examples
-+
-content/ai/ranker_v3.json learned pairwise ranker
-```
-
-It does **not** clear benchmark/result history.
+The existing AI-memory reset action also resets Ranker V4. It does **not**
+remove historical benchmark results.
 
 ---
 
-# 2. Candidate-bank V2.3
+## Deterministic benchmark
 
-## Problem in V2.2
-
-The V2.2 bank tried to preserve candidates that appeared earlier in a shot, but it only filled unused slots.
-
-With the normal candidate limit at 200:
-
-```text
-current frame = 200 candidates
-bank capacity = 200 - 200 = 0
-```
-
-The bank was therefore almost useless exactly on the noisy frames where it was needed most.
-
-## V2.3 reserve
-
-The current hybrid frame is still limited normally, but the bank output has a separate ceiling:
-
-```text
-current hybrid candidates: normally <= 200
-candidate-bank output:     <= 240
-carried reserve:            <= 40
-```
-
-A confirmed earlier candidate can therefore survive alongside a full current snapshot.
-
-Current candidates are never deleted merely to make room for history.
-
-## Current-candidate annotation
-
-A candidate still visible in the current frame is now annotated with its matching bank history:
-
-```text
-candidate_bank_hits
-candidate_bank_streak
-candidate_bank_confirmed
-```
-
-This lets the ranker use temporal consistency even before a candidate has disappeared and been carried.
-
-## Anti-noise rules
-
-The bank still prevents dense one-frame noise from manufacturing persistence:
-
-- one bank entry can match only once per camera frame,
-- V2-only rescue candidates normally require repeated frames,
-- stale unconfirmed hypotheses expire quickly,
-- carried output is capped,
-- current-frame evidence remains authoritative.
-
----
-
-# 3. Strong-signal rescue
-
-V2.2 still had a large `strong_gt_signal_but_peak_missing` class. The camera measured change at ground truth, but no candidate was emitted close enough.
-
-V2.3 keeps the multi-path V2 detector and makes the rescue stage more recall-oriented:
-
-```text
-composite saliency local maxima
-+
-independent temporal-map peaks
-+
-connected-component weighted centres
-```
-
-The rescue candidate pool is broader, while spatial quotas and NMS prevent one image region from consuming every slot.
-
-The long-term design rule remains:
-
-> Candidate generation should optimise recall. Ranking should recover precision.
-
----
-
-# 4. Deterministic synthetic benchmarks
-
-Random synthetic holes made earlier V2 version comparisons noisy. V2.3 adds an optional deterministic benchmark seed.
-
-Run:
+Use the same seed series when comparing versions:
 
 ```bash
 python3 -m automation.ai_training_loop 1 10 --seed 12345
 ```
 
-Run N receives:
+Ten runs currently mean 1000 synthetic shots. Run 1 uses seed 12345, run 2
+12346, etc.
 
-```text
-12345
-12346
-12347
-...
+The benchmark control is cleared automatically after the loop, so later manual
+F2 training returns to ordinary random behaviour.
+
+Then analyse:
+
+```bash
+python3 -m automation.detector_v2_analyze
 ```
 
-Using the same base seed in another code version gives the same synthetic target/hole random stream for static backgrounds.
+V2.4 reports old and new paths separately:
 
-A manifest is saved with the automation result session:
+- legacy V1
+- V2 frame
+- V2 bank
+- merged legacy/V2
+- V2.4 tile probes
+- V2.4 accumulator
+- V2.4 final pool
+- actual F2 raw/filter/ranked/selected
+- Ranker V4 full-pool GT rank
+- selected-minus-GT patch-feature medians
+- benchmark integrity
 
-```text
-seed_manifest.json
-```
+### Benchmark integrity
 
-The detector diagnostic ground truth also records `benchmark_seed`.
+Fast scene changes previously left a small number of labelled detector records
+buffered (for example 976/1000).
 
-The temporary control file is:
+At the end of a completed automated F2 report, V2.4 now force-finalizes all
+remaining labelled diagnostics. A missing real evaluation is explicitly marked
+rather than silently discarded.
 
-```text
-content/ai/benchmark_control.json
-```
-
-The loop disables deterministic mode in a `finally` block after it finishes so later manual F2 runs return to normal randomness.
-
-### Important limitation
-
-Static backgrounds such as `white` are the best choice for strict A/B testing. Animated/random backgrounds can consume random numbers as part of their animation state before a run, so deterministic hole sampling is the primary guarantee.
+The analyser reports `COMPLETE` only when the expected diagnostic count exists
+and none of those records needed a missing-evaluation placeholder.
 
 ---
 
-# 5. Benchmark integrity
+## Machine-readable files
 
-Earlier 1000-shot runs sometimes produced only 985-994 V2 diagnostic records.
-
-V2.3 registers a diagnostic skeleton as soon as the synthetic hole ground truth is revealed, before a useful V2 detector frame is required.
-
-The desired integrity check is now:
-
-```text
-Synthetic shots:              1000
-Diagnostics:                  1000
-With synthetic ground truth:  1000
-With evaluation funnel:       1000
-```
-
-If these numbers still differ, treat that as a separate telemetry/state bug rather than silently excluding missing shots.
-
----
-
-# 6. Detector diagnostics
-
-Per-shot machine-readable diagnostics remain in:
+Detector diagnostics remain:
 
 ```text
 content/ai/detector_v2/shot_diagnostics.jsonl
-```
-
-Analyse only the newest detector runtime session:
-
-```bash
-python3 -m automation.detector_v2_analyze
-```
-
-The analyser reports:
-
-```text
-BEST/EVER detector recall
-    V1
-    V2 frame
-    V2 bank
-    merged
-
-ACTUAL F2 evaluation funnel
-    raw
-    filtered
-    ranked
-    selected
-
-candidate-bank provenance
-pipeline loss classification
-ground-truth signal statistics
-ranking quality
-Ranker V3 score separation
-Ranker V3 effective weight
-Ranker V3 persisted model statistics
-benchmark seeds
-```
-
-It writes:
-
-```text
 content/ai/detector_v2/latest_summary.json
 ```
 
+Automation loop results remain:
+
+```text
+content/ai/automation_runs/<session>/
+```
+
+V2.4 does not replace those formats; it adds fields to the detector diagnostic
+records.
+
 ---
 
-# 7. How to test V2.3
+## Configuration
 
-## First learning test
+High-recall detector extension:
 
-Start the game, then run:
+```text
+content/ai/detector_v24.json
+```
+
+Patch ranker:
+
+```text
+content/ai/ranker_v4_config.json
+```
+
+The first tuning target should be **candidate recall**, not candidate count.
+False candidates are acceptable at this layer if the true hole reaches the
+ranker consistently.
+
+---
+
+## Self-test
+
+The package includes a dependency-light self-test:
+
+```bash
+python3 automation/detector_v24_selftest.py
+```
+
+It verifies:
+
+- compact hole descriptor vs elongated edge descriptor
+- one-frame shot-accumulator carry
+- weak local tile-hole recovery
+- Ranker V4 pairwise learning
+- exact-GT patch supervision when no detector candidate is near GT
+
+These are synthetic code-level checks, not a replacement for the physical
+projector/webcam benchmark.
+
+---
+
+## Recommended first physical test
+
+1. Copy the package onto `dev`.
+2. Restart the game.
+3. Confirm the V2.4 and Ranker V4 startup messages.
+4. Run:
 
 ```bash
 python3 -m automation.ai_training_loop 1 10 --seed 12345
 ```
 
-Then:
+5. Run:
 
 ```bash
 python3 -m automation.detector_v2_analyze
 ```
 
-The first 20 positive labelled shots deliberately have V3 weight 0. After that, the V3 contribution ramps up. Therefore a 10 x 100 series is much more informative than a single 100-shot run for the new ranker.
+Compare to the V2.3 deterministic baseline above.
 
-### Most important numbers
-
-Compare with V2.2:
+The highest-value numbers are:
 
 ```text
-ACTUAL F2 raw <=42px
-ACTUAL F2 ranked <=42px
-ACTUAL F2 selected <=42px
-GT median rank
-GT rank=1
-GT rank<=3
-selected-GT Ranker V3 score median
-Ranker V3 weight median
+V2.4 final BEST/EVER <=42 px
+Actual F2 raw <=42 px
 candidate_disappeared_before_evaluation
-strong_gt_signal_but_peak_missing
+Ranker V4 GT median rank
+Ranker V4 Top-1 / Top-3
+Actual selected <=42 px
+Benchmark integrity
 ```
-
-The ideal direction is:
-
-```text
-raw recall       up
-ranked recall    up / stable
-selected recall  strongly up
-GT median rank   strongly down
-candidate disappeared count down
-```
-
-## Fair detector A/B tests
-
-For a strict detector-only comparison, the AI model should be frozen or reset to the same starting state before each version. The runtime already supports:
-
-```json
-"benchmark_mode": true
-```
-
-which makes F1/F2 evaluate without updating learned models.
-
-Use the same `--seed` in both code versions.
-
-For a **learning** comparison, leave benchmark mode false and start both compared tests from the same AI/ranker state.
 
 ---
 
-# 8. Rollback / switches
+## Rollback / safety
 
-## Disable Detector V2
+V2.4 is additive.
 
-Edit:
-
-```text
-content/ai/detector_v2.json
-```
-
-and set:
+To disable only the new detector extension:
 
 ```json
+// content/ai/detector_v24.json
 "enabled": false
 ```
 
-The detector config is hot-reloaded.
-
-## Disable Pairwise Ranker V3
-
-The V3 switch lives in normal AI settings:
+To disable only Ranker V4:
 
 ```json
-"ranking_v3_enabled": false
+// content/ai/ranker_v4_config.json
+"enabled": false
 ```
 
-If that key does not exist in an older `content/ai/settings.json`, the runtime default is `true`.
+The older Detector V2/V2.3 core remains in the repository and continues to be
+the fallback.
 
-No existing settings file is included in this ZIP, so installation does not overwrite user settings.
-
----
-
-# 9. Important rules for future AI development
-
-1. Do not delete or bypass V1 merely because V2 exists. Hybrid recall is still useful.
-2. Do not use synthetic X/Y position as a learning feature.
-3. Never train on the selected candidate as if selection itself proved correctness. Synthetic ground truth determines the positive.
-4. Keep hard negatives outside the ambiguous GT radius.
-5. Do not measure detector improvement from `selected` alone; inspect raw/merged detector recall first.
-6. Do not claim an A/B improvement from different random shot sequences. Use `--seed`.
-7. Do not overwrite `memory.json`, `ranker_v3.json`, result history or normal settings in code update ZIPs.
-8. If diagnostics count differs from requested/completed synthetic shots, fix telemetry integrity before drawing precise percentages.
-9. Candidate generation may be permissive. Precision is primarily the ranker's job once raw recall is high enough.
-10. Any experimental failure should fail open to the existing detector/ranking path where possible.
+No menu JSON, game definition or ordinary game scene is changed by this update.

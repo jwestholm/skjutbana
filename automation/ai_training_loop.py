@@ -7,7 +7,6 @@ from pathlib import Path
 
 from automation.ai_training_results import AITrainingRunStore
 from automation.autostart_ai_training import (
-    BACKGROUND_NAMES,
     WINDOW_X,
     WINDOW_Y,
     autostart_ai_training,
@@ -25,13 +24,15 @@ BENCHMARK_CONTROL_PATH = Path("content/ai/benchmark_control.json")
 
 def _write_benchmark_control(seed: int | None) -> None:
     BENCHMARK_CONTROL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "enabled": seed is not None,
-        "seed": int(seed) if seed is not None else None,
-        "updated_at": time.time(),
-    }
     BENCHMARK_CONTROL_PATH.write_text(
-        json.dumps(payload, indent=2),
+        json.dumps(
+            {
+                "enabled": seed is not None,
+                "seed": int(seed) if seed is not None else None,
+                "updated_at": time.time(),
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -46,6 +47,13 @@ def run_training_loop(
         raise ValueError("runs must be at least 1")
 
     store = AITrainingRunStore(background, runs)
+    seed_manifest = {
+        "base_seed": seed,
+        "background": str(background),
+        "runs": runs,
+        "run_seeds": [],
+        "started_at": time.time(),
+    }
 
     print("=" * 72)
     print("AI TRAINING LOOP")
@@ -55,17 +63,10 @@ def run_training_loop(
     print(f"Window position: ({WINDOW_X}, {WINDOW_Y})")
     print(f"Results: {store.directory}")
     if seed is None:
-        print("Benchmark seed: random (legacy behaviour)")
+        print("Benchmark seed: random")
     else:
         print(f"Benchmark seed: {seed} (run N uses seed + N - 1)")
     print("=" * 72)
-
-    seed_manifest = {
-        "base_seed": seed,
-        "runs": runs,
-        "background": str(background),
-        "run_seeds": [],
-    }
 
     try:
         with EventListener() as listener:
@@ -73,11 +74,7 @@ def run_training_loop(
             send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
 
             for run_number in range(1, runs + 1):
-                run_seed = (
-                    int(seed) + run_number - 1
-                    if seed is not None
-                    else None
-                )
+                run_seed = int(seed) + run_number - 1 if seed is not None else None
                 _write_benchmark_control(run_seed)
                 seed_manifest["run_seeds"].append(run_seed)
 
@@ -124,7 +121,7 @@ def run_training_loop(
         raise
 
     finally:
-        # Do not accidentally make later manual F2 runs deterministic.
+        # A later manual F2 run must not accidentally inherit a benchmark seed.
         try:
             _write_benchmark_control(None)
         except Exception:
@@ -136,6 +133,7 @@ def run_training_loop(
     print("=" * 72)
     print(f"Completed runs: {summary.get('completed_runs')}/{runs}")
     print(f"Synthetic shots: {summary.get('total_synthetic_shots')}")
+
     aggregate = summary.get("aggregate", {})
     print(
         "Aggregate: "
@@ -144,6 +142,7 @@ def run_training_loop(
         f"top3={aggregate.get('top3_pct')}% | "
         f"AI={aggregate.get('ai_guess_correct_pct')}%"
     )
+
     trend = summary.get("trend", {})
     print(
         "First -> last: "
@@ -185,11 +184,7 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        run_training_loop(
-            args.background,
-            args.runs,
-            seed=args.seed,
-        )
+        run_training_loop(args.background, args.runs, seed=args.seed)
     except (TcpNetworkError, RuntimeError, ValueError) as exc:
         print(f"ERROR: {exc}")
         raise SystemExit(1)

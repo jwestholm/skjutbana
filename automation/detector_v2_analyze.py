@@ -11,7 +11,6 @@ from typing import Any
 
 DEFAULT_PATH = Path("content/ai/detector_v2/shot_diagnostics.jsonl")
 DEFAULT_SUMMARY = Path("content/ai/detector_v2/latest_summary.json")
-RANKER_V3_PATH = Path("content/ai/ranker_v3.json")
 
 
 def _finite(value: Any) -> float | None:
@@ -48,42 +47,6 @@ def load_records(path: Path) -> list[dict[str, Any]]:
             if isinstance(value, dict):
                 records.append(value)
     return records
-
-
-def load_ranker_v3_summary(path: Path = RANKER_V3_PATH) -> dict[str, Any]:
-    if not path.exists():
-        return {"present": False}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return {"present": True, "error": str(exc)}
-    if not isinstance(payload, dict):
-        return {"present": True, "error": "invalid payload"}
-    stats = payload.get("stats", {})
-    if not isinstance(stats, dict):
-        stats = {}
-    weights = payload.get("weights", {})
-    if not isinstance(weights, dict):
-        weights = {}
-    finite_weights = []
-    for key, value in weights.items():
-        number = _finite(value)
-        if number is not None:
-            finite_weights.append((str(key), number))
-    finite_weights.sort(key=lambda item: abs(item[1]), reverse=True)
-    return {
-        "present": True,
-        "version": payload.get("version"),
-        "positive_shots": int(stats.get("positive_shots", 0) or 0),
-        "pair_updates": int(stats.get("pair_updates", 0) or 0),
-        "skipped_no_positive": int(stats.get("skipped_no_positive", 0) or 0),
-        "last_loss": stats.get("last_loss"),
-        "last_updated": stats.get("last_updated"),
-        "largest_weights": [
-            {"feature": key, "weight": round(value, 6)}
-            for key, value in finite_weights[:8]
-        ],
-    }
 
 
 def select_records(
@@ -185,7 +148,11 @@ def classify_pipeline_loss(record: dict[str, Any], radius: float) -> str:
     if not isinstance(record.get("ground_truth"), dict):
         return "unlabelled"
 
-    ever = _found(_nearest(record, "merged"), radius)
+    v24 = record.get("v24", {}) if isinstance(record.get("v24"), dict) else {}
+    ever = (
+        _found(_nearest(record, "merged"), radius)
+        or _found(v24.get("final_nearest_px"), radius)
+    )
     evaluation = _evaluation(record)
     if not evaluation:
         return "no_evaluation_telemetry"
@@ -223,7 +190,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     detector_sources = ("legacy", "v2_frame", "v2", "merged")
 
     summary: dict[str, Any] = {
-        "schema_version": "2.3",
+        "schema_version": "2.4",
         "records_total": len(records),
         "records_with_ground_truth": len(labelled),
         "records_with_evaluation_funnel": sum(
@@ -247,7 +214,6 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         }),
         "overall": {},
         "by_background": {},
-        "ranker_v3_model": load_ranker_v3_summary(),
     }
 
     for radius in match_radii:
@@ -257,6 +223,28 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             count = sum(
                 1 for record in labelled
                 if _found(_nearest(record, source), radius)
+            )
+            summary["overall"][key][source] = {
+                "count": count,
+                "pct": _pct(count, len(labelled)),
+            }
+
+    # V2.4 additive paths are stored separately so historical V2/V2.3 fields
+    # remain comparable.
+    for radius in match_radii:
+        key = f"within_{int(radius)}px"
+        for source, field in (
+            ("v24_final", "final_nearest_px"),
+            ("v24_tile", "tile_probe_nearest_px"),
+            ("v24_accumulator", "accumulator_nearest_px"),
+        ):
+            count = sum(
+                1
+                for record in labelled
+                if _found(
+                    (record.get("v24", {}) if isinstance(record.get("v24"), dict) else {}).get(field),
+                    radius,
+                )
             )
             summary["overall"][key][source] = {
                 "count": count,
@@ -353,6 +341,77 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "pct": _pct(count, len(eval_rows)),
             }
 
+        # V2.4 provenance in the exact F2 snapshot.
+        for name, field in (
+            ("raw_v24_tile", "raw_v24_tile_nearest_px"),
+            ("raw_v24_accumulator", "raw_v24_accumulator_nearest_px"),
+        ):
+            for radius in match_radii:
+                count = sum(
+                    1 for _record, ev in eval_rows if _found(ev.get(field), radius)
+                )
+                evaluation_summary[f"{name}_within_{int(radius)}px"] = {
+                    "count": count,
+                    "pct": _pct(count, len(eval_rows)),
+                }
+
+        for name, field in (
+            ("raw_v24_tile_count", "raw_v24_tile_count"),
+            ("raw_v24_accumulator_count", "raw_v24_accumulator_count"),
+        ):
+            values = [int(ev.get(field, 0) or 0) for _record, ev in eval_rows]
+            evaluation_summary[name] = {
+                "mean": round(sum(values) / len(values), 3) if values else 0.0,
+                "max": max(values) if values else 0,
+                "shots_with_candidates": sum(1 for value in values if value > 0),
+            }
+
+        v4_rows = []
+        for _record, ev in eval_rows:
+            block = ev.get("v24_ranking")
+            if not isinstance(block, dict):
+                continue
+            distance = _finite(block.get("gt_distance_px"))
+            rank = int(block.get("gt_rank", 0) or 0)
+            if distance is None or distance > 42.0 or rank <= 0:
+                continue
+            v4_rows.append(block)
+
+        v4_ranks = [int(block.get("gt_rank", 0) or 0) for block in v4_rows]
+        patch_delta_keys = [
+            "v24_combined_score",
+            "v24_patch_prior",
+            "ranker_v4_score",
+            "v24_patch_core_to_outer",
+            "v24_patch_compactness",
+            "v24_patch_centeredness",
+            "v24_patch_isotropy",
+            "v24_patch_bipolar",
+            "v24_patch_local_snr",
+            "shot_accumulator_hits",
+            "shot_accumulator_stability",
+        ]
+        delta_summary = {}
+        for key in patch_delta_keys:
+            values = [
+                value
+                for block in v4_rows
+                if isinstance(block.get("selected_minus_gt"), dict)
+                and (value := _finite(block["selected_minus_gt"].get(key))) is not None
+            ]
+            delta_summary[key] = (
+                round(statistics.median(values), 5) if values else None
+            )
+
+        evaluation_summary["ranking_v4"] = {
+            "shots_with_gt_in_pool_42px": len(v4_rows),
+            "gt_rank_median": round(statistics.median(v4_ranks), 3) if v4_ranks else None,
+            "gt_rank_mean": round(sum(v4_ranks) / len(v4_ranks), 3) if v4_ranks else None,
+            "gt_rank_top1_pct": _pct(sum(1 for value in v4_ranks if value == 1), len(v4_ranks)),
+            "gt_rank_top3_pct": _pct(sum(1 for value in v4_ranks if value <= 3), len(v4_ranks)),
+            "selected_minus_gt_medians": delta_summary,
+        }
+
         # Ranking diagnostics only make sense when a GT candidate actually
         # survived into the ranked top-K list.
         ranking_rows = []
@@ -380,28 +439,15 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         ]
         ai_deltas = []
         heuristic_deltas = []
-        ranker_v3_deltas = []
-        ranker_v3_weights = []
-        ranking_versions = Counter()
         for _ev, gt, selected in ranking_rows:
             gt_ai = _finite(gt.get("ai_score"))
             selected_ai = _finite(selected.get("ai_score"))
             gt_h = _finite(gt.get("heuristic_score"))
             selected_h = _finite(selected.get("heuristic_score"))
-            gt_v3 = _finite(gt.get("ranker_v3_score"))
-            selected_v3 = _finite(selected.get("ranker_v3_score"))
-            v3_weight = _finite(selected.get("ranker_v3_weight"))
-            version = str(selected.get("ranking_version", "") or "")
-            if version:
-                ranking_versions[version] += 1
             if gt_ai is not None and selected_ai is not None:
                 ai_deltas.append(selected_ai - gt_ai)
             if gt_h is not None and selected_h is not None:
                 heuristic_deltas.append(selected_h - gt_h)
-            if gt_v3 is not None and selected_v3 is not None:
-                ranker_v3_deltas.append(selected_v3 - gt_v3)
-            if v3_weight is not None:
-                ranker_v3_weights.append(v3_weight)
 
         evaluation_summary["ranking"] = {
             "shots_with_gt_in_ranked_42px": len(ranking_rows),
@@ -418,17 +464,6 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
             "selected_minus_gt_heuristic_score_median": (
                 round(statistics.median(heuristic_deltas), 5) if heuristic_deltas else None
             ),
-            "selected_minus_gt_ranker_v3_score_median": (
-                round(statistics.median(ranker_v3_deltas), 5)
-                if ranker_v3_deltas
-                else None
-            ),
-            "ranker_v3_weight_median": (
-                round(statistics.median(ranker_v3_weights), 5)
-                if ranker_v3_weights
-                else None
-            ),
-            "ranking_versions": dict(ranking_versions),
         }
 
     summary["overall"]["evaluation_funnel"] = evaluation_summary
@@ -463,6 +498,33 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         ),
     }
 
+    # Latest persisted V4 model summary copied into diagnostics by the V2.4
+    # extension.
+    model_summaries = [
+        record.get("ranker_v4_summary")
+        for record in labelled
+        if isinstance(record.get("ranker_v4_summary"), dict)
+    ]
+    if model_summaries:
+        summary["ranker_v4_model"] = model_summaries[-1]
+
+    seeds = summary.get("benchmark_seeds", [])
+    if seeds:
+        expected = len(seeds) * 100
+        missing_evaluation = sum(
+            1
+            for record in labelled
+            if str(record.get("benchmark_integrity", "")) == "missing_evaluation"
+            or bool(_evaluation(record).get("integrity_placeholder", False))
+        )
+        summary["benchmark_integrity"] = {
+            "expected_diagnostics": expected,
+            "actual_diagnostics": len(labelled),
+            "missing_diagnostics": max(0, expected - len(labelled)),
+            "missing_evaluation_records": missing_evaluation,
+            "complete": len(labelled) == expected and missing_evaluation == 0,
+        }
+
     # Explicit counts for the two changes introduced in V2.1.
     bank_recovered = sum(
         1 for record in labelled
@@ -479,7 +541,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         if _found(_nearest(record, "legacy"), 42.0)
         and not _found(_nearest(record, "merged"), 42.0)
     )
-    summary["overall"]["v23_changes"] = {
+    summary["overall"]["v22_changes"] = {
         "candidate_bank_recovered_42px": bank_recovered,
         "v2_lost_during_merge_42px": v2_lost_merge,
         "legacy_lost_during_merge_42px": legacy_lost_merge,
@@ -507,7 +569,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 def print_summary(summary: dict[str, Any]) -> None:
     print()
     print("=" * 88)
-    print("DETECTOR V2.3 ANALYSIS")
+    print("DETECTOR V2.4 ANALYSIS")
     print("=" * 88)
     print(f"Diagnostics: {summary['records_total']}")
     print(f"With synthetic ground truth: {summary['records_with_ground_truth']}")
@@ -523,53 +585,56 @@ def print_summary(summary: dict[str, Any]) -> None:
         if len(seeds) <= 12:
             print(f"Deterministic benchmark seeds: {seeds}")
         else:
+            print(f"Deterministic benchmark seeds: {seeds[0]}..{seeds[-1]} ({len(seeds)} unique)")
+    integrity = summary.get("benchmark_integrity", {})
+    if integrity:
+        state = "COMPLETE" if integrity.get("complete") else "INCOMPLETE"
+        print(
+            f"Benchmark integrity: {state}  "
+            f"{integrity.get('actual_diagnostics')}/{integrity.get('expected_diagnostics')} diagnostics"
+        )
+        if integrity.get("missing_evaluation_records", 0):
             print(
-                "Deterministic benchmark seeds: "
-                f"{seeds[0]}..{seeds[-1]} ({len(seeds)} unique)"
+                "  labelled diagnostics missing real F2 evaluation: "
+                f"{integrity.get('missing_evaluation_records')}"
             )
 
-    ranker_model = summary.get("ranker_v3_model", {})
-    if isinstance(ranker_model, dict):
+    model = summary.get("ranker_v4_model", {})
+    if model:
         print()
-        print("Pairwise Ranker V3 model:")
-        if not ranker_model.get("present", False):
-            print("  not created yet")
-        elif ranker_model.get("error"):
-            print(f"  ERROR: {ranker_model.get('error')}")
-        else:
-            print(f"  positive shots : {ranker_model.get('positive_shots', 0)}")
-            print(f"  pair updates   : {ranker_model.get('pair_updates', 0)}")
-            print(f"  skipped no GT  : {ranker_model.get('skipped_no_positive', 0)}")
-            print(f"  last loss      : {ranker_model.get('last_loss')}")
-            largest = ranker_model.get("largest_weights", [])
-            if largest:
-                rendered = ", ".join(
-                    f"{item.get('feature')}={item.get('weight')}"
-                    for item in largest[:5]
-                )
-                print(f"  strongest w    : {rendered}")
+        print("Ranker V4 model:")
+        print(f"  positive shots : {model.get('positive_shots')}")
+        print(f"  pair updates   : {model.get('pair_updates')}")
+        print(f"  last loss      : {model.get('last_loss')}")
+        print(f"  model weight   : {model.get('effective_weight')}")
+        strongest = model.get("strongest_weights", [])
+        if strongest:
+            print("  strongest w    : " + ", ".join(f"{k}={float(v):.3f}" for k, v in strongest[:6]))
 
     overall = summary.get("overall", {})
     for radius in (10, 20, 42):
         block = overall.get(f"within_{radius}px", {})
         print()
         print(f"BEST/EVER candidate recall within {radius}px:")
-        for source in ("legacy", "v2_frame", "v2", "merged"):
+        for source in ("legacy", "v2_frame", "v2", "merged", "v24_tile", "v24_accumulator", "v24_final"):
             data = block.get(source, {})
             label = {
                 "legacy": "legacy",
                 "v2_frame": "v2 frame",
                 "v2": "v2 bank",
                 "merged": "merged",
+                "v24_tile": "v24 tile",
+                "v24_accumulator": "v24 accum",
+                "v24_final": "v24 final",
             }[source]
             print(
                 f"  {label:10s}: {data.get('count', 0):5d} "
                 f"({data.get('pct', 0.0):6.2f}%)"
             )
 
-    changes = overall.get("v23_changes", overall.get("v22_changes", {}))
+    changes = overall.get("v22_changes", {})
     print()
-    print("V2.3 candidate preservation (42px):")
+    print("Legacy V2/V2.3 candidate preservation (42px):")
     print(
         "  recovered by candidate bank : "
         f"{changes.get('candidate_bank_recovered_42px', 0)}"
@@ -626,6 +691,43 @@ def print_summary(summary: dict[str, Any]) -> None:
                 f"GT@42px={recovered.get('count', 0)} ({recovered.get('pct', 0.0):.2f}%)"
             )
 
+        print()
+        print("V2.4 provenance in ACTUAL F2 raw snapshot (42px):")
+        for name, label in (
+            ("raw_v24_tile", "tile probe"),
+            ("raw_v24_accumulator", "shot accumulator"),
+        ):
+            data = ev.get(f"{name}_within_42px", {})
+            counts = ev.get(f"{name}_count", {})
+            print(
+                f"  {label:18s}: GT={data.get('count', 0):5d} "
+                f"({data.get('pct', 0.0):6.2f}%) "
+                f"mean candidates={counts.get('mean', 0.0)} max={counts.get('max', 0)}"
+            )
+
+        ranking_v4 = ev.get("ranking_v4", {})
+        if isinstance(ranking_v4, dict) and ranking_v4.get("shots_with_gt_in_pool_42px", 0):
+            print()
+            print("Ranker V4 quality when GT exists in full pool (42px):")
+            print(f"  shots                 : {ranking_v4.get('shots_with_gt_in_pool_42px')}")
+            print(f"  GT median rank        : {ranking_v4.get('gt_rank_median')}")
+            print(f"  GT mean rank          : {ranking_v4.get('gt_rank_mean')}")
+            print(f"  GT rank=1             : {ranking_v4.get('gt_rank_top1_pct')}%")
+            print(f"  GT rank<=3            : {ranking_v4.get('gt_rank_top3_pct')}%")
+            deltas = ranking_v4.get("selected_minus_gt_medians", {})
+            for key in (
+                "v24_combined_score",
+                "v24_patch_prior",
+                "ranker_v4_score",
+                "v24_patch_core_to_outer",
+                "v24_patch_compactness",
+                "v24_patch_centeredness",
+                "v24_patch_isotropy",
+                "v24_patch_local_snr",
+            ):
+                if key in deltas:
+                    print(f"  selected-GT {key:26s}: {deltas.get(key)}")
+
         ranking = ev.get("ranking", {})
         if isinstance(ranking, dict) and ranking.get("shots_with_gt_in_ranked_42px", 0):
             print()
@@ -647,17 +749,6 @@ def print_summary(summary: dict[str, Any]) -> None:
                 "  selected-GT heuristic : "
                 f"{ranking.get('selected_minus_gt_heuristic_score_median')}"
             )
-            print(
-                "  selected-GT Ranker V3 : "
-                f"{ranking.get('selected_minus_gt_ranker_v3_score_median')}"
-            )
-            print(
-                "  Ranker V3 weight med  : "
-                f"{ranking.get('ranker_v3_weight_median')}"
-            )
-            versions = ranking.get("ranking_versions", {})
-            if versions:
-                print(f"  ranking versions      : {versions}")
 
         print()
         print("Where GT was lost (42px):")
@@ -698,7 +789,7 @@ def print_summary(summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyse machine-readable Detector V2/V2.1/V2.2 shot diagnostics."
+        description="Analyse machine-readable Detector V2 through V2.4 shot diagnostics."
     )
     parser.add_argument(
         "path",

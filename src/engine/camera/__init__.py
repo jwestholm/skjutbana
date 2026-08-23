@@ -8,6 +8,16 @@ from .hit_scanner import HitScanner, hit_scanner
 try:
     from .candidate_generator_v2 import install_candidate_generator_v2
 
+    # V2.4 is additive: patch the tested V2/V2.3 CandidateGeneratorV2 class
+    # before the existing installer creates its engine instance. If V2.4 fails,
+    # ordinary V2 can still be installed below.
+    try:
+        from .detector_v24_extension import apply_detector_v24_extension
+
+        apply_detector_v24_extension()
+    except Exception as exc:
+        print(f"[DETECTOR-V2.4] unavailable, V2 core kept: {exc}")
+
     install_candidate_generator_v2(HitScanner)
 except Exception as exc:
     print(f"[DETECTOR-V2] unavailable, legacy detector kept: {exc}")

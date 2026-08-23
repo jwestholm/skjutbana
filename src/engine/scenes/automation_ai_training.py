@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import random
 import statistics
 import time
+from pathlib import Path
 from typing import Any
 
 import pygame
@@ -10,7 +13,8 @@ from src.engine.events.event_bus import event_bus
 from src.engine.scenes.ai_training import AITrainingScene
 
 
-AUTOMATION_RESULT_SCHEMA_VERSION = "1.0"
+AUTOMATION_RESULT_SCHEMA_VERSION = "1.1"
+BENCHMARK_CONTROL_PATH = Path("content/ai/benchmark_control.json")
 
 
 class AutomationAITrainingScene(AITrainingScene):
@@ -79,6 +83,17 @@ class AutomationAITrainingScene(AITrainingScene):
 
     def handle_event(self, event: pygame.event.Event):
         was_running = bool(self.auto_training_enabled)
+
+        # Deterministic benchmark seeding happens immediately BEFORE the real
+        # F2 path starts generating synthetic rounds. Normal/manual training is
+        # unaffected when benchmark_control.json is disabled or absent.
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key == pygame.K_F2
+            and not was_running
+        ):
+            self._apply_benchmark_seed_if_requested()
+
         result = super().handle_event(event)
         is_running = bool(self.auto_training_enabled)
 
@@ -99,6 +114,7 @@ class AutomationAITrainingScene(AITrainingScene):
                     "target_iterations": int(self.auto_target_iterations),
                     "sampling_mode": str(self.runtime.sampling_mode),
                     "training_started_ts": self._automation_training_started_ts,
+                    "benchmark_seed": getattr(self, "_automation_benchmark_seed", None),
                 },
                 source=self.EVENT_SOURCE,
             )
@@ -121,6 +137,34 @@ class AutomationAITrainingScene(AITrainingScene):
             )
 
         return result
+
+    def _apply_benchmark_seed_if_requested(self) -> None:
+        self._automation_benchmark_seed = None
+        try:
+            if not BENCHMARK_CONTROL_PATH.exists():
+                return
+            payload = json.loads(BENCHMARK_CONTROL_PATH.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not bool(payload.get("enabled", False)):
+                return
+            seed = int(payload.get("seed"))
+            random.seed(seed)
+            try:
+                import numpy as np
+
+                np.random.seed(seed & 0xFFFFFFFF)
+            except Exception:
+                pass
+            # SyntheticHoleOverlay already uses a fixed deterministic RNG per
+            # scene. If it has been constructed, re-seed it too so the complete
+            # hole sequence is explicitly tied to this run seed.
+            overlay = getattr(self, "synthetic_overlay", None)
+            rng = getattr(overlay, "_rng", None)
+            if rng is not None and hasattr(rng, "seed"):
+                rng.seed(seed ^ 0x5A17C0DE)
+            self._automation_benchmark_seed = seed
+            print(f"[BENCHMARK] deterministic seed={seed}")
+        except Exception as exc:
+            print(f"[BENCHMARK] seed setup failed: {exc}")
 
     def update(self, dt: float):
         previous_calibration_phase = self._auto_cal_phase
@@ -222,6 +266,28 @@ class AutomationAITrainingScene(AITrainingScene):
             "candidates_ranked": self._count_stats(ranked_counts),
         }
 
+        detector_diagnostic_flush = {
+            "finalized": 0,
+            "missing_evaluation": 0,
+        }
+        try:
+            from src.engine.camera.hit_scanner import HitScanner, hit_scanner
+
+            detector_engine = getattr(HitScanner, "_candidate_generator_v2_engine", None)
+            force_finalize = getattr(
+                detector_engine,
+                "force_finalize_benchmark_diagnostics",
+                None,
+            )
+            if callable(force_finalize):
+                detector_diagnostic_flush = dict(force_finalize(hit_scanner))
+        except Exception as exc:
+            detector_diagnostic_flush = {
+                "finalized": 0,
+                "missing_evaluation": 0,
+                "error": str(exc),
+            }
+
         consistency = {
             "current_round_id": int(self.current_round_id),
             "round_record_count": total,
@@ -229,6 +295,7 @@ class AutomationAITrainingScene(AITrainingScene):
             "counts_match": bool(
                 int(self.current_round_id) == total == funnel_count
             ),
+            "detector_diagnostic_flush": detector_diagnostic_flush,
         }
 
         event_bus.emit(
@@ -241,6 +308,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 "match_radius_px": match_radius_px,
                 "mode": "headless" if self.auto_headless else "visual",
                 "completed_ts": completed_ts,
+                "benchmark_seed": getattr(self, "_automation_benchmark_seed", None),
                 "training_duration_seconds": training_duration,
                 "scene_duration_seconds": scene_duration,
                 # Compatibility fields kept at top level.

@@ -13,6 +13,7 @@ def apply_bootstrap() -> None:
 
     _patch_menu_loader()
     _patch_scene_factory()
+    _patch_ranker_v4()
     _patch_hit_scanner()
 
     _bootstrapped = True
@@ -69,6 +70,19 @@ def _patch_scene_factory() -> None:
         )
 
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item
+
+
+
+def _patch_ranker_v4() -> None:
+    # Additive runtime patch. It wraps whichever ranking implementation is
+    # already present (V2.2/V2.3) and therefore does not require replacing the
+    # large runtime.py file. Failure is deliberately fail-open.
+    try:
+        from src.engine.ai.ranker_v4_extension import install_ranker_v4_extension
+
+        install_ranker_v4_extension()
+    except Exception as exc:
+        print(f"[RANKER-V4] unavailable, previous ranker kept: {exc}")
 
 
 def _patch_hit_scanner() -> None:
