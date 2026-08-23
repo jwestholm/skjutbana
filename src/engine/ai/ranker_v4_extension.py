@@ -125,6 +125,8 @@ def install_ranker_v4_extension() -> None:
             self._v24_last_rank_pool = [dict(candidate) for candidate in base_ranked]
             return self._v24_last_rank_pool[:requested_limit]
 
+        shadow_mode = bool(model.config.get("shadow_mode", False))
+
         base_values = [
             _safe_float(candidate.get("combined_score", candidate.get("score", 0.0)))
             for candidate in base_ranked
@@ -188,7 +190,44 @@ def install_ranker_v4_extension() -> None:
         )
         for index, candidate in enumerate(reranked, start=1):
             candidate["rank"] = index
+            candidate["v25_v4_shadow_rank"] = index
 
+        # V2.5 SHADOW MODE: V4 is still calculated (and optionally trained),
+        # but it is not allowed to reorder the candidates used for the actual
+        # shot. This preserves the measured V2.3/base ranker while giving us an
+        # apples-to-apples offline comparison on the exact same candidate pool.
+        if shadow_mode:
+            def shadow_key(candidate: dict[str, Any]) -> tuple[float, float, float]:
+                # Patch prior is added by V4 itself, so it cannot be part of the
+                # key used to match back to the untouched base candidate.
+                return (
+                    round(_safe_float(candidate.get("camera_x", 0.0)), 3),
+                    round(_safe_float(candidate.get("camera_y", 0.0)), 3),
+                    round(_safe_float(candidate.get("score", 0.0)), 4),
+                )
+
+            shadow_by_key = {shadow_key(candidate): candidate for candidate in reranked}
+            actual_pool: list[dict[str, Any]] = []
+            for index, candidate in enumerate(base_ranked, start=1):
+                actual = dict(candidate)
+                shadow = shadow_by_key.get(shadow_key(candidate))
+                if shadow is not None:
+                    actual["v25_v4_shadow_rank"] = int(shadow.get("rank", 0) or 0)
+                    actual["v25_v4_shadow_score"] = _safe_float(
+                        shadow.get("v24_combined_score", 0.0)
+                    )
+                    actual["v25_v4_model_score"] = _safe_float(
+                        shadow.get("ranker_v4_score", 0.0)
+                    )
+                actual["rank"] = index
+                actual["ranking_version"] = "2.5-base-shadow-v4"
+                actual_pool.append(actual)
+
+            self._v25_shadow_rank_pool = [dict(candidate) for candidate in reranked]
+            self._v24_last_rank_pool = actual_pool
+            return actual_pool[:requested_limit]
+
+        self._v25_shadow_rank_pool = [dict(candidate) for candidate in reranked]
         self._v24_last_rank_pool = reranked
         return reranked[:requested_limit]
 
@@ -212,8 +251,9 @@ def install_ranker_v4_extension() -> None:
         if gt_xy is not None:
             try:
                 benchmark_mode = bool(getattr(self, "settings", {}).get("benchmark_mode", False))
-                if not benchmark_mode:
-                    model = _get_model(self)
+                model = _get_model(self)
+                shadow_training = bool(model.config.get("shadow_training_enabled", True))
+                if not benchmark_mode and (not bool(model.config.get("shadow_mode", False)) or shadow_training):
                     pool = list(getattr(self, "_v24_last_rank_pool", []) or [])
                     positive_override = None
                     try:
@@ -254,4 +294,4 @@ def install_ranker_v4_extension() -> None:
     AIRuntime._ranker_v4_extension_installed = True
     _INSTALLED = True
 
-    print("[RANKER-V4] Patch-descriptor pairwise ranker installed")
+    print("[RANKER-V4] installed (V2.5 shadow mode supported)")

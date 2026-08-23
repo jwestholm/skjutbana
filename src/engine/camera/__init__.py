@@ -18,6 +18,16 @@ try:
     except Exception as exc:
         print(f"[DETECTOR-V2.4] unavailable, V2 core kept: {exc}")
 
+    # V2.5 is additive on top of the measured V2.4 detector. It leaves the
+    # original V2.4 tile candidates untouched, adds refined centre hypotheses,
+    # and records localisation + shadow-accumulator telemetry.
+    try:
+        from .detector_v25_extension import apply_detector_v25_extension
+
+        apply_detector_v25_extension()
+    except Exception as exc:
+        print(f"[DETECTOR-V2.5] unavailable, V2.4 kept: {exc}")
+
     install_candidate_generator_v2(HitScanner)
 except Exception as exc:
     print(f"[DETECTOR-V2] unavailable, legacy detector kept: {exc}")

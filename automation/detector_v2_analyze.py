@@ -149,9 +149,13 @@ def classify_pipeline_loss(record: dict[str, Any], radius: float) -> str:
         return "unlabelled"
 
     v24 = record.get("v24", {}) if isinstance(record.get("v24"), dict) else {}
+    v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
+    vectors = v25.get("best_vectors", {}) if isinstance(v25.get("best_vectors"), dict) else {}
+    v25_final = vectors.get("v25_final") if isinstance(vectors.get("v25_final"), dict) else {}
     ever = (
         _found(_nearest(record, "merged"), radius)
         or _found(v24.get("final_nearest_px"), radius)
+        or _found(v25_final.get("distance_px"), radius)
     )
     evaluation = _evaluation(record)
     if not evaluation:
@@ -190,7 +194,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
     detector_sources = ("legacy", "v2_frame", "v2", "merged")
 
     summary: dict[str, Any] = {
-        "schema_version": "2.4",
+        "schema_version": "2.5",
         "records_total": len(records),
         "records_with_ground_truth": len(labelled),
         "records_with_evaluation_funnel": sum(
@@ -246,6 +250,23 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
                     radius,
                 )
             )
+            summary["overall"][key][source] = {
+                "count": count,
+                "pct": _pct(count, len(labelled)),
+            }
+
+    # V2.5 keeps V2.4 as a measured baseline and stores additive refined-centre
+    # hypotheses separately. Distances live in best_vectors so dx/dy is retained.
+    for radius in match_radii:
+        key = f"within_{int(radius)}px"
+        for source, vector_key in (("v25_refined_tile", "v25_refined_tile"), ("v25_final", "v25_final")):
+            count = 0
+            for record in labelled:
+                v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
+                vectors = v25.get("best_vectors", {}) if isinstance(v25.get("best_vectors"), dict) else {}
+                vector = vectors.get(vector_key)
+                if isinstance(vector, dict) and _found(vector.get("distance_px"), radius):
+                    count += 1
             summary["overall"][key][source] = {
                 "count": count,
                 "pct": _pct(count, len(labelled)),
@@ -365,6 +386,53 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "max": max(values) if values else 0,
                 "shots_with_candidates": sum(1 for value in values if value > 0),
             }
+
+        # V2.5 refined tile candidates in the exact F2 snapshot.
+        for radius in match_radii:
+            count = sum(
+                1 for _record, ev in eval_rows
+                if _found(ev.get("raw_v25_refined_tile_nearest_px"), radius)
+            )
+            evaluation_summary[f"raw_v25_refined_tile_within_{int(radius)}px"] = {
+                "count": count,
+                "pct": _pct(count, len(eval_rows)),
+            }
+        refined_counts = [int(ev.get("raw_v25_refined_tile_count", 0) or 0) for _record, ev in eval_rows]
+        evaluation_summary["raw_v25_refined_tile_count"] = {
+            "mean": round(sum(refined_counts) / len(refined_counts), 3) if refined_counts else 0.0,
+            "max": max(refined_counts) if refined_counts else 0,
+            "shots_with_candidates": sum(1 for value in refined_counts if value > 0),
+        }
+
+        # Base ranker vs V4 shadow on exactly the same surviving candidate pool.
+        shadow_rows = []
+        for _record, ev in eval_rows:
+            block = ev.get("v25_shadow_ranking")
+            if not isinstance(block, dict):
+                continue
+            base_d = _finite(block.get("base_gt_distance_px"))
+            shadow_d = _finite(block.get("v4_shadow_gt_distance_px"))
+            base_rank = int(block.get("base_gt_rank", 0) or 0)
+            shadow_rank = int(block.get("v4_shadow_gt_rank", 0) or 0)
+            if base_d is None or shadow_d is None or base_d > 42.0 or shadow_d > 42.0:
+                continue
+            if base_rank <= 0 or shadow_rank <= 0:
+                continue
+            shadow_rows.append((base_rank, shadow_rank))
+        base_ranks_shadow = [row[0] for row in shadow_rows]
+        v4_ranks_shadow = [row[1] for row in shadow_rows]
+        evaluation_summary["ranking_v4_shadow"] = {
+            "shots": len(shadow_rows),
+            "base_gt_rank_median": round(statistics.median(base_ranks_shadow), 3) if base_ranks_shadow else None,
+            "v4_shadow_gt_rank_median": round(statistics.median(v4_ranks_shadow), 3) if v4_ranks_shadow else None,
+            "base_top1_pct": _pct(sum(1 for value in base_ranks_shadow if value == 1), len(base_ranks_shadow)),
+            "v4_shadow_top1_pct": _pct(sum(1 for value in v4_ranks_shadow if value == 1), len(v4_ranks_shadow)),
+            "base_top3_pct": _pct(sum(1 for value in base_ranks_shadow if value <= 3), len(base_ranks_shadow)),
+            "v4_shadow_top3_pct": _pct(sum(1 for value in v4_ranks_shadow if value <= 3), len(v4_ranks_shadow)),
+            "v4_better_rank_count": sum(1 for base, shadow in shadow_rows if shadow < base),
+            "v4_worse_rank_count": sum(1 for base, shadow in shadow_rows if shadow > base),
+            "same_rank_count": sum(1 for base, shadow in shadow_rows if shadow == base),
+        }
 
         v4_rows = []
         for _record, ev in eval_rows:
@@ -498,6 +566,121 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         ),
     }
 
+    # ------------------------------------------------------------------
+    # V2.5 localisation / geometry diagnostics.
+    # ------------------------------------------------------------------
+    probe_rows = []
+    for record in labelled:
+        v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
+        probe = v25.get("gt_local_probe")
+        gt = record.get("ground_truth", {})
+        if not isinstance(probe, dict) or not probe.get("found") or not isinstance(gt, dict):
+            continue
+        dx, dy, distance = _finite(probe.get("dx")), _finite(probe.get("dy")), _finite(probe.get("distance_px"))
+        sx, sy = _finite(gt.get("screen_x")), _finite(gt.get("screen_y"))
+        if dx is None or dy is None or distance is None or sx is None or sy is None:
+            continue
+        probe_rows.append((sx, sy, dx, dy, distance))
+
+    localisation: dict[str, Any] = {"shots": len(probe_rows), "zones": {}}
+    if probe_rows:
+        dxs = [row[2] for row in probe_rows]
+        dys = [row[3] for row in probe_rows]
+        distances = [row[4] for row in probe_rows]
+        localisation.update({
+            "median_dx": round(statistics.median(dxs), 3),
+            "median_dy": round(statistics.median(dys), 3),
+            "median_distance_px": round(statistics.median(distances), 3),
+            "p90_distance_px": round(
+                sorted(distances)[
+                    min(len(distances)-1, max(0, math.ceil(0.90*len(distances))-1))
+                ],
+                3,
+            ),
+            "within_10px_pct": _pct(sum(1 for value in distances if value <= 10.0), len(distances)),
+            "within_20px_pct": _pct(sum(1 for value in distances if value <= 20.0), len(distances)),
+            "within_42px_pct": _pct(sum(1 for value in distances if value <= 42.0), len(distances)),
+        })
+        sx_values, sy_values = [row[0] for row in probe_rows], [row[1] for row in probe_rows]
+        min_x, max_x, min_y, max_y = min(sx_values), max(sx_values), min(sy_values), max(sy_values)
+        def zone_index(value: float, low: float, high: float) -> int:
+            if high <= low + 1e-9:
+                return 1
+            return min(2, max(0, int(3.0 * (value-low) / (high-low+1e-9))))
+        x_names, y_names = ("left", "centre", "right"), ("top", "middle", "bottom")
+        zones: dict[str, list[tuple[float,float,float]]] = defaultdict(list)
+        for sx, sy, dx, dy, distance in probe_rows:
+            zone = f"{y_names[zone_index(sy,min_y,max_y)]}_{x_names[zone_index(sx,min_x,max_x)]}"
+            zones[zone].append((dx,dy,distance))
+        for zone, rows in sorted(zones.items()):
+            localisation["zones"][zone] = {
+                "shots": len(rows),
+                "median_dx": round(statistics.median([r[0] for r in rows]), 3),
+                "median_dy": round(statistics.median([r[1] for r in rows]), 3),
+                "median_distance_px": round(statistics.median([r[2] for r in rows]), 3),
+            }
+    summary["overall"]["v25_localisation"] = localisation
+
+    # Did the additive centre-refinement actually move a V2.4 tile hypothesis
+    # closer to GT? Compare only shots where both paths produced a vector.
+    refinement_deltas = []
+    moved_into_10 = 0
+    moved_into_20 = 0
+    better = worse = same = 0
+    for record in labelled:
+        v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
+        vectors = v25.get("best_vectors", {}) if isinstance(v25.get("best_vectors"), dict) else {}
+        old = vectors.get("v24_tile")
+        new = vectors.get("v25_refined_tile")
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            continue
+        old_d = _finite(old.get("distance_px"))
+        new_d = _finite(new.get("distance_px"))
+        if old_d is None or new_d is None:
+            continue
+        delta = old_d - new_d
+        refinement_deltas.append(delta)
+        if delta > 0.25:
+            better += 1
+        elif delta < -0.25:
+            worse += 1
+        else:
+            same += 1
+        if old_d > 10.0 and new_d <= 10.0:
+            moved_into_10 += 1
+        if old_d > 20.0 and new_d <= 20.0:
+            moved_into_20 += 1
+    summary["overall"]["v25_refinement_effect"] = {
+        "shots_compared": len(refinement_deltas),
+        "median_improvement_px": round(statistics.median(refinement_deltas), 3) if refinement_deltas else None,
+        "mean_improvement_px": round(sum(refinement_deltas)/len(refinement_deltas), 3) if refinement_deltas else None,
+        "better_count": better,
+        "worse_count": worse,
+        "same_count": same,
+        "moved_into_10px": moved_into_10,
+        "moved_into_20px": moved_into_20,
+    }
+
+    accumulator_rows = []
+    for record in labelled:
+        v25 = record.get("v25", {}) if isinstance(record.get("v25"), dict) else {}
+        block = v25.get("shadow_accumulator")
+        if isinstance(block, dict):
+            accumulator_rows.append(block)
+    gt_clusters = [row.get("gt_cluster") for row in accumulator_rows if isinstance(row.get("gt_cluster"), dict)]
+    summary["overall"]["v25_shadow_accumulator"] = {
+        "shots": len(accumulator_rows),
+        "shots_with_gt_cluster_42px": len(gt_clusters),
+        "gt_cluster_pct": _pct(len(gt_clusters), len(accumulator_rows)),
+        "gt_cluster_hits_ge_2": sum(1 for block in gt_clusters if int(block.get("hits",0) or 0) >= 2),
+        "gt_cluster_hits_ge_3": sum(1 for block in gt_clusters if int(block.get("hits",0) or 0) >= 3),
+        "gt_cluster_hits_ge_4": sum(1 for block in gt_clusters if int(block.get("hits",0) or 0) >= 4),
+        "gt_hits_median": round(statistics.median([int(block.get("hits",0) or 0) for block in gt_clusters]),3) if gt_clusters else None,
+        "gt_jitter_median_px": round(statistics.median([_finite(block.get("jitter_px")) or 0.0 for block in gt_clusters]),3) if gt_clusters else None,
+        "frames_median": round(statistics.median([int(row.get("frames",0) or 0) for row in accumulator_rows]),3) if accumulator_rows else None,
+        "clusters_created_median": round(statistics.median([int(row.get("clusters_created",0) or 0) for row in accumulator_rows]),3) if accumulator_rows else None,
+    }
+
     # Latest persisted V4 model summary copied into diagnostics by the V2.4
     # extension.
     model_summaries = [
@@ -569,7 +752,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
 def print_summary(summary: dict[str, Any]) -> None:
     print()
     print("=" * 88)
-    print("DETECTOR V2.4 ANALYSIS")
+    print("DETECTOR V2.5 ANALYSIS")
     print("=" * 88)
     print(f"Diagnostics: {summary['records_total']}")
     print(f"With synthetic ground truth: {summary['records_with_ground_truth']}")
@@ -616,7 +799,11 @@ def print_summary(summary: dict[str, Any]) -> None:
         block = overall.get(f"within_{radius}px", {})
         print()
         print(f"BEST/EVER candidate recall within {radius}px:")
-        for source in ("legacy", "v2_frame", "v2", "merged", "v24_tile", "v24_accumulator", "v24_final"):
+        for source in (
+            "legacy", "v2_frame", "v2", "merged",
+            "v24_tile", "v24_accumulator", "v24_final",
+            "v25_refined_tile", "v25_final",
+        ):
             data = block.get(source, {})
             label = {
                 "legacy": "legacy",
@@ -626,6 +813,8 @@ def print_summary(summary: dict[str, Any]) -> None:
                 "v24_tile": "v24 tile",
                 "v24_accumulator": "v24 accum",
                 "v24_final": "v24 final",
+                "v25_refined_tile": "v25 refine",
+                "v25_final": "v25 final",
             }[source]
             print(
                 f"  {label:10s}: {data.get('count', 0):5d} "
@@ -705,8 +894,42 @@ def print_summary(summary: dict[str, Any]) -> None:
                 f"mean candidates={counts.get('mean', 0.0)} max={counts.get('max', 0)}"
             )
 
+        print()
+        print("V2.5 additions in ACTUAL F2 raw snapshot (42px):")
+        refined = ev.get("raw_v25_refined_tile_within_42px", {})
+        refined_counts = ev.get("raw_v25_refined_tile_count", {})
+        print(
+            "  refined tile       : "
+            f"GT={refined.get('count', 0):5d} ({refined.get('pct', 0.0):6.2f}%) "
+            f"mean candidates={refined_counts.get('mean', 0.0)} "
+            f"max={refined_counts.get('max', 0)}"
+        )
+
+        shadow = ev.get("ranking_v4_shadow", {})
+        if isinstance(shadow, dict) and shadow.get("shots", 0):
+            print()
+            print("V2.5 ranking shadow comparison (GT within 42px):")
+            print(f"  shots                 : {shadow.get('shots')}")
+            print(f"  BASE median rank      : {shadow.get('base_gt_rank_median')}")
+            print(f"  V4 shadow median rank : {shadow.get('v4_shadow_gt_rank_median')}")
+            print(f"  BASE top-1 / top-3    : {shadow.get('base_top1_pct')}% / {shadow.get('base_top3_pct')}%")
+            print(f"  V4 top-1 / top-3      : {shadow.get('v4_shadow_top1_pct')}% / {shadow.get('v4_shadow_top3_pct')}%")
+            print(
+                "  V4 better/worse/same  : "
+                f"{shadow.get('v4_better_rank_count',0)}/"
+                f"{shadow.get('v4_worse_rank_count',0)}/"
+                f"{shadow.get('same_rank_count',0)}"
+            )
+
         ranking_v4 = ev.get("ranking_v4", {})
-        if isinstance(ranking_v4, dict) and ranking_v4.get("shots_with_gt_in_pool_42px", 0):
+        # In V2.5 the separate shadow block above is authoritative. The old
+        # v24_ranking block now describes the actual BASE pool and would be
+        # misleading if printed as active V4 ranking.
+        if (
+            not (isinstance(shadow, dict) and shadow.get("shots", 0))
+            and isinstance(ranking_v4, dict)
+            and ranking_v4.get("shots_with_gt_in_pool_42px", 0)
+        ):
             print()
             print("Ranker V4 quality when GT exists in full pool (42px):")
             print(f"  shots                 : {ranking_v4.get('shots_with_gt_in_pool_42px')}")
@@ -756,6 +979,68 @@ def print_summary(summary: dict[str, Any]) -> None:
         for name, count in sorted(classes.items(), key=lambda item: (-item[1], item[0])):
             print(f"  {name:38s} {count:5d}")
 
+    localisation = overall.get("v25_localisation", {})
+    if isinstance(localisation, dict) and localisation.get("shots", 0):
+        print()
+        print("V2.5 GEOMETRY / LOCALISATION probe (benchmark-only):")
+        print(f"  shots                 : {localisation.get('shots')}")
+        print(f"  median dx / dy        : {localisation.get('median_dx')} / {localisation.get('median_dy')} px")
+        print(f"  median distance       : {localisation.get('median_distance_px')} px")
+        print(f"  p90 distance          : {localisation.get('p90_distance_px')} px")
+        print(
+            "  within 10/20/42px    : "
+            f"{localisation.get('within_10px_pct')}% / "
+            f"{localisation.get('within_20px_pct')}% / "
+            f"{localisation.get('within_42px_pct')}%"
+        )
+        zones = localisation.get("zones", {})
+        if isinstance(zones, dict):
+            print("  zones (median dx,dy | distance):")
+            for zone, data in sorted(zones.items()):
+                print(
+                    f"    {zone:20s} n={data.get('shots',0):4d} "
+                    f"dx={data.get('median_dx'):7.2f} "
+                    f"dy={data.get('median_dy'):7.2f} "
+                    f"d={data.get('median_distance_px'):7.2f}"
+                )
+
+    refinement = overall.get("v25_refinement_effect", {})
+    if isinstance(refinement, dict) and refinement.get("shots_compared", 0):
+        print()
+        print("V2.5 TILE CENTRE refinement effect (BEST/EVER):")
+        print(f"  shots compared        : {refinement.get('shots_compared')}")
+        print(f"  median improvement    : {refinement.get('median_improvement_px')} px")
+        print(f"  mean improvement      : {refinement.get('mean_improvement_px')} px")
+        print(
+            "  better / worse / same : "
+            f"{refinement.get('better_count')} / "
+            f"{refinement.get('worse_count')} / "
+            f"{refinement.get('same_count')}"
+        )
+        print(f"  moved into <=10 px    : {refinement.get('moved_into_10px')}")
+        print(f"  moved into <=20 px    : {refinement.get('moved_into_20px')}")
+
+    accumulator = overall.get("v25_shadow_accumulator", {})
+    if isinstance(accumulator, dict) and accumulator.get("shots", 0):
+        print()
+        print("V2.5 SHADOW shot accumulator (does NOT alter candidates):")
+        print(f"  shots                 : {accumulator.get('shots')}")
+        print(
+            "  GT cluster <=42px     : "
+            f"{accumulator.get('shots_with_gt_cluster_42px')} "
+            f"({accumulator.get('gt_cluster_pct')}%)"
+        )
+        print(
+            "  GT hits >=2 / >=3 / >=4: "
+            f"{accumulator.get('gt_cluster_hits_ge_2')} / "
+            f"{accumulator.get('gt_cluster_hits_ge_3')} / "
+            f"{accumulator.get('gt_cluster_hits_ge_4')}"
+        )
+        print(f"  GT hit-count median   : {accumulator.get('gt_hits_median')}")
+        print(f"  GT jitter median      : {accumulator.get('gt_jitter_median_px')} px")
+        print(f"  frames / shot median  : {accumulator.get('frames_median')}")
+        print(f"  clusters / shot median: {accumulator.get('clusters_created_median')}")
+
     gt_signal = overall.get("gt_signal", {})
     print()
     print("Median signal around synthetic ground truth:")
@@ -789,7 +1074,7 @@ def print_summary(summary: dict[str, Any]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Analyse machine-readable Detector V2 through V2.4 shot diagnostics."
+        description="Analyse machine-readable Detector V2 through V2.5 shot diagnostics."
     )
     parser.add_argument(
         "path",

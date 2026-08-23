@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "gt_local_probe_enabled": true,
+  "gt_local_probe_radius_px": 48,
+  "gt_local_probe_min_absdiff": 1.0,
+  "gt_local_probe_min_zscore": 0.55,
+  "gt_local_probe_refine_radius_px": 5,
+  "tile_refine_enabled": true,
+  "tile_refine_radius_px": 7,
+  "tile_refine_max_candidates": 72,
+  "tile_refine_reserved_slots": 56,
+  "tile_refine_min_shift_px": 1.5,
+  "tile_refine_max_shift_px": 11.0,
+  "tile_refine_nms_radius_px": 2.0,
+  "shadow_accumulator_enabled": true,
+  "shadow_accumulator_match_radius_px": 12.0,
+  "shadow_accumulator_dedupe_radius_px": 4.0,
+  "shadow_accumulator_max_clusters": 700,
+  "shadow_accumulator_gt_radius_px": 42.0
+}

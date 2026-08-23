@@ -1,8 +1,8 @@
-# Detector V2.4 — local temporal sampling, shot accumulation and patch-shape ranking
+# Detector V2.5 — localisation diagnostics, refined centres and shadow ranking
 
 ## Status
 
-V2.4 is an **additive experimental layer** on top of the Detector V2/V2.3 code
+V2.5 is an **additive experimental layer** on top of the Detector V2/V2.3 code
 already present in the repository.
 
 It deliberately does **not** replace:
@@ -20,8 +20,9 @@ Expected startup lines:
 
 ```text
 [DETECTOR-V2.4] local-tile + shot-accumulator extension installed
+[DETECTOR-V2.5] localisation + refined-tile + shadow accumulator installed
 [DETECTOR-V2] Hybrid candidate generator installed
-[RANKER-V4] Patch-descriptor pairwise ranker installed
+[RANKER-V4] installed (V2.5 shadow mode supported)
 ```
 
 ---
@@ -372,3 +373,166 @@ The older Detector V2/V2.3 core remains in the repository and continues to be
 the fallback.
 
 No menu JSON, game definition or ordinary game scene is changed by this update.
+
+
+---
+
+# V2.5 addendum
+
+## Why V2.5 exists
+
+The deterministic V2.4 benchmark using seeds `12345..12354` produced the first
+clear detector breakthrough:
+
+```text
+V2.4 final BEST/EVER <=42 px      78.10 %
+Actual F2 raw <=42 px             60.20 %
+Actual F2 filtered <=42 px        58.00 %
+Actual F2 selected <=42 px         0.30 %
+GT median rank                        95
+Diagnostics                       1000/1000
+```
+
+The candidate generator improved strongly, while V4 ranking became worse. V2.5
+therefore deliberately separates the two problems instead of changing both at
+once.
+
+## V2.5 design
+
+### 1. V2.4 is kept as the detector baseline
+
+The original V2.4 tile peaks are not moved or deleted. V2.5 creates additional
+centre-refined hypotheses next to them. Diagnostics therefore report both:
+
+```text
+v24 tile
+v24 final
+v25 refine
+v25 final
+```
+
+This makes regressions visible.
+
+### 2. Tile-centre refinement is additive
+
+A V2.4 tile peak can sit on a ring or local edge even when the correct hole is
+nearby. V2.5 takes a small neighbourhood around the tile peak and computes a
+weighted temporal centre from:
+
+```text
+absdiff
+z-score
+local temporal response
+```
+
+The original candidate remains. The refined candidate is tagged separately as
+`v25_refined_tile` and does not count as a V2.4 tile candidate in provenance
+statistics.
+
+### 3. Ranker V4 is shadow-only
+
+`content/ai/ranker_v4_config.json` now contains:
+
+```json
+"shadow_mode": true
+```
+
+V4 still calculates scores and can continue learning, but its order is not used
+to select the actual shot. The previous/base ranker controls the shot while V4
+is measured on exactly the same candidate pool.
+
+The analyser reports:
+
+```text
+BASE median rank
+V4 shadow median rank
+BASE Top-1 / Top-3
+V4 Top-1 / Top-3
+V4 better / worse / same
+```
+
+This prevents an experimental ranker from degrading hit results while we study
+it.
+
+### 4. Benchmark-only local GT probe
+
+V2.4 showed a large gap between <=10 px and <=42 px recall. V2.5 therefore
+measures where the strongest local temporal signal lies around synthetic GT.
+
+Important: this probe is diagnostics-only. It is never injected into candidate
+generation or ranking and cannot influence the shot being evaluated.
+
+Per shot it records:
+
+```text
+dx
+dy
+distance
+local temporal score
+absdiff
+z-score
+```
+
+The analyser groups these offsets into a 3x3 layout over the projected screen.
+If offsets change systematically by screen region, that is evidence for a local
+homography/calibration residual rather than merely poor peak centring.
+
+### 5. Shadow shot accumulator
+
+The old active accumulator had almost no GT recovery. V2.5 adds a second,
+telemetry-only accumulator with a wider matching radius. It never injects
+candidates. For each shot it measures:
+
+```text
+frames observed
+clusters created
+clusters with >=2 / >=3 / >=4 observations
+whether a cluster exists within 42 px of GT
+GT cluster hit count
+GT cluster jitter
+source hits (V1/V2/tile/refined)
+```
+
+This tells us what persistence rule is justified by the real camera data before
+we enable carry again.
+
+## V2.5 configuration
+
+```text
+content/ai/detector_v25.json
+```
+
+The safest rollback is:
+
+```json
+"enabled": false
+```
+
+Ranker V4 shadow behaviour is controlled separately in:
+
+```text
+content/ai/ranker_v4_config.json
+```
+
+## Recommended benchmark
+
+Use the same deterministic sequence as V2.3 and V2.4:
+
+```bash
+python3 -m automation.ai_training_loop 1 10 --seed 12345
+python3 -m automation.detector_v2_analyze
+```
+
+The highest-value V2.5 outputs are:
+
+```text
+v24 final vs v25 final recall at 10/20/42 px
+Actual F2 raw / filtered / selected
+BASE rank vs V4 shadow rank
+V2.5 geometry/localisation median dx/dy by zone
+V2.5 shadow-accumulator GT cluster rate and hit count
+Benchmark integrity
+```
+
+Do not use the GT-localisation probe in normal gameplay logic. It exists only
+because synthetic training has known ground truth.
