@@ -1,0 +1,45 @@
+Skjutbana V2.7.2 DIRECT integration fix
+=======================================
+
+Why
+---
+V2.7/V2.7.1 could be present on disk yet not execute inside the real game
+process. V2.7.1 verifier also imported the extension itself, so it could report
+a misleading PASS.
+
+V2.7.2 fixes both problems:
+- main.py installs V2.7.2 BEFORE src.engine.app.App is imported.
+- Startup failure is visible/fatal during this test phase; no silent fallback.
+- The verifier is READ ONLY and cannot install V2.7 itself.
+- Runtime heartbeat includes real PID and rank_with_funnel/rank_candidates calls.
+- V2.7 telemetry is written independently to:
+    content/ai/detector_v27/shot_diagnostics.jsonl
+
+Install
+-------
+Extract this ZIP over the project root.
+
+Completely stop the old game process, then start it normally:
+    python3 main.py
+
+The GAME terminal must print something like:
+    [RANKER-V6] V2.7.2 DIRECT integration installed (pid=... source=main.py)
+
+In another terminal, BEFORE running any shots:
+    python3 -m automation.detector_v27_verify
+
+It must say:
+    PASS: V2.7.2 is installed in a live game process.
+
+Only then run ONE 100-shot test:
+    python3 -m automation.ai_training_loop 1 1 --seed 12345
+
+Then verify again:
+    python3 -m automation.detector_v27_verify
+
+rank_with_funnel calls, GT calls and Diagnostic rows should now be > 0.
+
+Finally:
+    python3 -m automation.detector_v27_analyze
+
+Do not run 10x100 until this one-run path is proven.

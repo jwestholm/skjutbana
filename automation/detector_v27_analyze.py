@@ -56,10 +56,7 @@ def _has_v27(row: dict[str, Any]) -> bool:
     if isinstance(row.get("v27_hypotheses"), dict):
         return True
     funnel = row.get("evaluation_funnel")
-    return bool(
-        isinstance(funnel, dict)
-        and isinstance(funnel.get("v27_hypotheses"), dict)
-    )
+    return bool(isinstance(funnel, dict) and isinstance(funnel.get("v27_hypotheses"), dict))
 
 
 def select_latest_v27(
@@ -214,7 +211,7 @@ def summarise(records: list[dict[str, Any]], session_id: str | None) -> dict[str
     })
 
     return {
-        "schema_version": "2.7",
+        "schema_version": "2.7.2",
         "runtime_session_id": session_id,
         "shots": total,
         "git_commits": commits,
@@ -243,7 +240,7 @@ def summarise(records: list[dict[str, Any]], session_id: str | None) -> dict[str
 def print_summary(summary: dict[str, Any]) -> None:
     total = int(summary.get("shots", 0) or 0)
     print("=" * 76)
-    print("DETECTOR / HYPOTHESIS V2.7.1 ANALYSIS")
+    print("DETECTOR / HYPOTHESIS V2.7.2 ANALYSIS")
     print("=" * 76)
     print(f"Shots with V2.7 telemetry: {total}")
     print(f"Runtime session: {summary.get('runtime_session_id')}")
@@ -323,14 +320,12 @@ def main() -> None:
     records = load_records(args.path)
     selected, session = select_latest_v27(records, args.session)
     source = "embedded Detector V2 telemetry"
-
     if not selected:
-        standalone = load_records(args.v27_path)
-        selected, session = select_latest_v27(standalone, args.session)
-        source = "standalone V2.7 telemetry"
-
+        records = load_records(args.v27_path)
+        selected, session = select_latest_v27(records, args.session)
+        source = "standalone V2.7.2 telemetry"
     if not selected:
-        print("No V2.7 diagnostics found.")
+        print("No V2.7.2 diagnostics found.")
         print(f"Checked embedded:   {args.path}")
         print(f"Checked standalone: {args.v27_path}")
         print("Run: python3 -m automation.detector_v27_verify")

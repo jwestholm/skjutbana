@@ -1,82 +1,91 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
-STATUS_PATH = Path("content/ai/v27_runtime_status.json")
-STANDALONE_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
+STATUS_PATH = Path('content/ai/v27_runtime_status.json')
+DIAG_PATH = Path('content/ai/detector_v27/shot_diagnostics.jsonl')
 
 
-def _read_status() -> dict:
+def _load_status() -> dict:
     if not STATUS_PATH.exists():
         return {}
     try:
-        value = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else {}
+        data = json.loads(STATUS_PATH.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
     except Exception as exc:
-        return {"error": f"could not read marker: {exc}"}
+        return {'error': f'cannot read marker: {exc!r}'}
 
 
-def _count_rows() -> int:
-    if not STANDALONE_PATH.exists():
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    return Path(f'/proc/{int(pid)}').exists()
+
+
+def _diag_rows() -> int:
+    if not DIAG_PATH.exists():
         return 0
-    total = 0
-    with STANDALONE_PATH.open("r", encoding="utf-8") as handle:
+    count = 0
+    with DIAG_PATH.open('r', encoding='utf-8') as handle:
         for line in handle:
             try:
                 row = json.loads(line)
             except Exception:
                 continue
-            if isinstance(row, dict) and isinstance(row.get("v27_hypotheses"), dict):
-                total += 1
-    return total
+            if isinstance(row, dict) and isinstance(row.get('v27_hypotheses'), dict):
+                count += 1
+    return count
 
 
 def main() -> None:
-    print("=" * 72)
-    print("V2.7.1 RUNTIME VERIFY")
-    print("=" * 72)
+    print('=' * 76)
+    print('V2.7.2 GAME-PROCESS VERIFY (READ ONLY)')
+    print('=' * 76)
+    status = _load_status()
+    if not status:
+        print('FAIL: no runtime marker exists.')
+        print(f'Expected: {STATUS_PATH}')
+        print('Restart the game with: python3 main.py')
+        raise SystemExit(1)
 
-    # Importing scenes is the exact additional startup path used by V2.7.1.
-    import src.engine.scenes  # noqa: F401
-    from src.engine.ai.runtime import AIRuntime
-
-    class_installed = bool(
-        getattr(AIRuntime, "_ranker_v6_extension_installed", False)
-    )
-    print(f"V6 installed in this Python process: {class_installed}")
-
-    status = _read_status()
-    print(f"Runtime marker: {STATUS_PATH}")
-    print(f"Marker exists: {STATUS_PATH.exists()}")
-    if status:
-        print(f"Marker installed: {status.get('installed')}")
-        print(f"Marker PID: {status.get('pid')}")
-        print(f"Marker session: {status.get('runtime_session_id')}")
-        print(f"Marker startup: {status.get('startup_path', status.get('extension'))}")
-        if status.get("error"):
-            print(f"Marker ERROR: {status.get('error')}")
+    pid = status.get('pid')
+    alive = _pid_alive(int(pid) if pid is not None else None)
+    print(f"Installed              : {status.get('installed')}")
+    print(f"Game/runtime PID       : {pid}")
+    print(f"PID currently alive    : {alive}")
+    print(f"Runtime session        : {status.get('runtime_session_id')}")
+    print(f"Install source         : {status.get('install_source')}")
+    print(f"rank_with_funnel calls : {status.get('rank_with_funnel_calls', 0)}")
+    print(f"rank_candidates calls  : {status.get('rank_candidates_calls', 0)}")
+    print(f"GT calls               : {status.get('gt_calls', 0)}")
+    print(f"Diagnostic rows        : {status.get('diagnostic_rows', 0)}")
+    print(f"Rows on disk           : {_diag_rows()}")
+    updated = status.get('updated_at')
+    if updated is not None:
         try:
-            print(
-                "Marker age: "
-                f"{max(0.0, time.time() - float(status.get('installed_at'))):.1f}s"
-            )
+            print(f"Marker age             : {max(0.0, time.time()-float(updated)):.1f}s")
         except Exception:
             pass
+    if status.get('error'):
+        print(f"ERROR                   : {status.get('error')}")
+    print('=' * 76)
 
-    print(f"Standalone V2.7 rows: {_count_rows()}")
-    print(f"Standalone path: {STANDALONE_PATH}")
-    print("=" * 72)
+    if not bool(status.get('installed')):
+        raise SystemExit('FAIL: V2.7.2 marker says installation failed.')
+    if not alive:
+        raise SystemExit('FAIL: marker belongs to a process that is no longer alive. Restart the game.')
+    if str(status.get('install_source')) != 'main.py':
+        raise SystemExit('FAIL: V2.7.2 was not installed by the actual main.py game startup.')
 
-    if not class_installed:
-        raise SystemExit("FAIL: V2.7.1 could not install against this project")
-    print("PASS: V2.7.1 installation path works in this project.")
-    print(
-        "Restart the GAME process too and confirm the terminal prints "
-        "'[RANKER-V6] V2.7.1 ... installed'."
-    )
+    print('PASS: V2.7.2 is installed in a live game process.')
+    if int(status.get('rank_with_funnel_calls', 0) or 0) == 0:
+        print('No F2 ranking call has happened yet. That is OK before the first test.')
+    else:
+        print('F2/ranking hook has been exercised in this same live process.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

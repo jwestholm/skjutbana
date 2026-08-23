@@ -13,89 +13,69 @@ from src.engine.ai.ranker_v6 import RankerV6
 
 _INSTALLED = False
 
-_V27_STANDALONE_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
-_V27_STATUS_PATH = Path("content/ai/v27_runtime_status.json")
-_V27_RUNTIME_SESSION_ID = (
-    time.strftime("%Y%m%d_%H%M%S")
-    + "_"
-    + uuid.uuid4().hex[:8]
-)
+_STATUS_PATH = Path("content/ai/v27_runtime_status.json")
+_DIAG_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
+_RUNTIME_SESSION_ID = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+_METRICS = {
+    "rank_with_funnel_calls": 0,
+    "rank_candidates_calls": 0,
+    "gt_calls": 0,
+    "diagnostic_rows": 0,
+    "last_call_ts": None,
+    "install_source": None,
+}
 
-
-def _write_runtime_status(*, installed: bool, error: str | None = None) -> None:
+def _write_status(installed: bool, *, error: str | None = None) -> None:
     try:
-        _V27_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": "2.7.1",
+            "schema_version": "2.7.2",
             "installed": bool(installed),
             "pid": os.getpid(),
-            "installed_at": time.time(),
-            "runtime_session_id": _V27_RUNTIME_SESSION_ID,
-            "extension": "ranker_v6_extension",
+            "runtime_session_id": _RUNTIME_SESSION_ID,
+            "installed_at": _METRICS.get("installed_at"),
+            "updated_at": time.time(),
+            **_METRICS,
         }
         if error:
             payload["error"] = str(error)
-        _V27_STATUS_PATH.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        _STATUS_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
 
-
-def _append_standalone_v27_diagnostic(
-    diagnostic: dict[str, Any],
-    *,
-    gt: tuple[float, float],
-) -> None:
-    """Write V2.7 telemetry without depending on Detector V2 flush timing."""
+def _append_diag(diagnostic: dict[str, Any], gt: tuple[float,float]) -> None:
     try:
-        _V27_STANDALONE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-        row: dict[str, Any] = {
-            "schema_version": "2.7.1",
-            "runtime_session_id": _V27_RUNTIME_SESSION_ID,
+        _DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "schema_version": "2.7.2",
+            "runtime_session_id": _RUNTIME_SESSION_ID,
             "captured_at": time.time(),
             "pid": os.getpid(),
-            "ground_truth": {
-                "camera_x": float(gt[0]),
-                "camera_y": float(gt[1]),
-            },
+            "ground_truth": {"camera_x": float(gt[0]), "camera_y": float(gt[1])},
             "v27_hypotheses": diagnostic,
         }
-
-        # Best-effort detector metadata enrichment only.
         try:
             from src.engine.camera.hit_scanner import HitScanner, hit_scanner
-
             engine = getattr(HitScanner, "_candidate_generator_v2_engine", None)
             detector_gt = getattr(hit_scanner, "_detector_v2_ground_truth", None)
-            shot_id = (
-                int(detector_gt.get("shot_id", 0))
-                if isinstance(detector_gt, dict)
-                else 0
-            )
+            shot_id = int(detector_gt.get("shot_id", 0)) if isinstance(detector_gt, dict) else 0
             row["shot_id"] = shot_id or None
-            record = getattr(engine, "_diagnostics", {}).get(shot_id)
-            if isinstance(record, dict):
-                if isinstance(record.get("ground_truth"), dict):
-                    row["ground_truth"] = dict(record["ground_truth"])
-                if record.get("runtime_session_id"):
-                    row["detector_runtime_session_id"] = str(
-                        record["runtime_session_id"]
-                    )
-                if record.get("git_commit"):
-                    row["git_commit"] = str(record["git_commit"])
+            rec = getattr(engine, "_diagnostics", {}).get(shot_id)
+            if isinstance(rec, dict):
+                if isinstance(rec.get("ground_truth"), dict):
+                    row["ground_truth"] = dict(rec["ground_truth"])
+                if rec.get("runtime_session_id"):
+                    row["detector_runtime_session_id"] = str(rec["runtime_session_id"])
+                if rec.get("git_commit"):
+                    row["git_commit"] = str(rec["git_commit"])
         except Exception:
             pass
-
-        with _V27_STANDALONE_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row, ensure_ascii=False) + "\\n")
+        with _DIAG_PATH.open("a", encoding="utf-8") as h:
+            h.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _METRICS["diagnostic_rows"] = int(_METRICS.get("diagnostic_rows",0) or 0)+1
+        _write_status(True)
     except Exception as exc:
-        _write_runtime_status(
-            installed=True,
-            error=f"standalone diagnostic write failed: {exc!r}",
-        )
+        _write_status(True, error=f"diagnostic write failed: {exc!r}")
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -209,7 +189,7 @@ def _annotate_actual(
     return result
 
 
-def install_ranker_v6_extension() -> None:
+def install_ranker_v6_extension(source: str = "unknown") -> None:
     """Install V2.7 hypothesis consolidation and the validated V6 ranker.
 
     The V2.6 detector/vault is intentionally untouched. This wrapper replaces
@@ -224,12 +204,17 @@ def install_ranker_v6_extension() -> None:
 
     global _INSTALLED
     if _INSTALLED:
+        _METRICS["install_source"] = str(source)
+        _write_status(True)
         return
 
     from src.engine.ai.runtime import AIRuntime
 
     if bool(getattr(AIRuntime, "_ranker_v6_extension_installed", False)):
         _INSTALLED = True
+        _METRICS["install_source"] = str(source)
+        _METRICS.setdefault("installed_at", time.time())
+        _write_status(True)
         return
 
     original_rank_with_funnel = AIRuntime.rank_with_funnel
@@ -239,6 +224,8 @@ def install_ranker_v6_extension() -> None:
         candidates: Sequence[dict[str, Any]],
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        _METRICS["rank_candidates_calls"] = int(_METRICS.get("rank_candidates_calls", 0) or 0) + 1
+        _METRICS["last_call_ts"] = time.time()
         requested_limit = max(1, int(limit or getattr(self, "settings", {}).get("top_k", 10)))
         source = [dict(candidate) for candidate in candidates]
         self._v27_input_candidates = source
@@ -291,6 +278,12 @@ def install_ranker_v6_extension() -> None:
         limit: int | None = None,
         match_radius_px: float | None = None,
     ) -> Any:
+        _METRICS["rank_with_funnel_calls"] = int(_METRICS.get("rank_with_funnel_calls", 0) or 0) + 1
+        _METRICS["last_call_ts"] = time.time()
+        if gt_xy is not None:
+            _METRICS["gt_calls"] = int(_METRICS.get("gt_calls", 0) or 0) + 1
+        _write_status(True)
+
         # A labelled synthetic run must keep the complete V2.7 hypothesis pool.
         # The pool is already capped (~120), so this is both cheap and necessary
         # to distinguish clustering loss from ranker loss.
@@ -398,19 +391,19 @@ def install_ranker_v6_extension() -> None:
         except Exception:
             pass
 
-        # V2.7.1 independent telemetry path.
-        _append_standalone_v27_diagnostic(diagnostic, gt=gt)
-
+        _append_diag(diagnostic, gt)
         return result
 
     AIRuntime.rank_candidates = rank_candidates_wrapped
     AIRuntime.rank_with_funnel = rank_with_funnel_wrapped
     AIRuntime._ranker_v6_extension_installed = True
     _INSTALLED = True
-    _write_runtime_status(installed=True)
+    _METRICS["install_source"] = str(source)
+    _METRICS["installed_at"] = time.time()
+    _write_status(True)
     print(
-        "[RANKER-V6] V2.7.1 hypothesis clustering + validated ranker installed "
-        f"(session={_V27_RUNTIME_SESSION_ID})"
+        "[RANKER-V6] V2.7.2 DIRECT integration installed "
+        f"(pid={os.getpid()} session={_RUNTIME_SESSION_ID} source={source})"
     )
 
 

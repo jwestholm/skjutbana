@@ -1,4 +1,4 @@
-# Detector / AI V2.7.1 — hypothesis consolidation + integration hotfix
+# Detector / AI V2.7 — hypothesis consolidation
 
 ## Why V2.7 exists
 
@@ -105,10 +105,14 @@ the top of that smaller set. Once that is measured on the locked seeds, the next
 iteration can tune clustering and/or V6 independently instead of mixing detector
 and ranking changes.
 
+## V2.7.2 — direct game-process integration
 
-## V2.7.1 startup and telemetry hardening
+V2.7.2 keeps the V2.7 hypothesis/ranker experiment unchanged but removes the
+ambiguous startup path. `main.py` installs Ranker V6 before importing `App`.
+If that installation fails, the game exits visibly instead of silently running
+without V2.7.
 
-V2.7.1 does not change the hypothesis experiment itself. It adds an independent
-startup path through `src.engine.scenes.__init__`, a runtime status marker, and
-standalone V2.7 JSONL telemetry. This prevents a fail-open bootstrap or Detector
-V2 flush-order issue from making an otherwise installed V2.7 invisible.
+`automation.detector_v27_verify` is now read-only. It only trusts a heartbeat
+written by the actual process that installed V2.7.2 and checks that PID through
+`/proc`. The heartbeat contains counters for `rank_with_funnel`,
+`rank_candidates`, labelled GT calls, and standalone diagnostic rows.

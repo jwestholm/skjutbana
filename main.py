@@ -29,16 +29,25 @@ def _save_and_guard_terminal():
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _saved_tty)
         except Exception:
             pass
-        # Fallback: always run stty sane as safety net
         _restore_terminal()
 
     atexit.register(_restore_saved)
 
 
-# Guard terminal BEFORE any imports that might change TTY state
 _save_and_guard_terminal()
 
+# V2.7.2 DIRECT integration. This is deliberately before App import so the
+# actual game process cannot silently miss the AIRuntime ranking hooks.
+try:
+    from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
+
+    install_ranker_v6_extension(source="main.py")
+except Exception as exc:
+    print(f"[RANKER-V6] V2.7.2 FATAL startup error: {exc!r}", file=sys.stderr)
+    raise
+
 from src.engine.app import App
+
 
 if __name__ == "__main__":
     try:
