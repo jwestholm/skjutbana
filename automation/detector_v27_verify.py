@@ -42,7 +42,7 @@ def _diag_rows() -> int:
 
 def main() -> None:
     print('=' * 76)
-    print('V2.7.2 GAME-PROCESS VERIFY (READ ONLY)')
+    print('V2.7.3 GAME-PROCESS VERIFY (READ ONLY)')
     print('=' * 76)
     status = _load_status()
     if not status:
@@ -58,6 +58,8 @@ def main() -> None:
     print(f"PID currently alive    : {alive}")
     print(f"Runtime session        : {status.get('runtime_session_id')}")
     print(f"Install source         : {status.get('install_source')}")
+    print(f"Primary install source : {status.get('primary_install_source')}")
+    print(f"Install sources        : {status.get('install_sources', [])}")
     print(f"rank_with_funnel calls : {status.get('rank_with_funnel_calls', 0)}")
     print(f"rank_candidates calls  : {status.get('rank_candidates_calls', 0)}")
     print(f"GT calls               : {status.get('gt_calls', 0)}")
@@ -74,13 +76,27 @@ def main() -> None:
     print('=' * 76)
 
     if not bool(status.get('installed')):
-        raise SystemExit('FAIL: V2.7.2 marker says installation failed.')
+        raise SystemExit('FAIL: V2.7.3 marker says installation failed.')
     if not alive:
         raise SystemExit('FAIL: marker belongs to a process that is no longer alive. Restart the game.')
-    if str(status.get('install_source')) != 'main.py':
-        raise SystemExit('FAIL: V2.7.2 was not installed by the actual main.py game startup.')
+    sources = status.get('install_sources', [])
+    if not isinstance(sources, list):
+        sources = []
+    primary = str(status.get('primary_install_source') or '')
+    current = str(status.get('install_source') or '')
 
-    print('PASS: V2.7.2 is installed in a live game process.')
+    installed_from_main = (
+        primary == 'main.py'
+        or current == 'main.py'
+        or 'main.py' in [str(item) for item in sources]
+    )
+
+    if not installed_from_main:
+        raise SystemExit(
+            'FAIL: no evidence that the live game process installed V2.7 from main.py.'
+        )
+
+    print('PASS: V2.7.3 is installed in the live main.py game process.')
     if int(status.get('rank_with_funnel_calls', 0) or 0) == 0:
         print('No F2 ranking call has happened yet. That is OK before the first test.')
     else:

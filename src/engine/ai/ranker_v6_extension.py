@@ -23,13 +23,15 @@ _METRICS = {
     "diagnostic_rows": 0,
     "last_call_ts": None,
     "install_source": None,
+    "primary_install_source": None,
+    "install_sources": [],
 }
 
 def _write_status(installed: bool, *, error: str | None = None) -> None:
     try:
         _STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": "2.7.2",
+            "schema_version": "2.7.3",
             "installed": bool(installed),
             "pid": os.getpid(),
             "runtime_session_id": _RUNTIME_SESSION_ID,
@@ -47,7 +49,7 @@ def _append_diag(diagnostic: dict[str, Any], gt: tuple[float,float]) -> None:
     try:
         _DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
         row = {
-            "schema_version": "2.7.2",
+            "schema_version": "2.7.3",
             "runtime_session_id": _RUNTIME_SESSION_ID,
             "captured_at": time.time(),
             "pid": os.getpid(),
@@ -203,8 +205,26 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
     """
 
     global _INSTALLED
+
+    def remember_source(value: str) -> None:
+        value = str(value or "unknown")
+        sources = _METRICS.setdefault("install_sources", [])
+        if isinstance(sources, list) and value not in sources:
+            sources.append(value)
+
+        # The first meaningful source is authoritative. In particular, a later
+        # fail-safe call from another import path must never replace "main.py"
+        # with the default "unknown".
+        if value != "unknown":
+            if not _METRICS.get("primary_install_source"):
+                _METRICS["primary_install_source"] = value
+            _METRICS["install_source"] = _METRICS["primary_install_source"]
+        elif not _METRICS.get("install_source"):
+            _METRICS["install_source"] = "unknown"
+
+    remember_source(source)
+
     if _INSTALLED:
-        _METRICS["install_source"] = str(source)
         _write_status(True)
         return
 
@@ -212,7 +232,6 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
 
     if bool(getattr(AIRuntime, "_ranker_v6_extension_installed", False)):
         _INSTALLED = True
-        _METRICS["install_source"] = str(source)
         _METRICS.setdefault("installed_at", time.time())
         _write_status(True)
         return
@@ -398,11 +417,11 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
     AIRuntime.rank_with_funnel = rank_with_funnel_wrapped
     AIRuntime._ranker_v6_extension_installed = True
     _INSTALLED = True
-    _METRICS["install_source"] = str(source)
+    remember_source(source)
     _METRICS["installed_at"] = time.time()
     _write_status(True)
     print(
-        "[RANKER-V6] V2.7.2 DIRECT integration installed "
+        "[RANKER-V6] V2.7.3 status-fix integration installed "
         f"(pid={os.getpid()} session={_RUNTIME_SESSION_ID} source={source})"
     )
 
