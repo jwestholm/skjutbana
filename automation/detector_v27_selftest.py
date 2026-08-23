@@ -4,16 +4,6 @@ import json
 import math
 import tempfile
 from pathlib import Path
-import sys
-
-# Allow this script to be run directly from the project root:
-#   python3 automation/detector_v27_selftest.py
-# When Python executes a file inside automation/, sys.path[0] points at
-# automation/ rather than the repository root, so add the parent explicitly
-# before importing src.* modules.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.engine.ai.hypothesis_v27 import HypothesisBuilderV27
 from src.engine.ai.ranker_v6 import RankerV6
