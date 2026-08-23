@@ -1,0 +1,18 @@
+V2.7.1 hotfix files
+===================
+
+src/engine/scenes/__init__.py
+src/engine/ai/bootstrap.py
+src/engine/ai/hypothesis_v27.py
+src/engine/ai/ranker_v6.py
+src/engine/ai/ranker_v6_extension.py
+content/ai/hypothesis_v27_config.json
+content/ai/ranker_v6_config.json
+automation/detector_v27_selftest.py
+automation/detector_v27_analyze.py
+automation/detector_v27_verify.py
+DETECTOR_V2.md
+SELFTEST_V2_7.md
+INSTALL_DETECTOR_V2_7.txt
+INSTALL_V2_7_1.txt
+PACKAGE_V2_7_MANIFEST.txt

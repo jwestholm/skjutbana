@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 DEFAULT_PATH = Path("content/ai/detector_v2/shot_diagnostics.jsonl")
-DEFAULT_SUMMARY = Path("content/ai/detector_v2/latest_v27_summary.json")
+DEFAULT_STANDALONE_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
+DEFAULT_SUMMARY = Path("content/ai/detector_v27/latest_v27_summary.json")
 
 
 def _finite(value: Any) -> float | None:
@@ -51,15 +52,21 @@ def load_records(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _has_v27(row: dict[str, Any]) -> bool:
+    if isinstance(row.get("v27_hypotheses"), dict):
+        return True
+    funnel = row.get("evaluation_funnel")
+    return bool(
+        isinstance(funnel, dict)
+        and isinstance(funnel.get("v27_hypotheses"), dict)
+    )
+
+
 def select_latest_v27(
     records: list[dict[str, Any]],
     session_id: str | None,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    candidates = [
-        row for row in records
-        if isinstance(row.get("evaluation_funnel"), dict)
-        and isinstance(row.get("evaluation_funnel", {}).get("v27_hypotheses"), dict)
-    ]
+    candidates = [row for row in records if _has_v27(row)]
     if session_id:
         return [
             row for row in candidates
@@ -76,6 +83,9 @@ def select_latest_v27(
 
 
 def _v27(row: dict[str, Any]) -> dict[str, Any]:
+    direct = row.get("v27_hypotheses")
+    if isinstance(direct, dict):
+        return direct
     funnel = row.get("evaluation_funnel", {})
     if not isinstance(funnel, dict):
         return {}
@@ -233,7 +243,7 @@ def summarise(records: list[dict[str, Any]], session_id: str | None) -> dict[str
 def print_summary(summary: dict[str, Any]) -> None:
     total = int(summary.get("shots", 0) or 0)
     print("=" * 76)
-    print("DETECTOR / HYPOTHESIS V2.7 ANALYSIS")
+    print("DETECTOR / HYPOTHESIS V2.7.1 ANALYSIS")
     print("=" * 76)
     print(f"Shots with V2.7 telemetry: {total}")
     print(f"Runtime session: {summary.get('runtime_session_id')}")
@@ -305,17 +315,30 @@ def print_summary(summary: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze V2.7 hypothesis/ranker telemetry")
     parser.add_argument("--path", type=Path, default=DEFAULT_PATH)
+    parser.add_argument("--v27-path", type=Path, default=DEFAULT_STANDALONE_PATH)
     parser.add_argument("--session", type=str, default=None)
     parser.add_argument("--output", type=Path, default=DEFAULT_SUMMARY)
     args = parser.parse_args()
 
     records = load_records(args.path)
     selected, session = select_latest_v27(records, args.session)
+    source = "embedded Detector V2 telemetry"
+
     if not selected:
-        print("No V2.7 diagnostics found. Run a new training session after installing V2.7.")
+        standalone = load_records(args.v27_path)
+        selected, session = select_latest_v27(standalone, args.session)
+        source = "standalone V2.7 telemetry"
+
+    if not selected:
+        print("No V2.7 diagnostics found.")
+        print(f"Checked embedded:   {args.path}")
+        print(f"Checked standalone: {args.v27_path}")
+        print("Run: python3 -m automation.detector_v27_verify")
         raise SystemExit(1)
 
+    print(f"Telemetry source: {source}")
     summary = summarise(selected, session)
+    summary["telemetry_source"] = source
     print_summary(summary)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(summary, indent=2), encoding="utf-8")

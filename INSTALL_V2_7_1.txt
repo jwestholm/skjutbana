@@ -1,0 +1,32 @@
+Skjutbana V2.7.1 hotfix
+=========================
+
+This fixes the integration/telemetry problem where V2.7 files existed on disk
+but new F2 runs still produced no V2.7 diagnostics.
+
+Changes:
+- Explicit V6 install from src/engine/scenes/__init__.py.
+- Visible startup error instead of silently losing V2.7.
+- Runtime marker: content/ai/v27_runtime_status.json
+- Independent telemetry:
+    content/ai/detector_v27/shot_diagnostics.jsonl
+- Analyzer falls back to the independent telemetry.
+- New pre-flight verifier.
+
+Install over project root and completely restart python3 main.py.
+
+BEFORE ANY TRAINING:
+    python3 -m automation.detector_v27_verify
+
+You should see PASS.
+
+The game terminal should show:
+    [RANKER-V6] V2.7.1 hypothesis clustering + validated ranker installed ...
+
+Then run ONLY:
+    python3 -m automation.ai_training_loop 1 1 --seed 12345
+
+Then:
+    python3 -m automation.detector_v27_analyze
+
+Do not run 10x100 until V2.7.1 telemetry is confirmed.

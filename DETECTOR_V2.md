@@ -1,4 +1,4 @@
-# Detector / AI V2.7 — hypothesis consolidation
+# Detector / AI V2.7.1 — hypothesis consolidation + integration hotfix
 
 ## Why V2.7 exists
 
@@ -104,3 +104,11 @@ reducing 42 px recall**, then make the GT rank collapse from V2.6's ~179 toward
 the top of that smaller set. Once that is measured on the locked seeds, the next
 iteration can tune clustering and/or V6 independently instead of mixing detector
 and ranking changes.
+
+
+## V2.7.1 startup and telemetry hardening
+
+V2.7.1 does not change the hypothesis experiment itself. It adds an independent
+startup path through `src.engine.scenes.__init__`, a runtime status marker, and
+standalone V2.7 JSONL telemetry. This prevents a fail-open bootstrap or Detector
+V2 flush-order issue from making an otherwise installed V2.7 invisible.

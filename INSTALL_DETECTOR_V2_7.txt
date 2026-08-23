@@ -1,0 +1,45 @@
+SKJUTBANA - Detector / AI V2.7 update
+====================================
+
+BASE
+----
+This update is intended to be extracted on top of the tested V2.6/dev tree.
+V2.6 camera detection and Shot Vault are deliberately NOT replaced.
+
+INSTALL
+-------
+1. Stop the game completely.
+2. Extract this ZIP in the repository root so src/, content/ and automation/
+   merge with the existing directories.
+3. Start the game again.
+
+Expected new startup line:
+  [RANKER-V6] V2.7 hypothesis clustering + validated ranker installed
+
+The older Ranker V4/V5 Python files may remain on disk, but V2.7 bootstrap no
+longer installs their runtime wrappers in a fresh process.
+
+QUICK SELFTEST
+--------------
+  python3 automation/detector_v27_selftest.py
+
+REAL BENCHMARK - SAME LOCKED SEEDS AS V2.3-V2.6
+------------------------------------------------
+  python3 -m automation.ai_training_loop 1 10 --seed 12345
+
+Then analyse the new layer:
+  python3 -m automation.detector_v27_analyze
+
+The existing detector report can still be run as well:
+  python3 -m automation.detector_v2_analyze
+
+RESET
+-----
+The existing AI-memory reset also resets Ranker V6 through a reset callback.
+Historical result files are still separate and are not deleted by AI reset.
+
+ROLLBACK
+--------
+Restore the previous src/engine/ai/bootstrap.py (or checkout the previous
+commit) and restart the game. V2.7 model/config files are additive and harmless
+when the V2.7 bootstrap is not installed.

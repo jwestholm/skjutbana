@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
+import os
+import time
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -8,6 +12,90 @@ from src.engine.ai.hypothesis_v27 import HypothesisBuilderV27
 from src.engine.ai.ranker_v6 import RankerV6
 
 _INSTALLED = False
+
+_V27_STANDALONE_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
+_V27_STATUS_PATH = Path("content/ai/v27_runtime_status.json")
+_V27_RUNTIME_SESSION_ID = (
+    time.strftime("%Y%m%d_%H%M%S")
+    + "_"
+    + uuid.uuid4().hex[:8]
+)
+
+
+def _write_runtime_status(*, installed: bool, error: str | None = None) -> None:
+    try:
+        _V27_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": "2.7.1",
+            "installed": bool(installed),
+            "pid": os.getpid(),
+            "installed_at": time.time(),
+            "runtime_session_id": _V27_RUNTIME_SESSION_ID,
+            "extension": "ranker_v6_extension",
+        }
+        if error:
+            payload["error"] = str(error)
+        _V27_STATUS_PATH.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _append_standalone_v27_diagnostic(
+    diagnostic: dict[str, Any],
+    *,
+    gt: tuple[float, float],
+) -> None:
+    """Write V2.7 telemetry without depending on Detector V2 flush timing."""
+    try:
+        _V27_STANDALONE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        row: dict[str, Any] = {
+            "schema_version": "2.7.1",
+            "runtime_session_id": _V27_RUNTIME_SESSION_ID,
+            "captured_at": time.time(),
+            "pid": os.getpid(),
+            "ground_truth": {
+                "camera_x": float(gt[0]),
+                "camera_y": float(gt[1]),
+            },
+            "v27_hypotheses": diagnostic,
+        }
+
+        # Best-effort detector metadata enrichment only.
+        try:
+            from src.engine.camera.hit_scanner import HitScanner, hit_scanner
+
+            engine = getattr(HitScanner, "_candidate_generator_v2_engine", None)
+            detector_gt = getattr(hit_scanner, "_detector_v2_ground_truth", None)
+            shot_id = (
+                int(detector_gt.get("shot_id", 0))
+                if isinstance(detector_gt, dict)
+                else 0
+            )
+            row["shot_id"] = shot_id or None
+            record = getattr(engine, "_diagnostics", {}).get(shot_id)
+            if isinstance(record, dict):
+                if isinstance(record.get("ground_truth"), dict):
+                    row["ground_truth"] = dict(record["ground_truth"])
+                if record.get("runtime_session_id"):
+                    row["detector_runtime_session_id"] = str(
+                        record["runtime_session_id"]
+                    )
+                if record.get("git_commit"):
+                    row["git_commit"] = str(record["git_commit"])
+        except Exception:
+            pass
+
+        with _V27_STANDALONE_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\\n")
+    except Exception as exc:
+        _write_runtime_status(
+            installed=True,
+            error=f"standalone diagnostic write failed: {exc!r}",
+        )
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -310,13 +398,20 @@ def install_ranker_v6_extension() -> None:
         except Exception:
             pass
 
+        # V2.7.1 independent telemetry path.
+        _append_standalone_v27_diagnostic(diagnostic, gt=gt)
+
         return result
 
     AIRuntime.rank_candidates = rank_candidates_wrapped
     AIRuntime.rank_with_funnel = rank_with_funnel_wrapped
     AIRuntime._ranker_v6_extension_installed = True
     _INSTALLED = True
-    print("[RANKER-V6] V2.7 hypothesis clustering + validated ranker installed")
+    _write_runtime_status(installed=True)
+    print(
+        "[RANKER-V6] V2.7.1 hypothesis clustering + validated ranker installed "
+        f"(session={_V27_RUNTIME_SESSION_ID})"
+    )
 
 
 __all__ = ["install_ranker_v6_extension"]
