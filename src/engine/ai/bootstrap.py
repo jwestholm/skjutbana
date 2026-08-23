@@ -13,8 +13,7 @@ def apply_bootstrap() -> None:
 
     _patch_menu_loader()
     _patch_scene_factory()
-    _patch_ranker_v4()
-    _patch_ranker_v5()
+    _patch_ranker_v6()
     _patch_hit_scanner()
 
     _bootstrapped = True
@@ -73,29 +72,16 @@ def _patch_scene_factory() -> None:
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item
 
 
-
-def _patch_ranker_v4() -> None:
-    # Additive runtime patch. It wraps whichever ranking implementation is
-    # already present (V2.2/V2.3) and therefore does not require replacing the
-    # large runtime.py file. Failure is deliberately fail-open.
+def _patch_ranker_v6() -> None:
+    # V2.7 deliberately does NOT install the older V4/V5 wrappers. Their files
+    # may remain on disk for history/rollback, but a fresh process gets exactly
+    # one ranking extension: filtered observations -> hypotheses -> V6.
     try:
-        from src.engine.ai.ranker_v4_extension import install_ranker_v4_extension
+        from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
 
-        install_ranker_v4_extension()
+        install_ranker_v6_extension()
     except Exception as exc:
-        print(f"[RANKER-V4] unavailable, previous ranker kept: {exc}")
-
-
-def _patch_ranker_v5() -> None:
-    # V5 wraps the already-safe V4 shadow layer. It trains only from strict
-    # generated-candidate labels and can auto-promote only after pre-train
-    # validation proves a clear advantage over the base ranker.
-    try:
-        from src.engine.ai.ranker_v5_extension import install_ranker_v5_extension
-
-        install_ranker_v5_extension()
-    except Exception as exc:
-        print(f"[RANKER-V5] unavailable, V4/base ranker kept: {exc}")
+        print(f"[RANKER-V6] unavailable, base ranker kept: {exc}")
 
 
 def _patch_hit_scanner() -> None:
@@ -113,7 +99,6 @@ def _patch_hit_scanner() -> None:
             runtime = get_ai_runtime()
             runtime.observe_scanner(self)
             self.candidate_limit = runtime.candidate_limit
-
         except Exception:
             # AI remains fail-open: a diagnostics/runtime problem must never stop
             # the ordinary detector from updating.
@@ -122,12 +107,7 @@ def _patch_hit_scanner() -> None:
         return result
 
     def wrapped_emit(self: HitScanner, track, event):
-        """Synchronize the exact shot before AI is allowed to override it.
-
-        HitScanner can emit from inside update(), before wrapped_update gets a
-        chance to call observe_scanner(). Without this synchronization the AI
-        may still contain candidates from the preceding shot.
-        """
+        """Synchronize the exact shot before AI is allowed to override it."""
         runtime = None
         chosen = {"apply": False}
         shot_id = int(getattr(event, "shot_id", 0) or 0)
@@ -142,9 +122,7 @@ def _patch_hit_scanner() -> None:
                 track.camera_y,
                 shot_id=shot_id,
             )
-
         except Exception:
-            # Preserve the original detector result if the AI layer fails.
             chosen = {"apply": False}
 
         if chosen.get("apply"):
@@ -153,7 +131,6 @@ def _patch_hit_scanner() -> None:
                 track.camera_y,
                 track.best_score,
             )
-
             try:
                 track.camera_x = float(chosen["camera_x"])
                 track.camera_y = float(chosen["camera_y"])
@@ -162,12 +139,10 @@ def _patch_hit_scanner() -> None:
                     float(chosen.get("confidence", 0.0)) * 10.0,
                 )
                 result = original_emit(self, track, event)
-
             finally:
                 track.camera_x = old_x
                 track.camera_y = old_y
                 track.best_score = old_score
-
         else:
             result = original_emit(self, track, event)
 
