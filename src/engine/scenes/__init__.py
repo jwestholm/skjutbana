@@ -1,7 +1,7 @@
 """Startup hooks for measured AI detector/ranker experiments.
 
 V2.8 remains authoritative. V2.9 captures the full hypothesis dataset. V2.10
-loads only a new V8 SHADOW ranker and never changes the game's selected hit.
+and V2.11 load SHADOW rankers only and never change the game's selected hit.
 """
 from __future__ import annotations
 
@@ -25,3 +25,11 @@ try:
     install_ranker_v8_extension(source="scenes.__init__")
 except Exception as exc:
     print(f"[RANKER-V8] V2.10 startup error: {exc!r}")
+
+
+try:
+    from src.engine.ai.ranker_v9_extension import install_ranker_v9_extension
+
+    install_ranker_v9_extension(source="scenes.__init__")
+except Exception as exc:
+    print(f"[RANKER-V9] V2.11 startup error: {exc!r}")

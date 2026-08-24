@@ -1,0 +1,106 @@
+Skjutbana V2.11 — installation and test
+=========================================
+
+WHAT V2.11 CHANGES
+------------------
+V2.11 is primarily an OFFLINE optimizer.
+
+It does NOT change:
+- Detector V2
+- Shot Vault
+- V2.7 micro-clustering
+- V2.8 recall pool
+- actual selected hit
+
+It adds:
+- physical/signal-only V9 feature set
+- broad negative sampling across the full hypothesis pool
+- single-feature listwise held-out evaluation
+- family-diverse 2/3-feature search
+- hard Top-1 <=20px gate against baseline
+- untouched confirmation set
+- optional V9 SHADOW-only runtime comparison
+
+INSTALL
+-------
+Extract/copy this ZIP over the project root.
+
+For the first tests you do NOT need to start main.py.
+You do NOT need the camera.
+You do NOT need the projector.
+
+STEP 1 — selftest
+-----------------
+From the repository root:
+
+    python3 -m automation.ranker_v211_selftest
+
+Expected end:
+
+    All V2.11 selftests passed.
+
+STEP 2 — optimize the EXISTING V2.9 dataset
+-------------------------------------------
+Do not collect new shots yet.
+
+    python3 -m automation.ranker_v211_optimize
+
+Look particularly at:
+
+    SINGLE-FEATURE HELD-OUT CV
+
+and:
+
+    BEST HARD-GATED CONFIGURATION
+    DEVELOPMENT CROSS-VALIDATION
+    UNTOUCHED CONFIRMATION SET
+    RECOMMENDATION
+
+There are two possible outcomes.
+
+A) REJECTED / no shadow-ready model
+-----------------------------------
+If output says:
+
+    V9 shadow-ready: NO
+
+stop there.
+
+Do not run the projector.
+Do not collect 1000 new shots.
+
+Send the optimizer results back for the next offline iteration.
+
+B) SHADOW-READY model
+---------------------
+If output says:
+
+    V9 shadow-ready: content/ai/ranker_v9_offline.json
+
+then a later camera holdout is useful.
+
+Restart the game:
+
+    python3 main.py
+
+In a second terminal:
+
+    python3 -m automation.ranker_v211_verify
+
+Then use an UNSEEN seed, not 12345:
+
+    python3 -m automation.ai_training_loop 1 1 --seed 54321
+
+After 100 shots:
+
+    python3 -m automation.ranker_v211_verify
+    python3 -m automation.ranker_v211_shadow_analyze
+
+V9 remains shadow-only during this entire test.
+
+IMPORTANT
+---------
+Do not run 10x100 yet.
+
+The point of V2.11 is to keep iterating offline until the ranking rule is
+credible enough to deserve new camera time.

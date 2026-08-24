@@ -1,0 +1,14 @@
+Skjutbana V2.11 files
+=====================
+
+DETECTOR_V2_11.md
+INSTALL_V2_11.txt
+SELFTEST_V2_11.md
+automation/ranker_v211_optimize.py
+automation/ranker_v211_selftest.py
+automation/ranker_v211_verify.py
+automation/ranker_v211_shadow_analyze.py
+src/engine/ai/ranker_v9.py
+src/engine/ai/ranker_v9_optimizer.py
+src/engine/ai/ranker_v9_extension.py
+src/engine/scenes/__init__.py
