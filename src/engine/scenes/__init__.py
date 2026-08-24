@@ -1,47 +1,20 @@
-"""Scene package startup hooks for V2.7.1."""
+"""Startup hooks for the measured AI detector/ranker experiments.
+
+The V2.8 integration remains authoritative. V2.9 is installed after it and is
+strictly observational/shadow-only.
+"""
 from __future__ import annotations
-
-import json
-import os
-import time
-from pathlib import Path
-
-_STATUS_PATH = Path("content/ai/v27_runtime_status.json")
-
-
-def _write_status(payload: dict) -> None:
-    try:
-        _STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _STATUS_PATH.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
-
 
 try:
     from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
 
-    install_ranker_v6_extension()
-    _write_status(
-        {
-            "schema_version": "2.7.1",
-            "installed": True,
-            "pid": os.getpid(),
-            "installed_at": time.time(),
-            "startup_path": "src.engine.scenes.__init__",
-        }
-    )
+    install_ranker_v6_extension(source="scenes.__init__")
 except Exception as exc:
-    _write_status(
-        {
-            "schema_version": "2.7.1",
-            "installed": False,
-            "pid": os.getpid(),
-            "installed_at": time.time(),
-            "startup_path": "src.engine.scenes.__init__",
-            "error": repr(exc),
-        }
-    )
-    print(f"[RANKER-V6] V2.7.1 STARTUP ERROR: {exc!r}")
+    print(f"[RANKER-V6] startup error: {exc!r}")
+
+try:
+    from src.engine.ai.ranker_v7_extension import install_ranker_v7_extension
+
+    install_ranker_v7_extension(source="scenes.__init__")
+except Exception as exc:
+    print(f"[RANKER-V7] V2.9 startup error: {exc!r}")

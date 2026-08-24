@@ -1,0 +1,130 @@
+Skjutbana AI / Detector V2.9
+============================
+
+Purpose
+-------
+V2.9 freezes the measured V2.8 camera / Shot Vault / micro-clustering /
+recall-pool pipeline and moves ranker development OFFLINE.
+
+V2.9 does NOT change the actual selected candidate.
+Ranker V7 is shadow-only in this version.
+
+What V2.9 adds
+--------------
+1. Atomic per-shot ranking datasets:
+     content/ai/ranking_v29/sessions/<runtime-session>/shot_000001.json
+
+   Each labelled synthetic shot stores:
+   - every V2.8 micro-hypothesis,
+   - V2.8 recall-pool membership,
+   - baseline / V6 / actual ranks,
+   - ground-truth distance,
+   - normalized physical/evidence features,
+   - within-shot relative features,
+   - detector metadata / benchmark seed when available.
+
+2. Ranking dataset analysis:
+     python3 -m automation.ranker_v29_analyze
+
+3. Offline ranker laboratory:
+     python3 -m automation.ranker_v29_experiment
+
+   It trains several pairwise-linear feature variants using SHOT-LEVEL
+   cross-validation. The held-out shots are never used to train the model
+   evaluated on them.
+
+4. Ranker V7 shadow model:
+     content/ai/ranker_v7_offline.json
+
+   The experiment can save the best cross-validated model. V2.9 may load it
+   for shadow comparison on a later run, but it NEVER gets authority.
+
+Installation
+------------
+IMPORTANT: install this on top of the working V2.8 installation.
+
+Extract/copy the ZIP over the project root.
+
+Then completely stop the current game process and start again:
+
+    python3 main.py
+
+At game startup you should see both a V2.8 line and:
+
+    [RANKER-V7] V2.9 offline-dataset + shadow-ranker installed ...
+
+Before spending time on a benchmark, in a second terminal:
+
+    python3 -m automation.ranker_v29_verify
+
+Before the first F2 test it should PASS with:
+- Installed = True
+- PID currently alive = True
+- Labelled GT calls = 0
+- Dataset rows = 0
+
+Optional package self-test
+--------------------------
+This uses synthetic in-memory data only:
+
+    python3 automation/ranker_v29_selftest.py
+
+First real test: ONLY 1 x 100
+-----------------------------
+Do NOT run 10 x 100 yet.
+
+    python3 -m automation.ai_training_loop 1 1 --seed 12345
+
+After it finishes:
+
+    python3 -m automation.ranker_v29_verify
+
+We want:
+- labelled calls = 100
+- dataset rows status = 100
+- dataset rows on disk = 100
+
+Then analyse the captured ranking dataset:
+
+    python3 -m automation.ranker_v29_analyze
+
+Then run the offline lab:
+
+    python3 -m automation.ranker_v29_experiment
+
+The offline experiment uses no camera and can be repeated as many times as
+needed. It prints cross-validated BASE vs model Top-1, Top-3, median rank and
+MRR at 20 px and 42 px. It also writes:
+- an experiment report under content/ai/ranking_v29/experiments/
+- the best V7 shadow model to content/ai/ranker_v7_offline.json
+
+Important: a model saved by the experiment is STILL shadow-only.
+
+Optional second live validation
+-------------------------------
+Only if the offline cross-validation looks useful:
+
+1. Restart the game (cleanest way to load the saved shadow model).
+2. Verify:
+       python3 -m automation.ranker_v29_verify
+3. Run a DIFFERENT 100-shot seed:
+       python3 -m automation.ai_training_loop 1 1 --seed 54321
+4. Analyse:
+       python3 -m automation.ranker_v29_analyze
+
+This gives an independent live shadow comparison. Do not reuse seed 12345 for
+the first post-training validation.
+
+When to run 10 x 100
+--------------------
+Not yet.
+
+The purpose of V2.9 is to make ranker iteration cheap. First use one 100-shot
+collection run + offline experiments. A 1000-shot camera run should only be
+done once the offline results show exactly what extra data is needed.
+
+Safety / rollback
+-----------------
+V2.9 is observational. It does not replace V2.8's detector or selection.
+To stop V2.9 data collection, restore/remove src/engine/scenes/__init__.py
+startup hook and the V2.9 files. V2.8 itself is not modified by this package.

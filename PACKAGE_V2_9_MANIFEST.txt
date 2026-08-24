@@ -1,0 +1,14 @@
+Skjutbana V2.9 package
+======================
+
+src/engine/scenes/__init__.py
+src/engine/ai/ranker_v7.py
+src/engine/ai/ranker_v7_extension.py
+src/engine/ai/ranking_dataset_v29.py
+automation/ranker_v29_verify.py
+automation/ranker_v29_analyze.py
+automation/ranker_v29_experiment.py
+automation/ranker_v29_selftest.py
+INSTALL_V2_9.txt
+DETECTOR_V2_9.md
+SELFTEST_V2_9.md
