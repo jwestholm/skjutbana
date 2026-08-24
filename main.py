@@ -36,14 +36,14 @@ def _save_and_guard_terminal():
 
 _save_and_guard_terminal()
 
-# V2.7.2 DIRECT integration. This is deliberately before App import so the
+# V2.8 DIRECT integration. This is deliberately before App import so the
 # actual game process cannot silently miss the AIRuntime ranking hooks.
 try:
     from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
 
     install_ranker_v6_extension(source="main.py")
 except Exception as exc:
-    print(f"[RANKER-V6] V2.7.2 FATAL startup error: {exc!r}", file=sys.stderr)
+    print(f"[RANKER-V6] V2.8 FATAL startup error: {exc!r}", file=sys.stderr)
     raise
 
 from src.engine.app import App

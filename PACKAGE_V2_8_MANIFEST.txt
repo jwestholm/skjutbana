@@ -1,0 +1,18 @@
+V2.8 package files
+==================
+
+main.py
+src/engine/ai/bootstrap.py
+src/engine/ai/hypothesis_v28.py
+src/engine/ai/ranker_v6.py
+src/engine/ai/ranker_v6_extension.py
+content/ai/hypothesis_v28_config.json
+content/ai/ranker_v6_config.json
+automation/detector_v28_selftest.py
+automation/detector_v28_verify.py
+automation/detector_v28_analyze.py
+automation/detector_v27_verify.py
+automation/detector_v27_analyze.py
+DETECTOR_V2.md
+SELFTEST_V2_8.md
+INSTALL_DETECTOR_V2_8.txt

@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "merge_radius_px": 16.0,
+  "max_cluster_diameter_px": 30.0,
+  "max_members_per_cluster": 64,
+  "core_hypotheses": 120,
+  "max_hypotheses": 220,
+  "macro_cell_px": 240.0,
+  "macro_bucket_depth": 4,
+  "overflow_baseline_reserve": 56,
+  "overflow_support_reserve": 32,
+  "overflow_signal_reserve": 32,
+  "overflow_diversity_reserve": 24,
+  "overflow_vault_reserve": 20,
+  "carried_penalty": 0.08,
+  "age_penalty": 0.05
+}

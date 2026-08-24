@@ -8,19 +8,21 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
-from src.engine.ai.hypothesis_v27 import HypothesisBuilderV27
+from src.engine.ai.hypothesis_v28 import HypothesisBuilderV28
 from src.engine.ai.ranker_v6 import RankerV6
 
 _INSTALLED = False
 
-_STATUS_PATH = Path("content/ai/v27_runtime_status.json")
-_DIAG_PATH = Path("content/ai/detector_v27/shot_diagnostics.jsonl")
+_STATUS_PATH = Path("content/ai/v28_runtime_status.json")
+_DIAG_PATH = Path("content/ai/detector_v28/shot_diagnostics.jsonl")
+_SESSION_ROOT = Path("content/ai/detector_v28/sessions")
 _RUNTIME_SESSION_ID = time.strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
 _METRICS = {
     "rank_with_funnel_calls": 0,
     "rank_candidates_calls": 0,
     "gt_calls": 0,
     "diagnostic_rows": 0,
+    "jsonl_rows": 0,
     "last_call_ts": None,
     "install_source": None,
     "primary_install_source": None,
@@ -31,7 +33,7 @@ def _write_status(installed: bool, *, error: str | None = None) -> None:
     try:
         _STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": "2.7.3",
+            "schema_version": "2.8",
             "installed": bool(installed),
             "pid": os.getpid(),
             "runtime_session_id": _RUNTIME_SESSION_ID,
@@ -45,16 +47,31 @@ def _write_status(installed: bool, *, error: str | None = None) -> None:
     except Exception:
         pass
 
-def _append_diag(diagnostic: dict[str, Any], gt: tuple[float,float]) -> None:
+def _atomic_session_dir() -> Path:
+    return _SESSION_ROOT / _RUNTIME_SESSION_ID
+
+
+def _append_diag(diagnostic: dict[str, Any], gt: tuple[float, float]) -> None:
+    """Write every labelled shot twice: atomic per-shot JSON + JSONL stream.
+
+    V2.7.2 showed 100 hook calls but occasionally only 99 JSONL rows. The
+    per-shot atomic files are now authoritative; JSONL remains convenient for
+    tailing/backwards compatibility.
+    """
     try:
         _DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        session_dir = _atomic_session_dir()
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        sequence = int(_METRICS.get("diagnostic_rows", 0) or 0) + 1
         row = {
-            "schema_version": "2.7.3",
+            "schema_version": "2.8",
             "runtime_session_id": _RUNTIME_SESSION_ID,
+            "sequence": sequence,
             "captured_at": time.time(),
             "pid": os.getpid(),
             "ground_truth": {"camera_x": float(gt[0]), "camera_y": float(gt[1])},
-            "v27_hypotheses": diagnostic,
+            "v28_hypotheses": diagnostic,
         }
         try:
             from src.engine.camera.hit_scanner import HitScanner, hit_scanner
@@ -72,9 +89,23 @@ def _append_diag(diagnostic: dict[str, Any], gt: tuple[float,float]) -> None:
                     row["git_commit"] = str(rec["git_commit"])
         except Exception:
             pass
-        with _DIAG_PATH.open("a", encoding="utf-8") as h:
-            h.write(json.dumps(row, ensure_ascii=False) + "\n")
-        _METRICS["diagnostic_rows"] = int(_METRICS.get("diagnostic_rows",0) or 0)+1
+
+        encoded = json.dumps(row, ensure_ascii=False)
+        final_path = session_dir / f"shot_{sequence:06d}.json"
+        temp_path = session_dir / f".shot_{sequence:06d}.{os.getpid()}.tmp"
+        temp_path.write_text(encoded + "\n", encoding="utf-8")
+        os.replace(temp_path, final_path)
+        _METRICS["diagnostic_rows"] = sequence
+
+        try:
+            with _DIAG_PATH.open("a", encoding="utf-8") as handle:
+                handle.write(encoded + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            _METRICS["jsonl_rows"] = int(_METRICS.get("jsonl_rows", 0) or 0) + 1
+        except Exception as exc:
+            _write_status(True, error=f"JSONL mirror write failed: {exc!r}")
+
         _write_status(True)
     except Exception as exc:
         _write_status(True, error=f"diagnostic write failed: {exc!r}")
@@ -119,12 +150,12 @@ def _coverage(pool: Sequence[dict[str, Any]], gt_xy: tuple[float, float]) -> dic
     }
 
 
-def _get_builder(runtime: Any) -> HypothesisBuilderV27:
-    builder = getattr(runtime, "_v27_hypothesis_builder", None)
-    if isinstance(builder, HypothesisBuilderV27):
+def _get_builder(runtime: Any) -> HypothesisBuilderV28:
+    builder = getattr(runtime, "_v28_hypothesis_builder", None)
+    if isinstance(builder, HypothesisBuilderV28):
         return builder
-    builder = HypothesisBuilderV27()
-    runtime._v27_hypothesis_builder = builder
+    builder = HypothesisBuilderV28()
+    runtime._v28_hypothesis_builder = builder
     return builder
 
 
@@ -159,7 +190,7 @@ def _get_model(runtime: Any) -> RankerV6:
     storage_dir = getattr(runtime, "storage_dir", None)
     root = Path(storage_dir) if storage_dir is not None else Path("content/ai")
     model = RankerV6(
-        model_path=root / "ranker_v6.json",
+        model_path=root / "ranker_v6_v28.json",
         config_path=root / "ranker_v6_config.json",
     )
     runtime._ranker_v6 = model
@@ -177,7 +208,7 @@ def _annotate_actual(
         item = dict(candidate)
         item["rank"] = index
         item["ranking_version"] = (
-            "2.7-hypothesis-v6" if authoritative_v6 else "2.7-hypothesis-baseline"
+            "2.8-hypothesis-v6" if authoritative_v6 else "2.8-core-first-baseline"
         )
         item["v27_v6_authoritative"] = 1.0 if authoritative_v6 else 0.0
         if authoritative_v6:
@@ -192,12 +223,12 @@ def _annotate_actual(
 
 
 def install_ranker_v6_extension(source: str = "unknown") -> None:
-    """Install V2.7 hypothesis consolidation and the validated V6 ranker.
+    """Install V2.8 recall-preserving hypothesis consolidation and validated V6 ranker.
 
     The V2.6 detector/vault is intentionally untouched. This wrapper replaces
     *ranking* of filtered candidates with:
 
-        filtered observations -> V2.7 hypotheses -> spatial pool -> ranking
+        filtered observations -> micro-clusters -> 120 core + 220 recall pool -> ranking
 
     No GT coordinate is used in hypothesis construction or current-shot ranking.
     Synthetic GT is used only after that shot was already ranked, for validation
@@ -211,10 +242,6 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
         sources = _METRICS.setdefault("install_sources", [])
         if isinstance(sources, list) and value not in sources:
             sources.append(value)
-
-        # The first meaningful source is authoritative. In particular, a later
-        # fail-safe call from another import path must never replace "main.py"
-        # with the default "unknown".
         if value != "unknown":
             if not _METRICS.get("primary_install_source"):
                 _METRICS["primary_install_source"] = value
@@ -249,9 +276,16 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
         source = [dict(candidate) for candidate in candidates]
         self._v27_input_candidates = source
         if not source:
+            self._v28_all_hypotheses = []
+            self._v28_hypothesis_pool = []
+            self._v28_core_pool = []
+            self._v28_baseline_pool = []
+            self._v28_recall_baseline_pool = []
             self._v27_all_hypotheses = []
             self._v27_hypothesis_pool = []
             self._v27_baseline_pool = []
+            self._v28_v6_shadow_pool = []
+            self._v28_actual_pool = []
             self._v27_v6_shadow_pool = []
             self._v27_actual_pool = []
             self._v27_hypothesis_stats = {
@@ -263,8 +297,24 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
             return []
 
         builder = _get_builder(self)
-        all_hypotheses, pool, stats = builder.build(source)
+        all_hypotheses, pool, core_pool, stats = builder.build(source)
+
+        # Conservative actual baseline: keep the proven V2.7 core ahead of the
+        # newly rescued overflow candidates. A separate recall-baseline shadow
+        # tells us whether global baseline sorting over the larger pool is safe.
+        core_markers = {
+            (round(_safe_float(c.get("camera_x")), 4), round(_safe_float(c.get("camera_y")), 4))
+            for c in core_pool
+        }
         baseline = sorted(
+            (dict(candidate) for candidate in pool),
+            key=lambda candidate: (
+                1 if (round(_safe_float(candidate.get("camera_x")), 4), round(_safe_float(candidate.get("camera_y")), 4)) in core_markers else 0,
+                _safe_float(candidate.get("v27_baseline_score")),
+            ),
+            reverse=True,
+        )
+        recall_baseline = sorted(
             (dict(candidate) for candidate in pool),
             key=lambda candidate: _safe_float(candidate.get("v27_baseline_score")),
             reverse=True,
@@ -280,9 +330,19 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
         actual_full = v6_pool if authoritative else baseline
         actual_full = _annotate_actual(actual_full, authoritative_v6=authoritative)
 
+        self._v28_all_hypotheses = [dict(candidate) for candidate in all_hypotheses]
+        self._v28_hypothesis_pool = [dict(candidate) for candidate in pool]
+        self._v28_core_pool = [dict(candidate) for candidate in core_pool]
+        self._v28_baseline_pool = [dict(candidate) for candidate in baseline]
+        self._v28_recall_baseline_pool = [dict(candidate) for candidate in recall_baseline]
+        # Backwards aliases keep any external debug tooling from breaking.
         self._v27_all_hypotheses = [dict(candidate) for candidate in all_hypotheses]
         self._v27_hypothesis_pool = [dict(candidate) for candidate in pool]
         self._v27_baseline_pool = [dict(candidate) for candidate in baseline]
+        self._v28_v6_shadow_pool = [dict(candidate) for candidate in v6_pool]
+        self._v28_actual_pool = [dict(candidate) for candidate in actual_full]
+        self._v28_hypothesis_stats = dict(stats)
+        self._v28_authority_status = dict(authority_status)
         self._v27_v6_shadow_pool = [dict(candidate) for candidate in v6_pool]
         self._v27_actual_pool = [dict(candidate) for candidate in actual_full]
         self._v27_hypothesis_stats = dict(stats)
@@ -309,9 +369,9 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
         effective_limit = limit
         if gt_xy is not None:
             try:
-                hypothesis_limit = int(_get_builder(self).config.snapshot().get("max_hypotheses", 120))
+                hypothesis_limit = int(_get_builder(self).config.snapshot().get("max_hypotheses", 220))
             except Exception:
-                hypothesis_limit = 120
+                hypothesis_limit = 220
             effective_limit = max(int(limit or 0), hypothesis_limit)
 
         result = original_rank_with_funnel(
@@ -327,13 +387,15 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
 
         gt = (float(gt_xy[0]), float(gt_xy[1]))
         input_candidates = [dict(c) for c in getattr(self, "_v27_input_candidates", []) or []]
-        all_hypotheses = [dict(c) for c in getattr(self, "_v27_all_hypotheses", []) or []]
-        hypothesis_pool = [dict(c) for c in getattr(self, "_v27_hypothesis_pool", []) or []]
-        baseline_pool = [dict(c) for c in getattr(self, "_v27_baseline_pool", []) or []]
-        v6_pool = [dict(c) for c in getattr(self, "_v27_v6_shadow_pool", []) or []]
-        actual_pool = [dict(c) for c in getattr(self, "_v27_actual_pool", []) or []]
-        stats = dict(getattr(self, "_v27_hypothesis_stats", {}) or {})
-        authority = dict(getattr(self, "_v27_authority_status", {}) or {})
+        all_hypotheses = [dict(c) for c in getattr(self, "_v28_all_hypotheses", []) or []]
+        hypothesis_pool = [dict(c) for c in getattr(self, "_v28_hypothesis_pool", []) or []]
+        core_pool = [dict(c) for c in getattr(self, "_v28_core_pool", []) or []]
+        baseline_pool = [dict(c) for c in getattr(self, "_v28_baseline_pool", []) or []]
+        recall_baseline_pool = [dict(c) for c in getattr(self, "_v28_recall_baseline_pool", []) or []]
+        v6_pool = [dict(c) for c in getattr(self, "_v28_v6_shadow_pool", []) or []]
+        actual_pool = [dict(c) for c in getattr(self, "_v28_actual_pool", []) or []]
+        stats = dict(getattr(self, "_v28_hypothesis_stats", {}) or {})
+        authority = dict(getattr(self, "_v28_authority_status", {}) or {})
 
         model = _get_model(self)
         # PRE-TRAIN validation: current shot cannot improve its own gate result.
@@ -341,7 +403,9 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
         gate_before_training = dict(model.gate_status())
         benchmark_mode = bool(getattr(self, "settings", {}).get("benchmark_mode", False))
         if not benchmark_mode:
-            training = model.learn_from_ground_truth(gt, hypothesis_pool)
+            training = model.learn_from_ground_truth(gt, all_hypotheses)
+            if isinstance(training, dict):
+                training["training_pool"] = "all_micro_clusters"
         else:
             training = {"trained": False, "reason": "benchmark_mode"}
 
@@ -353,22 +417,27 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
             pass
 
         diagnostic = {
-            "schema_version": "2.7",
+            "schema_version": "2.8",
             "stats": stats,
             "coverage": {
                 "filtered_input": _coverage(input_candidates, gt),
                 "all_hypotheses": _coverage(all_hypotheses, gt),
+                "core_pool": _coverage(core_pool, gt),
                 "hypothesis_pool": _coverage(hypothesis_pool, gt),
             },
             "oracle": {
                 "input_nearest_px": _nearest(input_candidates, gt),
                 "cluster_nearest_px": _nearest(all_hypotheses, gt),
+                "core_nearest_px": _nearest(core_pool, gt),
                 "pool_nearest_px": _nearest(hypothesis_pool, gt),
             },
             "ranks": {
                 "baseline_10": _rank(baseline_pool, gt, 10.0),
                 "baseline_20": _rank(baseline_pool, gt, 20.0),
                 "baseline_42": _rank(baseline_pool, gt, 42.0),
+                "recall_baseline_10": _rank(recall_baseline_pool, gt, 10.0),
+                "recall_baseline_20": _rank(recall_baseline_pool, gt, 20.0),
+                "recall_baseline_42": _rank(recall_baseline_pool, gt, 42.0),
                 "v6_10": _rank(v6_pool, gt, 10.0),
                 "v6_20": _rank(v6_pool, gt, 20.0),
                 "v6_42": _rank(v6_pool, gt, 42.0),
@@ -385,8 +454,10 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
             "pool_counts": {
                 "filtered_input": len(input_candidates),
                 "all_hypotheses": len(all_hypotheses),
+                "core_pool": len(core_pool),
                 "hypothesis_pool": len(hypothesis_pool),
                 "baseline_pool": len(baseline_pool),
+                "recall_baseline_pool": len(recall_baseline_pool),
                 "v6_pool": len(v6_pool),
             },
             "validation": validation,
@@ -406,7 +477,7 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
             shot_id = int(ground_truth.get("shot_id", 0)) if isinstance(ground_truth, dict) else 0
             record = getattr(engine, "_diagnostics", {}).get(shot_id)
             if isinstance(record, dict):
-                record.setdefault("evaluation_funnel", {})["v27_hypotheses"] = diagnostic
+                record.setdefault("evaluation_funnel", {})["v28_hypotheses"] = diagnostic
         except Exception:
             pass
 
@@ -421,8 +492,8 @@ def install_ranker_v6_extension(source: str = "unknown") -> None:
     _METRICS["installed_at"] = time.time()
     _write_status(True)
     print(
-        "[RANKER-V6] V2.7.3 status-fix integration installed "
-        f"(pid={os.getpid()} session={_RUNTIME_SESSION_ID} source={source})"
+        "[RANKER-V6] V2.8 recall-pool integration installed "
+        f"(pid={os.getpid()} session={_RUNTIME_SESSION_ID} source={_METRICS.get('install_source')})"
     )
 
 

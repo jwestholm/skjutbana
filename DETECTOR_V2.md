@@ -1,118 +1,65 @@
-# Detector / AI V2.7 — hypothesis consolidation
+# Detector / AI V2.8 — recall-preserving hypothesis pool
 
-## Why V2.7 exists
+V2.8 follows the first successful V2.7 hypothesis benchmark. That test showed:
 
-The locked V2.6 benchmark changed the bottleneck. At F2 evaluation the true
-neighbourhood was present in the filtered pool for roughly **76.7%** of shots,
-while the selected candidate was correct within 42 px only about **0.5%**.
-Median GT rank was around **179**. The detector is therefore frozen for this
-iteration; V2.7 works after V2.6 Shot Vault.
+- filtered GT <=42 px: 62/99;
+- micro-clusters retained 60/99;
+- the 120-item final pool retained only 44/99;
+- clustering itself lost only 2 GT cases, while spatial pooling lost 16.
 
-## Pipeline
+Therefore V2.8 deliberately freezes the detector/Shot Vault and micro-cluster
+logic and changes the post-cluster pool.
+
+## Architecture
 
 ```text
-V2.6 detector + Shot Vault
+V2.6 detector / Shot Vault
         |
-        v
-noise filter
+filtered observations
         |
-        v
-500-ish observations (often)
+V2.7 micro-clustering (unchanged)
         |
-        v
-V2.7 micro-clustering
-  - 16 px merge neighbourhood
-  - bounded 30 px cluster diameter
-  - robust weighted geometric-median centre
+        +--> V2.7-style core pool (120)
         |
-        v
-spatial coverage pool (max 120 hypotheses)
-        |
-        +--> deterministic hypothesis baseline
-        |
-        +--> Ranker V6 shadow / validated auto-gate
-        |
-        v
-actual ranked output
+        +--> V2.8 recall pool (up to 220)
+                  |
+                  +--> core-first baseline (actual until gate opens)
+                  +--> full-baseline shadow
+                  +--> fresh V6 shadow / training
 ```
 
-Ground truth is **never** used to build a hypothesis or rank the current shot.
-Synthetic GT is read only after current-shot ranking for validation and later
-online learning.
+If a shot has <=220 micro-clusters, V2.8 keeps all of them. For larger pools,
+selection uses reserved baseline/support/signal/diversity/Vault heads plus
+spatial local winners.
 
-## Hypotheses instead of raw candidates
+The actual baseline is intentionally conservative: the old 120 core is ordered
+first. This means the V2.8 recall experiment cannot lower the old baseline Top-1
+merely by adding rescued candidates. V6 can nevertheless see and learn from the
+full recall pool, and it may take authority only through the existing validation
+gate.
 
-Nearby V1/V2/tile/Vault observations are summarized into one hypothesis. The
-hypothesis carries aggregate evidence such as member count, detector-source
-diversity, Vault repeats, current-vs-carried fraction, cluster spread, temporal
-signal and V2.4 patch priors. A robust centre is used instead of simply taking
-the strongest detector peak.
+## Diagnostics
 
-A spatial coverage stage caps the rankable set at 120 hypotheses. Large macro
-cells and multiple evidence heads are used so a noisy region cannot consume the
-whole pool. This first release intentionally favours recall over aggressive
-compression.
+Authoritative V2.8 diagnostics are per-shot atomic JSON files:
 
-## Ranker V6
+```text
+content/ai/detector_v28/sessions/<runtime_session>/shot_000001.json
+...
+```
 
-V6 is a small position-independent pairwise logistic model over hypothesis
-features. It uses two supervised labels:
+A JSONL mirror is also kept at:
 
-- strict positive: nearest real hypothesis <=12 px from synthetic GT;
-- soft positive: nearest hypothesis <=20 px, down-weighted during training.
+```text
+content/ai/detector_v28/shot_diagnostics.jsonl
+```
 
-Hard negatives must be at least 55 px away. Prediction/validation happens
-**before** the current shot is learned.
-
-V6 cannot control selection merely because it has trained. A rolling validation
-gate requires enough held-out eligible shots, a Top-1 advantage, a Top-3
-advantage and a substantially better median rank. Even after the gate opens, the
-current shot needs enough V6 score and margin. Until then the deterministic V2.7
-hypothesis baseline remains authoritative.
-
-## New diagnostics
-
-Run:
+Use:
 
 ```bash
-python3 -m automation.detector_v27_analyze
+python3 -m automation.detector_v28_verify
+python3 -m automation.detector_v28_analyze
 ```
 
-It reports three distinct oracle stages at 10/20/42 px:
-
-1. filtered V2.6 input;
-2. all V2.7 clusters;
-3. final spatial hypothesis pool.
-
-This makes a loss attributable to one of four stages:
-
-```text
-filtered detector miss
-clustering lost GT
-spatial pool lost GT
-ranking selected wrong
-```
-
-It also compares BASE, V6 shadow and ACTUAL median rank / Top-1 / Top-3, plus
-V6 training/gate state.
-
-## V2.7 development targets
-
-The first goal is not to claim a final hit rate. It is to establish whether we
-can shrink hundreds of observations to ~120 hypotheses **without materially
-reducing 42 px recall**, then make the GT rank collapse from V2.6's ~179 toward
-the top of that smaller set. Once that is measured on the locked seeds, the next
-iteration can tune clustering and/or V6 independently instead of mixing detector
-and ranking changes.
-
-## V2.7.2 — direct game-process integration
-
-V2.7.2 keeps the V2.7 hypothesis/ranker experiment unchanged but removes the
-ambiguous startup path. `main.py` installs Ranker V6 before importing `App`.
-If that installation fails, the game exits visibly instead of silently running
-without V2.7.
-
-`automation.detector_v27_verify` is now read-only. It only trusts a heartbeat
-written by the actual process that installed V2.7.2 and checks that PID through
-`/proc`. The heartbeat contains counters for `rank_with_funnel`,
-`rank_candidates`, labelled GT calls, and standalone diagnostic rows.
+The V2.8 analyzer compares filtered input, all clusters, old 120 core and the
+new recall pool at 10/20/42 px, plus core-first baseline, full-baseline shadow,
+V6 shadow and actual selection.

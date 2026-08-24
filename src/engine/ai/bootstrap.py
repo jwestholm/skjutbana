@@ -73,7 +73,7 @@ def _patch_scene_factory() -> None:
 
 
 def _patch_ranker_v6() -> None:
-    # V2.7 deliberately does NOT install the older V4/V5 wrappers. Their files
+    # V2.8 deliberately does NOT install the older V4/V5 wrappers. Their files
     # may remain on disk for history/rollback, but a fresh process gets exactly
     # one ranking extension: filtered observations -> hypotheses -> V6.
     try:

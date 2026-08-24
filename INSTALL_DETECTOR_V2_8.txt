@@ -1,0 +1,49 @@
+Skjutbana Detector / Hypothesis V2.8
+===================================
+
+V2.8 is a focused follow-up to the first working V2.7 benchmark.
+
+What changes
+------------
+- V2.6 detector / Shot Vault is NOT changed.
+- V2.7 micro-clustering is retained.
+- The old 120-item pool remains as a conservative CORE.
+- A new recall pool keeps up to 220 hypotheses. Typical ~189-cluster shots
+  therefore keep every cluster instead of discarding ~16 correct GT cases.
+- Actual baseline selection keeps the old core ahead of newly rescued items,
+  preventing the recall experiment from needlessly changing the proven Top-1
+  baseline before V6 earns authority.
+- V6 shadow ranks the full recall pool and trains from ALL micro-clusters.
+- V6 uses a fresh model file: content/ai/ranker_v6_v28.json. The older V6
+  model is left untouched.
+- Diagnostics are written as atomic per-shot JSON files plus a JSONL mirror.
+  This addresses the previous 100 calls / 99 rows issue.
+
+Install
+-------
+Extract over the project root and fully restart:
+
+    python3 main.py
+
+You should see:
+
+    [RANKER-V6] V2.8 recall-pool integration installed ...
+
+Before training:
+
+    python3 -m automation.detector_v28_verify
+
+Then run ONLY 1x100 first:
+
+    python3 -m automation.ai_training_loop 1 1 --seed 12345
+
+Afterwards:
+
+    python3 -m automation.detector_v28_verify
+    python3 -m automation.detector_v28_analyze
+
+Old commands detector_v27_verify / detector_v27_analyze are compatibility
+wrappers and now invoke the V2.8 tools.
+
+Do not run 10x100 until the 1x100 V2.8 oracle shows that the recall pool has
+substantially reduced the old spatial_pool_lost_gt loss.
