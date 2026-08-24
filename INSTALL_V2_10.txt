@@ -1,0 +1,66 @@
+Skjutbana V2.10 - offline monotonic feature-search ranker
+========================================================
+
+WHAT V2.10 CHANGES
+------------------
+V2.10 does NOT change:
+- camera detector
+- Detector V2/V2.4/V2.6
+- Shot Vault
+- V2.7 micro-clustering
+- V2.8 recall-pool
+- actual selected hit
+
+V2.10 adds an offline optimizer (Ranker V8) designed around the V2.9 finding
+that true holes often have LOWER support/signal/persistence but HIGHER
+compactness than the strong projector artifacts preferred by the baseline.
+
+V8 is ALWAYS shadow-only in this package.
+
+INSTALL
+-------
+Extract/copy this ZIP over the project root containing your working V2.9.
+
+OFFLINE OPTIMIZATION - NO PROJECTOR/CAMERA/GAME REQUIRED
+--------------------------------------------------------
+You already have a complete 100-shot V2.9 ranking dataset, so immediately run:
+
+    python3 -m automation.ranker_v210_selftest
+    python3 -m automation.ranker_v210_optimize
+
+The optimizer:
+- separates development and untouched confirmation shots;
+- learns whether each feature should be LOW or HIGH for the true hit;
+- removes highly correlated duplicate evidence;
+- searches hundreds of monotonic ranking configurations;
+- cross-validates only on development shots;
+- evaluates the winner once on untouched confirmation shots;
+- saves a SHADOW-only model to:
+      content/ai/ranker_v8_offline.json
+
+The optimizer should normally finish in seconds/minutes, not an hour.
+
+FUTURE CAMERA HOLDOUT - ONLY IF OFFLINE RESULT IS INTERESTING
+-------------------------------------------------------------
+For a clean unseen test, fully restart the game after V2.10 is installed:
+
+    python3 main.py
+
+Verify:
+
+    python3 -m automation.ranker_v210_verify
+
+The startup terminal should include:
+
+    [RANKER-V8] V2.10 monotonic optimizer shadow integration installed ...
+
+Then run ONE new 100-shot seed, not 10x100:
+
+    python3 -m automation.ai_training_loop 1 1 --seed 54321
+
+Afterwards:
+
+    python3 -m automation.ranker_v210_verify
+    python3 -m automation.ranker_v210_shadow_analyze
+
+V8 remains shadow-only. The game continues to use V2.8's actual selection.

@@ -1,0 +1,26 @@
+V2.10 package files
+===================
+
+DETECTOR_V2_9.md
+DETECTOR_V2_10.md
+INSTALL_V2_9.txt
+INSTALL_V2_10.txt
+PACKAGE_V2_9_MANIFEST.txt
+PACKAGE_V2_10_MANIFEST.txt
+SELFTEST_V2_9.md
+SELFTEST_V2_10.md
+automation/ranker_v29_analyze.py
+automation/ranker_v29_experiment.py
+automation/ranker_v29_selftest.py
+automation/ranker_v29_verify.py
+automation/ranker_v210_optimize.py
+automation/ranker_v210_selftest.py
+automation/ranker_v210_verify.py
+automation/ranker_v210_shadow_analyze.py
+src/engine/ai/ranker_v7.py
+src/engine/ai/ranker_v7_extension.py
+src/engine/ai/ranking_dataset_v29.py
+src/engine/ai/ranker_v8.py
+src/engine/ai/ranker_v8_optimizer.py
+src/engine/ai/ranker_v8_extension.py
+src/engine/scenes/__init__.py
