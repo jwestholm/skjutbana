@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.12",
+  "comment": "V2.12 direct-image physical evidence. Context/game priors are intentionally separate future sources.",
+  "evidence": {
+    "registration_enabled": true,
+    "registration_max_shift_px": 5.0,
+    "registration_min_response": 0.05,
+    "photometric_compensation": true,
+    "blur_kernel": 3,
+    "blur_sigma": 0.55,
+    "noise_floor": 1.5,
+    "local_small": 3,
+    "local_large": 15,
+    "consensus_change": 2.0,
+    "consensus_zscore": 1.0,
+    "weights": {
+      "temporal_consensus": 0.35,
+      "persistent_zscore": 0.27,
+      "local_contrast": 0.18,
+      "darkening": 0.12,
+      "absdiff": 0.08
+    },
+    "candidate_robust_sigma": 2.2,
+    "candidate_min_score": 0.24,
+    "candidate_local_max_kernel": 3,
+    "candidate_nms_radius_px": 4.0,
+    "candidate_limit": 320
+  }
+}

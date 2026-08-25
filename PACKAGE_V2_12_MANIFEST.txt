@@ -1,0 +1,44 @@
+SKJUTBANA V2.12 PACKAGE MANIFEST
+================================
+
+Package type: overlay containing ONLY new/changed files.
+Target: github.com/jwestholm/skjutbana, branch dev (public dev inspected 2026-08-25).
+Live detector authority: UNCHANGED.
+
+Primary goal:
+  Hardware-free replay of the current live V1->V2 detector plus an independent
+  temporal physical evidence overlay, with per-source and UNION recall metrics.
+
+Files:
+c0918206bb8065c99de8d3dd567b21369fcfdb9c838262ac08d10cc8c746a0fd       6842  DETECTOR_V2_12.md
+500f054e0fa714ab82e140629960e4f09850d15daf3719a2388efb023b89fc1f      12111  HIT_DETECTION_PLAN.md
+0b9996bbc217f22bae94a797ab074cbaa1877a9e4769a9f54ed0a5ec25f8faf1       4003  INSTALL_V2_12.txt
+72e964a220fa953548ca4371fcfa99b2c6f11d27b791a4754c99c5c720d99a99       1415  SELFTEST_V2_12.md
+598dca840c07608fb1f166b52f096dd608ec0b58a9c6cded95c8be8ed17dec73       3756  automation/offline_archive_inspect.py
+7145eb7aae32f3d0302f871c3fb4182bcb5d65acdf2658ce72b95e34f96e7c63       5345  automation/offline_v212_replay.py
+0989991b2586abd61b2c89bfb07ac567ff3c9b3e4b92bca8a6cdbb0a769de73f       9362  automation/offline_v212_selftest.py
+aaa42f4824a6e8da1d957c47aeb7d351e03d9341bb5486f3df67d754b051d46b       4515  automation/offline_v212_synthetic.py
+01c3ba26ee6f30406bd232601ccc66dd02471c6b27801b84891165a9c2e4a435       6658  automation/offline_v212_visualize.py
+bfd236eeaba02015696c10146e4946c39f66acf8a26e145c6c778adeb0517aed        827  content/ai/offline_v212.json
+9b9a5548018ae2df5ebf2d17af7d1c1d0b7115f5aee8657b402d3b9c5bf18b91        313  src/engine/offline/__init__.py
+580bcd78098943652c4a8cddd024fba9628bc9d1a7d8d623295d1ce8b34abf63      11508  src/engine/offline/archive.py
+196133740e7a9f735c54d60c2dd84a2408ae230574d00887c102766c04b24477      18609  src/engine/offline/evidence.py
+296c014606f8f180c92ecc168d72f55e1264e2bdaed57c0d20d80a6c40238cbe       8260  src/engine/offline/live_detector_replay.py
+bbb6ae4ff3c4e98d458077aac57b46261d9b3faf0c3b286c945d8414c929753d       4882  src/engine/offline/metrics.py
+2a37e3e5789575aaf48f2ae7c198535ddeff373cf1c6e934c9fb3349aaff56b3      10594  src/engine/offline/replay.py
+8477655793f3b41751430310460002026b8948938c545827d49319e6091aa39e       4055  src/engine/offline/replay_context.py
+f58a5fed6713517b0671355c13a98ee28f9a944b68fe1d1d1025854c8579dffd       5908  src/engine/offline/shot_case.py
+
+File count (excluding this manifest): 18
+
+Package-only verification performed:
+  - Python compileall: PASS
+  - offline_v212_selftest mandatory tests: PASS
+  - archive -> manifest -> overlay replay -> visualisation E2E smoke: PASS
+  - synthetic temporal overlay stress: PASS
+
+Full-repo verification still required after overlay:
+  python3 -m automation.offline_v212_selftest --require-v2
+
+Reason: the delivery ZIP intentionally does not duplicate unchanged current-dev
+camera/runtime files, so this isolated package cannot import src.engine.camera.

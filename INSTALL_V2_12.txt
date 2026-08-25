@@ -1,0 +1,100 @@
+SKJUTBANA DETECTOR V2.12 - OFFLINE REPLAY & EVIDENCE FOUNDATION
+================================================================
+
+PURPOSE
+-------
+V2.12 adds the first hardware-free detector workbench. It does NOT change live
+hit authority. The main benchmark replays the CURRENT live HitScanner V1->V2
+candidate detector on saved before/after frames, runs one new independent
+physical evidence source, and measures whether their UNION finds ground truth
+more often than either source alone.
+
+INSTALL
+-------
+1. Start from the latest local `dev` checkout.
+2. Extract this ZIP on top of the repository root, preserving paths.
+3. Review with `git status` / `git diff --stat` before committing.
+
+FIRST CHECK
+-----------
+Run from repo root:
+
+    python3 -m automation.offline_v212_selftest --require-v2
+
+The `--require-v2` check is important: it verifies that V2.12 can instantiate the
+current HitScanner and call the exact V1->V2 hybrid candidate wrapper without a
+camera. The ZIP was built as an overlay and therefore cannot perform that last
+integration import by itself outside the complete repo.
+
+ARCHIVE INVENTORY - READ ONLY
+-----------------------------
+Do a small first pass against the folder that contains the historical images:
+
+    python3 -m automation.offline_archive_inspect "D:\PATH\TO\HOLE_ARCHIVE" --limit 200
+
+Default outputs:
+
+    content/ai/offline/v212/archive_manifest.jsonl
+    content/ai/offline/v212/archive_summary.json
+
+The script NEVER renames, moves or edits archive images. It attempts common
+pre/before/ref/without-hole and post/after/with-hole filename conventions and
+reports ambiguous/unclassified examples so pairing can be adapted to the real
+archive layout before a full scan.
+
+FIRST REAL REPLAY
+-----------------
+If the first archive summary shows useful paired+labelled shots:
+
+    python3 -m automation.offline_v212_replay \
+        --manifest content/ai/offline/v212/archive_manifest.jsonl \
+        --root "D:\PATH\TO\HOLE_ARCHIVE" \
+        --max-shots 200 \
+        --out content/ai/offline/v212/replay_200.json
+
+The table separates:
+
+    current_detector              exact live V1->V2 hybrid candidate list
+    current_detector_v1           candidates carrying V1 provenance
+    current_detector_v2           candidates carrying V2 provenance
+    current_detector_agreement    candidates supported by both
+    overlay_temporal_consensus    new evidence component
+    overlay_persistent_zscore     new evidence component
+    overlay_local_contrast        new evidence component
+    overlay_darkening             new evidence component
+    overlay_absdiff               new evidence component
+    overlay                       V2.12 physical fusion overlay
+    union                         current_detector + overlay proposals
+
+The number to watch first is:
+
+    overlay_rescues_current_detector
+
+That directly answers whether the new independent image evidence recovers real
+holes that the current live detector did not propose.
+
+VISUALISE A DIFFICULT SHOT
+--------------------------
+After the manifest exists:
+
+    python3 -m automation.offline_v212_visualize \
+        --manifest content/ai/offline/v212/archive_manifest.jsonl \
+        --root "D:\PATH\TO\HOLE_ARCHIVE" \
+        --index 0 \
+        --out-dir content/ai/offline/v212/visualize_shot_0
+
+This writes separate heatmaps for absdiff, darkening, persistent_zscore,
+temporal_consensus, local_contrast and the fused physical map, plus candidate/GT
+overlays. This is how we inspect one evidence source at a time instead of tuning
+an opaque combined score.
+
+IMPORTANT
+---------
+- Do NOT run 10x100 projector tests for V2.12 yet.
+- Do NOT give V2.12 overlay live authority yet.
+- Do NOT tune its weights against the same sessions that will be used as holdout.
+- First send/save archive_summary.json and the first replay_200.json result.
+- If historical naming differs, adapt the inspector before scanning everything.
+
+Current plan/source of truth: HIT_DETECTION_PLAN.md
+Version notes: DETECTOR_V2_12.md
