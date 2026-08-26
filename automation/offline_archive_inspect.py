@@ -56,9 +56,13 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    print("V2.12 OFFLINE ARCHIVE INSPECTION")
-    print("================================")
+    print("V2.12/V2.13 OFFLINE ARCHIVE INSPECTION")
+    print("======================================")
     print(f"Archive root        : {root}")
+    if root.name.lower() == "shot_diag":
+        print("WARNING             : shot_diag is HUMAN DIAGNOSTIC imagery with drawn crosshairs/text.")
+        print("                      Inspecting/pairing is OK, but do NOT use it as clean Hole-AI training")
+        print("                      data or an honest full-frame detector benchmark.")
     print(f"Image files         : {summary.image_files}")
     print(f"Candidate groups    : {summary.candidate_groups}")
     print(f"Paired shots        : {summary.paired_shots}")

@@ -1,0 +1,25 @@
+Skjutbana V2.13 delta package
+============================
+
+Apply AFTER V2.12 by extracting over the repository root.
+
+Changed from V2.12:
+  HIT_DETECTION_PLAN.md
+  automation/offline_archive_inspect.py
+
+New in V2.13:
+  DETECTOR_V2_13.md
+  INSTALL_V2_13.txt
+  SELFTEST_V2_13.md
+  automation/hole_v213_inspect.py
+  automation/hole_v213_train.py
+  automation/hole_v213_evaluate.py
+  automation/hole_v213_visualize.py
+  automation/hole_v213_selftest.py
+  content/ai/hole_v213.json
+  src/engine/ai/hole_patch_ai_v213.py
+  src/engine/offline/hole_dataset_v213.py
+  src/engine/offline/hole_training_v213.py
+
+No existing live detector/runtime/game file is replaced in V2.13.
+V2.13 is offline-only and cannot take hit authority.

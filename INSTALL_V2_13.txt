@@ -1,0 +1,73 @@
+Skjutbana Detector V2.13 - Hole-AI Learning Proof
+=================================================
+
+This ZIP is a DELTA package. Extract it over the repository root AFTER V2.12.
+It contains only new/changed V2.13 files.
+
+No camera, projector or microphone is required for V2.13 training.
+No new Python ML framework is required: the first model uses numpy + OpenCV.
+
+1) Selftest
+-----------
+
+  python3 -m automation.hole_v213_selftest
+
+Expected final line:
+
+  All V2.13 selftests passed.
+
+2) Inspect the existing hole bank
+---------------------------------
+
+  python3 -m automation.hole_v213_inspect
+
+This is READ ONLY against content/ai/holes.
+Expected shooting-PC scale from the previous manual inventory is about:
+
+  synthetic: ~15134
+  real:      ~37
+
+The exact number may differ if new runs were added.
+
+3) Optional quick training smoke test
+-------------------------------------
+
+  python3 -m automation.hole_v213_train --epochs 3 --max-train-assets 2000 --max-eval-assets 500
+
+This proves the real archive can be read/trained without waiting for the full run.
+
+4) Full first training experiment
+---------------------------------
+
+  python3 -m automation.hole_v213_train
+
+Default outputs:
+
+  content/ai/reports/v213/hole_patch_ai_v213.npz
+  content/ai/reports/v213/hole_v213_report.json
+
+The real hole_*.png files are NEVER used for training or threshold selection.
+They are a golden real holdout.
+
+5) Re-evaluate without retraining
+---------------------------------
+
+  python3 -m automation.hole_v213_evaluate
+
+6) Visual anti-centre-bias check
+--------------------------------
+
+  python3 -m automation.hole_v213_visualize --kind synthetic --index 0
+  python3 -m automation.hole_v213_visualize --kind real --index 0
+
+This writes diagnostic candidate-centred crops under:
+
+  content/ai/reports/v213/visualize/
+
+Important
+---------
+
+- Do NOT train on content/ai/shot_diag. Those are human diagnostics with drawn annotations.
+- The original 128x128 hole patches are centred by archive construction. V2.13 never feeds them directly as binary examples. It generates candidate-centred 64x64 crops with random offsets and also predicts dx/dy to the hole.
+- V2.13 is a learning proof / new evidence-source experiment. It does NOT change live game authority yet.
+- Do not collect more physical shots before seeing the first V2.13 synthetic-session / novel-background / real-holdout results.

@@ -86,28 +86,28 @@ The most important early metric is **union candidate recall**. A ranker cannot s
 
 ## 4. Data strategy
 
-### A. Real archive — highest-value anchor
+### A. Existing image banks — use each for what it really contains
 
-The shooting computer contains many real hole/before images. V2.12 first inventories these **read-only** and creates a portable manifest.
+The shooting computer currently has two historically different image banks:
 
-Use real data for:
+- `content/ai/shot_diag/`: human diagnostics. These images contain drawn crosshairs/text and are **not model-training input** or an honest full-frame replay benchmark. Keep them for debugging only.
+- `content/ai/holes/`: raw 128x128 camera patches plus JSON sidecars. Current inventory observed on the shooting PC is about **15,134 `synt_*` synthetic-projector/camera hole patches** and **37 `hole_*` real physical-hole patches**.
 
-- detector replay,
-- real hole morphology,
-- hard negatives,
-- validation and regression,
-- final unseen holdouts.
+The `synt_*` patches are especially useful because the synthetic overlay went through the real projector, physical surface and camera before the patch was saved. They therefore contain real optics/exposure/noise even though the hole itself was synthetic.
 
-Mostly-white historical data is still valuable. It tells us what real holes, paper tearing, focus, camera noise and exposure look like in this exact installation.
+The 37 real `hole_*` patches are too few to train a robust model, so V2.13 treats them as a **golden real holdout by default**. They are never used for model fitting or threshold selection.
+
+Important format fact: the hole bank is centred by construction. V2.13 must therefore never train on the raw 128x128 source image as a binary shortcut. The source image is only a reservoir from which candidate-centred crops are sampled at varied offsets.
 
 ### B. Background diversity
 
-Do **not** throw away the white archive. Instead add diversity in layers:
+Do **not** throw away the mostly-white synthetic camera archive. Add diversity in layers:
 
-1. real white before/after pairs,
-2. extracted real hole/delta patches composited onto varied projected backgrounds,
-3. real camera captures with several static/dynamic projected backgrounds,
-4. a smaller but sacred mixed-background physical holdout.
+1. existing `synt_*` patches from white / white_grid / checker_anim and the smaller black/checker/gray/bubbles sets,
+2. background-class holdouts to measure whether the model learned the hole rather than one projection pattern,
+3. later: extracted/calibrated hole appearance composited onto many game/projector backgrounds,
+4. later: raw camera before/after captures with several static/dynamic projected backgrounds,
+5. a smaller but sacred mixed-background **physical** holdout.
 
 ### C. Million-iteration work
 
@@ -147,13 +147,25 @@ Purpose: independently propose locations where a new physical change appears aft
 
 ### Source 2 — Hole-AI patch model
 
-**Status:** next after archive/replay baseline is measured.
+**Status:** V2.13 first learning proof implemented offline; live/shadow integration comes later.
 
-Input should include **before and after pixels**, not only an after image. Initial job:
+V2.13 starts with the data that actually exists now: raw `synt_*`/`hole_*` post-shot camera patches. It learns **hole morphology at a proposed candidate location**, not temporal newness yet. Temporal newness remains Source 1 until raw before/after camera data is available.
 
-> Given a candidate-centered before/after patch, estimate P(new bullet hole here).
+V2.13 training semantics:
 
-Train on real hole pairs + hard negatives. Use session-level train/validation/test splits. First use as an extra ranking/fusion feature; do not give authority immediately.
+> Given a crop centred on a proposed candidate, estimate `P(candidate corresponds to a hole)` and predict the hole offset from the candidate centre.
+
+Anti-shortcut rules:
+
+- never feed the centred 128x128 archive image directly as the class label,
+- randomly jitter positive candidate centres so the hole moves inside model input,
+- create negatives with the same source image / crop size / preprocessing but candidate centres deliberately away from GT,
+- add an auxiliary X/Y offset-regression task so the network must localise the hole,
+- split synthetic data by **session**,
+- hold selected background classes out completely,
+- keep every real `hole_*` patch out of training as a real-domain holdout.
+
+A later version will add true full-frame detector hard-negative patches and before/after channels. First use in the live architecture remains shadow evidence only.
 
 ### Source 3 — AI direct proposal / heatmap
 
@@ -210,23 +222,34 @@ The centre of the target/play area may statistically be more likely, but corners
 - [ ] Run first real offline V2 vs overlay vs union benchmark.
 - [ ] Freeze a first real-session holdout before tuning V2.12 weights.
 
-**Gate to V2.13:** replay a useful real dataset with stable metrics and show whether Source 1 adds complementary recall. Do not tune blindly before this result exists.
+**V2.12 status note:** the discovered `shot_diag` archive is annotated human-debug imagery rather than raw full-frame replay input, so the original replay gate cannot yet be satisfied from that archive. V2.12 remains the correct full-frame framework and will resume when raw before/after frames are available. This does **not** block the separate V2.13 Hole-AI learning proof because `content/ai/holes` is raw patch data with a different purpose.
 
-### V2.13 — Real Dataset Compiler + Recall Lab
+### V2.13 — Hole-AI Learning Proof + Dataset Discipline
 
-- [ ] Turn discovered archive into deterministic train/development/holdout session splits.
-- [ ] Cache/compile expensive full-frame evidence and candidate pools.
-- [ ] Add per-background/per-hole-density reports.
-- [ ] Mine real V2 misses and overlay misses as named error classes.
-- [ ] Optimize detector thresholds only against development sessions.
-- [ ] Target union recall >=95% first, then drive toward 98-99%.
+- [x] Inventory `synt_*` and real `hole_*` separately.
+- [x] Make `shot_diag` explicitly diagnostic-only in the active plan.
+- [x] Deterministic **session-level** synthetic train/validation/test split.
+- [x] Separate novel-background holdout (default: black/checker/gray/bubbles).
+- [x] Keep real `hole_*` assets as golden holdout only.
+- [x] Prevent the centred-128x128 shortcut by candidate-centred crop jitter.
+- [x] Generate same-image local candidate negatives away from GT.
+- [x] Train a small dependency-free pixel MLP (numpy/OpenCV only).
+- [x] Add auxiliary X/Y offset prediction to force localisation.
+- [x] Compare Hole-AI against a simple non-learning centre-contrast baseline.
+- [x] Report synthetic session holdout, unseen-background holdout, real holdout and explicit off-centre stress.
+- [ ] Run V2.13 on the 15,134-image shooting-PC archive and inspect learning curves / real holdout.
+- [ ] Decide KEEP/REJECT from unseen results, not training accuracy.
 
-### V2.14 — Hole-AI v1
+**V2.13 success signal:** the model clearly beats the simple centre-contrast baseline on held-out synthetic sessions, remains useful on backgrounds excluded from training, and gives encouraging scores/recall on the 37 real holes despite never training on them. This proves pixel learning; it does **not** yet prove >=95% full-frame hit detection.
 
-- [ ] Build before/after patch dataset around GT and hard negatives.
-- [ ] Train a small image model offline.
-- [ ] Prove held-out-session improvement over physical features alone.
-- [ ] Add Hole-AI score as shadow evidence only.
+### V2.14 — Full-frame Hard Negatives + Hole-AI Shadow Evidence
+
+- [ ] Save/compile raw candidate-centred patches for V1/V2/overlay false candidates from full frames.
+- [ ] Retrain Hole-AI with true detector hard negatives, not only local negatives from the 128x128 bank.
+- [ ] Add before/after channels when raw paired frames are available.
+- [ ] Score V1/V2/overlay candidates with Hole-AI in offline replay.
+- [ ] Measure whether Hole-AI improves ranking and union/fusion on unseen physical sessions.
+- [ ] Add Hole-AI score to live runtime as **shadow evidence only** after the offline gate passes.
 
 ### V2.15 — Learned Fusion
 

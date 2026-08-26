@@ -1,0 +1,32 @@
+{
+  "schema_version": "2.13",
+  "comment": "Reference settings/documentation for V2.13 Hole-AI. CLI defaults match these values; the current trainer intentionally has no automatic live authority.",
+  "data": {
+    "root": "content/ai/holes",
+    "synthetic_prefix": "synt_",
+    "real_prefix": "hole_",
+    "real_is_training_data": false,
+    "holdout_backgrounds": ["black", "checker", "gray", "bubbles"],
+    "split_unit": "session_id"
+  },
+  "sampling": {
+    "source_patch_expected": 128,
+    "candidate_crop_size": 64,
+    "positive_jitter_px": 14.0,
+    "negative_min_px": 24.0,
+    "negative_max_px": 30.0,
+    "positives_per_image": 1,
+    "negatives_per_image": 2,
+    "anti_center_bias": true,
+    "auxiliary_offset_regression": true
+  },
+  "model": {
+    "type": "numpy_mlp",
+    "input_size": 24,
+    "feature_channels": ["normalized_gray_pixels", "local_highpass_pixels"],
+    "hidden_size": 64,
+    "learning_rate": 0.0015,
+    "epochs": 8
+  },
+  "authority": "offline_only"
+}
