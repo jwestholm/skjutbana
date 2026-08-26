@@ -178,3 +178,43 @@ The next step after the paired report is V2.16:
 
 That is the bridge from "AI recognises hole morphology" to "AI actually helps
 choose the new bullet hole in a game".
+
+## Observed V2.15 result on the shooting PC (2026-08-26)
+
+The corrected paired retraining used the same whole-session split for both retained
+profiles:
+
+```text
+mild:     select=0.777557  strict_novel_auc=0.705364  real_recall=0.918919
+standard: select=0.731138  strict_novel_auc=0.692606  real_recall=0.918919
+Shared session split verified: True
+```
+
+The honest non-holdout ensemble search selected:
+
+```text
+standard_weight = 0.375
+mild_weight     = 0.625
+fused_threshold = 0.500
+selection       = 0.715013
+best_pure       = 0.713042
+non_trivial_mix = True
+```
+
+Frozen holdout evaluation then gave:
+
+- validation fused AUC **0.897885**, recall **0.861244**, either/oracle recall **0.903436**,
+- synthetic test fused AUC **0.857677**, recall **0.836158**, either/oracle recall **0.885267**,
+- strict novel-background fused AUC **0.704868**, recall **0.668097**, complementarity **0.214592**,
+- real-hole fused AUC **0.926771**, recall **0.878378**, either/oracle recall **0.905405**,
+- off-centre fused AUC **0.788914**, recall **0.724583**,
+- procedural-stress complementarity **0.209167**.
+
+All V2.15 candidate-shadow gates passed and `hole_v215_verify` loaded both models
+successfully with `shadow_only=True`.
+
+**Decision:** KEEP the mild+standard evidence pair for candidate-level testing.
+The gain over the best pure model is small, but the error overlap is materially
+non-identical on difficult domains.  Do not spend more time tuning patch-only
+classification now; V2.16 must test whether this evidence improves ranking of
+**actual V1/V2 detector candidates**.

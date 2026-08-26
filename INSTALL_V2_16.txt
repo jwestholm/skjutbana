@@ -1,0 +1,27 @@
+Skjutbana V2.16 - Candidate-Level Shadow Capture + Hard Negatives
+================================================================
+
+This is a DELTA on top of the V2.15 files.
+Extract/copy the ZIP over the repository root while on the current dev branch.
+
+1) Offline selftest:
+   python3 -m automation.candidate_v216_selftest
+
+2) Verify V2.15 model + capture config:
+   python3 -m automation.candidate_v216_verify
+
+3) First candidate dataset capture (requires the normal camera/projector F2 setup):
+   python3 main.py
+
+   In another terminal, use the existing automation loop for ONE x 100 with a new seed, e.g.:
+   python3 -m automation.ai_training_loop 1 1 --seed 65432
+
+4) After the 100-shot capture, hardware can be turned off. Run:
+   python3 -m automation.candidate_v216_inspect
+   python3 -m automation.candidate_v216_benchmark
+   python3 -m automation.candidate_v216_hardnegatives --export-images
+
+Candidate capture data is written below content/ai/candidate_shadow_v216/ and is ignored by git.
+Reports/hard negatives are below content/ai/reports/v216/ and are already ignored by git.
+
+V2.16 is SHADOW/OFFLINE ONLY. It never changes live candidate order or hit coordinates.

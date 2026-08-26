@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "data_root": "content/ai/candidate_shadow_v216",
+  "patch_size": 64,
+  "max_post_frames": 3,
+  "max_candidates": 384,
+  "include_raw_extras": true,
+  "save_gt_patches": true,
+  "compress": true,
+  "radii_px": [
+    10.0,
+    20.0,
+    42.0
+  ],
+  "save_full_frames": false,
+  "full_frame_post_count": 1
+}

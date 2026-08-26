@@ -13,20 +13,16 @@ from src.engine.events.event_bus import event_bus
 from src.engine.scenes.ai_training import AITrainingScene
 
 
-AUTOMATION_RESULT_SCHEMA_VERSION = "1.1"
+AUTOMATION_RESULT_SCHEMA_VERSION = "1.2"
 BENCHMARK_CONTROL_PATH = Path("content/ai/benchmark_control.json")
 
 
 class AutomationAITrainingScene(AITrainingScene):
-    """
-    AITrainingScene with automation lifecycle events.
+    """AITrainingScene with machine-readable automation lifecycle events.
 
-    The normal AITrainingScene remains untouched. This subclass is only used
-    when an external automation command starts a training session.
-
-    Events are deliberately machine-readable. ``aiTraining.completed`` contains
-    both compact aggregate metrics and the complete RoundRecord dataset so a
-    future AI/automation process never has to parse the human report text.
+    V2.16 adds *capture only* candidate packs to the F2 automation path.  Normal
+    AITrainingScene/game scenes remain untouched.  Capture failure is never
+    allowed to break or alter the underlying training/detector path.
     """
 
     EVENT_SOURCE = "AutomationAITrainingScene"
@@ -39,11 +35,13 @@ class AutomationAITrainingScene(AITrainingScene):
         self._automation_last_iteration = 0
         self._automation_scene_started_ts = 0.0
         self._automation_training_started_ts = 0.0
+        self._automation_benchmark_seed = None
+        self._v216_candidate_recorder = None
+        self._v216_last_capture: dict[str, Any] | None = None
 
     def on_enter(self) -> None:
         self._automation_scene_started_ts = time.time()
         super().on_enter()
-
         event_bus.emit(
             "aiTraining.started",
             {
@@ -54,7 +52,6 @@ class AutomationAITrainingScene(AITrainingScene):
             },
             source=self.EVENT_SOURCE,
         )
-
         if self._auto_cal_phase is not None:
             event_bus.emit(
                 "aiTraining.calibrationStarted",
@@ -69,6 +66,7 @@ class AutomationAITrainingScene(AITrainingScene):
             self._emit_calibration_finished_and_waiting()
 
     def on_exit(self) -> None:
+        capture = self._finalize_v216_capture()
         event_bus.emit(
             "aiTraining.exited",
             {
@@ -76,6 +74,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 "background": self.MODE_NAMES[self.bg_mode_index],
                 "training_running": bool(self.auto_training_enabled),
                 "iteration": int(self.auto_iteration),
+                "candidate_capture_v216": capture,
             },
             source=self.EVENT_SOURCE,
         )
@@ -83,7 +82,6 @@ class AutomationAITrainingScene(AITrainingScene):
 
     def handle_event(self, event: pygame.event.Event):
         was_running = bool(self.auto_training_enabled)
-
         # Deterministic benchmark seeding happens immediately BEFORE the real
         # F2 path starts generating synthetic rounds. Normal/manual training is
         # unaffected when benchmark_control.json is disabled or absent.
@@ -96,7 +94,6 @@ class AutomationAITrainingScene(AITrainingScene):
 
         result = super().handle_event(event)
         is_running = bool(self.auto_training_enabled)
-
         if (
             event.type == pygame.KEYDOWN
             and event.key == pygame.K_F2
@@ -104,6 +101,7 @@ class AutomationAITrainingScene(AITrainingScene):
             and is_running
         ):
             self._automation_training_started_ts = time.time()
+            capture = self._start_v216_capture_session()
             event_bus.emit(
                 "aiTraining.trainingStarted",
                 {
@@ -115,10 +113,10 @@ class AutomationAITrainingScene(AITrainingScene):
                     "sampling_mode": str(self.runtime.sampling_mode),
                     "training_started_ts": self._automation_training_started_ts,
                     "benchmark_seed": getattr(self, "_automation_benchmark_seed", None),
+                    "candidate_capture_v216": capture,
                 },
                 source=self.EVENT_SOURCE,
             )
-
         elif (
             event.type == pygame.KEYDOWN
             and event.key in (pygame.K_F1, pygame.K_F2)
@@ -126,16 +124,17 @@ class AutomationAITrainingScene(AITrainingScene):
             and not is_running
             and not self.auto_report_visible
         ):
+            capture = self._finalize_v216_capture()
             event_bus.emit(
                 "aiTraining.trainingStopped",
                 {
                     "schema_version": AUTOMATION_RESULT_SCHEMA_VERSION,
                     "background": self.MODE_NAMES[self.bg_mode_index],
                     "iteration": int(self.auto_iteration),
+                    "candidate_capture_v216": capture,
                 },
                 source=self.EVENT_SOURCE,
             )
-
         return result
 
     def _apply_benchmark_seed_if_requested(self) -> None:
@@ -166,45 +165,180 @@ class AutomationAITrainingScene(AITrainingScene):
         except Exception as exc:
             print(f"[BENCHMARK] seed setup failed: {exc}")
 
+    # ------------------------------------------------------------------
+    # V2.16 automation-only candidate capture
+    # ------------------------------------------------------------------
+    def _start_v216_capture_session(self) -> dict[str, Any]:
+        self._finalize_v216_capture()
+        try:
+            from src.engine.offline.candidate_pack_v216 import (
+                CandidateCaptureConfigV216,
+                CandidateShadowRecorderV216,
+            )
+
+            config = CandidateCaptureConfigV216.load()
+            self._v216_candidate_recorder = CandidateShadowRecorderV216(
+                config,
+                background=self.MODE_NAMES[self.bg_mode_index],
+                benchmark_seed=getattr(self, "_automation_benchmark_seed", None),
+                sampling_mode=str(self.runtime.sampling_mode),
+            )
+            summary = self._v216_candidate_recorder.summary()
+            if summary.get("enabled"):
+                print(
+                    "[V2.16 CAPTURE] session="
+                    f"{summary.get('session_id')} patch={summary.get('patch_size')} "
+                    f"post_frames={summary.get('max_post_frames')} cap={summary.get('max_candidates')}"
+                )
+            return summary
+        except Exception as exc:
+            self._v216_candidate_recorder = None
+            print(f"[V2.16 CAPTURE] unavailable: {exc}")
+            return {"enabled": False, "error": str(exc), "shadow_only": True}
+
+    def _finalize_v216_capture(self) -> dict[str, Any]:
+        recorder = getattr(self, "_v216_candidate_recorder", None)
+        if recorder is None:
+            return {"enabled": False, "shadow_only": True}
+        try:
+            summary = dict(recorder.finalize())
+        except Exception as exc:
+            summary = {"enabled": True, "shadow_only": True, "error": str(exc)}
+        return summary
+
+    @staticmethod
+    def _copy_v216_frame(frame):
+        try:
+            return None if frame is None else frame.copy()
+        except Exception:
+            return frame
+
+    def _snapshot_v216_shot(self) -> dict[str, Any] | None:
+        recorder = getattr(self, "_v216_candidate_recorder", None)
+        if recorder is None or not bool(getattr(recorder, "enabled", False)):
+            return None
+        if not self.auto_training_enabled or self.auto_target_screen_xy is None:
+            return None
+        try:
+            from src.engine.ai.space_mapper import project_screen_point
+            from src.engine.camera.hit_scanner import hit_scanner
+
+            raw = list(self.runtime.latest_candidates)
+            if not raw:
+                raw = list(hit_scanner.last_candidates)
+            pre = self._copy_v216_frame(getattr(self.runtime, "pre_shot_gray", None))
+            post = self._copy_v216_frame(getattr(self.runtime, "post_shot_gray", None))
+            post_frames = []
+            for item in list(getattr(self.runtime, "_post_shot_frames", []) or []):
+                if isinstance(item, (tuple, list)) and item:
+                    frame = self._copy_v216_frame(item[0])
+                    ts = float(item[1]) if len(item) > 1 else 0.0
+                    post_frames.append((frame, ts))
+            sx, sy = float(self.auto_target_screen_xy[0]), float(self.auto_target_screen_xy[1])
+            projected = project_screen_point(sx, sy)
+            return {
+                "raw_candidates": raw,
+                "pre_gray": pre,
+                "post_gray": post,
+                "post_frames": post_frames,
+                "gt_camera_xy": (float(projected.camera_x), float(projected.camera_y)),
+                "gt_screen_xy": (sx, sy),
+                "match_radius_px": float(self.runtime.settings.get("click_match_radius_px", 42.0)),
+            }
+        except Exception as exc:
+            print(f"[V2.16 CAPTURE] shot snapshot failed: {exc}")
+            return None
+
+    def _save_v216_shot(self, snapshot: dict[str, Any] | None, ranked_candidates: list[dict[str, Any]], round_id: int) -> None:
+        if snapshot is None:
+            return
+        recorder = getattr(self, "_v216_candidate_recorder", None)
+        if recorder is None:
+            return
+        try:
+            result = recorder.capture_shot(
+                round_id=int(round_id),
+                raw_candidates=snapshot["raw_candidates"],
+                ranked_candidates=list(ranked_candidates),
+                pre_gray=snapshot["pre_gray"],
+                post_gray=snapshot["post_gray"],
+                post_frames=snapshot["post_frames"],
+                gt_camera_xy=snapshot["gt_camera_xy"],
+                gt_screen_xy=snapshot["gt_screen_xy"],
+                match_radius_px=float(snapshot["match_radius_px"]),
+                extra_metadata={
+                    "auto_iteration_after_detection": int(self.auto_iteration),
+                    "background_number": int(self.bg_mode_index + 1),
+                    "source": "AutomationAITrainingScene/F2",
+                },
+            )
+            self._v216_last_capture = dict(result)
+            if not result.get("saved", False):
+                print(f"[V2.16 CAPTURE] shot {round_id} not saved: {result}")
+        except Exception as exc:
+            print(f"[V2.16 CAPTURE] shot {round_id} failed: {exc}")
+
+    def _on_shot_detected(self) -> None:
+        """Wrap the unmodified detector/training path with read-only capture."""
+        snapshot = self._snapshot_v216_shot()
+        # If there are no raw candidates the base method can immediately finish
+        # the final round and build the report. Capture first so the last miss is
+        # included in the V2.16 session summary.
+        no_candidates = snapshot is not None and not snapshot.get("raw_candidates")
+        if no_candidates:
+            self._save_v216_shot(snapshot, [], int(self.current_round_id) + 1)
+            snapshot = None
+
+        super()._on_shot_detected()
+
+        if snapshot is not None:
+            self._save_v216_shot(snapshot, list(self.ranked_candidates), int(self.current_round_id))
+
     def update(self, dt: float):
         previous_calibration_phase = self._auto_cal_phase
-
         result = super().update(dt)
-
         if (
             previous_calibration_phase is not None
             and self._auto_cal_phase is None
             and not self._automation_calibration_finished_emitted
         ):
             self._emit_calibration_finished_and_waiting()
-
         current_iteration = int(self.auto_iteration)
         if current_iteration > self._automation_last_iteration:
             self._emit_missing_iteration_events(current_iteration)
-
         return result
 
     def _build_auto_report(self) -> None:
         super()._build_auto_report()
-
         if self._automation_completed_emitted:
             return
-
         # A run can build its report in the same update that increments the
         # final iteration. Emit any missing progress event before completed.
         self._emit_missing_iteration_events(int(self.auto_iteration))
+
+        capture_summary = self._finalize_v216_capture()
+        if bool(capture_summary.get("enabled")):
+            try:
+                self.auto_report_lines += [
+                    "",
+                    "--- V2.16 candidate shadow capture ---",
+                    f"Session: {capture_summary.get('session_id')}",
+                    f"Saved shot packs: {capture_summary.get('shots_saved', 0)}",
+                    f"Capture errors: {capture_summary.get('capture_errors', 0)}",
+                    "Shadow only: yes",
+                ]
+            except Exception:
+                pass
 
         self._automation_completed_emitted = True
         completed_ts = time.time()
         records = list(self.round_records)
         total = len(records)
-
         found = sum(1 for record in records if record.found)
         top1 = sum(1 for record in records if record.top1_correct)
         top3 = sum(1 for record in records if record.top3_correct)
         ai_correct = sum(1 for record in records if record.ai_guess_correct)
         missed = total - found
-
         nearest_distances = [
             float(record.nearest_dist)
             for record in records
@@ -218,7 +352,6 @@ class AutomationAITrainingScene(AITrainingScene):
         ]
         raw_counts = [int(record.candidate_count_raw) for record in records]
         ranked_counts = [int(record.candidate_count_ranked) for record in records]
-
         funnel_summary = dict(self.runtime.funnel.summary())
         funnel_count = len(self.runtime.funnel.shots)
 
@@ -232,7 +365,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 )
             except Exception:
                 match_radius_px = 42.0
-
         training_duration = None
         if self._automation_training_started_ts > 0.0:
             training_duration = round(
@@ -246,7 +378,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 completed_ts - self._automation_scene_started_ts,
                 3,
             )
-
         metrics = {
             "iterations": total,
             "target_iterations": int(self.auto_target_iterations),
@@ -265,7 +396,6 @@ class AutomationAITrainingScene(AITrainingScene):
             "candidates_raw": self._count_stats(raw_counts),
             "candidates_ranked": self._count_stats(ranked_counts),
         }
-
         detector_diagnostic_flush = {
             "finalized": 0,
             "missing_evaluation": 0,
@@ -287,7 +417,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 "missing_evaluation": 0,
                 "error": str(exc),
             }
-
         consistency = {
             "current_round_id": int(self.current_round_id),
             "round_record_count": total,
@@ -296,8 +425,8 @@ class AutomationAITrainingScene(AITrainingScene):
                 int(self.current_round_id) == total == funnel_count
             ),
             "detector_diagnostic_flush": detector_diagnostic_flush,
+            "candidate_capture_v216": capture_summary,
         }
-
         event_bus.emit(
             "aiTraining.completed",
             {
@@ -322,6 +451,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 "metrics": metrics,
                 "funnel": funnel_summary,
                 "consistency": consistency,
+                "candidate_capture_v216": capture_summary,
                 "round_records": [record.to_csv_dict() for record in records],
                 # Human-readable report remains useful for people but must not
                 # be parsed by automation when structured fields exist.
@@ -346,7 +476,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 "min": None,
                 "max": None,
             }
-
         return {
             "count": len(values),
             "avg": round(sum(values) / len(values), 3),
@@ -368,7 +497,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 "over_100_count": 0,
                 "over_200_count": 0,
             }
-
         return {
             "count": len(values),
             "avg": round(sum(values) / len(values), 3),
@@ -383,7 +511,6 @@ class AutomationAITrainingScene(AITrainingScene):
     def _emit_missing_iteration_events(self, current_iteration: int) -> None:
         if current_iteration <= self._automation_last_iteration:
             return
-
         for iteration in range(
             self._automation_last_iteration + 1,
             current_iteration + 1,
@@ -398,7 +525,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 },
                 source=self.EVENT_SOURCE,
             )
-
         self._automation_last_iteration = current_iteration
 
     def _emit_calibration_finished_and_waiting(self) -> None:
@@ -413,7 +539,6 @@ class AutomationAITrainingScene(AITrainingScene):
             or "failed" in lower_result
             or "avbruten" in lower_result
         )
-
         if failed:
             event_bus.emit(
                 "aiTraining.calibrationFailed",
@@ -426,7 +551,6 @@ class AutomationAITrainingScene(AITrainingScene):
                 source=self.EVENT_SOURCE,
             )
             return
-
         event_bus.emit(
             "aiTraining.calibrationDone",
             {
@@ -437,7 +561,6 @@ class AutomationAITrainingScene(AITrainingScene):
             },
             source=self.EVENT_SOURCE,
         )
-
         if not self._automation_waiting_emitted:
             self._automation_waiting_emitted = True
             event_bus.emit(

@@ -304,21 +304,47 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Search a one-parameter threshold-centred mild/standard blend, including pure endpoints, using **clean validation + procedural domain-stress only**.
 - [x] Freeze weight/threshold before evaluating synthetic test, strict novel backgrounds, real holes and off-centre stress.
 - [x] Add a reusable `HolePatchEnsembleV215` shadow annotator that preserves candidate ordering/coordinates and only appends evidence fields.
-- [ ] Run paired mild+standard training on the shooting PC.
-- [ ] Run V2.15 ensemble/complementarity report on the full archive.
-- [ ] KEEP two-model inference only if paired error overlap shows real complementary value; otherwise retain the single best profile.
+- [x] Run paired mild+standard training on the shooting PC.
+- [x] Run V2.15 ensemble/complementarity report on the full archive.
+- [x] KEEP two-model inference for candidate-level testing: paired error overlap shows material complementarity on difficult domains.
 
 **V2.15 candidate-shadow gate:** non-holdout ensemble selection must be no worse than 99.5% of the best pure endpoint, strict novel AUC >=0.70, real-hole recall >=0.85, and off-centre AUC >=0.76.  Passing means only that patch evidence is worth feeding into later candidate-level shadow analysis.
 
-### V2.16 — Full-frame Hard Negatives + Candidate-Level Shadow
+**Observed corrected V2.15 paired result on the shooting PC (2026-08-26):**
 
-- [ ] Save raw clean pre/post frame pairs (opt-in, storage-aware) so V2.12 full detector replay can finally use physical/projected data.
-- [ ] Save candidate-centred patches for V1/V2/overlay candidates with GT distance/provenance.
-- [ ] Mine true detector hard negatives: high-ranked wrong candidates from real full frames.
-- [ ] Retrain/recalibrate Hole-AI using true detector hard negatives, not only local negatives from the 128x128 bank.
-- [ ] Score the actual V1/V2/overlay candidate pool with Hole-AI in offline replay.
-- [ ] Measure whether Hole-AI changes GT rank/Top-1/Top-3 and whether offset refinement reduces localisation error.
-- [ ] Add Hole-AI evidence to live runtime as **shadow fields only** after the offline candidate gate passes.
+- shared whole-session split verified: **True**,
+- mild non-holdout select **0.777557**, strict novel AUC **0.705364**, real recall **0.918919**,
+- standard select **0.731138**, strict novel AUC **0.692606**, real recall **0.918919**,
+- selected blend: **62.5% mild + 37.5% standard**, selection **0.715013** vs best pure **0.713042**,
+- fused strict novel AUC **0.704868**, real-hole AUC **0.926771**, off-centre AUC **0.788914**,
+- complementarity is substantial on hard domains: strict novel **0.214592**, procedural stress **0.209167**,
+- all V2.15 gates and `hole_v215_verify` passed with `shadow_only=True`.
+
+**Decision:** V2.15 is frozen/KEEP for candidate-level experiments.  Stop optimizing patch-only metrics for now.  The next question is whether its evidence improves ranking among the *actual detector candidates*.
+
+### V2.16 — Candidate-Level Shadow Capture + Real Hard Negatives
+
+**Status:** implementation delivered; requires one new automation F2 capture to create the first real candidate-level dataset.
+
+- [x] Instrument only `AutomationAITrainingScene` so normal game/manual hit authority remains untouched.
+- [x] Save candidate-centred pre/post patches for actual ranked V1/V2/funnel candidates plus raw detector extras.
+- [x] Save GT distance, <=10/20/42 labels, candidate provenance and JSON-safe original detector features.
+- [x] Save dedicated GT patches even when no candidate lands on GT.
+- [x] Make optional storage-aware full-frame pre/post capture available, disabled by default.
+- [x] Explicitly mark any GT-nearest row retained only because of storage cap as diagnostic-only so capture cannot fake live recall.
+- [x] Score the same candidate with V2.15 Hole-AI, local temporal before/after evidence and V9 when available.
+- [x] Benchmark current ranked pool separately from raw+ranked union.
+- [x] Add transparent fusion-weight search including pure endpoints; no assumption that more sources are automatically better.
+- [x] Split by whole capture session once >=3 sessions exist; mark one/two-session shot splits **provisional**.
+- [x] Add real detector hard-negative mining and optional PNG export.
+- [x] Keep all V2.16 output shadow/offline only; no candidate reorder or coordinate override.
+- [ ] Capture first 1x100 candidate dataset with a completely new seed.
+- [ ] Run V2.16 candidate benchmark and inspect current vs Hole-AI vs temporal vs V9 vs fusion.
+- [ ] Mine real hard negatives from that run.
+- [ ] Retrain/recalibrate Hole-AI on true detector hard negatives only after the candidate-level baseline is frozen.
+- [ ] Capture at least two more independent physical/projected sessions before treating confirmation/holdout as non-provisional.
+
+**V2.16 immediate success criterion:** establish an honest candidate-level baseline and determine whether Hole-AI/temporal evidence raises Top-1/Top-3 on unseen captured shots.  This is still far below the final game-authority gate; `eligible_for_live_authority` is hard-coded false in V2.16.
 
 ### V2.17 — Learned Multi-source Fusion
 

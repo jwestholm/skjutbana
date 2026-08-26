@@ -1,0 +1,38 @@
+Skjutbana V2.16 delta manifest
+===============================
+
+Overlay this package on top of the V2.15 working tree.
+
+Changed existing files
+----------------------
+.gitignore
+HIT_DETECTION_PLAN.md
+DETECTOR_V2_15.md
+src/engine/scenes/automation_ai_training.py
+
+New files
+---------
+DETECTOR_V2_16.md
+SELFTEST_V2_16.md
+INSTALL_V2_16.txt
+PACKAGE_V2_16_MANIFEST.txt
+content/ai/candidate_shadow_v216.json
+src/engine/offline/candidate_pack_v216.py
+src/engine/offline/candidate_shadow_analysis_v216.py
+automation/candidate_v216_selftest.py
+automation/candidate_v216_verify.py
+automation/candidate_v216_inspect.py
+automation/candidate_v216_benchmark.py
+automation/candidate_v216_hardnegatives.py
+
+Runtime authority
+-----------------
+V2.16 is capture/offline/shadow only.
+The only live-path code change is automation-only F2 instrumentation in
+AutomationAITrainingScene. It records copies of existing detector data after a
+shot; it does not reorder candidates or change selected hit coordinates.
+
+Generated data (gitignored)
+---------------------------
+content/ai/candidate_shadow_v216/
+content/ai/reports/v216/
