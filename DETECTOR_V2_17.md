@@ -213,3 +213,18 @@ keep/reject challenger
 Once this improves on held-out candidate packs, the next version can automate
 that loop for hours/days without projector or camera. That is the first true
 "start AI learning and leave it overnight" stage.
+
+
+## Observed V2.17 result on shooting PC (2026-08-26)
+
+Using the first 100-shot seed-65432 V2.16 capture (one session, therefore provisional):
+
+- development patch AUC: **0.924010**, recall 0.900000,
+- confirmation patch AUC: **0.935817**, recall 0.923077,
+- holdout patch AUC: **0.845982**, recall 0.821429,
+- candidate Top-1 <=20px: **0%** on development/confirmation/holdout,
+- candidate Top-3: 1.67% development, 0% confirmation/holdout,
+- median candidate GT rank: 65 / 33 / 84,
+- raw candidate oracle <=20px: 36.67% / 25% / 45%.
+
+**Decision:** KEEP the learned before/after representation, but reject pointwise classification as the candidate-ranking objective. Strong AUC together with zero Top-1 is direct evidence that `P(NEW|patch)` is not enough to order hundreds of same-shot candidates. V2.18 therefore trains per-shot listwise ranking and offset refinement over the frozen V2.17 representation before any overnight optimizer is built.

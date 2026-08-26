@@ -372,19 +372,32 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Snapshot the existing `HitScanner.known_holes` registry before future F2 rounds as soft provenance only.
 - [x] Capture a **true recent pre-shot camera frame** for future candidate packs in addition to the legacy stable/reference PRE. This is required for moving game/video backgrounds; it does not change live detector behaviour. Legacy seed-65432 packs remain valid via fallback.
 - [x] Document that the current registry is session-local/incomplete and does not include every physical hole present at scene start.
-- [ ] Train V2.17 on the existing seed-65432 candidate packs.
-- [ ] Compare V2.17 candidate Top-1/Top-3/median-rank against V2.16 temporal/Hole-AI/V9 baseline.
-- [ ] If it learns useful novelty, build an overnight champion/challenger loop over frozen candidate packs.
+- [x] Train V2.17 on the existing seed-65432 candidate packs.
+- [x] Compare V2.17 candidate Top-1/Top-3/median-rank against V2.16 temporal/Hole-AI/V9 baseline. Result: patch AUC learned strongly, but pointwise candidate Top-1 remained 0%; ranking objective must change.
+- [x] V2.17 learned useful novelty, but its pointwise ranking failed; explicitly postpone overnight optimization until V2.18 changes the objective to same-shot listwise ranking.
 
-### V2.18 — Offline champion/challenger learning loop
+### V2.18 — Candidate-aware NEW-hole listwise ranking + offset refinement
 
-- [ ] Mine/reweight hard NOT-NEW examples from frozen candidate packs.
+**Status:** implemented offline/shadow.
+
+- [x] Freeze/reuse the useful V2.17 before/after representation instead of discarding it.
+- [x] Train candidates as whole per-shot ranking groups, not independent binary examples.
+- [x] Use graded relevance through 42 px so near candidates can be refined rather than mislabeled.
+- [x] Add hard pairwise pressure against real far candidates that fool the pointwise score.
+- [x] Train a residual candidate->GT offset head and report raw vs refined oracle separately.
+- [x] Add disk caching for the expensive frozen V2.17 candidate embeddings.
+- [x] Keep known-hole registry as soft diagnostic context; no hard old-hole exclusion.
+- [ ] Run V2.18 on seed-65432 and compare current/V2.17/V2.18 Top-1, Top-3, median rank and refined oracle.
+
+### V2.19 — Offline champion/challenger / overnight learning loop
+
+- [ ] Mine/reweight hard NOT-NEW ranking groups from frozen candidate packs.
 - [ ] Train multiple challenger seeds/configurations for hours/days.
 - [ ] Evaluate only on protected confirmation/holdout sessions.
-- [ ] KEEP only challengers that beat the current champion without breaking background/real-hole gates.
+- [ ] KEEP only challengers that beat the current champion without breaking representation/background gates.
 - [ ] Resume safely after interruption and keep complete experiment provenance.
 
-### V2.19+ — Direct AI proposals, learned multi-source fusion, projector/context priors, live shadow
+### V2.20+ — Direct AI proposals, learned multi-source fusion, projector/context priors, live shadow
 
 - [ ] Add AI heatmap proposals that can rescue CV omissions.
 - [ ] Add projector-frame residual source.
@@ -419,3 +432,8 @@ For every new detector/evidence idea:
 10. occasionally confirm with physical projector/camera F2; do not use physical F2 as the everyday optimizer loop.
 
 This file should be updated when a gate is passed or the strategy changes materially.
+
+
+## V2.17 measured conclusion (2026-08-26)
+
+V2.17 confirmed that before/after NEW-hole information is learnable (confirmation AUC **0.935817**) but pointwise classification did **not** solve same-shot candidate ranking (confirmation/holdout Top-1 **0%**). This is why overnight automation was deliberately postponed one version: running millions of iterations against the wrong pointwise objective would optimize the wrong task. V2.18 changes the objective to per-shot listwise ranking and learned offset refinement; only after that demonstrates useful candidate-level movement should V2.19 automate champion/challenger learning overnight.

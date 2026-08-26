@@ -1,0 +1,20 @@
+V2.18 DELTA INSTALL
+===================
+
+This package is a delta on top of V2.17.
+Copy/unzip it over the repository root.
+
+Run in this order:
+
+  python3 -m automation.newhole_v218_selftest
+  python3 -m automation.newhole_v218_inspect
+  python3 -m automation.newhole_v218_train
+  python3 -m automation.newhole_v218_benchmark
+  python3 -m automation.newhole_v218_verify
+
+IMPORTANT
+---------
+The first inspect/train can be slow because it computes and caches the frozen
+V2.17 embedding for all captured candidates. Later runs reuse the cache.
+
+V2.18 is OFFLINE/SHADOW ONLY. It changes no live game candidate order or hit.

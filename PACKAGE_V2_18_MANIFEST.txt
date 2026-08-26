@@ -1,0 +1,17 @@
+V2.18 DELTA PACKAGE MANIFEST
+============================
+
+Files: 13
+
+DETECTOR_V2_17.md  sha256=dd4e5e83f8225258fe625f42c4dde6ff7baeae233853cd53a1867286d70fe371
+DETECTOR_V2_18.md  sha256=d8253c9ff1cfe733b03e7490057b981d77a9d30155fa930126f88bf9a31547c9
+HIT_DETECTION_PLAN.md  sha256=8c93324b397b0de065f67f33bcee486af3a06a09a0393e331a38d4fb324949d6
+INSTALL_V2_18.txt  sha256=7996e38c1b5d518403489d4f55d60c91ffedc35c922c99a8ed734f1b2ad8b75f
+SELFTEST_V2_18.md  sha256=2332047ecce3cf9cecb17161e9e0f55bfdce078fe19fdd2241e0dd78d86da42b
+automation/newhole_v218_benchmark.py  sha256=75742ee5996096b5782990c732738cc7ef7f63519d684a1a7aa4a7ad34f6869d
+automation/newhole_v218_inspect.py  sha256=cb328f194fc88b0a0e1bf31f253cf2d0bda12d9e61fab662bd026b35fafa1da8
+automation/newhole_v218_selftest.py  sha256=d6e3138ede7658b49f4e2153feedec1836ec4052a0bac004c6b401f6d68635d6
+automation/newhole_v218_train.py  sha256=f2dee3a7199ab2fb6ff4a0fa4013b450a410b3897ac3ef915a2a6ac182cb792b
+automation/newhole_v218_verify.py  sha256=8bdcbe4408560a7f65e7083f092e045d9db28b59a1886535d83b8f82066b5f1f
+src/engine/ai/new_hole_ranker_v218.py  sha256=59412c8f2a2fd7a705ca213ade9e9dc99393c626179d6e52f02892ff36d9bb0b
+src/engine/offline/candidate_ranking_training_v218.py  sha256=b40a7cd19866f771723b3058a4e795b04e0e0381f15d73be935d61aac4e7b4e0
