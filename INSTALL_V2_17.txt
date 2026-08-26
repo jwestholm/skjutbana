@@ -1,0 +1,32 @@
+Skjutbana V2.17 - NEW-hole AI / old-hole-safe learning
+======================================================
+
+This ZIP is a DELTA on top of V2.16 (and therefore V2.12-V2.15).
+Extract it over the repository root.
+
+No projector/camera is required for the first V2.17 experiment if the V2.16
+candidate packs from seed 65432 and the exported hard-negative manifest already
+exist.
+
+Run from repository root:
+
+  python3 -m automation.newhole_v217_selftest
+  python3 -m automation.newhole_v217_inspect
+  python3 -m automation.newhole_v217_train
+  python3 -m automation.newhole_v217_benchmark
+  python3 -m automation.newhole_v217_verify
+
+Important semantics:
+- old real holes remain POSITIVE examples for static Hole-AI V2.15;
+- old real holes are NEGATIVE for V2.17 NEW-hole novelty because they did not
+  appear at the current shot;
+- V2.16 hard-negative rows are NOT-CURRENT-NEW-HOLE candidates, not guaranteed
+  static non-holes;
+- V2.17 is OFFLINE/SHADOW ONLY and cannot change live hit authority.
+
+Backward compatibility:
+- existing seed-65432 V2.16 packs remain valid and use their legacy/reference
+  PRE patch as fallback;
+- future captures additionally save a true recent pre-shot camera frame from
+  HitScanner frame history. This is needed for moving game/video backgrounds
+  and does not alter live detector behaviour.

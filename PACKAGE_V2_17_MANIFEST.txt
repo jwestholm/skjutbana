@@ -1,0 +1,38 @@
+Skjutbana V2.17 delta package
+============================
+
+Purpose:
+- separate static HOLE appearance from CURRENT NEW-HOLE novelty;
+- train a before/after NewHoleAIV217 using V2.16 candidate packs;
+- safely use old real holes as NOT-NEW examples without poisoning static Hole-AI;
+- preserve/reuse HitScanner.known_holes only as soft provenance;
+- add true recent-pre capture for future moving-background datasets;
+- remain fully offline/shadow-only.
+
+Changed files:
+- automation/candidate_v216_hardnegatives.py
+- src/engine/offline/candidate_pack_v216.py
+- src/engine/scenes/automation_ai_training.py
+- DETECTOR_V2_16.md
+- HIT_DETECTION_PLAN.md
+
+New files:
+- src/engine/ai/new_hole_ai_v217.py
+- src/engine/offline/new_hole_training_v217.py
+- automation/newhole_v217_selftest.py
+- automation/newhole_v217_inspect.py
+- automation/newhole_v217_train.py
+- automation/newhole_v217_benchmark.py
+- automation/newhole_v217_verify.py
+- DETECTOR_V2_17.md
+- SELFTEST_V2_17.md
+- INSTALL_V2_17.txt
+- PACKAGE_V2_17_MANIFEST.txt
+
+Validated before packaging:
+- V2.17 selftest PASS
+- V2.16 selftest PASS
+- V2.15 selftest PASS
+- V2.14 selftest PASS
+- 3-session synthetic end-to-end NEW-hole training/holdout/ranking PASS
+- Python compilation PASS

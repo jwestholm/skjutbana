@@ -233,7 +233,13 @@ class CandidatePackV216:
     gt_pre_patch: np.ndarray | None
     gt_post_patches: np.ndarray
     post_timestamps: np.ndarray
+    # V2.17 extension: immediate recent pre-shot camera patches for temporal
+    # NEW-hole learning. Older V2.16 packs load these as None.
+    recent_pre_patches: np.ndarray | None = None
+    gt_recent_pre_patch: np.ndarray | None = None
+    recent_pre_timestamp: float | None = None
     full_pre_frame: np.ndarray | None = None
+    full_recent_pre_frame: np.ndarray | None = None
     full_post_frames: np.ndarray | None = None
     json_path: Path | None = None
     npz_path: Path | None = None
@@ -259,8 +265,16 @@ class CandidatePackV216:
             gt_pre = np.array(data["gt_pre_patch"], copy=True) if "gt_pre_patch" in data else None
             gt_post = np.array(data["gt_post_patches"], copy=True) if "gt_post_patches" in data else np.empty((0, 0, 0), dtype=np.uint8)
             timestamps = np.array(data["post_timestamps"], copy=True) if "post_timestamps" in data else np.empty((0,), dtype=np.float64)
+            recent_pre = np.array(data["recent_pre_patches"], copy=True) if "recent_pre_patches" in data else None
+            gt_recent_pre = np.array(data["gt_recent_pre_patch"], copy=True) if "gt_recent_pre_patch" in data else None
             full_pre = np.array(data["full_pre_frame"], copy=True) if "full_pre_frame" in data else None
+            full_recent_pre = np.array(data["full_recent_pre_frame"], copy=True) if "full_recent_pre_frame" in data else None
             full_post = np.array(data["full_post_frames"], copy=True) if "full_post_frames" in data else None
+        recent_pre_timestamp = meta.get("recent_pre_timestamp")
+        try:
+            recent_pre_timestamp = None if recent_pre_timestamp is None else float(recent_pre_timestamp)
+        except Exception:
+            recent_pre_timestamp = None
         return cls(
             metadata=meta,
             candidates=list(meta.get("candidates") or []),
@@ -269,7 +283,11 @@ class CandidatePackV216:
             gt_pre_patch=gt_pre,
             gt_post_patches=gt_post,
             post_timestamps=timestamps,
+            recent_pre_patches=recent_pre,
+            gt_recent_pre_patch=gt_recent_pre,
+            recent_pre_timestamp=recent_pre_timestamp,
             full_pre_frame=full_pre,
+            full_recent_pre_frame=full_recent_pre,
             full_post_frames=full_post,
             json_path=json_path,
             npz_path=npz_path,
@@ -360,6 +378,8 @@ class CandidateShadowRecorderV216:
         raw_candidates: Sequence[dict[str, Any]],
         ranked_candidates: Sequence[dict[str, Any]],
         pre_gray: np.ndarray | None,
+        recent_pre_gray: np.ndarray | None = None,
+        recent_pre_timestamp: float | None = None,
         post_gray: np.ndarray | None = None,
         post_frames: Sequence[Any] | None = None,
         gt_camera_xy: tuple[float, float] | None,
@@ -371,6 +391,7 @@ class CandidateShadowRecorderV216:
             return {"saved": False, "reason": "disabled"}
         try:
             pre = _normalise_frame(pre_gray)
+            recent_pre = _normalise_frame(recent_pre_gray)
             posts, post_timestamps = _prepare_post_frames(
                 post_frames,
                 post_gray,
@@ -396,6 +417,12 @@ class CandidateShadowRecorderV216:
                     [extract_candidate_patch(pre, xy, size) for xy in candidate_xy], axis=0
                 ) if rows else np.empty((0, size, size), dtype=np.uint8)
 
+            recent_pre_patches: np.ndarray | None = None
+            if recent_pre is not None:
+                recent_pre_patches = np.stack(
+                    [extract_candidate_patch(recent_pre, xy, size) for xy in candidate_xy], axis=0
+                ) if rows else np.empty((0, size, size), dtype=np.uint8)
+
             post_patches = np.stack(
                 [
                     np.stack([extract_candidate_patch(frame, xy, size) for frame in posts], axis=0)
@@ -405,10 +432,13 @@ class CandidateShadowRecorderV216:
             ) if rows else np.empty((0, len(posts), size, size), dtype=np.uint8)
 
             gt_pre: np.ndarray | None = None
+            gt_recent_pre: np.ndarray | None = None
             gt_posts = np.empty((0, size, size), dtype=np.uint8)
             if bool(self.config.save_gt_patches) and gt_camera_xy is not None:
                 if pre is not None:
                     gt_pre = extract_candidate_patch(pre, gt_camera_xy, size)
+                if recent_pre is not None:
+                    gt_recent_pre = extract_candidate_patch(recent_pre, gt_camera_xy, size)
                 gt_posts = np.stack(
                     [extract_candidate_patch(frame, gt_camera_xy, size) for frame in posts], axis=0
                 )
@@ -450,9 +480,15 @@ class CandidateShadowRecorderV216:
             }
             if gt_pre is not None:
                 arrays["gt_pre_patch"] = gt_pre
+            if recent_pre_patches is not None:
+                arrays["recent_pre_patches"] = recent_pre_patches
+            if gt_recent_pre is not None:
+                arrays["gt_recent_pre_patch"] = gt_recent_pre
             if bool(self.config.save_full_frames):
                 if pre is not None:
                     arrays["full_pre_frame"] = pre
+                if recent_pre is not None:
+                    arrays["full_recent_pre_frame"] = recent_pre
                 full_count = max(1, min(len(posts), int(self.config.full_frame_post_count)))
                 arrays["full_post_frames"] = np.stack(posts[-full_count:], axis=0)
             if bool(self.config.compress):
@@ -481,6 +517,9 @@ class CandidateShadowRecorderV216:
                 "match_radius_px": float(match_radius_px),
                 "ground_truth": gt_payload,
                 "full_frames_saved": bool(self.config.save_full_frames),
+                "recent_pre_available": bool(recent_pre is not None),
+                "recent_pre_timestamp": None if recent_pre_timestamp is None else float(recent_pre_timestamp),
+                "capture_extensions": ["v217_recent_pre"] if recent_pre is not None else [],
                 "counts": {
                     "raw_candidates": int(len(raw_candidates)),
                     "ranked_candidates": int(len(ranked_candidates)),
@@ -490,6 +529,7 @@ class CandidateShadowRecorderV216:
                 },
                 "frame_shapes": {
                     "pre": None if pre is None else [int(pre.shape[0]), int(pre.shape[1])],
+                    "recent_pre": None if recent_pre is None else [int(recent_pre.shape[0]), int(recent_pre.shape[1])],
                     "post": [int(posts[0].shape[0]), int(posts[0].shape[1])],
                 },
                 "array_file": npz_path.name,

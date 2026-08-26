@@ -38,6 +38,8 @@ class AutomationAITrainingScene(AITrainingScene):
         self._automation_benchmark_seed = None
         self._v216_candidate_recorder = None
         self._v216_last_capture: dict[str, Any] | None = None
+        # V2.17: snapshot existing session-local known holes as capture provenance.
+        self._v217_known_holes_before_round: list[dict[str, Any]] = []
 
     def on_enter(self) -> None:
         self._automation_scene_started_ts = time.time()
@@ -213,6 +215,52 @@ class AutomationAITrainingScene(AITrainingScene):
         except Exception:
             return frame
 
+    @staticmethod
+    def _resolve_v217_recent_pre_frame(peak_ts: float):
+        """Return a true camera frame shortly before the shot/audio peak.
+
+        This is capture-only. The current live HitScanner keeps using its own
+        legacy/reference pre-shot semantics. Future NEW-hole learning can use
+        this recent camera frame on moving game/video backgrounds.
+        """
+        try:
+            from src.engine.camera.hit_scanner import hit_scanner
+            peak = float(peak_ts)
+            if peak <= 0.0:
+                return None, 0.0
+            lead = max(0.06, float(getattr(hit_scanner, "association_lead_s", 0.08)))
+            latest_allowed = peak - lead
+            target = latest_allowed - 0.03
+            best = None
+            best_delta = float("inf")
+            for item in list(getattr(hit_scanner, "frame_history", []) or []):
+                ts = float(getattr(item, "timestamp", 0.0) or 0.0)
+                if ts <= 0.0 or ts > latest_allowed:
+                    continue
+                delta = abs(ts - target)
+                if delta < best_delta:
+                    best = item
+                    best_delta = delta
+            if best is None:
+                return None, 0.0
+            gray = getattr(best, "gray", None)
+            return (None if gray is None else gray.copy()), float(best.timestamp)
+        except Exception:
+            return None, 0.0
+
+    def _start_auto_iteration(self, screen: pygame.Surface) -> None:
+        """Capture existing HitScanner known holes before each synthetic shot.
+
+        The registry is soft/session-local context only; this never changes live
+        candidate scoring or authority.
+        """
+        try:
+            from src.engine.camera.hit_scanner import hit_scanner
+            self._v217_known_holes_before_round = [dict(h) for h in list(hit_scanner.known_holes)]
+        except Exception:
+            self._v217_known_holes_before_round = []
+        super()._start_auto_iteration(screen)
+
     def _snapshot_v216_shot(self) -> dict[str, Any] | None:
         recorder = getattr(self, "_v216_candidate_recorder", None)
         if recorder is None or not bool(getattr(recorder, "enabled", False)):
@@ -227,6 +275,8 @@ class AutomationAITrainingScene(AITrainingScene):
             if not raw:
                 raw = list(hit_scanner.last_candidates)
             pre = self._copy_v216_frame(getattr(self.runtime, "pre_shot_gray", None))
+            shot_ts = float(getattr(self.runtime, "_shot_ts", 0.0) or 0.0)
+            recent_pre, recent_pre_ts = self._resolve_v217_recent_pre_frame(shot_ts)
             post = self._copy_v216_frame(getattr(self.runtime, "post_shot_gray", None))
             post_frames = []
             for item in list(getattr(self.runtime, "_post_shot_frames", []) or []):
@@ -239,11 +289,15 @@ class AutomationAITrainingScene(AITrainingScene):
             return {
                 "raw_candidates": raw,
                 "pre_gray": pre,
+                "recent_pre_gray": recent_pre,
+                "recent_pre_timestamp": float(recent_pre_ts),
+                "shot_timestamp": float(shot_ts),
                 "post_gray": post,
                 "post_frames": post_frames,
                 "gt_camera_xy": (float(projected.camera_x), float(projected.camera_y)),
                 "gt_screen_xy": (sx, sy),
                 "match_radius_px": float(self.runtime.settings.get("click_match_radius_px", 42.0)),
+                "known_holes_before_shot": [dict(h) for h in self._v217_known_holes_before_round],
             }
         except Exception as exc:
             print(f"[V2.16 CAPTURE] shot snapshot failed: {exc}")
@@ -261,6 +315,8 @@ class AutomationAITrainingScene(AITrainingScene):
                 raw_candidates=snapshot["raw_candidates"],
                 ranked_candidates=list(ranked_candidates),
                 pre_gray=snapshot["pre_gray"],
+                recent_pre_gray=snapshot.get("recent_pre_gray"),
+                recent_pre_timestamp=snapshot.get("recent_pre_timestamp"),
                 post_gray=snapshot["post_gray"],
                 post_frames=snapshot["post_frames"],
                 gt_camera_xy=snapshot["gt_camera_xy"],
@@ -270,6 +326,11 @@ class AutomationAITrainingScene(AITrainingScene):
                     "auto_iteration_after_detection": int(self.auto_iteration),
                     "background_number": int(self.bg_mode_index + 1),
                     "source": "AutomationAITrainingScene/F2",
+                    "known_holes_before_shot": snapshot.get("known_holes_before_shot", []),
+                    "known_hole_registry_semantics": "session-local accepted HitScanner holes; incomplete for physical holes present before scene start",
+                    "recent_pre_timestamp": snapshot.get("recent_pre_timestamp"),
+                    "shot_timestamp": snapshot.get("shot_timestamp"),
+                    "recent_pre_semantics": "true camera frame before audio peak for temporal/new-hole learning; capture-only, does not alter live HitScanner pre-shot/reference behaviour",
                 },
             )
             self._v216_last_capture = dict(result)

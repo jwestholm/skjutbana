@@ -48,9 +48,14 @@ def main() -> int:
                     image_file = f"{shot.session_id}_shot{shot.round_id:06d}_neg{local_index:02d}.png"
                     cv2.imwrite(str(out / image_file), pack.post_patches[capture_index, -1])
                 payload = {
-                    "schema_version": "2.16",
-                    "label": 0,
-                    "kind": "real_detector_hard_negative",
+                    "schema_version": "2.17",
+                    # IMPORTANT: far from the CURRENT GT means NOT the current
+                    # new hole. It does NOT prove that this is a static non-hole;
+                    # the candidate can be an old real bullet hole.
+                    "label": None,
+                    "new_hole_label": 0,
+                    "static_hole_label": None,
+                    "kind": "real_detector_not_new_candidate",
                     "source_pack": str(path),
                     "session_id": shot.session_id,
                     "round_id": shot.round_id,
@@ -70,7 +75,8 @@ def main() -> int:
     print(f"Negatives written: {written}")
     print(f"Manifest         : {manifest}")
     print(f"PNG export       : {bool(args.export_images)}")
-    print("These are training assets for a FUTURE Hole-AI retrain; V2.16 itself stays shadow-only.")
+    print("Semantic: rows are NOT-CURRENT-NEW-HOLE candidates; they are NOT automatically static non-holes.")
+    print("Use them for V2.17 NEW-hole before/after learning, not as label=0 for static Hole-AI.")
     return 0
 
 

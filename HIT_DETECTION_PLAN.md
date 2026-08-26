@@ -63,6 +63,8 @@ known shot time T
 5. **Synthetic data trains; unseen real data decides.** Generated results are never the final acceptance test.
 6. **Split by physical session, not random image.** Near-identical frames from one session may not leak into train and holdout.
 7. **One new evidence source at a time.** Establish baseline -> add one source -> measure complementarity -> keep/reject -> only then combine further.
+8. **"Hole" and "new hole" are different labels.** Static Hole-AI must treat old + new physical holes as hole-like positives. A temporal NEW-hole model may correctly treat old holes as negatives because they did not appear at the current shot. Never convert `far from current GT` directly into a static non-hole label.
+9. **Known-hole state is soft context, not truth.** Reuse `HitScanner.known_holes`; do not build a competing registry. It is session-local/incomplete, so before/after novelty must still handle holes that existed before the scene started and hole-in-hole cases.
 
 ## 3. Metrics — always report the funnel
 
@@ -145,41 +147,39 @@ Separate component overlays:
 
 Purpose: independently propose locations where a new physical change appears after T and stays in the same registered camera location. First question is **not** whether this source is perfect; it is whether it rescues GT on shots current V2 misses.
 
-### Source 2 — Hole-AI patch model
+### Source 2 — Hole-AI appearance model
 
-**Status:** V2.13 first learning proof implemented offline; live/shadow integration comes later.
+**Status:** V2.13–V2.15 implemented and frozen for candidate-level experiments.
 
-V2.13 starts with the data that actually exists now: raw `synt_*`/`hole_*` post-shot camera patches. It learns **hole morphology at a proposed candidate location**, not temporal newness yet. Temporal newness remains Source 1 until raw before/after camera data is available.
+This source answers only:
 
-V2.13 training semantics:
+> `P(this candidate looks like a physical bullet hole)`
 
-> Given a crop centred on a proposed candidate, estimate `P(candidate corresponds to a hole)` and predict the hole offset from the candidate centre.
+Old and new physical holes are both positive hole-appearance evidence. The model must never be taught that an old hole is a `non-hole` merely because it is far from the current shot GT. V2.15 mild+standard remains a shadow evidence source.
 
-Anti-shortcut rules:
+### Source 3 — NEW-hole before/after model
 
-- never feed the centred 128x128 archive image directly as the class label,
-- randomly jitter positive candidate centres so the hole moves inside model input,
-- create negatives with the same source image / crop size / preprocessing but candidate centres deliberately away from GT,
-- add an auxiliary X/Y offset-regression task so the network must localise the hole,
-- split synthetic data by **session**,
-- hold selected background classes out completely,
-- keep every real `hole_*` patch out of training as a real-domain holdout.
+**Status:** V2.17 implemented offline/shadow.
 
-A later version will add true full-frame detector hard-negative patches and before/after channels. First use in the live architecture remains shadow evidence only.
+This source answers a different question:
 
-### Source 3 — AI direct proposal / heatmap
+> `P(a hole-like physical change appeared at this candidate at the current shot)`
+
+Inputs are matched pre-shot + post-shot candidate patches. For this task an old unchanged hole is correctly negative. V2.17 therefore can safely learn from V2.16 wrong candidates without corrupting static Hole-AI semantics. It also predicts an X/Y refinement offset.
+
+### Source 4 — AI direct proposal / heatmap
 
 **Status:** later.
 
 Purpose: allow AI to propose a location current CV never emitted. This is how combined recall can exceed the classical detector ceiling.
 
-### Source 4 — Projector-aware residual
+### Source 5 — Projector-aware residual
 
 **Status:** later, after physical replay works.
 
 The program knows the rendered/projected frame. Learn/model what the camera should see and suppress explained scene/video motion. Unexplained persistent physical residual is strong hole evidence.
 
-### Source 5 — Game-object/context prior
+### Source 6 — Game-object/context prior
 
 **Status:** later.
 
@@ -192,7 +192,7 @@ Examples:
 
 Use as a **soft prior/tie-breaker**. A miss beside an enemy must remain a miss.
 
-### Source 6 — Shooter/session spatial prior
+### Source 7 — Shooter/session spatial prior
 
 **Status:** later and deliberately weak.
 
@@ -324,7 +324,7 @@ The centre of the target/play area may statistically be more likely, but corners
 
 ### V2.16 — Candidate-Level Shadow Capture + Real Hard Negatives
 
-**Status:** implementation delivered; requires one new automation F2 capture to create the first real candidate-level dataset.
+**Status:** first candidate-level dataset captured and benchmarked on shooting PC (seed 65432, white, 100 shots).
 
 - [x] Instrument only `AutomationAITrainingScene` so normal game/manual hit authority remains untouched.
 - [x] Save candidate-centred pre/post patches for actual ranked V1/V2/funnel candidates plus raw detector extras.
@@ -338,22 +338,53 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Split by whole capture session once >=3 sessions exist; mark one/two-session shot splits **provisional**.
 - [x] Add real detector hard-negative mining and optional PNG export.
 - [x] Keep all V2.16 output shadow/offline only; no candidate reorder or coordinate override.
-- [ ] Capture first 1x100 candidate dataset with a completely new seed.
-- [ ] Run V2.16 candidate benchmark and inspect current vs Hole-AI vs temporal vs V9 vs fusion.
-- [ ] Mine real hard negatives from that run.
-- [ ] Retrain/recalibrate Hole-AI on true detector hard negatives only after the candidate-level baseline is frozen.
+- [x] Capture first 1x100 candidate dataset with a completely new seed (`65432`).
+- [x] Run V2.16 candidate benchmark and inspect current vs Hole-AI vs temporal vs V9 vs fusion.
+- [x] Mine 800 real detector hard-negative **candidates** from that run.
+- [x] Audit label semantics before using those candidates for learning.
 - [ ] Capture at least two more independent physical/projected sessions before treating confirmation/holdout as non-provisional.
 
-**V2.16 immediate success criterion:** establish an honest candidate-level baseline and determine whether Hole-AI/temporal evidence raises Top-1/Top-3 on unseen captured shots.  This is still far below the final game-authority gate; `eligible_for_live_authority` is hard-coded false in V2.16.
+**Observed V2.16 seed-65432 result (2026-08-26):**
 
-### V2.17 — Learned Multi-source Fusion
+- 100 labelled shot packs, **38,423 candidates**, avg **384.23/shot**, capture errors 0,
+- 23 diagnostic forced-GT-nearest rows (excluded from live-pool/oracle metrics),
+- ranked-pool <=20px oracle recall: development **36.67%**, confirmation **25%**, holdout **45%**,
+- raw+ranked union <=20px oracle: **40% / 35% / 50%**,
+- V9 improved Top-1 vs current in confirmation (**10% vs 5%**) and holdout (**15% vs 10%**),
+- V2.15 Hole-AI alone had **0% Top-1** on this hard real candidate pool,
+- first local temporal heuristic also had **0% Top-1**,
+- selected fusion therefore assigned **0 weight to Hole-AI and temporal**, keeping V9/current only,
+- all live-authority gates correctly remained false because there is only one capture session.
 
-- [ ] Learn/calibrate source combination from V2 physical features + V2.12 temporal overlay + Hole-AI evidence.
-- [ ] Keep source-only, union/oracle and final-fusion metrics separate.
-- [ ] Optimize selection only after union recall is high.
-- [ ] Report calibration/confidence and abstention/disagreement, not only rank.
+**Important semantic correction after V2.16:** a far-from-current-GT candidate may be an old real bullet hole. The 800 mined rows are therefore `NOT CURRENT NEW HOLE`, not automatically `NON-HOLE`. Static Hole-AI must not be retrained with them as label 0.
 
-### V2.18+ — Direct AI proposals, projector/context priors, live shadow
+### V2.17 — Old-hole-safe NEW-hole Learning
+
+**Status:** implemented offline/shadow; this is the next active experiment.
+
+- [x] Keep V2.15 Hole-AI as an appearance model where old + new holes are positive.
+- [x] Introduce a separate before/after `NewHoleAIV217` for `P(current NEW hole at candidate)`.
+- [x] Use dedicated GT pre/post patches as positives even when V1/V2 missed GT.
+- [x] Use V2.16 mined far-from-current-GT candidates as valid `NOT-NEW` negatives.
+- [x] Explicitly allow those negatives to be old holes; never export them as static `non-hole` labels.
+- [x] Add offset refinement and post-frame persistence to the temporal model.
+- [x] Reuse the existing V2.16 provisional/session split discipline.
+- [x] Snapshot the existing `HitScanner.known_holes` registry before future F2 rounds as soft provenance only.
+- [x] Capture a **true recent pre-shot camera frame** for future candidate packs in addition to the legacy stable/reference PRE. This is required for moving game/video backgrounds; it does not change live detector behaviour. Legacy seed-65432 packs remain valid via fallback.
+- [x] Document that the current registry is session-local/incomplete and does not include every physical hole present at scene start.
+- [ ] Train V2.17 on the existing seed-65432 candidate packs.
+- [ ] Compare V2.17 candidate Top-1/Top-3/median-rank against V2.16 temporal/Hole-AI/V9 baseline.
+- [ ] If it learns useful novelty, build an overnight champion/challenger loop over frozen candidate packs.
+
+### V2.18 — Offline champion/challenger learning loop
+
+- [ ] Mine/reweight hard NOT-NEW examples from frozen candidate packs.
+- [ ] Train multiple challenger seeds/configurations for hours/days.
+- [ ] Evaluate only on protected confirmation/holdout sessions.
+- [ ] KEEP only challengers that beat the current champion without breaking background/real-hole gates.
+- [ ] Resume safely after interruption and keep complete experiment provenance.
+
+### V2.19+ — Direct AI proposals, learned multi-source fusion, projector/context priors, live shadow
 
 - [ ] Add AI heatmap proposals that can rescue CV omissions.
 - [ ] Add projector-frame residual source.

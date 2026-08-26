@@ -106,7 +106,7 @@ capture session.  With only one or two sessions V2.16 still produces an
 engineering report, but labels the shot-level split **provisional** and hard
 codes `eligible_for_live_authority=false`.
 
-## Hard-negative mining
+## Hard-negative mining — V2.17 semantic correction
 
 Run:
 
@@ -114,15 +114,27 @@ Run:
 python3 -m automation.candidate_v216_hardnegatives --export-images
 ```
 
-The miner selects candidates far from GT (default >=55 px) that nevertheless
-look attractive to one or more of current-rank, V9, Hole-AI or temporal
-evidence.  These are exactly the examples a later Hole-AI retrain needs:
+The miner selects candidates far from the **current shot GT** (default >=55 px)
+that nevertheless look attractive to one or more of current-rank, V9, Hole-AI
+or temporal evidence.  These are excellent *NOT-NEW-hole* examples, but an
+important V2.17 audit found that they are **not automatically static non-holes**.
+A wrong candidate can be an old physical bullet hole.
 
-> not arbitrary blank patches, but things that the real detector actually
-> thought looked promising.
+Therefore the exporter now uses:
 
-V2.16 only exports them.  It does **not** retrain V2.15 yet; that should be a
-separate measured change after we know the candidate-level baseline.
+```text
+new_hole_label   = 0
+static_hole_label = null
+label             = null
+```
+
+Old manifests created before this correction may contain generic `label=0`.
+V2.17 deliberately ignores that field and uses only candidate identity/GT
+semantics.  Do **not** feed the 800 exported candidates directly into V2.15
+Hole-AI as negative hole examples.
+
+V2.16 only exports candidate evidence. V2.17 adds the separate before/after
+NEW-hole learner where old holes are semantically valid negatives.
 
 ## Commands
 
@@ -160,11 +172,12 @@ final >=95% gate.  We want to learn:
 - whether Hole-AI offset refinement reduces localisation error,
 - which wrong candidates become the strongest real hard negatives.
 
-If fusion improves confirmation/holdout Top-1 without losing oracle recall, the
-next step is to retrain/recalibrate on the newly mined hard negatives and then
-repeat offline.  If Hole-AI adds no candidate-level information, we keep that
-fact and shift effort toward temporal/direct-proposal evidence instead of
-forcing it into the live system.
+The V2.16 mined rows must **not** be blindly used to retrain static Hole-AI: a
+wrong candidate can be an old real bullet hole.  The immediate next step is
+V2.17 NEW-hole learning, where those same rows are semantically safe negatives
+for the question "is this the hole that appeared at the current shot?" because
+the model receives before+after evidence.  Static Hole-AI continues to treat
+old and new physical holes as hole-like positives.
 
 ## Explicit non-goals
 
