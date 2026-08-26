@@ -40,6 +40,9 @@ def main() -> int:
             epochs=args.epochs,
             batch_assets=args.batch_assets,
             seed=args.seed + index * 101,
+            # V2.15 fix: all profiles MUST use the same whole-session split.
+            # Only optimizer/model randomness varies between profiles.
+            split_seed=args.seed,
             max_train_assets=args.max_train_assets or None,
             max_eval_assets=args.max_eval_assets or None,
             v213_report_path=Path("content/ai/reports/v213/hole_v213_report.json"),
@@ -60,6 +63,8 @@ def main() -> int:
     payload = {
         "schema_version": "2.14",
         "selection_rule": "rank by clean+procedural-domain validation selection_score only; strict novel and REAL holdouts are report-only",
+        "split_rule": "all profiles share one session split_seed; only model/training seed differs (V2.15 experimental-discipline fix)",
+        "split_seed": int(args.seed),
         "winner": ranked[0] if ranked else None,
         "profiles": ranked,
     }

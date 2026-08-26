@@ -1,0 +1,47 @@
+Skjutbana V2.15 - Paired Hole-AI Evidence
+=========================================
+
+This ZIP is a DELTA on top of V2.14.
+Extract at repository root and overwrite the included changed V2.14 files.
+
+1) Selftest
+-----------
+python3 -m automation.hole_v215_selftest
+
+Expected:
+All V2.15 selftests passed.
+
+2) Retrain the retained V2.14 profiles on ONE IDENTICAL session split
+---------------------------------------------------------------------
+python3 -m automation.hole_v215_pair_train
+
+Default: mild 8 epochs + standard 8 epochs.
+The old v214_sweep models are kept as historical results but are not used for
+V2.15 blend selection because the original sweep varied session split by seed.
+
+Expected output directory:
+content/ai/reports/v215_pair/
+
+3) Paired complementarity / blend experiment
+---------------------------------------------
+python3 -m automation.hole_v215_ensemble
+
+This does NOT train a new neural network. It evaluates the two paired models on
+identical candidate examples, selects a transparent one-weight blend on
+non-holdout validation only, freezes it, then reports strict holdouts.
+
+Expected output:
+content/ai/reports/v215/hole_v215_report.json
+content/ai/reports/v215/hole_v215_ensemble.json
+
+4) Verify generated shadow configuration
+-----------------------------------------
+python3 -m automation.hole_v215_verify
+
+IMPORTANT
+---------
+- No projector/camera/microphone is needed for V2.15.
+- Do not run another physical 100-shot round yet.
+- Do not copy the oracle 'either model recall' and call it live accuracy.
+- V2.15 never changes live candidate order or hit authority.
+- Send the V2.15 PAIRED ENSEMBLE RESULT + GATE before the next version.

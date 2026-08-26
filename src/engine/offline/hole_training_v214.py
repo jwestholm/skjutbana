@@ -593,6 +593,7 @@ def run_training_experiment_v214(
     epochs: int,
     batch_assets: int,
     seed: int,
+    split_seed: int | None = None,
     max_train_assets: int | None = None,
     max_eval_assets: int | None = None,
     v213_report_path: Path | None = Path("content/ai/reports/v213/hole_v213_report.json"),
@@ -602,7 +603,8 @@ def run_training_experiment_v214(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     assets, archive_summary = discover_hole_assets(holes_root, inspect_images=True)
-    split: DatasetSplit = build_dataset_split(assets, holdout_backgrounds=holdout_backgrounds, seed=seed)
+    effective_split_seed = int(seed if split_seed is None else split_seed)
+    split: DatasetSplit = build_dataset_split(assets, holdout_backgrounds=holdout_backgrounds, seed=effective_split_seed)
     train_assets = iter_assets_limited(split.train, max_train_assets, seed + 1)
     validation_assets = iter_assets_limited(split.validation, max_eval_assets, seed + 2)
     test_assets = iter_assets_limited(split.test, max_eval_assets, seed + 3)
@@ -695,6 +697,7 @@ def run_training_experiment_v214(
             "holdout_backgrounds": list(split.holdout_backgrounds),
             "session_assignment": split.session_assignment,
             "seed": int(seed),
+            "split_seed": int(effective_split_seed),
             "best_epoch": int(best_epoch),
         },
     )
@@ -738,6 +741,8 @@ def run_training_experiment_v214(
         "domain_randomization": asdict(domain),
         "selected_thresholds": {"hole_ai": ai_threshold, "center_contrast_baseline": baseline_threshold},
         "selected_epoch": best_epoch,
+        "training_seed": int(seed),
+        "split_seed": int(effective_split_seed),
         "history": history,
         "evaluations": evaluations,
         "comparison_to_v213": comparison,

@@ -152,3 +152,43 @@ python3 -m automation.hole_v214_sweep
 ```
 
 Outputs live below `content/ai/reports/` and remain offline-only.
+
+---
+
+## Observed shooting-PC results (2026-08-26)
+
+Full `standard` run on the complete archive:
+
+- validation AUC: **0.879472**
+- synthetic-test AUC: **0.842980**
+- strict novel-background AUC: **0.692312**
+- real holdout AUC: **0.913075**, recall **0.905405**
+- off-centre AUC: **0.772425**
+
+The main V2.14 objective was achieved: novel-background AUC moved from V2.13's
+**0.529693** to **0.692312** without destroying synthetic->real transfer.
+
+The 8-epoch profile sweep reported:
+
+| profile | non-holdout selection | strict novel AUC | real recall |
+|---|---:|---:|---:|
+| mild | **0.7734** | **0.741301** | 0.824324 |
+| standard | 0.7275 | 0.681095 | **0.945946** |
+| strong | 0.6779 | 0.643597 | 0.851351 |
+
+`strong` is rejected.  `mild` and `standard` are retained as hypotheses for a
+paired complementarity test, **not** because the table itself proves an
+ensemble gain.
+
+### Experimental-discipline issue found before V2.15
+
+The original V2.14 sweep varied one `seed` per profile.  That seed controlled
+both model/training randomness **and whole-session train/validation/test
+assignment**.  Therefore the non-holdout `selection` values above are not a
+perfect paired comparison.
+
+The strict novel-background and real-hole holdouts were still excluded from
+training/model selection, so their qualitative signal remains useful.  From
+V2.15 onward the code separates `split_seed` from training/model seed and
+requires paired models to carry identical session-assignment provenance before
+any ensemble weight is selected.

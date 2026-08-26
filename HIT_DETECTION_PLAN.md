@@ -264,28 +264,70 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Add explicit procedural-domain stress reporting and per-background metrics.
 - [x] Compare V2.14 report automatically with the saved V2.13 report when available.
 - [x] Add mild/standard/strong profile sweep whose winner is ranked without strict holdout data.
-- [ ] Run V2.14 `standard` on the complete shooting-PC archive.
-- [ ] If novel-background AUC is still weak, run the three-profile sweep; do **not** hand-pick using real holdout.
-- [ ] KEEP only if novel-background performance rises materially without collapsing real-hole recall/off-centre performance.
+- [x] Run V2.14 `standard` on the complete shooting-PC archive.
+- [x] Run the three-profile sweep after standard remained just below the candidate-shadow gate.
+- [x] KEEP V2.14 background-invariant representation; reject `strong` profile and carry `mild` + `standard` forward for a paired-complementarity test.
 
 **V2.14 first gate for the next integration step:** strict novel-background AUC >=0.70, real-hole recall >=0.85 and off-centre AUC >=0.78.  This is intentionally a candidate-shadow gate, not the final >=95% game-authority gate.
 
-### V2.15 — Full-frame Hard Negatives + Hole-AI Shadow Evidence
+**Observed V2.14 full standard result on the shooting PC (2026-08-26):**
 
-- [ ] Save/compile raw candidate-centred patches for V1/V2/overlay false candidates from full frames.
-- [ ] Retrain Hole-AI with true detector hard negatives, not only local negatives from the 128x128 bank.
-- [ ] Add before/after channels when raw paired frames are available.
-- [ ] Score V1/V2/overlay candidates with Hole-AI in offline replay.
-- [ ] Measure whether Hole-AI improves ranking and union/fusion on unseen physical sessions.
-- [ ] Add Hole-AI score to live runtime as **shadow evidence only** after the offline gate passes.
+- validation AUC: **0.879472**
+- synthetic-test AUC: **0.842980**
+- strict novel-background AUC: **0.692312** (V2.13: 0.529693; +0.162619)
+- real holdout: AUC **0.913075**, recall **0.905405**
+- off-centre AUC: **0.772425**
 
-### V2.16 — Learned Fusion
+**Observed V2.14 sweep (8 epochs/profile):**
 
-- [ ] Learn source weights/calibration from V2 + temporal overlay + Hole-AI.
+| profile | non-holdout selection | strict novel AUC (report-only) | real recall (report-only) | decision |
+|---|---:|---:|---:|---|
+| mild | **0.7734** | **0.741301** | 0.824324 | keep for paired test |
+| standard | 0.7275 | 0.681095 | **0.945946** | keep for paired test |
+| strong | 0.6779 | 0.643597 | 0.851351 | reject |
+
+**Important V2.15 audit finding:** the original V2.14 sweep changed the single `seed` per profile, and that seed also controlled whole-session train/validation/test assignment. Therefore the `mild` and `standard` non-holdout selection scores above are not perfectly apples-to-apples. Strict novel-background and real holdouts remained valid because they never entered training/model selection, so the qualitative finding (mild generalises better to unseen backgrounds; standard transfers better to the real-hole bank; strong augmentation is too destructive) remains useful. Starting with V2.15, **split seed and model/training seed are separate**, and paired models must prove identical session-assignment provenance before any ensemble is selected.
+
+
+### V2.15 — Paired Hole-AI Evidence + Experimental-Discipline Fix
+
+**Status:** implemented offline/shadow foundation.  V2.15 intentionally comes *before* full-frame hard-negative capture because the V2.14 sweep first needs an honest paired error-overlap test.
+
+- [x] Separate `split_seed` from model/training seed in V2.14 training.
+- [x] Fix future V2.14 sweeps so all profiles use one identical whole-session split.
+- [x] Add `hole_v215_pair_train` to retrain only `mild` + `standard` on the same session assignment.
+- [x] Persist and verify split provenance in model metadata.
+- [x] Refuse V2.15 ensemble selection when mild/standard provenance does not match.
+- [x] Evaluate both models on **exactly the same candidate-centred examples**.
+- [x] Measure score correlation, disagreement, `standard-only` rescues, `mild-only` rescues, both-hit and neither-hit.
+- [x] Report oracle `either model` recall explicitly as diagnostic only (never as an achievable live score).
+- [x] Search a one-parameter threshold-centred mild/standard blend, including pure endpoints, using **clean validation + procedural domain-stress only**.
+- [x] Freeze weight/threshold before evaluating synthetic test, strict novel backgrounds, real holes and off-centre stress.
+- [x] Add a reusable `HolePatchEnsembleV215` shadow annotator that preserves candidate ordering/coordinates and only appends evidence fields.
+- [ ] Run paired mild+standard training on the shooting PC.
+- [ ] Run V2.15 ensemble/complementarity report on the full archive.
+- [ ] KEEP two-model inference only if paired error overlap shows real complementary value; otherwise retain the single best profile.
+
+**V2.15 candidate-shadow gate:** non-holdout ensemble selection must be no worse than 99.5% of the best pure endpoint, strict novel AUC >=0.70, real-hole recall >=0.85, and off-centre AUC >=0.76.  Passing means only that patch evidence is worth feeding into later candidate-level shadow analysis.
+
+### V2.16 — Full-frame Hard Negatives + Candidate-Level Shadow
+
+- [ ] Save raw clean pre/post frame pairs (opt-in, storage-aware) so V2.12 full detector replay can finally use physical/projected data.
+- [ ] Save candidate-centred patches for V1/V2/overlay candidates with GT distance/provenance.
+- [ ] Mine true detector hard negatives: high-ranked wrong candidates from real full frames.
+- [ ] Retrain/recalibrate Hole-AI using true detector hard negatives, not only local negatives from the 128x128 bank.
+- [ ] Score the actual V1/V2/overlay candidate pool with Hole-AI in offline replay.
+- [ ] Measure whether Hole-AI changes GT rank/Top-1/Top-3 and whether offset refinement reduces localisation error.
+- [ ] Add Hole-AI evidence to live runtime as **shadow fields only** after the offline candidate gate passes.
+
+### V2.17 — Learned Multi-source Fusion
+
+- [ ] Learn/calibrate source combination from V2 physical features + V2.12 temporal overlay + Hole-AI evidence.
+- [ ] Keep source-only, union/oracle and final-fusion metrics separate.
 - [ ] Optimize selection only after union recall is high.
-- [ ] Report calibration/confidence, not only rank.
+- [ ] Report calibration/confidence and abstention/disagreement, not only rank.
 
-### V2.17+ — Direct AI proposals, projector/context priors, live shadow
+### V2.18+ — Direct AI proposals, projector/context priors, live shadow
 
 - [ ] Add AI heatmap proposals that can rescue CV omissions.
 - [ ] Add projector-frame residual source.

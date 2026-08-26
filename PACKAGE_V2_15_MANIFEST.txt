@@ -1,0 +1,77 @@
+Skjutbana V2.15 - Paired Hole-AI Evidence
+=========================================
+
+DELTA BASE
+----------
+Install on top of V2.14 background-generalisation delta.
+
+PURPOSE
+-------
+V2.15 does NOT grant live authority. It makes the mild-vs-standard Hole-AI
+comparison experimentally honest, measures paired error overlap, and creates a
+reusable candidate shadow evidence annotator.
+
+IMPORTANT AUDIT FIX
+-------------------
+The original V2.14 sweep varied one seed per profile. That seed controlled both
+model/training randomness and whole-session data split. Therefore V2.14 sweep
+non-holdout selection scores were not a fully paired apples-to-apples test.
+Strict novel-background and real-hole holdouts remained excluded from training
+and are still useful observations.
+
+V2.15 separates split_seed from training/model seed and requires identical
+session_assignment provenance before ensemble selection.
+
+CHANGED FILES
+-------------
+DETECTOR_V2_14.md
+HIT_DETECTION_PLAN.md
+automation/hole_v214_sweep.py
+src/engine/offline/hole_training_v214.py
+
+NEW FILES
+---------
+DETECTOR_V2_15.md
+SELFTEST_V2_15.md
+INSTALL_V2_15.txt
+automation/hole_v215_pair_train.py
+automation/hole_v215_ensemble.py
+automation/hole_v215_verify.py
+automation/hole_v215_selftest.py
+src/engine/ai/hole_patch_ensemble_v215.py
+src/engine/offline/hole_ensemble_v215.py
+
+PRIMARY RUN ORDER
+-----------------
+1. python3 -m automation.hole_v215_selftest
+2. python3 -m automation.hole_v215_pair_train
+3. python3 -m automation.hole_v215_ensemble
+4. python3 -m automation.hole_v215_verify
+
+TESTS PERFORMED BEFORE PACKAGING
+--------------------------------
+- Python compileall for automation/ and src/
+- V2.15 selftest complete PASS
+- synthetic end-to-end hole archive -> paired mild/standard train -> ensemble -> verify
+- V2.14 sweep regression: all profiles verified to use identical session assignment
+- old/unpaired model provenance rejection verified (clean actionable error)
+- candidate edge patch extraction verified
+- candidate shadow annotation verified to preserve order/original coordinates
+
+No __pycache__ or .pyc files should be included in the ZIP.
+
+FILE SHA256
+-----------
+089a0d73fa00a56177f8deb38fc85b1fe95557bc9fa8df56ca8d4b814cc34071  ./DETECTOR_V2_14.md
+47607fe83edacbf32bac6d7e64902ec68fd29ffdcf7c5d6354572b07dedd2d35  ./DETECTOR_V2_15.md
+426c88758b97e6707aa36faab697147a2ed9a8cf16fd7ded6215aad0a718635e  ./HIT_DETECTION_PLAN.md
+bc7d127f65d8b4ffee10cd15f316f640870b93ad299ebd33e21f5eeca09989f9  ./INSTALL_V2_15.txt
+e15e8d991b8d9a8c603b817b82cc540a56bca8d0d9710cc58e8da12b1a90657c  ./SELFTEST_V2_15.md
+ef142176407946f345c22a8a9b9e2ee8ab42e79cb20d4117bc06ee72548dd487  ./automation/hole_v214_sweep.py
+e6ea40ad5adfa3d592a224dec67f32c5e37cbdae507d9e50b59b945a157cccf9  ./automation/hole_v215_ensemble.py
+e5d03425f8177a30cba5652bec5f06fdbb780bb5abcd03481628af57e7cf06ae  ./automation/hole_v215_pair_train.py
+b47205f2973122c1aa6456ec7411254b8e3b9abd0d2b67fe0b81b3d337ff3671  ./automation/hole_v215_selftest.py
+6684911dfc81edc38c2dd3135e2f73563936cef01700e6ffe3005af9d1af677f  ./automation/hole_v215_verify.py
+d6e12a8dbf52b8c1e3d84209d1b8e4f5357dd05697ed1942effb532844e83bae  ./src/engine/ai/hole_patch_ensemble_v215.py
+cc36273bf2fb9dfe9bd7c0d51b316b9627e008bc5ffe4d71b757c34ddc6338ed  ./src/engine/offline/hole_ensemble_v215.py
+6ddf0978f3dfcacad8e887b344947264debec82ed2519a84e647b4723de057d6  ./src/engine/offline/hole_training_v214.py
