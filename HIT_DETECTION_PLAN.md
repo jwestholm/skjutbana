@@ -237,12 +237,40 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Add auxiliary X/Y offset prediction to force localisation.
 - [x] Compare Hole-AI against a simple non-learning centre-contrast baseline.
 - [x] Report synthetic session holdout, unseen-background holdout, real holdout and explicit off-centre stress.
-- [ ] Run V2.13 on the 15,134-image shooting-PC archive and inspect learning curves / real holdout.
-- [ ] Decide KEEP/REJECT from unseen results, not training accuracy.
+- [x] Run V2.13 on the 15,134-image shooting-PC archive and inspect learning curves / real holdout.
+- [x] Decide KEEP/REJECT from unseen results, not training accuracy.
 
-**V2.13 success signal:** the model clearly beats the simple centre-contrast baseline on held-out synthetic sessions, remains useful on backgrounds excluded from training, and gives encouraging scores/recall on the 37 real holes despite never training on them. This proves pixel learning; it does **not** yet prove >=95% full-frame hit detection.
+**Observed V2.13 result on the shooting PC (2026-08-26):**
 
-### V2.14 — Full-frame Hard Negatives + Hole-AI Shadow Evidence
+- validation AUC: **0.874595**
+- synthetic-test AUC: **0.837996**
+- strict novel-background AUC: **0.529693**
+- real holdout: AUC **0.924489**, recall **0.918919** (34/37 real holes)
+- off-centre stress AUC: **0.800802**
+
+**Decision: KEEP the pixel-AI path.**  V2.13 proves useful synthetic->real transfer and survives the centre-position anti-cheat test.  The dominant weakness is now clearly background generalisation, not lack of learnability.
+
+### V2.14 — Background-Generalising Hole-AI
+
+**Status:** implemented offline.  This version deliberately attacks the measured V2.13 failure before live/shadow integration.
+
+- [x] Preserve the same strict novel-background holdout (black/checker/gray/bubbles) so V2.13 and V2.14 remain comparable.
+- [x] Keep all real `hole_*` patches out of training and model selection.
+- [x] Replace intensity-heavy input with local physical maps: local residual, DoG, morphological black-hat and gradient energy.
+- [x] Add procedural/background-remix augmentation that preserves compact hole residuals while changing projector/background structure.
+- [x] Add strong photometric/shadow/projected-edge/noise variation during training.
+- [x] Select the best epoch using clean validation **plus procedural domain-stress validation**, never the strict novel or real holdouts.
+- [x] Keep candidate jitter and X/Y offset localisation from V2.13.
+- [x] Add explicit procedural-domain stress reporting and per-background metrics.
+- [x] Compare V2.14 report automatically with the saved V2.13 report when available.
+- [x] Add mild/standard/strong profile sweep whose winner is ranked without strict holdout data.
+- [ ] Run V2.14 `standard` on the complete shooting-PC archive.
+- [ ] If novel-background AUC is still weak, run the three-profile sweep; do **not** hand-pick using real holdout.
+- [ ] KEEP only if novel-background performance rises materially without collapsing real-hole recall/off-centre performance.
+
+**V2.14 first gate for the next integration step:** strict novel-background AUC >=0.70, real-hole recall >=0.85 and off-centre AUC >=0.78.  This is intentionally a candidate-shadow gate, not the final >=95% game-authority gate.
+
+### V2.15 — Full-frame Hard Negatives + Hole-AI Shadow Evidence
 
 - [ ] Save/compile raw candidate-centred patches for V1/V2/overlay false candidates from full frames.
 - [ ] Retrain Hole-AI with true detector hard negatives, not only local negatives from the 128x128 bank.
@@ -251,13 +279,13 @@ The centre of the target/play area may statistically be more likely, but corners
 - [ ] Measure whether Hole-AI improves ranking and union/fusion on unseen physical sessions.
 - [ ] Add Hole-AI score to live runtime as **shadow evidence only** after the offline gate passes.
 
-### V2.15 — Learned Fusion
+### V2.16 — Learned Fusion
 
 - [ ] Learn source weights/calibration from V2 + temporal overlay + Hole-AI.
 - [ ] Optimize selection only after union recall is high.
 - [ ] Report calibration/confidence, not only rank.
 
-### V2.16+ — Direct AI proposals, projector/context priors, live shadow
+### V2.17+ — Direct AI proposals, projector/context priors, live shadow
 
 - [ ] Add AI heatmap proposals that can rescue CV omissions.
 - [ ] Add projector-frame residual source.

@@ -1,0 +1,38 @@
+Skjutbana V2.14 delta
+=====================
+
+Prerequisite:
+- V2.12 installed
+- V2.13 delta installed
+- run from repository root
+
+1. Unpack this ZIP over the repository root.
+   It only contains new/changed files relative to V2.13.
+
+2. Run:
+
+   python3 -m automation.hole_v214_selftest
+
+3. Quick smoke run on the real archive:
+
+   python3 -m automation.hole_v214_train --epochs 3 --max-train-assets 2000 --max-eval-assets 500
+
+4. If smoke run is healthy, run full standard profile:
+
+   python3 -m automation.hole_v214_train
+
+5. Send the complete final V2.14 RESULT + DELTA VS V2.13 + GATE output.
+
+Optional visual inspection:
+
+   python3 -m automation.hole_v214_visualize --kind synthetic --index 0
+
+If standard does not materially improve strict novel-background AUC:
+
+   python3 -m automation.hole_v214_sweep
+
+IMPORTANT:
+- no projector/camera/microphone needed
+- real hole_* files are never training/model-selection data
+- strict black/checker/gray/bubbles holdout remains untouched for honest comparison
+- V2.14 has no live authority and changes no game behavior

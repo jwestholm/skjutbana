@@ -1,0 +1,40 @@
+{
+  "schema_version": "2.14",
+  "purpose": "background generalisation before Hole-AI candidate-shadow integration",
+  "data": {
+    "root": "content/ai/holes",
+    "train_prefix": "synt_",
+    "real_holdout_prefix": "hole_",
+    "strict_novel_backgrounds": ["black", "checker", "gray", "bubbles"],
+    "split_unit": "session_id",
+    "real_is_training_data": false
+  },
+  "sampling": {
+    "candidate_crop_size": 64,
+    "positive_jitter_px": 16.0,
+    "negative_min_px": 24.0,
+    "negative_max_px": 30.0,
+    "positives_per_image": 1,
+    "negatives_per_image": 2,
+    "auxiliary_offset_regression": true
+  },
+  "model": {
+    "type": "numpy_mlp_background_invariant",
+    "input_size": 22,
+    "hidden_size": 80,
+    "feature_channels": ["local_residual", "dog", "blackhat", "gradient"],
+    "learning_rate": 0.0012,
+    "epochs": 12
+  },
+  "domain_randomization": {
+    "default_profile": "standard",
+    "profiles": ["mild", "standard", "strong"],
+    "strict_holdouts_are_never_used_for_selection": true
+  },
+  "first_gate": {
+    "novel_background_auc": 0.70,
+    "real_holdout_recall": 0.85,
+    "off_center_auc": 0.78
+  },
+  "authority": "offline_only"
+}

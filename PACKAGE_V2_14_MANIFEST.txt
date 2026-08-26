@@ -1,0 +1,50 @@
+Skjutbana V2.14 — Background-Generalising Hole-AI
+=================================================
+
+DELTA BASE
+- Apply on top of the previously supplied V2.13 delta / current dev working tree.
+- This ZIP does not contain the entire repository.
+
+NEW FILES
+- DETECTOR_V2_14.md
+- SELFTEST_V2_14.md
+- INSTALL_V2_14.txt
+- src/engine/ai/hole_patch_ai_v214.py
+- src/engine/offline/hole_training_v214.py
+- automation/hole_v214_train.py
+- automation/hole_v214_evaluate.py
+- automation/hole_v214_visualize.py
+- automation/hole_v214_sweep.py
+- automation/hole_v214_selftest.py
+- content/ai/hole_v214.json
+
+CHANGED FILES
+- HIT_DETECTION_PLAN.md
+
+WHAT V2.14 DOES
+- Keeps the exact V2.13 strict novel-background and real holdouts.
+- Introduces local-residual / DoG / black-hat / gradient pixel channels.
+- Adds procedural background remix and strong domain randomization.
+- Selects best epoch using clean + procedural-domain validation only.
+- Preserves candidate jitter and offset localisation anti-centre shortcut protections.
+- Reports direct delta against V2.13 when its report is available.
+- Adds a three-profile sweep that never ranks using strict novel/REAL holdouts.
+- Remains OFFLINE ONLY; no live detector/game authority is changed.
+
+VALIDATION PERFORMED IN BUILD ENVIRONMENT
+- python compileall: PASS
+- python3 -m automation.hole_v214_selftest: PASS
+- model save/load: PASS
+- synthetic strict-background smoke learning: PASS
+- strong domain-remix plumbing: PASS
+- no REAL training leakage: PASS
+
+FIRST SHOOTING-PC COMMANDS
+1) python3 -m automation.hole_v214_selftest
+2) python3 -m automation.hole_v214_train --epochs 3 --max-train-assets 2000 --max-eval-assets 500
+3) python3 -m automation.hole_v214_train
+
+Primary result to send back:
+- full V2.14 RESULT
+- DELTA VS V2.13
+- GATE
