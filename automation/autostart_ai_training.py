@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import nullcontext
 
 from src.engine.communication.tcp_network_handler import (
     EventListener,
@@ -47,68 +46,52 @@ def parse_background(value: str) -> int | str:
     return normalized
 
 
-def autostart_ai_training(
-    background: int | str = 1,
-    *,
-    listener: EventListener | None = None,
-    move_window: bool = True,
-    show_progress: bool = True,
-) -> dict:
+def autostart_ai_training(background: int | str = 1, iterations: int | None = None) -> dict:
     """
-    Run one complete automated F2 AI training session.
-
-    The function can own its EventListener (normal one-shot use) or reuse a
-    caller-provided listener (used by ai_training_loop for many consecutive
-    runs). A fresh AutomationAITrainingScene is always created by the game.
+    Move the running game window, create a fresh AI training scene, wait for
+    calibration, inject F2 through the game's command/event path and return
+    the final training result event.
     """
 
-    owns_listener = listener is None
-    active_listener = listener or EventListener()
-    context = active_listener if owns_listener else nullcontext(active_listener)
+    with EventListener() as listener:
+        print(f"[AUTOMATION] Event listener connected")
 
-    with context:
-        if show_progress:
-            print("[AUTOMATION] Event listener connected")
+        print(f"[AUTOMATION] Moving window to ({WINDOW_X}, {WINDOW_Y})")
+        send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
 
-        if move_window:
-            if show_progress:
-                print(f"[AUTOMATION] Moving window to ({WINDOW_X}, {WINDOW_Y})")
-            send_command("setWindowPos", [WINDOW_X, WINDOW_Y])
-
-        if show_progress:
-            print(
-                "[AUTOMATION] Starting AI training scene, "
-                f"background={background}"
-            )
-        send_command("startAITraining", [background])
+        payload = {"background": background}
+        if iterations is not None:
+            payload["iterations"] = int(iterations)
+        print(
+            f"[AUTOMATION] Starting AI training scene, background={background}, "
+            f"iterations={payload.get('iterations', 'default')}"
+        )
+        send_command("startAITraining", payload)
 
         f2_sent = False
 
         while True:
-            event = active_listener.wait_for_event()
+            event = listener.wait_for_event()
             event_name = str(event.get("event", ""))
             data = event.get("data", {})
 
             if event_name == "aiTraining.started":
-                if show_progress:
-                    print(
-                        "[AI TRAINING] Scene started | "
-                        f"background={data.get('background')}"
-                    )
+                print(
+                    "[AI TRAINING] Scene started | "
+                    f"background={data.get('background')}"
+                )
 
             elif event_name == "aiTraining.calibrationStarted":
-                if show_progress:
-                    print(
-                        "[AI TRAINING] Starting calibration | "
-                        f"phase={data.get('phase')}"
-                    )
+                print(
+                    "[AI TRAINING] Starting calibration | "
+                    f"phase={data.get('phase')}"
+                )
 
             elif event_name == "aiTraining.calibrationDone":
-                if show_progress:
-                    print(
-                        "[AI TRAINING] Calibration done | "
-                        f"attempts={data.get('attempts')}"
-                    )
+                print(
+                    "[AI TRAINING] Calibration done | "
+                    f"attempts={data.get('attempts')}"
+                )
 
             elif event_name == "aiTraining.calibrationFailed":
                 raise RuntimeError(
@@ -117,24 +100,21 @@ def autostart_ai_training(
                 )
 
             elif event_name == "aiTraining.waitingForFirstShot":
-                if show_progress:
-                    print("[AI TRAINING] Ready - sending F2")
+                print("[AI TRAINING] Ready - sending F2")
                 if not f2_sent:
                     send_command("keyPress", ["F2"])
                     f2_sent = True
 
             elif event_name == "aiTraining.trainingStarted":
-                if show_progress:
-                    print(
-                        "[AI TRAINING] F2 headless training started | "
-                        f"target={data.get('target_iterations')}"
-                    )
+                print(
+                    "[AI TRAINING] F2 headless training started | "
+                    f"target={data.get('target_iterations')}"
+                )
 
             elif event_name == "aiTraining.iterationCompleted":
-                if show_progress:
-                    iteration = data.get("iteration")
-                    target = data.get("target_iterations")
-                    print(f"[AI TRAINING] {iteration}/{target}")
+                iteration = data.get("iteration")
+                target = data.get("target_iterations")
+                print(f"[AI TRAINING] {iteration}/{target}")
 
             elif event_name == "aiTraining.trainingStopped":
                 raise RuntimeError(
@@ -143,42 +123,26 @@ def autostart_ai_training(
                 )
 
             elif event_name == "aiTraining.completed":
-                if show_progress:
-                    _print_completed(data)
+                print()
+                print("=" * 72)
+                print("AI TRAINING COMPLETED")
+                print("=" * 72)
+                print(f"Background: {data.get('background')}")
+                print(
+                    f"Found: {data.get('found')}/{data.get('iterations')} | "
+                    f"Top-1: {data.get('top1')} | "
+                    f"Top-3: {data.get('top3')} | "
+                    f"AI correct: {data.get('ai_guess_correct')}"
+                )
+
+                report = data.get("report", [])
+                if isinstance(report, list) and report:
+                    print()
+                    for line in report:
+                        print(line)
+
+                print("=" * 72)
                 return event
-
-
-def _print_completed(data: dict) -> None:
-    print()
-    print("=" * 72)
-    print("AI TRAINING COMPLETED")
-    print("=" * 72)
-    print(f"Background: {data.get('background')}")
-
-    metrics = data.get("metrics", {})
-    if isinstance(metrics, dict) and metrics:
-        print(
-            f"Found: {metrics.get('found')}/{metrics.get('iterations')} "
-            f"({metrics.get('found_pct')}%) | "
-            f"Top-1: {metrics.get('top1_pct')}% | "
-            f"Top-3: {metrics.get('top3_pct')}% | "
-            f"AI correct: {metrics.get('ai_guess_correct_pct')}%"
-        )
-    else:
-        print(
-            f"Found: {data.get('found')}/{data.get('iterations')} | "
-            f"Top-1: {data.get('top1')} | "
-            f"Top-3: {data.get('top3')} | "
-            f"AI correct: {data.get('ai_guess_correct')}"
-        )
-
-    report = data.get("report", [])
-    if isinstance(report, list) and report:
-        print()
-        for line in report:
-            print(line)
-
-    print("=" * 72)
 
 
 def main() -> None:
@@ -192,10 +156,18 @@ def main() -> None:
         type=parse_background,
         help="Background 1-8 or background name (default: 1 / white)",
     )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=None,
+        help="Override F2 run length for this session (1-10000). Default keeps the scene setting.",
+    )
     args = parser.parse_args()
+    if args.iterations is not None and not 1 <= args.iterations <= 10000:
+        parser.error("--iterations must be between 1 and 10000")
 
     try:
-        autostart_ai_training(args.background)
+        autostart_ai_training(args.background, args.iterations)
     except (TcpNetworkError, RuntimeError) as exc:
         print(f"ERROR: {exc}")
 

@@ -1,0 +1,6 @@
+INSTALL_V2_21_1.txt
+DETECTOR_V2_21_1.md
+PACKAGE_V2_21_1_MANIFEST.txt
+app.py
+automation/autostart_ai_training.py
+src/engine/scenes/automation_ai_training.py
