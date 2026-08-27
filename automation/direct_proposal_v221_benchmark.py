@@ -21,6 +21,19 @@ def main() -> int:
     print(f"Packs benchmarked     : {report['packs_benchmarked']}")
     print(f"Missing full frames   : {report['packs_missing_full_frames']}")
     if report["can_measure_physical_direct_recall"]:
+        all_row = report["all"]
+        print(f"\nALL FULL-FRAME SHOTS={all_row['shots']}")
+        for src in ("current", "direct", "union"):
+            print(
+                f"  {src:8s} oracle5={all_row[src]['oracle']['5']:.4f} "
+                f"oracle10={all_row[src]['oracle']['10']:.4f} "
+                f"oracle20={all_row[src]['oracle']['20']:.4f} "
+                f"oracle42={all_row[src]['oracle']['42']:.4f} "
+                f"mean_candidates={all_row[src]['mean_candidates']:.1f}"
+            )
+        print(f"  rescued@20={all_row['rescued_current_miss']['20']}")
+        print(f"  runtime_ms_mean={all_row['runtime_ms_mean']:.1f}")
+        print(f"  provisional_split={report['split_is_provisional']}")
         for split in ("development", "confirmation", "holdout"):
             row = report["splits"][split]
             print(f"\n{split.upper()} shots={row['shots']}")

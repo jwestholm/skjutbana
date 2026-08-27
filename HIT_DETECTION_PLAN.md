@@ -320,3 +320,21 @@ Implemented in the V2.21 delta:
 The existing old candidate session should be audited first. If full frames are absent, do not synthesize a direct-proposal score from candidate patches: collect a small fresh automation/projector-camera capture with V2.21 full-frame shadow storage enabled.
 
 The direct-proposal engine must improve proposal **coverage** before more listwise-ranker optimization. Initial gate remains >=70% union oracle <=20 px on confirmation and holdout, then >=85%, with >=95% required across independent physical sessions before authority work.
+
+---
+
+## V2.21.1 — short full-frame projector/camera gate (2026-08-27)
+
+Observed V2.21 domain-gap profile:
+
+- group domain AUC **1.0000** (severe/trivial separation),
+- `known_hole_distance_scaled` is the strongest shortcut (KS **0.988**),
+- temporal and V2.17 embedding feature distributions are also strongly shifted.
+
+Decision: **do not run more synthetic-only V2.18 training yet**.
+
+V2.21.1 adds a one-shot short capture controller. First run is 30 white
+projector/camera rounds with online learning frozen and full recent PRE + two
+full POST frames saved. The first target is to raise CURRENT+AI_DIRECT
+candidate oracle recall at <=20 px toward/above **70%** before ranking work
+continues. Live authority remains unchanged.

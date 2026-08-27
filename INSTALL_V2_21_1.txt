@@ -1,57 +1,31 @@
-V2.21.1 corrected controlled full-frame capture delta
-=====================================================
+V2.21.1 DELTA INSTALL
+=====================
 
-IMPORTANT CLEANUP FROM THE FIRST/BAD V2.21.1 ZIP
--------------------------------------------------
-The first package accidentally placed App as a NEW ROOT FILE:
+Prerequisite: V2.21 installed.
 
-    ./app.py
+1. Extract this ZIP over the repository root.
+2. Run:
 
-That file is wrong and should be deleted:
+   python3 -m automation.offline_v2211_selftest
 
-    rm -f app.py
+3. Start Skjutbana normally. Camera and projector must be active and the
+   projector output must be visible to the camera.
 
-Do NOT delete src/engine/app.py.
+4. In a second terminal, from the repository root, run the first controlled
+   capture:
 
-Why:
-    main.py imports:
-        from src.engine.app import App
+   python3 -m automation.v221_collect_fullframe white --shots 30 --seed 22101
 
-Therefore the actual application implementation belongs in:
-    src/engine/app.py
+   The collector starts the automation scene, calibrates, starts F2, freezes
+   online learning for the capture, and naturally completes after 30 rounds.
 
-This corrected ZIP patches that file and does NOT modify main.py.
+5. Then run:
 
-INSTALL
--------
-From the repository root, first remove the accidental root file:
+   python3 -m automation.physical_pack_v221_inspect \
+     --root content/ai/candidate_shadow_v216
 
-    rm -f app.py
+   python3 -m automation.direct_proposal_v221_benchmark \
+     --root content/ai/candidate_shadow_v216
 
-Then unpack this ZIP over the repository root, preserving directories.
-It overwrites/adds:
-
-    src/engine/app.py
-    src/engine/scenes/automation_ai_training.py
-    automation/autostart_ai_training.py
-    INSTALL_V2_21_1.txt
-    DETECTOR_V2_21_1.md
-    PACKAGE_V2_21_1_MANIFEST.txt
-
-Restart Skjutbana after installation because src/engine/app.py changes.
-
-SMOKE TEST
-----------
-Start Skjutbana normally via main.py, then in another terminal run:
-
-    python3 -m automation.autostart_ai_training white --iterations 10
-
-Then audit:
-
-    python3 -m automation.physical_pack_v221_inspect \
-      --root content/ai/candidate_shadow_v216
-
-If direct-ready full-frame shots are present, run:
-
-    python3 -m automation.direct_proposal_v221_benchmark \
-      --root content/ai/candidate_shadow_v216
+Do not run another synthetic-only V2.18 training cycle before evaluating this
+full-frame direct-proposal result.

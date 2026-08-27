@@ -1,6 +1,33 @@
-src/engine/app.py
-src/engine/scenes/automation_ai_training.py
-automation/autostart_ai_training.py
-INSTALL_V2_21_1.txt
-DETECTOR_V2_21_1.md
-PACKAGE_V2_21_1_MANIFEST.txt
+Skjutbana V2.21.1 — Full-Frame Capture Gate delta
+==================================================
+
+Apply over V2.21.
+
+Changed/new repo files:
+
+  src/engine/scenes/automation_ai_training.py
+      Guarantees true recent-PRE is supplied to candidate capture; consumes
+      one-shot V2.21.1 short-run controls; temporarily freezes online learning.
+
+  automation/v221_collect_fullframe.py
+      Starts a deterministic short projector/camera F2 capture, validates that
+      full-frame capture is active, and writes a machine-readable report.
+
+  automation/offline_v2211_selftest.py
+      Offline packaging/config/control selftest.
+
+  automation/direct_proposal_v221_benchmark.py
+      Same V2.21 scoring; improved CLI prints aggregate ALL FULL-FRAME SHOTS
+      oracle 5/10/20/42 + rescued@20 before provisional split details.
+
+  content/ai/candidate_shadow_v216.json
+      Reasserts V2.21 capture policy: full recent PRE + two full POST frames.
+
+  DETECTOR_V2_21_1.md
+  SELFTEST_V2_21_1.md
+  HIT_DETECTION_PLAN.md
+  docs/ai_hit_detection/V2_21_1_CAPTURE_GATE.md
+  INSTALL_V2_21_1.txt
+
+No live game hit ordering/authority is changed.
+No V2.18 model is retrained or promoted.
