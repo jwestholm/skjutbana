@@ -46,7 +46,7 @@ class HolePatchStatsV220:
 
 @dataclass(frozen=True)
 class HoleStampV220:
-    delta: np.ndarray  # float32 HxW signed additive intensity change
+    delta: np.ndarray  # float32 HxWx3 (preferred) or HxW signed additive change
     mask: np.ndarray   # float32 HxW compact support mask
     source_id: str
     core_radius_px: float
@@ -203,7 +203,7 @@ class HolePatchBankV220:
         center_radius = max(1.0, core_radius * rng.uniform(0.25, 0.45))
         center_drop = np.exp(-0.5 * (rr / center_radius) ** 2)
         punch = np.exp(-0.5 * (rr / max(1.0, core_radius * 0.75)) ** 2)
-        dark = -core_depth * (0.62 * core_alpha + 0.28 * punch + 0.10 * center_drop)
+        dark = -core_depth * (0.60 * core_alpha + 0.26 * punch + 0.14 * center_drop)
 
         ring_center = core_radius + rim_width * rng.uniform(0.20, 0.55)
         ring_sigma = max(0.65, rim_width * rng.uniform(0.40, 0.75))
@@ -213,12 +213,38 @@ class HolePatchBankV220:
         ring *= tear_gate
         rim = rim_strength * ring
 
+        # Add a subtle bright frayed-paper edge and a few lighter flecks inside the
+        # hole so the result does not read like a flat black blob.
+        tex_rng = np.random.default_rng(rng.randrange(2**32))
+        small_h = max(4, size // 3)
+        small_w = max(4, size // 3)
+        texture = tex_rng.normal(0.0, 1.0, size=(small_h, small_w)).astype(np.float32)
+        texture = cv2.resize(texture, (size, size), interpolation=cv2.INTER_CUBIC)
+        texture = cv2.GaussianBlur(texture, (0, 0), sigmaX=0.65, sigmaY=0.65)
+        texture = (texture - float(texture.min())) / max(1e-6, float(texture.max() - texture.min()))
+
+        fray_inner = np.clip((rr - core_radius * 0.50) / max(0.8, rim_width * 0.9), 0.0, 1.0)
+        fray_outer = np.clip(1.0 - (rr - core_radius) / max(1.0, rim_width * 1.9), 0.0, 1.0)
+        fray = fray_inner * fray_outer * (0.55 + 0.45 * texture)
+        fleck_zone = (rr <= core_radius * 0.95).astype(np.float32) * np.clip(texture - 0.76, 0.0, 0.35)
+
         shadow = -0.18 * core_depth * np.exp(-0.5 * (rr / max(1.0, core_radius * 1.35)) ** 2)
-        delta = (dark + rim + shadow).astype(np.float32)
-        support = np.maximum(core_alpha, np.clip(ring * 0.9, 0.0, 1.0))
+        support = np.maximum(core_alpha, np.clip(ring * 0.9 + fray * 0.55, 0.0, 1.0))
         support = cv2.GaussianBlur(support.astype(np.float32), (0, 0), sigmaX=0.45, sigmaY=0.45)
         support = np.clip(support, 0.0, 1.0)
-        delta *= support
+
+        paper_tint = np.array([0.82, 0.92, 1.00], dtype=np.float32).reshape(1, 1, 3)  # warm paper rim, BGR
+        soot_tint = np.array([1.00, 0.99, 0.97], dtype=np.float32).reshape(1, 1, 3)
+        neutral = np.ones((1, 1, 3), dtype=np.float32)
+
+        core_rgb = dark[..., None] * soot_tint
+        rim_rgb = (rim[..., None] * paper_tint)
+        fray_rgb = ((0.34 * rim_strength) * fray)[..., None] * paper_tint
+        fleck_rgb = ((1.8 + 0.07 * core_depth) * fleck_zone)[..., None] * neutral
+        shadow_rgb = shadow[..., None] * neutral
+
+        delta = (core_rgb + rim_rgb + fray_rgb + fleck_rgb + shadow_rgb).astype(np.float32)
+        delta *= support[..., None]
         return HoleStampV220(
             delta=delta,
             mask=support,
@@ -270,7 +296,10 @@ def apply_hole_stamp_inplace(
     """
     delta = stamp.delta
     mask = stamp.mask
-    h, w = delta.shape
+    if delta.ndim == 2:
+        h, w = delta.shape
+    else:
+        h, w = delta.shape[:2]
     cx, cy = int(round(float(x))), int(round(float(y)))
     x0, y0 = cx - w // 2, cy - h // 2
     x1, y1 = x0 + w, y0 + h
@@ -280,9 +309,13 @@ def apply_hole_stamp_inplace(
         return frame_bgr
     src_x0, src_y0 = dst_x0 - x0, dst_y0 - y0
     src_x1, src_y1 = src_x0 + (dst_x1 - dst_x0), src_y0 + (dst_y1 - dst_y0)
-    d = delta[src_y0:src_y1, src_x0:src_x1] * mask[src_y0:src_y1, src_x0:src_x1] * float(strength)
+    local_mask = mask[src_y0:src_y1, src_x0:src_x1].astype(np.float32)
+    if delta.ndim == 2:
+        d = delta[src_y0:src_y1, src_x0:src_x1].astype(np.float32)[..., None] * local_mask[..., None] * float(strength)
+    else:
+        d = delta[src_y0:src_y1, src_x0:src_x1].astype(np.float32) * local_mask[..., None] * float(strength)
     roi = frame_bgr[dst_y0:dst_y1, dst_x0:dst_x1].astype(np.float32)
-    roi += d[..., None]
+    roi += d
     frame_bgr[dst_y0:dst_y1, dst_x0:dst_x1] = np.clip(roi, 0, 255).astype(np.uint8)
     return frame_bgr
 

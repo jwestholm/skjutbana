@@ -45,6 +45,32 @@ def _make_colour_test_asset(root: Path) -> MediaAssetV219:
     )
 
 
+
+
+def _make_transparent_test_asset(root: Path) -> MediaAssetV219:
+    image = np.zeros((180, 320, 4), dtype=np.uint8)
+    cv2.rectangle(image, (48, 32), (130, 150), (40, 90, 210, 255), -1)
+    cv2.circle(image, (230, 96), 34, (210, 175, 35, 255), -1)
+    cv2.line(image, (195, 48), (260, 124), (240, 240, 240, 255), 3, cv2.LINE_AA)
+    path = root / "transparent_asset.png"
+    cv2.imwrite(str(path), image)
+    return MediaAssetV219(
+        media_id="transparent_asset",
+        family_id="transparent_asset_family",
+        split="train",
+        category="game",
+        kind="image",
+        path=str(path.relative_to(root)),
+        frame_count=1,
+        width=320,
+        height=180,
+        license="CC0",
+        source_url="selftest",
+        content_sha256="na",
+        perceptual_hash="na",
+        metadata={},
+    )
+
 def _make_bank(root: Path) -> HolePatchBankV220:
     bank_dir = root / "content" / "ai" / "holes"
     bank_dir.mkdir(parents=True)
@@ -132,12 +158,47 @@ def _test_dynamic_background_tagging() -> None:
     _assert(found.spec.gt_camera_xy[0] >= 0 and found.spec.gt_camera_xy[1] >= 0, "GT coordinates missing")
 
 
+
+
+def _test_transparent_image_uses_visible_fallback_background() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        asset = _make_transparent_test_asset(root)
+        bank = _make_bank(root)
+        profile = ScenarioProfileV220(
+            width=320,
+            height=180,
+            pre_frames=2,
+            post_frames=2,
+            old_hole_min=0,
+            old_hole_max=0,
+            sensor_noise_sigma=0.0,
+            blur_sigma_max=0.0,
+            frame_gain_jitter=0.0,
+            camera_gain_jitter=0.0,
+            camera_gamma_jitter=0.0,
+            camera_channel_jitter=0.0,
+            camera_black_level_jitter=0.0,
+            use_camera_hole_patch_bank=True,
+        )
+        gen = OfflineScenarioGeneratorV220(profile=profile, media_assets=[asset], repo_root=root, hole_bank=bank)
+        s = gen.generate(77)
+        rgb = s.pre_frames_rgb[-1]
+        # Transparent regions should be composited onto a textured coloured background,
+        # not flattened to black.
+        corner = rgb[10:28, 10:28].astype(np.float32)
+        _assert(float(np.mean(corner)) > 35.0, "transparent asset still collapsed onto a dark/black background")
+        _assert(not np.allclose(corner[..., 0], corner[..., 1]), "fallback background lost colour variation")
+        qa = s.spec.metadata.get("qa", {})
+        _assert(float(qa.get("center_mean_abs_diff", 0.0)) >= profile.qa_center_abs_diff_min, "transparent-scene hole is not visible enough")
+
 def main() -> int:
     print("V2.20 SELFTEST")
     print("==============")
     _test_determinism_rgb_and_qc(); print("[PASS] deterministic RGB observed output + compact visible hole QA")
     _test_static_scene_has_low_global_drift(); print("[PASS] static image scenarios keep PRE/POST camera state stable")
     _test_dynamic_background_tagging(); print("[PASS] dynamic procedural scenarios still preserve labelled world semantics")
+    _test_transparent_image_uses_visible_fallback_background(); print("[PASS] transparent assets are composited onto a visible coloured fallback background")
     print("\nAll V2.20 selftests passed.")
     return 0
 

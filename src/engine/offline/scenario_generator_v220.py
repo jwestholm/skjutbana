@@ -137,11 +137,58 @@ class _MediaReader:
         y0 = max(0, (nh - height) // 2)
         return np.ascontiguousarray(resized[y0:y0 + height, x0:x0 + width])
 
+    @staticmethod
+    def _stable_seed(asset: MediaAssetV219, index: int) -> int:
+        digest = hashlib.sha1(f"{asset.media_id}|{asset.path}|{int(index)}".encode("utf-8")).digest()
+        return int.from_bytes(digest[:4], "big", signed=False)
+
+    @staticmethod
+    def _alpha_fallback_background(width: int, height: int, seed: int) -> np.ndarray:
+        rng = np.random.default_rng(int(seed))
+        yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+        xnorm = xx / max(1.0, float(width - 1))
+        ynorm = yy / max(1.0, float(height - 1))
+        dnorm = np.clip(0.62 * xnorm + 0.38 * ynorm, 0.0, 1.0)
+        palettes = [
+            (np.array([70, 104, 158], np.float32), np.array([168, 190, 214], np.float32), np.array([118, 86, 70], np.float32)),
+            (np.array([56, 86, 68], np.float32), np.array([152, 175, 126], np.float32), np.array([118, 132, 160], np.float32)),
+            (np.array([84, 84, 112], np.float32), np.array([194, 176, 150], np.float32), np.array([130, 146, 98], np.float32)),
+            (np.array([58, 72, 94], np.float32), np.array([178, 154, 118], np.float32), np.array([152, 198, 182], np.float32)),
+        ]
+        c0, c1, accent = palettes[int(seed) % len(palettes)]
+        base = c0[None, None, :] * (1.0 - dnorm[..., None]) + c1[None, None, :] * dnorm[..., None]
+        radial = np.exp(-(((xnorm - 0.22 - 0.18 * ((seed >> 3) % 3)) ** 2) / 0.18 + ((ynorm - 0.20 - 0.16 * ((seed >> 5) % 3)) ** 2) / 0.11))
+        base += radial[..., None] * (accent[None, None, :] * 0.24)
+        small = rng.normal(0.0, 1.0, size=(max(3, height // 32), max(3, width // 32), 3)).astype(np.float32)
+        noise = cv2.resize(small, (width, height), interpolation=cv2.INTER_CUBIC)
+        base += noise * np.array([7.0, 6.0, 6.0], dtype=np.float32)
+        base = cv2.GaussianBlur(base, (0, 0), sigmaX=0.8, sigmaY=0.8)
+        # Light diagonal wash so the background never becomes a flat black fill.
+        wash = np.clip(1.08 - 0.18 * dnorm, 0.86, 1.16)
+        base *= wash[..., None]
+        return np.clip(base, 28, 235).astype(np.uint8)
+
     def frame(self, index: int, width: int, height: int) -> np.ndarray:
         if self.asset.kind == "image":
-            image = cv2.imread(str(self.path), cv2.IMREAD_COLOR)
+            image = cv2.imread(str(self.path), cv2.IMREAD_UNCHANGED)
             if image is None:
                 raise ValueError(f"Could not read media image {self.path}")
+            if image.ndim == 2:
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            if image.ndim == 3 and image.shape[2] == 4:
+                alpha = image[..., 3:4].astype(np.float32) / 255.0
+                if float(np.min(alpha)) < 0.999:
+                    background = self._alpha_fallback_background(width, height, self._stable_seed(self.asset, index)).astype(np.float32)
+                    premul = image[..., :3].astype(np.float32) * alpha
+                    premul_cov = self._cover(premul, width, height).astype(np.float32)
+                    alpha_cov = self._cover(alpha.astype(np.float32), width, height).astype(np.float32)
+                    if alpha_cov.ndim == 2:
+                        alpha_cov = alpha_cov[..., None]
+                    composed = premul_cov + background * (1.0 - alpha_cov)
+                    return np.clip(composed, 0, 255).astype(np.uint8)
+                image = image[..., :3]
+            elif image.ndim == 3 and image.shape[2] > 3:
+                image = image[..., :3]
             return self._cover(image, width, height)
         cap = cv2.VideoCapture(str(self.path))
         if not cap.isOpened():

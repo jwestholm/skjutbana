@@ -1,0 +1,16 @@
+V2.20.2 install
+================
+
+This is a delta on top of V2.20.1.
+Copy/merge the files into the skjutbana repo root.
+
+Changed behavior:
+- Transparent RGBA image assets are composited over a deterministic coloured/textured diagonal-gradient background instead of black.
+- Hole stamps gain a subtle warm/light frayed-paper rim and small tonal flecks so the hole is not a flat black dot.
+- Existing RGB output, static PRE/POST camera-state discipline, visibility QA and debug exports from V2.20.1 remain intact.
+
+Test:
+  python3 -m automation.offline_v220_selftest
+
+Then generate five visual examples:
+  python3 -m automation.offline_v220_generate --seed 1 --count 5 --save-images --save-debug
