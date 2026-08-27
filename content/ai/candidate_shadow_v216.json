@@ -12,6 +12,8 @@
     20.0,
     42.0
   ],
-  "save_full_frames": false,
-  "full_frame_post_count": 1
+  "save_full_frames": true,
+  "full_frame_post_count": 2,
+  "save_full_reference_pre": false,
+  "save_full_recent_pre": true
 }

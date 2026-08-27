@@ -304,3 +304,19 @@ AI/camera selection must not become authoritative in normal games until all of t
 **Do not start a 12-hour V2.18 synthetic-only optimization run.**
 
 The next useful code work is V2.21. The latest experiment has already answered the synthetic-only question: the ranker can learn the simulator, but the simulator/model representation does not yet transfer to the camera, while real candidate recall remains too low.
+
+
+## 12. V2.21 implementation checkpoint — 2026-08-27
+
+Implemented in the V2.21 delta:
+
+- physical pack full-frame audit,
+- candidate-level synthetic vs projector/camera domain-gap profiler,
+- direct full-frame PRE->POST proposal engine (shadow/offline),
+- proposal oracle/rescue benchmark,
+- opt-in/storage-aware full-frame automation capture using true recent PRE + two POST frames,
+- no live authority/order change.
+
+The existing old candidate session should be audited first. If full frames are absent, do not synthesize a direct-proposal score from candidate patches: collect a small fresh automation/projector-camera capture with V2.21 full-frame shadow storage enabled.
+
+The direct-proposal engine must improve proposal **coverage** before more listwise-ranker optimization. Initial gate remains >=70% union oracle <=20 px on confirmation and holdout, then >=85%, with >=95% required across independent physical sessions before authority work.

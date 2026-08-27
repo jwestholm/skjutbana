@@ -1,0 +1,32 @@
+V2.21 install
+=============
+
+This is a delta above the existing V2.20.2/V2.18 stack.
+Copy/merge the ZIP contents into the skjutbana repository root.
+
+Then run:
+
+  python3 -m automation.offline_v221_selftest
+
+Existing-data audit:
+
+  python3 -m automation.physical_pack_v221_inspect \
+    --root content/ai/candidate_shadow_v216
+
+Domain-gap profiler:
+
+  python3 -m automation.domain_gap_v221 \
+    --synthetic-root content/ai/candidate_synthetic_v220 \
+    --physical-root content/ai/candidate_shadow_v216 \
+    --synthetic-cache content/ai/reports/v218/v220_cache \
+    --physical-cache content/ai/reports/v218/v220_physical_cache
+
+Direct proposal benchmark (only produces a meaningful score for packs with full-frame PRE+POST):
+
+  python3 -m automation.direct_proposal_v221_benchmark \
+    --root content/ai/candidate_shadow_v216
+
+Important:
+- content/ai/candidate_shadow_v216.json now enables storage-aware full-frame capture for dedicated AutomationAITrainingScene/F2 sessions.
+- This increases capture storage usage.
+- Live/game hit authority is unchanged.

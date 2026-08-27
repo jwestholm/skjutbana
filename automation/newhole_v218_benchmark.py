@@ -13,6 +13,7 @@ def main()->int:
             print(" ",pool)
             for src in ("current","v217","v218"):
                 m=rows[pool][src]; print(f"    {src:8s} top1={m['top1']:.4f} top3={m['top3']:.4f} refined_top1={m['refined_top1']:.4f} oracle={m['oracle_recall']:.4f} refined_oracle={m['refined_oracle_recall']:.4f} median={m['median_gt_rank']}")
-    print("\nReport: content/ai/reports/v218/new_hole_v218_rebenchmark.json")
+    report_path = Path(a.model).parent / "new_hole_v218_rebenchmark.json"
+    print(f"\nReport: {report_path}")
     return 0
 if __name__=="__main__": raise SystemExit(main())

@@ -1,0 +1,36 @@
+{
+  "schema_version": "2.21",
+  "direct_proposal": {
+    "registration_enabled": true,
+    "registration_max_shift_px": 6.0,
+    "registration_min_response": 0.03,
+    "photometric_compensation": true,
+    "pre_blur_sigma": 0.45,
+    "morphology_radius_px": 4,
+    "compact_small_sigma": 0.9,
+    "compact_large_sigma": 4.2,
+    "local_max_kernel": 3,
+    "nms_radius_px": 5.0,
+    "proposals_per_source": 72,
+    "proposal_limit": 180,
+    "source_quantile": 99.72,
+    "source_min_score": 0.20,
+    "fused_quantile": 99.55,
+    "fused_min_score": 0.18,
+    "weights": {
+      "persistent_abs": 0.16,
+      "persistent_dark": 0.23,
+      "persistent_bright": 0.06,
+      "blackhat_gain": 0.22,
+      "tophat_gain": 0.05,
+      "compact_change": 0.18,
+      "gradient_gain": 0.10
+    }
+  },
+  "contract": {
+    "authority": "offline_shadow_only",
+    "ground_truth_input": false,
+    "known_holes": "not a hard exclusion",
+    "goal": "raise physical/projector-camera proposal oracle before ranker optimization"
+  }
+}

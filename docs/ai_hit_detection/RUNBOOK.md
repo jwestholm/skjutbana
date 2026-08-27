@@ -1,94 +1,102 @@
-# Runbook — what to do next
+# Runbook — V2.21 next actions
 
 ## Current status
 
-The V2.20.2 synthetic experiment is complete enough to make the next decision.
+The synthetic-only question is answered:
 
-Do **not** spend time generating more identical synthetic candidate packs merely to increase sample count before V2.21 work exists.
+- V2.18 can learn V2.20 generated worlds,
+- it generalises to new generated seeds,
+- the same frozen ranker fails on the projector/camera candidate session,
+- existing projector/camera candidate oracle is too low for ranker-only work.
 
-Do **not** launch long V2.18 synthetic-only training.
+V2.21 therefore measures domain gap and starts direct full-frame proposals.
 
-Do **not** change live game hit authority.
+## 1. Install and selftest
 
-## Next development sequence
-
-### Step 1 — implement V2.21 physical pack audit
-
-Create an inspector that prints keys/shapes/provenance for physical V2.16 packs and answers whether full recent-PRE/POST images are available.
-
-Expected output should explicitly state something like:
-
-```text
-full_recent_pre_available: true/false
-full_post_available: true/false
-candidate_patches_available: true
-GT_patches_available: true
+```bash
+python3 -m automation.offline_v221_selftest
 ```
 
-This determines whether direct full-frame proposal work can reuse the current physical session.
+Do not continue if this fails.
 
-### Step 2 — if necessary, add opt-in V2.21 full-frame capture
+## 2. Audit the existing 100-shot projector/camera candidate session
 
-Only if old packs lack the required raw frames.
+```bash
+python3 -m automation.physical_pack_v221_inspect \
+  --root content/ai/candidate_shadow_v216
+```
 
-Requirements:
+Expected for the old V2.16 seed-65432 session: candidate/GT patches are available, but full recent-PRE/full-POST evidence may be missing because old capture config had `save_full_frames=false`. The tool reports the truth instead of assuming.
 
-- recent PRE immediately before shot,
-- multiple unique POST frames where practical,
-- lossless/consistent format,
-- shot/session provenance,
-- disabled by default outside dedicated capture/testing,
-- no game authority change.
+## 3. Run candidate-domain gap profiling on existing data
 
-### Step 3 — build domain-gap report
+```bash
+python3 -m automation.domain_gap_v221 \
+  --synthetic-root content/ai/candidate_synthetic_v220 \
+  --physical-root content/ai/candidate_shadow_v216 \
+  --synthetic-cache content/ai/reports/v218/v220_cache \
+  --physical-cache content/ai/reports/v218/v220_physical_cache
+```
 
-Run synthetic train/validation and physical development through the same feature extractor.
+Send back:
 
-Do not train anything in this step.
+- terminal output, or
+- preferably `content/ai/reports/v221/domain_gap_v221.json`.
 
-Goal: identify why generated and physical candidates are separable/different.
+Most important values:
 
-### Step 4 — build direct proposal baseline
+- group domain-classifier AUC,
+- top shifted temporal features,
+- top shifted <=20px features.
 
-Run on full PRE/POST.
+AUC >=0.95 means the synthetic and camera domains are trivially separable to this representation and shortcut/domain mismatch work is mandatory.
 
-Primary metric: physical **oracle recall**, not Top-1.
+## 4. Direct proposal benchmark on old packs
 
-Report rescued shots and candidate count.
+You may run:
 
-### Step 5 — build physical-domain bridge
+```bash
+python3 -m automation.direct_proposal_v221_benchmark \
+  --root content/ai/candidate_shadow_v216
+```
 
-Use only allowed physical-development bases to generate new labelled camera-domain scenarios.
+If old packs lack full frames the program should explicitly say so and produce no fake recall score.
 
-Train small challenger(s) and evaluate on protected confirmation plus frozen generated validation.
+## 5. If full frames are missing: collect a new dedicated projector/camera automation session
 
-### Step 6 — only after V2.21 gates
+The V2.21 delta changes `content/ai/candidate_shadow_v216.json` so dedicated F2 automation capture now saves:
 
-Consider V2.22 overnight champion/challenger training.
+```text
+full recent PRE : yes
+full POST       : 2 frames
+full reference PRE : no
+```
 
-## Physical testing philosophy
+This is storage-aware and shadow-only. It does not change the live scanner.
 
-The project should minimize repeated real shooting, but not pretend physical data can disappear completely.
+Start with a modest fresh session before another 100:
 
-Use real captures for:
+- 20–30 automated projected-hole rounds,
+- at least one static/light background first,
+- preferably a second contrasting background after baseline works.
 
-- reality calibration,
-- domain-gap estimation,
-- proposal acceptance,
-- frozen acceptance sessions.
+After capture, run the audit and direct benchmark against the new capture root/session.
 
-Use offline worlds for:
+## 6. Direct-proposal gate
 
-- large-scale diversity,
-- hard-case generation,
-- optimizer iterations,
-- ablations.
+Primary target is not Top-1 yet. It is union oracle <=20 px:
 
-## What result would justify moving to V2.22
+```text
+initial useful: >=70% confirmation + holdout
+strong:         >=85%
+pre-authority:  >=95% on multiple independent camera sessions
+```
 
-At minimum:
+Only after proposal coverage materially rises should V2.21 proceed to physical-domain bridge ranker training.
 
-1. direct-proposal union materially raises physical oracle above the existing 35–50%, preferably >=70% initially,
-2. some ranking model trained with the physical-domain bridge shows measurable positive transfer on protected physical confirmation,
-3. no train/validation leakage is found,
-4. synthetic validation remains stable enough that the model is not simply overfitting one physical development board.
+## Do not do yet
+
+- no 12-hour V2.18 synthetic-only training,
+- no live AI authority,
+- no using physical confirmation/holdout for gradient updates,
+- no training on `shot_diag` overlay images as if they were raw frames.

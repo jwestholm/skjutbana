@@ -28,6 +28,10 @@ class CandidateCaptureConfigV216:
     save_gt_patches: bool = True
     save_full_frames: bool = False
     full_frame_post_count: int = 1
+    # V2.21 storage-aware full-frame capture controls.  Defaults preserve the
+    # pre-V2.21 behaviour whenever save_full_frames is enabled by an old config.
+    save_full_reference_pre: bool = True
+    save_full_recent_pre: bool = True
     compress: bool = True
     radii_px: tuple[float, ...] = (10.0, 20.0, 42.0)
 
@@ -342,6 +346,8 @@ class CandidateShadowRecorderV216:
             "patch_size": int(self.config.patch_size),
             "max_post_frames": int(self.config.max_post_frames),
             "max_candidates": int(self.config.max_candidates),
+            "save_full_frames": bool(self.config.save_full_frames),
+            "full_frame_post_count": int(self.config.full_frame_post_count),
             "shadow_only": True,
         }
 
@@ -485,9 +491,9 @@ class CandidateShadowRecorderV216:
             if gt_recent_pre is not None:
                 arrays["gt_recent_pre_patch"] = gt_recent_pre
             if bool(self.config.save_full_frames):
-                if pre is not None:
+                if bool(self.config.save_full_reference_pre) and pre is not None:
                     arrays["full_pre_frame"] = pre
-                if recent_pre is not None:
+                if bool(self.config.save_full_recent_pre) and recent_pre is not None:
                     arrays["full_recent_pre_frame"] = recent_pre
                 full_count = max(1, min(len(posts), int(self.config.full_frame_post_count)))
                 arrays["full_post_frames"] = np.stack(posts[-full_count:], axis=0)
@@ -517,9 +523,18 @@ class CandidateShadowRecorderV216:
                 "match_radius_px": float(match_radius_px),
                 "ground_truth": gt_payload,
                 "full_frames_saved": bool(self.config.save_full_frames),
+                "full_frame_capture": {
+                    "reference_pre": bool(self.config.save_full_frames and self.config.save_full_reference_pre and pre is not None),
+                    "recent_pre": bool(self.config.save_full_frames and self.config.save_full_recent_pre and recent_pre is not None),
+                    "post_count": int(max(1, min(len(posts), int(self.config.full_frame_post_count)))) if bool(self.config.save_full_frames) else 0,
+                    "purpose": "V2.21 offline/shadow direct proposal development; no live authority",
+                },
                 "recent_pre_available": bool(recent_pre is not None),
                 "recent_pre_timestamp": None if recent_pre_timestamp is None else float(recent_pre_timestamp),
-                "capture_extensions": ["v217_recent_pre"] if recent_pre is not None else [],
+                "capture_extensions": (
+                    (["v217_recent_pre"] if recent_pre is not None else [])
+                    + (["v221_full_frame_direct"] if bool(self.config.save_full_frames) else [])
+                ),
                 "counts": {
                     "raw_candidates": int(len(raw_candidates)),
                     "ranked_candidates": int(len(ranked_candidates)),

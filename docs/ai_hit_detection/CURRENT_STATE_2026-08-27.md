@@ -150,3 +150,16 @@ Median GT ranks:
 - holdout: 104
 
 This is the current central research result.
+
+## V2.21 implementation added after the synthetic->camera transfer test
+
+The next code delta now contains:
+
+- explicit old-pack full-frame audit,
+- synthetic-vs-camera candidate domain-gap profiler,
+- direct full-frame PRE->POST proposal engine,
+- direct proposal oracle/rescue benchmark,
+- storage-aware full recent-PRE + two-POST capture for future dedicated F2 sessions,
+- no live authority changes.
+
+The next empirical decision is driven by the V2.21 audit/domain-gap report. If the old 100-shot packs lack full frames, a small fresh automated projector/camera session is required before honest physical direct-proposal recall can be measured.

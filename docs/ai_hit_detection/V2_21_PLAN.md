@@ -1,5 +1,23 @@
 # V2.21 plan — Physical Domain Bridge + Direct Proposals
 
+## Implementation status — V2.21 delta
+
+Implemented now:
+
+- Phase 0 physical pack audit,
+- Phase A candidate-domain profiler,
+- Phase B direct full-frame proposal foundation + benchmark,
+- storage-aware full-frame shadow capture for future projector/camera sessions,
+- V2.18 benchmark report-path print fix.
+
+Not implemented yet:
+
+- physical-domain world generator / bridge training (Phase C),
+- live fusion or authority,
+- overnight champion/challenger training.
+
+The immediate purpose of this delta is to measure the domain gap and obtain honest full-frame proposal evidence before any more ranker optimization.
+
 ## Purpose
 
 V2.21 exists because the latest result separated the problem into two hard bottlenecks:
