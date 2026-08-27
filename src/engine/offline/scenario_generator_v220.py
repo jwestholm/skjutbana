@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 
 from .media_bank_v219 import MediaAssetV219, read_media_manifest
-from .hole_patch_bank_v220 import HolePatchBankV220, HoleStampV220, apply_hole_stamp
+from .hole_patch_bank_v220 import HolePatchBankV220, HoleStampV220, apply_hole_stamp_inplace
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class ScenarioProfileV220:
     use_camera_hole_patch_bank: bool = True
     hole_render_retry_limit: int = 8
     qa_local_diff_min: float = 2.2
-    qa_center_darkening_min: float = 1.0
+    qa_center_abs_diff_min: float = 2.0
     qa_static_global_mae_max: float = 2.2
     qa_diff_area_min: int = 8
     qa_diff_area_max: int = 260
@@ -295,14 +295,22 @@ class OfflineScenarioGeneratorV220:
         if asset is None:
             name = rng.choice(self.PROCEDURAL)
             moving = name in {"checker", "stripes", "noise", "game_like"}
-            frames = [_procedural_frame(name, p.width, p.height, i if moving else 0, seed) for i in range(total)]
+            if moving:
+                frames = [_procedural_frame(name, p.width, p.height, i, seed) for i in range(total)]
+            else:
+                one = _procedural_frame(name, p.width, p.height, 0, seed)
+                frames = [one.copy() for _ in range(total)]
             return frames[:p.pre_frames], frames[p.pre_frames:], f"procedural:{name}", "procedural", name, "", 0
         reader = _MediaReader(asset, root=self.repo_root)
         max_index = max(1, int(asset.frame_count))
         base = 0 if asset.kind == "image" else rng.randrange(max_index)
-        step = max(1, int(p.media_motion_step))
-        indices = [base] * total if asset.kind == "image" else [base + (i - p.pre_frames + 1) * step for i in range(total)]
-        frames = [reader.frame(index, p.width, p.height) for index in indices]
+        if asset.kind == "image":
+            one = reader.frame(base, p.width, p.height)
+            frames = [one.copy() for _ in range(total)]
+        else:
+            step = max(1, int(p.media_motion_step))
+            indices = [base + (i - p.pre_frames + 1) * step for i in range(total)]
+            frames = [reader.frame(index, p.width, p.height) for index in indices]
         return frames[:p.pre_frames], frames[p.pre_frames:], asset.media_id, asset.kind, asset.category, asset.path, int(base)
 
     def _sample_camera_state(self, rng: random.Random) -> _CameraStateV220:
@@ -331,7 +339,8 @@ class OfflineScenarioGeneratorV220:
             out *= rng.uniform(1.0 - float(p.frame_gain_jitter), 1.0 + float(p.frame_gain_jitter))
         if p.sensor_noise_sigma > 0:
             np_rng = np.random.default_rng(rng.randrange(2**32))
-            out += np_rng.normal(0.0, float(p.sensor_noise_sigma), size=out.shape)
+            noise = np_rng.normal(0.0, float(p.sensor_noise_sigma), size=out.shape[:2]).astype(np.float32)
+            out += noise[..., None]
         return np.clip(out, 0, 255).astype(np.uint8)
 
     def _render_sequence_with_stamps(
@@ -354,15 +363,18 @@ class OfflineScenarioGeneratorV220:
             stamps.append(stamp)
             sources.append(stamp.source_id)
             strength = rng.uniform(0.92, 1.12)
-            pre = [apply_hole_stamp(frame, stamp, x, y, strength=strength) for frame in pre]
-            post = [apply_hole_stamp(frame, stamp, x, y, strength=strength) for frame in post]
+            for frame in pre:
+                apply_hole_stamp_inplace(frame, stamp, x, y, strength=strength)
+            for frame in post:
+                apply_hole_stamp_inplace(frame, stamp, x, y, strength=strength)
         new_stamp = self.hole_bank.sample_stamp(rng) if bool(p.use_camera_hole_patch_bank) and self.hole_bank is not None and len(self.hole_bank) > 0 else None
         if new_stamp is None:
             new_stamp = HolePatchBankV220.default_stamp(rng, radius_range=(p.hole_radius_min, p.hole_radius_max))
         stamps.append(new_stamp)
         sources.append(new_stamp.source_id)
-        strength = rng.uniform(0.96, 1.16)
-        post = [apply_hole_stamp(frame, new_stamp, gt_xy[0], gt_xy[1], strength=strength) for frame in post]
+        strength = rng.uniform(1.08, 1.32)
+        for frame in post:
+            apply_hole_stamp_inplace(frame, new_stamp, gt_xy[0], gt_xy[1], strength=strength)
         return pre, post, sources, stamps
 
     @staticmethod
@@ -380,6 +392,7 @@ class OfflineScenarioGeneratorV220:
         cx0, cx1 = max(0, x - center_r), min(diff.shape[1], x + center_r + 1)
         local = diff[y0:y1, x0:x1]
         center_dark = darkening[cy0:cy1, cx0:cx1]
+        center_abs = diff[cy0:cy1, cx0:cx1]
         thresh = (local > 4.0).astype(np.uint8)
         area = int(thresh.sum())
         aspect = 1.0
@@ -398,6 +411,7 @@ class OfflineScenarioGeneratorV220:
         return {
             "local_mean_abs_diff": float(np.mean(local)) if local.size else 0.0,
             "center_mean_darkening": float(np.mean(center_dark)) if center_dark.size else 0.0,
+            "center_mean_abs_diff": float(np.mean(center_abs)) if center_abs.size else 0.0,
             "diff_area": float(area),
             "bbox_aspect_ratio": float(aspect),
             "static_global_mae": float(global_mae),
@@ -407,14 +421,19 @@ class OfflineScenarioGeneratorV220:
         p = self.profile
         if metrics["local_mean_abs_diff"] < float(p.qa_local_diff_min):
             return False
-        if metrics["center_mean_darkening"] < float(p.qa_center_darkening_min):
+        if metrics["center_mean_abs_diff"] < float(p.qa_center_abs_diff_min):
             return False
-        if metrics["diff_area"] < float(p.qa_diff_area_min) or metrics["diff_area"] > float(p.qa_diff_area_max):
-            return False
-        if metrics["bbox_aspect_ratio"] > float(p.qa_aspect_ratio_max):
-            return False
-        if static_scene and metrics["static_global_mae"] > float(p.qa_static_global_mae_max):
-            return False
+        # The stamp geometry itself is guaranteed compact.  Diff-area/aspect
+        # checks are meaningful for a static projector image, but on video or
+        # animated content the local source can legitimately change across a
+        # much larger area than the bullet hole.
+        if static_scene:
+            if metrics["diff_area"] < float(p.qa_diff_area_min) or metrics["diff_area"] > float(p.qa_diff_area_max):
+                return False
+            if metrics["bbox_aspect_ratio"] > float(p.qa_aspect_ratio_max):
+                return False
+            if metrics["static_global_mae"] > float(p.qa_static_global_mae_max):
+                return False
         return True
 
     def generate(self, seed: int, *, split: str = "train") -> GeneratedScenarioV220:
@@ -449,18 +468,47 @@ class OfflineScenarioGeneratorV220:
         chosen_post_obs: list[np.ndarray] | None = None
         attempts = max(1, int(p.hole_render_retry_limit))
 
-        for attempt in range(attempts):
-            attempt_rng = random.Random((int(seed) * 1000003 + 9719 * attempt + 0x220) & 0xFFFFFFFF)
-            pre_holes, post_holes, hole_sources, used_stamps = self._render_sequence_with_stamps(pre_bg, post_bg, old_holes, gt_xy, attempt_rng)
-            observed_pre = [self._apply_temporal_noise(self._apply_camera_state(frame, camera_state), attempt_rng) for frame in pre_holes]
-            observed_post = [self._apply_temporal_noise(self._apply_camera_state(frame, camera_state), attempt_rng) for frame in post_holes]
-            attempt_metrics = self._qa_metrics(observed_pre[-1], observed_post[-1], gt_xy, static_scene=static_scene)
-            if self._qa_accept(attempt_metrics, static_scene=static_scene) or attempt == attempts - 1:
-                chosen_pre_obs = observed_pre
-                chosen_post_obs = observed_post
-                break
-
-        assert chosen_pre_obs is not None and chosen_post_obs is not None
+        # Render the expensive full-resolution world exactly once.  V2.20's
+        # retry loop could re-run six 2K/4K frames up to eight times.  If the
+        # new hole is too weak after camera simulation, visibility correction
+        # is now performed only on the small GT ROI in observed space.
+        render_rng = random.Random((int(seed) * 1000003 + 0x220) & 0xFFFFFFFF)
+        pre_holes, post_holes, hole_sources, used_stamps = self._render_sequence_with_stamps(
+            pre_bg, post_bg, old_holes, gt_xy, render_rng
+        )
+        chosen_pre_obs = [self._apply_temporal_noise(self._apply_camera_state(frame, camera_state), render_rng) for frame in pre_holes]
+        chosen_post_obs = [self._apply_temporal_noise(self._apply_camera_state(frame, camera_state), render_rng) for frame in post_holes]
+        attempt_metrics = self._qa_metrics(chosen_pre_obs[-1], chosen_post_obs[-1], gt_xy, static_scene=static_scene)
+        qa_passed = self._qa_accept(attempt_metrics, static_scene=static_scene)
+        qa_boost_steps = 0
+        if not qa_passed:
+            boost_rng = random.Random((int(seed) * 1000003 + 0x220F00D) & 0xFFFFFFFF)
+            strong = HolePatchBankV220.default_stamp(
+                boost_rng,
+                radius_range=(max(4.2, float(p.hole_radius_min)), max(7.2, float(p.hole_radius_max))),
+            )
+            for boost in (0.65, 0.95, 1.30, 1.70):
+                # Always start from the same unboosted observed POST to avoid
+                # accidental cumulative giant holes.
+                boosted = [frame.copy() for frame in chosen_post_obs]
+                for frame in boosted:
+                    apply_hole_stamp_inplace(frame, strong, gt_xy[0], gt_xy[1], strength=boost)
+                metrics = self._qa_metrics(chosen_pre_obs[-1], boosted[-1], gt_xy, static_scene=static_scene)
+                qa_boost_steps += 1
+                if self._qa_accept(metrics, static_scene=static_scene):
+                    chosen_post_obs = boosted
+                    attempt_metrics = metrics
+                    qa_passed = True
+                    hole_sources = list(hole_sources) + [strong.source_id + ":qa_boost"]
+                    used_stamps = list(used_stamps) + [strong]
+                    break
+            if not qa_passed:
+                # Keep the strongest compact version, but mark it explicitly.
+                # This should be rare; consumers can exclude qa_passed=false.
+                chosen_post_obs = boosted
+                attempt_metrics = metrics
+                hole_sources = list(hole_sources) + [strong.source_id + ":qa_boost_max"]
+                used_stamps = list(used_stamps) + [strong]
         gray_pre = [cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) for frame in chosen_pre_obs]
         gray_post = [cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) for frame in chosen_post_obs]
 
@@ -491,7 +539,9 @@ class OfflineScenarioGeneratorV220:
                 "camera_geometry_jitter": False,
                 "observed_output_color": "rgb",
                 "qa": attempt_metrics or {},
-                "qa_attempts": attempt + 1,
+                "qa_attempts": 1 + int(qa_boost_steps),
+                "qa_boost_steps": int(qa_boost_steps),
+                "qa_passed": bool(qa_passed),
                 "static_scene": static_scene,
                 "shared_camera_state": asdict(camera_state),
                 "hole_stamp_summary": [

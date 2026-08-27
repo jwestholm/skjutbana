@@ -24,7 +24,7 @@
     "use_camera_hole_patch_bank": true,
     "hole_render_retry_limit": 8,
     "qa_local_diff_min": 2.2,
-    "qa_center_darkening_min": 1.0,
+    "qa_center_abs_diff_min": 2.0,
     "qa_static_global_mae_max": 2.2,
     "qa_diff_area_min": 8,
     "qa_diff_area_max": 260,

@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--out", default="content/ai/reports/v220/generated_examples")
     parser.add_argument("--save-images", action="store_true")
     parser.add_argument("--save-gray", action="store_true")
+    parser.add_argument("--save-debug", action="store_true", help="save GT-marked debug image + enlarged GT crop (never training input)")
     args = parser.parse_args()
 
     assets = read_media_manifest(Path(args.manifest))
@@ -39,6 +40,22 @@ def main() -> int:
             if args.save_gray:
                 cv2.imwrite(str(prefix.with_name(prefix.name + "_pre_gray.png")), scenario.pre_frames[-1])
                 cv2.imwrite(str(prefix.with_name(prefix.name + "_post_gray.png")), scenario.post_frames[-1])
+            if args.save_debug:
+                gx, gy = map(int, map(round, scenario.spec.gt_camera_xy))
+                dbg = scenario.post_frames_rgb[-1].copy()
+                cv2.circle(dbg, (gx, gy), 24, (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.line(dbg, (gx - 32, gy), (gx - 12, gy), (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.line(dbg, (gx + 12, gy), (gx + 32, gy), (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.line(dbg, (gx, gy - 32), (gx, gy - 12), (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.line(dbg, (gx, gy + 12), (gx, gy + 32), (0, 255, 0), 2, cv2.LINE_AA)
+                cv2.imwrite(str(prefix.with_name(prefix.name + "_debug_gt.png")), dbg)
+                r = 48
+                y0, y1 = max(0, gy - r), min(dbg.shape[0], gy + r)
+                x0, x1 = max(0, gx - r), min(dbg.shape[1], gx + r)
+                crop = scenario.post_frames_rgb[-1][y0:y1, x0:x1]
+                if crop.size:
+                    zoom = cv2.resize(crop, (crop.shape[1] * 4, crop.shape[0] * 4), interpolation=cv2.INTER_NEAREST)
+                    cv2.imwrite(str(prefix.with_name(prefix.name + "_gt_crop_x4.png")), zoom)
     (out / "scenarios.json").write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
     print("V2.20 OFFLINE SCENARIO GENERATION")
     print("================================")
@@ -48,6 +65,8 @@ def main() -> int:
     print(f"Media     : {len(assets)} indexed assets (procedural fallback is always available)")
     print(f"Output    : {out / 'scenarios.json'}")
     print("Saved images default to RGB observed frames; grayscale remains available for legacy inspection.")
+    if args.save_debug:
+        print("Debug GT markers/crops are inspection-only and are never candidate/training inputs.")
     print("Synthetic scenarios are training/research data, not physical acceptance data.")
     return 0
 

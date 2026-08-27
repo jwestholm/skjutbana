@@ -466,3 +466,20 @@ This file should be updated when a gate is passed or the strategy changes materi
 V2.17 confirmed that before/after NEW-hole information is learnable (confirmation AUC **0.935817**) but pointwise classification did **not** solve same-shot candidate ranking (confirmation/holdout Top-1 **0%**). V2.18 then proved that the listwise objective can move the correct candidate dramatically on development (Top-1 **13.33%**, Top-3 **18.33%**, median GT rank **5.5**), but the improvement did not generalise enough to confirmation/holdout and did not beat the best existing V2.16 V9/fusion confirmation source.
 
 The lesson is now sharper: **the objective is plausible, but one physical 100-shot session is too narrow for long autonomous optimization.** Before the overnight champion/challenger loop, V2.19 must create large numbers of new deterministic worlds from independent seeds, varied old-hole states and a broad media bank (still images, game-like frames, animation/video), while keeping generated validation/holdout and physical acceptance data strictly separate.
+
+## 2026-08-27 – V2.20.1 visual-QA correction
+
+Manual QA of the first V2.20 full-resolution exports found two issues before any large synthetic benchmark/training run was allowed:
+
+- several generated holes were too weak to be visible/meaningful even though the generator emitted the scenario;
+- generation was unnecessarily slow because full-resolution frames were copied/reprocessed per old hole and full PRE/POST camera simulation could repeat for several QA attempts.
+
+V2.20.1 therefore tightens the offline-world contract:
+
+1. a failed final hole-QA attempt is never silently treated as success;
+2. static media is decoded/resized once per scenario and duplicated in memory;
+3. old/new hole stamps modify only their small image ROI, never copy the complete 2K/4K frame per hole;
+4. full camera simulation runs once; any visibility rescue is a local GT-ROI operation;
+5. generated examples support inspection-only GT markers and enlarged crops, which must never enter training/candidate inputs.
+
+The purpose is not to make synthetic holes cartoonishly large. A physical bullet hole is legitimately tiny at full camera resolution. The generator must instead guarantee a compact, measurable local before/after signal and provide an explicit GT crop for human QA.

@@ -89,7 +89,7 @@ def _test_determinism_rgb_and_qc() -> None:
         _assert(not np.all(rgb[..., 0] == rgb[..., 1]), "observed output collapsed to grayscale")
         qa = a.spec.metadata.get("qa", {})
         _assert(float(qa.get("local_mean_abs_diff", 0.0)) >= profile.qa_local_diff_min, "local hole diff is too weak")
-        _assert(float(qa.get("center_mean_darkening", 0.0)) >= profile.qa_center_darkening_min, "hole does not darken the centre")
+        _assert(float(qa.get("center_mean_abs_diff", 0.0)) >= profile.qa_center_abs_diff_min, "hole centre change is too weak")
 
 
 def _test_static_scene_has_low_global_drift() -> None:

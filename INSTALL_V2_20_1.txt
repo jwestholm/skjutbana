@@ -1,0 +1,18 @@
+V2.20.1 install
+=================
+
+Apply this delta on top of V2.20.
+
+Run:
+  python3 -m automation.offline_v220_selftest
+
+Then generate only five QA pairs first:
+  python3 -m automation.offline_v220_generate --seed 1 --count 5 --save-images --save-debug
+
+Inspect:
+  content/ai/reports/v220/generated_examples/seed_000000001_pre.png
+  content/ai/reports/v220/generated_examples/seed_000000001_post.png
+  content/ai/reports/v220/generated_examples/seed_000000001_debug_gt.png
+  content/ai/reports/v220/generated_examples/seed_000000001_gt_crop_x4.png
+
+Do not run the 100-seed benchmark until the new visual QA looks credible.

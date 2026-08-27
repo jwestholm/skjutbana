@@ -1,0 +1,9 @@
+INSTALL_V2_20_1.txt
+PACKAGE_V2_20_1_MANIFEST.txt
+DETECTOR_V2_20_1.md
+HIT_DETECTION_PLAN.md
+content/ai/offline_v220.json
+src/engine/offline/hole_patch_bank_v220.py
+src/engine/offline/scenario_generator_v220.py
+automation/offline_v220_generate.py
+automation/offline_v220_selftest.py

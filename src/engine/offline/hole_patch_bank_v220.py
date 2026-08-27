@@ -254,6 +254,39 @@ class HolePatchBankV220:
         return len(self._stats_cache)
 
 
+def apply_hole_stamp_inplace(
+    frame_bgr: np.ndarray,
+    stamp: HoleStampV220,
+    x: float,
+    y: float,
+    *,
+    strength: float = 1.0,
+) -> np.ndarray:
+    """Apply a compact hole stamp in-place, touching only its small ROI.
+
+    V2.20 originally converted/copied the *entire* camera frame to float for
+    every old hole.  At 2K/4K with tens of holes that dominated generation
+    time.  This path converts only the stamp-sized ROI.
+    """
+    delta = stamp.delta
+    mask = stamp.mask
+    h, w = delta.shape
+    cx, cy = int(round(float(x))), int(round(float(y)))
+    x0, y0 = cx - w // 2, cy - h // 2
+    x1, y1 = x0 + w, y0 + h
+    dst_x0, dst_y0 = max(0, x0), max(0, y0)
+    dst_x1, dst_y1 = min(frame_bgr.shape[1], x1), min(frame_bgr.shape[0], y1)
+    if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+        return frame_bgr
+    src_x0, src_y0 = dst_x0 - x0, dst_y0 - y0
+    src_x1, src_y1 = src_x0 + (dst_x1 - dst_x0), src_y0 + (dst_y1 - dst_y0)
+    d = delta[src_y0:src_y1, src_x0:src_x1] * mask[src_y0:src_y1, src_x0:src_x1] * float(strength)
+    roi = frame_bgr[dst_y0:dst_y1, dst_x0:dst_x1].astype(np.float32)
+    roi += d[..., None]
+    frame_bgr[dst_y0:dst_y1, dst_x0:dst_x1] = np.clip(roi, 0, 255).astype(np.uint8)
+    return frame_bgr
+
+
 def apply_hole_stamp(
     frame_bgr: np.ndarray,
     stamp: HoleStampV220,
@@ -262,21 +295,6 @@ def apply_hole_stamp(
     *,
     strength: float = 1.0,
 ) -> np.ndarray:
-    """Apply a compact hole stamp at ``x,y`` to a BGR frame."""
-    out = frame_bgr.astype(np.float32, copy=True)
-    delta = stamp.delta
-    mask = stamp.mask
-    h, w = delta.shape
-    cx, cy = int(round(float(x))), int(round(float(y)))
-    x0, y0 = cx - w // 2, cy - h // 2
-    x1, y1 = x0 + w, y0 + h
-    dst_x0, dst_y0 = max(0, x0), max(0, y0)
-    dst_x1, dst_y1 = min(out.shape[1], x1), min(out.shape[0], y1)
-    if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
-        return frame_bgr.copy()
-    src_x0, src_y0 = dst_x0 - x0, dst_y0 - y0
-    src_x1, src_y1 = src_x0 + (dst_x1 - dst_x0), src_y0 + (dst_y1 - dst_y0)
-    d = delta[src_y0:src_y1, src_x0:src_x1] * mask[src_y0:src_y1, src_x0:src_x1] * float(strength)
-    for channel in range(3):
-        out[dst_y0:dst_y1, dst_x0:dst_x1, channel] += d
-    return np.clip(out, 0, 255).astype(np.uint8)
+    """Copy-on-write convenience wrapper around :func:`apply_hole_stamp_inplace`."""
+    out = frame_bgr.copy()
+    return apply_hole_stamp_inplace(out, stamp, x, y, strength=strength)
