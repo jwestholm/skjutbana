@@ -1,0 +1,16 @@
+V2.20 install
+=============
+
+Copy/merge the files in this package into the skjutbana repo root.
+
+New entry points:
+  python3 -m automation.offline_v220_selftest
+  python3 -m automation.offline_v220_generate --seed 1 --count 10 --save-images
+  python3 -m automation.offline_v220_benchmark --seed 1 --count 100
+  python3 -m automation.offline_v220_compile_candidates --seed 1 --count 100
+
+What changed vs V2.19:
+  - RGB observed output is preserved.
+  - Static PRE/POST pairs share camera state, reducing global drift.
+  - Hole appearance now comes from compact parametric stamps calibrated from synt_* patches.
+  - Deterministic QA rejects weak/stretchy hole renders before finalising a scenario.
