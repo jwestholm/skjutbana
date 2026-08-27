@@ -387,20 +387,47 @@ The centre of the target/play area may statistically be more likely, but corners
 - [x] Train a residual candidate->GT offset head and report raw vs refined oracle separately.
 - [x] Add disk caching for the expensive frozen V2.17 candidate embeddings.
 - [x] Keep known-hole registry as soft diagnostic context; no hard old-hole exclusion.
-- [ ] Run V2.18 on seed-65432 and compare current/V2.17/V2.18 Top-1, Top-3, median rank and refined oracle.
+- [x] Run V2.18 on seed-65432 and compare current/V2.17/V2.18 Top-1, Top-3, median rank and refined oracle.
 
-### V2.19 — Offline champion/challenger / overnight learning loop
+**Observed V2.18 result (2026-08-26):** on development raw+ranked union, V2.18 reached Top-1 **13.33%**, Top-3 **18.33%** and median GT rank **5.5**, versus current Top-1 6.67% and V2.17 Top-1 0%.  On confirmation V2.18 reached only 5% Top-1 and did not reach the existing V2.16 V9/fusion baseline (~10%); holdout was similarly weaker than the existing V2.16 source.  Offset refinement increased development oracle but not confirmation/holdout.
 
-- [ ] Mine/reweight hard NOT-NEW ranking groups from frozen candidate packs.
-- [ ] Train multiple challenger seeds/configurations for hours/days.
-- [ ] Evaluate only on protected confirmation/holdout sessions.
-- [ ] KEEP only challengers that beat the current champion without breaking representation/background gates.
+**Decision:** KEEP the listwise objective and offset mechanism as research building blocks, but do not launch long autonomous optimization against this single 100-shot session.  The gap between development and confirmation/holdout says problem diversity must increase first.
+
+### V2.19 — Offline Scenario + Media World Engine
+
+**Status:** active next foundation.  A seed must create a genuinely new labelled perception problem, not merely resample the same 38k candidates.
+
+- [x] Add deterministic media-bank indexing with source/family-level split discipline.
+- [x] Add exact/perceptual hash provenance and cross-split leakage audit.
+- [x] Support arbitrary local images plus video/animation containers readable by OpenCV.
+- [x] Keep whole media/video source identities inside one train/validation/holdout split.
+- [x] Reuse camera-observed `synt_*` hole patches as compact camera-domain hole appearance residuals.
+- [x] Keep real `hole_*` patches out of the generator by default.
+- [x] Generate 0..n old holes, incomplete known-hole state, near-old and rare hole-in-hole cases.
+- [x] Generate still and moving-media PRE/POST sequences with physical holes fixed in camera coordinates.
+- [x] Auto-use the newest captured camera frame shape when possible; fallback 3840x2160.
+- [x] Run generated worlds through the same live V1/V2 detector offline.
+- [x] Measure current detector, V2.12 physical overlay and their recall union by media/challenge class.
+- [x] Compile generated worlds directly into the existing V2.16 candidate-pack schema for V2.17/V2.18 reuse.
+- [ ] Populate `content/ai/media_bank/` with a broad curated local bank: paintings, photographs, game screens, UI/text, high-frequency patterns, animation and video.
+- [ ] Freeze media families and generated seed ranges before tuning against them.
+- [ ] Calibrate synthetic/media scenario difficulty against physical candidate/recall distributions rather than maximizing synthetic accuracy.
+
+### V2.20 — Offline champion/challenger / overnight learning loop
+
+- [ ] Generate fresh training worlds/seeds continuously instead of replaying one finite candidate set.
+- [ ] Mine/reweight hard NEW-hole ranking groups and challenge classes.
+- [ ] Train multiple challengers for a requested time budget (for example `--hours 12`).
+- [ ] Evaluate on frozen generated validation + protected physical confirmation.
+- [ ] KEEP only challengers that beat the current champion without breaking background/representation gates.
+- [ ] Never train on frozen generated holdout or physical golden holdout.
 - [ ] Resume safely after interruption and keep complete experiment provenance.
+- [ ] Adapt future seed/background distribution toward recurring failure classes while retaining a fixed normal-case fraction.
 
-### V2.20+ — Direct AI proposals, learned multi-source fusion, projector/context priors, live shadow
+### V2.21+ — Direct AI proposals, learned multi-source fusion, projector/context priors, live shadow
 
-- [ ] Add AI heatmap proposals that can rescue CV omissions.
-- [ ] Add projector-frame residual source.
+- [ ] Add AI heatmap proposals that can rescue CV omissions and break the current candidate-oracle ceiling.
+- [ ] Add projector-frame residual source using expected rendered media vs observed camera frame.
 - [ ] Add game-object prior.
 - [ ] Add spatial prior.
 - [ ] External physical shadow benchmark on completely unseen sessions/backgrounds.
@@ -434,6 +461,8 @@ For every new detector/evidence idea:
 This file should be updated when a gate is passed or the strategy changes materially.
 
 
-## V2.17 measured conclusion (2026-08-26)
+## V2.17/V2.18 measured conclusion (2026-08-26)
 
-V2.17 confirmed that before/after NEW-hole information is learnable (confirmation AUC **0.935817**) but pointwise classification did **not** solve same-shot candidate ranking (confirmation/holdout Top-1 **0%**). This is why overnight automation was deliberately postponed one version: running millions of iterations against the wrong pointwise objective would optimize the wrong task. V2.18 changes the objective to per-shot listwise ranking and learned offset refinement; only after that demonstrates useful candidate-level movement should V2.19 automate champion/challenger learning overnight.
+V2.17 confirmed that before/after NEW-hole information is learnable (confirmation AUC **0.935817**) but pointwise classification did **not** solve same-shot candidate ranking (confirmation/holdout Top-1 **0%**). V2.18 then proved that the listwise objective can move the correct candidate dramatically on development (Top-1 **13.33%**, Top-3 **18.33%**, median GT rank **5.5**), but the improvement did not generalise enough to confirmation/holdout and did not beat the best existing V2.16 V9/fusion confirmation source.
+
+The lesson is now sharper: **the objective is plausible, but one physical 100-shot session is too narrow for long autonomous optimization.** Before the overnight champion/challenger loop, V2.19 must create large numbers of new deterministic worlds from independent seeds, varied old-hole states and a broad media bank (still images, game-like frames, animation/video), while keeping generated validation/holdout and physical acceptance data strictly separate.

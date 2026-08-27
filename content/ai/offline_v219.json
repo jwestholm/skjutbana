@@ -1,0 +1,29 @@
+{
+  "schema_version": "2.19",
+  "scenario": {
+    "width": 0,
+    "height": 0,
+    "pre_frames": 3,
+    "post_frames": 3,
+    "old_hole_min": 0,
+    "old_hole_max": 55,
+    "known_hole_fraction": 0.7,
+    "new_near_old_probability": 0.22,
+    "new_overlap_old_probability": 0.035,
+    "edge_bias_probability": 0.18,
+    "camera_gain_jitter": 0.08,
+    "camera_gamma_jitter": 0.1,
+    "sensor_noise_sigma": 1.2,
+    "blur_sigma_max": 0.55,
+    "media_motion_step": 1,
+    "hole_radius_min": 3.0,
+    "hole_radius_max": 6.0,
+    "use_camera_hole_patch_bank": true
+  },
+  "discipline": {
+    "train_seed_range": "1..8999999 (generated/adaptive)",
+    "validation_seed_range": "9000001..9099999 (frozen)",
+    "offline_holdout_seed_range": "99000001..99099999 (frozen)",
+    "physical_holdout": "separate real projector/camera sessions; never replaced by synthetic/media results"
+  }
+}

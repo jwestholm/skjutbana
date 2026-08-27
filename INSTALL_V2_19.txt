@@ -1,0 +1,18 @@
+Skjutbana Detector V2.19 — Offline Scenario + Media World Engine
+
+1. Extract this delta ZIP over the repository root after V2.18.
+2. Run:
+   python3 -m automation.offline_v219_selftest
+3. Index existing/local media:
+   python3 -m automation.offline_v219_media_index
+4. Audit the media split:
+   python3 -m automation.offline_v219_media_audit
+5. Generate a few visible examples:
+   python3 -m automation.offline_v219_generate --seed 1 --count 10 --save-images
+6. Optional current-detector benchmark:
+   python3 -m automation.offline_v219_benchmark --first-seed 9000001 --seeds 100 --split validation
+7. Optional candidate-pack compile for existing V2.17/V2.18 tools:
+   python3 -m automation.offline_v219_compile_candidates --first-seed 1 --count 100 --split train
+
+No live/game authority is changed by V2.19.
+Generated/media results are training/research data. Physical projector/camera sessions remain the acceptance authority.

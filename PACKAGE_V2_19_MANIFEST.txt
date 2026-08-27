@@ -1,0 +1,46 @@
+Skjutbana Detector V2.19 — Offline Scenario + Media World Engine
+Delta base: V2.18
+Authority: OFFLINE/TRAINING ONLY. No live candidate order or game hit authority changes.
+
+Changed documentation:
+  DETECTOR_V2_18.md
+  HIT_DETECTION_PLAN.md
+
+New documentation:
+  DETECTOR_V2_19.md
+  MEDIA_BANK_V2_19.md
+  SELFTEST_V2_19.md
+  INSTALL_V2_19.txt
+  PACKAGE_V2_19_MANIFEST.txt
+
+New automation:
+  automation/offline_v219_selftest.py
+  automation/offline_v219_media_index.py
+  automation/offline_v219_media_audit.py
+  automation/offline_v219_generate.py
+  automation/offline_v219_benchmark.py
+  automation/offline_v219_compile_candidates.py
+
+New offline engine modules:
+  src/engine/offline/media_bank_v219.py
+  src/engine/offline/hole_patch_bank_v219.py
+  src/engine/offline/scenario_generator_v219.py
+  src/engine/offline/scenario_benchmark_v219.py
+  src/engine/offline/scenario_candidate_compiler_v219.py
+
+New config:
+  content/ai/offline_v219.json
+
+Key semantics:
+- seed creates a deterministic full BEFORE/AFTER perception world,
+- media source/family stays inside one train/validation/holdout split,
+- external media provenance/license fields are retained,
+- cross-split exact/near media duplicates are audited,
+- actual old holes and known_holes are separate concepts,
+- hole-in-hole remains valid,
+- camera-observed synt_* patches are reused as compact hole appearances by default,
+- real hole_* patches remain outside generated training by default,
+- dynamic projector/media content can change while physical holes stay fixed,
+- current live V1/V2 detector is reused through the existing hardware-free adapter,
+- generated candidate packs reuse the V2.16 schema and are consumable by V2.17/V2.18,
+- generated/media data never counts as physical acceptance data.

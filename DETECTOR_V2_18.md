@@ -107,3 +107,10 @@ On the existing seed-65432 dataset, V2.18 is still **provisional** because all 1
 - no live authority is granted.
 
 If this works, the next version is the first justified **offline champion/challenger / overnight learning loop**. If it does not, we should inspect candidate-group features rather than merely add more V2.17 classification epochs.
+
+
+## Measured seed-65432 result (2026-08-26)
+
+The real run validated the objective but also exposed overfitting/data narrowness.  On the raw+ranked development union, V2.18 reached Top-1 **13.33%**, Top-3 **18.33%** and median GT rank **5.5**, versus current Top-1 6.67% and V2.17 Top-1 0%.  Confirmation reached only 5% Top-1 and did not beat the existing V2.16 V9/fusion confirmation source (~10%); holdout was likewise below the existing V2.16 source.  Offset refinement added development signal but not confirmation/holdout signal.
+
+**Decision:** KEEP listwise ranking/offset refinement, but postpone the long champion/challenger loop.  V2.19 first expands the problem distribution through deterministic seed-generated worlds and a source-separated media bank.  Otherwise a 12-hour optimizer would mostly become better at one 100-shot physical session.
