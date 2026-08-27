@@ -213,21 +213,28 @@ class App:
         args = command.args
 
         try:
+            iterations = None
             if isinstance(args, list):
-                if len(args) != 1:
-                    raise ValueError("Expected one background argument")
+                if len(args) not in (1, 2):
+                    raise ValueError("Expected background and optional iteration count")
                 background_value = args[0]
+                if len(args) == 2:
+                    iterations = int(args[1])
             elif isinstance(args, dict):
                 background_value = args["background"]
+                if args.get("iterations") is not None:
+                    iterations = int(args["iterations"])
             else:
                 raise ValueError("Unsupported args format")
 
             background_index, background_name = self._resolve_ai_background(
                 background_value
             )
+            if iterations is not None and not 1 <= iterations <= 10000:
+                raise ValueError("iterations must be between 1 and 10000")
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             command.reply_error(
-                "startAITraining requires a valid background number or name: "
+                "startAITraining requires a valid background and optional iteration count: "
                 f"{exc}"
             )
             return
@@ -235,16 +242,22 @@ class App:
         try:
             new_scene = AutomationAITrainingScene()
             new_scene.bg_mode_index = background_index
+            if iterations is not None:
+                new_scene.auto_target_iterations = int(iterations)
             self._switch_to(new_scene)
         except Exception as exc:
             command.reply_error(f"Could not start AI training scene: {exc}")
             return
 
-        print(f"[Automation] startAITraining({background_name})")
+        print(
+            f"[Automation] startAITraining({background_name}, "
+            f"iterations={int(new_scene.auto_target_iterations)})"
+        )
         command.reply_success(
             {
                 "background_number": background_index + 1,
                 "background": background_name,
+                "iterations": int(new_scene.auto_target_iterations),
                 "scene_started": True,
             }
         )

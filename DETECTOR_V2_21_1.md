@@ -1,64 +1,55 @@
-# V2.21.1 – Controlled full-frame projector/camera capture
+# Detector V2.21.1 — controlled full-frame projector/camera capture
 
-## Why this patch exists
+## Purpose
 
-V2.21 produced three decisive measurements:
+V2.21 established two facts:
 
-- the historical 100 V2.16 packs contain no honest full recent-PRE/full POST frames,
-- the synthetic-vs-camera feature distributions are trivially separable (group domain AUC 1.0000),
-- therefore a full-frame AI_DIRECT benchmark cannot be fabricated from the old patch-only archive.
+1. historical V2.16 candidate packs are patch-only and cannot honestly benchmark full-frame direct proposals;
+2. V2.20 synthetic data and physical projector/camera data are trivially separable (`domain AUC = 1.0`), so more synthetic-only ranking training is not the next useful step.
 
-The next experiment must collect **new projector/camera-domain packs with honest full-frame temporal evidence**.
+V2.21.1 makes the next physical capture experiment small and controllable by allowing the automation runner to request an explicit number of F2 iterations.
 
-The previous automation entry point always used the scene default of 100 F2 iterations.  V2.21.1 adds an explicit iteration override so we can first collect 10 frames as a storage/plumbing smoke test, then 30-shot sessions for direct-proposal measurement.
+## Correct application path
 
-## Code changes
+The executable entry point remains `main.py`. It imports the application class with:
 
-### `automation/autostart_ai_training.py`
-Adds:
-
-```text
---iterations N
+```python
+from src.engine.app import App
 ```
 
-The external automation sends a structured `startAITraining` request containing the requested run length.
+Therefore automation command handling belongs in `src/engine/app.py`.
+The first V2.21.1 package accidentally created `./app.py`; that root file is not part of the intended repository layout and must be removed.
 
-Examples:
+## Changes
+
+- `automation.autostart_ai_training` accepts `--iterations N`.
+- `startAITraining` accepts an optional iteration count.
+- `AutomationAITrainingScene.auto_target_iterations` is set before scene activation.
+- Values outside 1..10000 are rejected.
+- Existing callers that only pass a background still use the scene default.
+- No live detector authority changes.
+- `main.py` is unchanged.
+
+## First experiment
+
+Run only ten white-background rounds first:
 
 ```bash
 python3 -m automation.autostart_ai_training white --iterations 10
-python3 -m automation.autostart_ai_training checker_anim --iterations 30
 ```
 
-### `app.py`
-`startAITraining` now accepts either the old form:
+Then verify V2.21 full-frame capture:
 
-```text
-[background]
+```bash
+python3 -m automation.physical_pack_v221_inspect \
+  --root content/ai/candidate_shadow_v216
 ```
 
-or the new forms:
+If new packs are direct-ready, measure:
 
-```text
-[background, iterations]
-{"background": ..., "iterations": ...}
+```bash
+python3 -m automation.direct_proposal_v221_benchmark \
+  --root content/ai/candidate_shadow_v216
 ```
 
-The requested count is validated to `1..10000` and assigned to the new automation scene **before** `on_enter()` runs.  Old callers remain compatible and still receive the scene default of 100.
-
-### `src/engine/scenes/automation_ai_training.py`
-The `aiTraining.started` event now also exposes `target_iterations`, making it visible in automation logs/diagnostics.
-
-## What does not change
-
-- No live hit-selection authority changes.
-- V1/V2 remains untouched.
-- V2.18 ranking authority remains untouched.
-- No model is retrained.
-- The new full-frame data is capture/evaluation evidence only until its quality is measured.
-
-## Experiment gate
-
-First collect 10 shots.  Continue to 30-shot multi-background sessions only if the audit confirms honest full-frame recent PRE + POST data.
-
-The next decision metric is **AI_DIRECT union oracle recall** on those new projector/camera-domain packs.
+The first goal is candidate recall/oracle improvement from AI direct proposals, not Top-1 ranking.

@@ -1,52 +1,57 @@
-V2.21.1 – controlled projector/camera full-frame capture
-========================================================
+V2.21.1 corrected controlled full-frame capture delta
+=====================================================
 
-This is a delta on top of V2.21.
-Copy the files into the repository root and restart Skjutbana before using the
-new automation argument.
+IMPORTANT CLEANUP FROM THE FIRST/BAD V2.21.1 ZIP
+-------------------------------------------------
+The first package accidentally placed App as a NEW ROOT FILE:
 
-Purpose
+    ./app.py
+
+That file is wrong and should be deleted:
+
+    rm -f app.py
+
+Do NOT delete src/engine/app.py.
+
+Why:
+    main.py imports:
+        from src.engine.app import App
+
+Therefore the actual application implementation belongs in:
+    src/engine/app.py
+
+This corrected ZIP patches that file and does NOT modify main.py.
+
+INSTALL
 -------
-V2.21 proved that the old 100 candidate packs are patch-only and cannot be
-used for an honest full-frame AI_DIRECT benchmark.  V2.21.1 adds a per-run
-iteration override to the existing automation path so a small 10/30-shot
-full-frame capture can be collected before spending time/disk on 100 shots.
+From the repository root, first remove the accidental root file:
 
-Smoke run (recommended first)
------------------------------
-1. Start the main Skjutbana application normally with projector and camera.
-2. In another terminal, from repo root:
+    rm -f app.py
 
-   python3 -m automation.autostart_ai_training white --iterations 10
+Then unpack this ZIP over the repository root, preserving directories.
+It overwrites/adds:
 
-3. Audit all capture sessions:
+    src/engine/app.py
+    src/engine/scenes/automation_ai_training.py
+    automation/autostart_ai_training.py
+    INSTALL_V2_21_1.txt
+    DETECTOR_V2_21_1.md
+    PACKAGE_V2_21_1_MANIFEST.txt
 
-   python3 -m automation.physical_pack_v221_inspect \
-     --root content/ai/candidate_shadow_v216
+Restart Skjutbana after installation because src/engine/app.py changes.
 
-Expected after the smoke run:
-- Packs increase by 10.
-- Full recent PRE shots increase by 10 (or very close; a missing camera frame
-  must be reported rather than invented).
-- Full POST shots increase by 10.
-- Direct-ready full shots increase by 10.
+SMOKE TEST
+----------
+Start Skjutbana normally via main.py, then in another terminal run:
 
-4. If direct-ready full shots are present, run:
+    python3 -m automation.autostart_ai_training white --iterations 10
 
-   python3 -m automation.direct_proposal_v221_benchmark \
-     --root content/ai/candidate_shadow_v216
+Then audit:
 
-The benchmark automatically skips the historical patch-only packs and uses
-only packs with honest recent PRE + POST full frames.
+    python3 -m automation.physical_pack_v221_inspect \
+      --root content/ai/candidate_shadow_v216
 
-Next collection after smoke succeeds
-------------------------------------
-Collect three 30-shot camera-domain sessions:
+If direct-ready full-frame shots are present, run:
 
-   python3 -m automation.autostart_ai_training white --iterations 30
-   python3 -m automation.autostart_ai_training checker_anim --iterations 30
-   python3 -m automation.autostart_ai_training bubbles --iterations 30
-
-Run the audit and direct benchmark again after each session or after all three.
-Do not start overnight training yet.  The immediate target is candidate oracle
-recall from CURRENT vs AI_DIRECT vs their union.
+    python3 -m automation.direct_proposal_v221_benchmark \
+      --root content/ai/candidate_shadow_v216
