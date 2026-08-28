@@ -1,0 +1,27 @@
+V2.21.5 delta files
+===================
+
+src/engine/offline/physical_dense_v2215.py
+    GT-free broad physical dense proposals, train/inference-identical features,
+    candidate-aligned listwise ranker, DEVELOPMENT-only cross-fit helpers.
+
+automation/physical_dense_v2215_train.py
+    DEVELOPMENT-only training. Confirmation/holdout frames are not used by fit.
+
+automation/physical_dense_v2215_benchmark.py
+    Frozen benchmark on DEVELOPMENT/CONFIRMATION/HOLDOUT with leakage guards.
+
+automation/offline_v2215_selftest.py
+    Semantic and deterministic software tests.
+
+DETECTOR_V2_21_5.md
+SELFTEST_V2_21_5.md
+INSTALL_V2_21_5.txt
+docs/ai_hit_detection/V2_21_5_CANDIDATE_ALIGNED_LISTWISE.md
+FILE_SHA256SUMS.txt
+
+Base expectations
+-----------------
+Requires the V2.21.2/V2.21.3 full-frame temporal modules already present in
+current dev. This package is additive and does not replace V2.21.4, so the old
+model/results remain available for comparison.

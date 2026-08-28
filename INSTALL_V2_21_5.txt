@@ -1,0 +1,28 @@
+V2.21.5 delta package
+=====================
+
+Overlay this ZIP on the current dev checkout from repository root.
+It only adds V2.21.5 files; it does not overwrite live detector/game code.
+
+Run:
+
+  python3 -m automation.offline_v2215_selftest
+
+Then train using the existing 30 full-frame physical packs:
+
+  python3 -m automation.physical_dense_v2215_train \
+    --root content/ai/candidate_shadow_v216
+
+Then frozen benchmark:
+
+  python3 -m automation.physical_dense_v2215_benchmark \
+    --root content/ai/candidate_shadow_v216
+
+Outputs:
+
+  content/ai/reports/v2215/physical_dense_ranker_v2215.npz
+  content/ai/reports/v2215/physical_dense_training_v2215.json
+  content/ai/reports/v2215/fullframe_benchmark_v2215.json
+
+No new projector/camera capture is required for this iteration.
+No live authority is changed.
