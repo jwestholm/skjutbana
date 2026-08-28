@@ -186,7 +186,14 @@ def install_v2222_hit_scanner_patch() -> None:
     if _INSTALLED:
         return
 
-    import src.engine.camera.hit_scanner as hs_module
+    from importlib import import_module
+
+    # IMPORTANT: src.engine.camera.__init__ exports a singleton named
+    # ``hit_scanner``.  A dotted ``import src.engine.camera.hit_scanner as ...``
+    # can therefore bind that package attribute instead of the submodule on this
+    # package layout.  Resolve the submodule explicitly to avoid class/module
+    # ambiguity in the real application startup path.
+    hs_module = import_module("src.engine.camera.hit_scanner")
 
     HitScanner = hs_module.HitScanner
     camera_manager = hs_module.camera_manager

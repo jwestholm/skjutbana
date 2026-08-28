@@ -29,6 +29,20 @@ def main() -> None:
         raise SystemExit(1)
     print("[PASS] required V2.22.2 + V2.22.1 files exist")
 
+    failed = False
+    # The real startup bug fixed by r2 was caused by the package exporting a
+    # singleton named ``hit_scanner`` while the patch installer expected the
+    # submodule.  Require explicit import_module() in both installers.
+    for installer in (
+        Path("src/engine/camera/hit_scanner_v2221.py"),
+        Path("src/engine/camera/hit_scanner_v2222.py"),
+    ):
+        text = installer.read_text(encoding="utf-8")
+        ok = 'import_module("src.engine.camera.hit_scanner")' in text
+        print(f"[{'PASS' if ok else 'FAIL'}] explicit hit_scanner submodule import: {installer.name}")
+        if not ok:
+            failed = True
+
     bootstrap = Path("src/engine/ai/bootstrap.py").read_text(encoding="utf-8")
     checks = {
         "V2.22 runtime installer": "_install_v222_runtime()" in bootstrap,
@@ -37,7 +51,6 @@ def main() -> None:
         "AI results mapping preserved": 'item.type == "ai_results"' in bootstrap,
         "legacy AIRuntime/HitScanner wrapper preserved": "runtime.observe_scanner(self" in bootstrap,
     }
-    failed = False
     for name, ok in checks.items():
         print(f"[{'PASS' if ok else 'FAIL'}] {name}")
         failed = failed or not ok

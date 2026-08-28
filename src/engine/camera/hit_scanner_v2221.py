@@ -167,7 +167,14 @@ def install_v2221_hit_scanner_patch() -> None:
     if _INSTALLED:
         return
 
-    import src.engine.camera.hit_scanner as hs_module
+    from importlib import import_module
+
+    # IMPORTANT: src.engine.camera.__init__ exports a singleton named
+    # ``hit_scanner``.  A dotted ``import src.engine.camera.hit_scanner as ...``
+    # can therefore bind that package attribute instead of the submodule on this
+    # package layout.  Resolve the submodule explicitly to avoid class/module
+    # ambiguity in the real application startup path.
+    hs_module = import_module("src.engine.camera.hit_scanner")
 
     HitScanner = hs_module.HitScanner
     camera_manager = hs_module.camera_manager
@@ -433,6 +440,7 @@ def install_v2221_hit_scanner_patch() -> None:
     HitScanner._detect_frame_candidates = patched_detect
     HitScanner._resolve_audio_events = patched_resolve_audio_events
     HitScanner.update = patched_update
+    HitScanner._v2221_roi_patch = True
 
     _INSTALLED = True
     print("[V2.22.1] Perspective ROI/edge-guard HitScanner patch installed")

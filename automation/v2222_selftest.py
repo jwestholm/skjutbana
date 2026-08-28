@@ -129,6 +129,28 @@ def test_bootstrap_and_defaults() -> None:
         _check(key in runtime, f"runtime default exists: {key}")
 
 
+
+def test_real_hit_scanner_install_path() -> None:
+    """Catch the package-attribute/submodule ambiguity seen in the real game.
+
+    src.engine.camera.__init__ exports a singleton called ``hit_scanner``.
+    The installers must explicitly resolve the *submodule*, then patch its
+    HitScanner class.  This test intentionally uses the real repository module.
+    """
+    from importlib import import_module
+
+    hs_module = import_module("src.engine.camera.hit_scanner")
+    _check(hasattr(hs_module, "HitScanner"), "real hit_scanner submodule exposes HitScanner class")
+
+    from src.engine.camera.hit_scanner_v2221 import install_v2221_hit_scanner_patch
+    from src.engine.camera.hit_scanner_v2222 import install_v2222_hit_scanner_patch
+
+    install_v2221_hit_scanner_patch()
+    install_v2222_hit_scanner_patch()
+    _check(bool(getattr(hs_module.HitScanner, "_v2221_roi_patch", False)), "V2.22.1 patch is attached to the real HitScanner class")
+    _check(bool(getattr(hs_module.HitScanner, "_v2222_fast_cleanup_patch", False)), "V2.22.2 patch is attached to the real HitScanner class")
+
+
 def main() -> None:
     print("V2.22.2 FAST-PATH CLEANUP SELFTEST")
     print("=================================")
@@ -137,6 +159,7 @@ def main() -> None:
     test_perspective_horizontal_ridge()
     test_backlog_thinning()
     test_bootstrap_and_defaults()
+    test_real_hit_scanner_install_path()
     print("\nAll V2.22.2 selftests passed.")
 
 
