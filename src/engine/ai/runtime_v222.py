@@ -35,6 +35,19 @@ V222_DEFAULT_SETTINGS: Dict[str, Any] = {
     "analysis_crop_padding_camera_px": 16,
     "analysis_fallback_edge_guard_camera_px": 8,
     "analysis_v2221_log": True,
+    # V2.22.2 fast-path cleanup / diagnostics.
+    "analysis_cursor_guard_v2222_enabled": True,
+    "analysis_cursor_guard_screen_px": 36.0,
+    "analysis_novelty_cleanup_v2222_enabled": True,
+    "analysis_fresh_rehit_min_v2222": 5.0,
+    "analysis_horizontal_ridge_filter_v2222_enabled": True,
+    "analysis_ridge_band_screen_px_v2222": 7.0,
+    "analysis_ridge_min_candidates_v2222": 9,
+    "analysis_ridge_min_span_fraction_v2222": 0.35,
+    "analysis_ridge_fresh_preserve_min_v2222": 6.0,
+    "analysis_ridge_max_fresh_keep_v2222": 3,
+    "analysis_ingest_max_frames_v2222": 3,
+    "analysis_v2222_log": True,
     # Existing settings remain authoritative for mode/min/override/trust.
 }
 

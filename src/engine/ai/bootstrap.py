@@ -11,6 +11,7 @@ def apply_bootstrap() -> None:
         return
     _install_v222_runtime()
     _install_v2221_hit_scanner()
+    _install_v2222_hit_scanner()
     _patch_menu_loader()
     _patch_scene_factory()
     _patch_hit_scanner()
@@ -43,6 +44,16 @@ def _install_v2221_hit_scanner() -> None:
         install_v2221_hit_scanner_patch()
     except Exception as exc:
         print(f"[V2.22.1] ROI optimizer unavailable; continuing full-frame: {exc}")
+
+
+def _install_v2222_hit_scanner() -> None:
+    """Install V2.22.2 cleanup after V2.22.1 geometry and before AI wraps scanner."""
+    try:
+        from src.engine.camera.hit_scanner_v2222 import install_v2222_hit_scanner_patch
+
+        install_v2222_hit_scanner_patch()
+    except Exception as exc:
+        print(f"[V2.22.2] Fast-path cleanup unavailable; continuing with V2.22.1: {exc}")
 
 
 def _patch_menu_loader() -> None:

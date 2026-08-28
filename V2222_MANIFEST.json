@@ -1,0 +1,32 @@
+{
+  "version": "2.22.2",
+  "delta_base": "V2.22.1 perspective ROI delta",
+  "purpose": "live fast-path cleanup: cursor guard, old-hole novelty, horizontal ridge suppression, bounded frame backlog, timing diagnostics",
+  "files": [
+    "DELTA_README_V2222.md",
+    "V2222_DOC_NOTES.md",
+    "V2222_FAST_PATH_CLEANUP.md",
+    "V2222_TEST_PLAN.md",
+    "automation/v2222_selftest.py",
+    "automation/v2222_verify_install.py",
+    "src/engine/ai/bootstrap.py",
+    "src/engine/ai/runtime_v222.py",
+    "src/engine/camera/analysis_filters_v2222.py",
+    "src/engine/camera/hit_scanner_v2222.py"
+  ],
+  "defaults": {
+    "analysis_cursor_guard_v2222_enabled": true,
+    "analysis_cursor_guard_screen_px": 36.0,
+    "analysis_novelty_cleanup_v2222_enabled": true,
+    "analysis_fresh_rehit_min_v2222": 5.0,
+    "analysis_horizontal_ridge_filter_v2222_enabled": true,
+    "analysis_ridge_band_screen_px_v2222": 7.0,
+    "analysis_ridge_min_candidates_v2222": 9,
+    "analysis_ridge_min_span_fraction_v2222": 0.35,
+    "analysis_ridge_fresh_preserve_min_v2222": 6.0,
+    "analysis_ridge_max_fresh_keep_v2222": 3,
+    "analysis_ingest_max_frames_v2222": 3,
+    "analysis_v2222_log": true
+  },
+  "authority": "No new AI authority; existing mode semantics remain. Detector cleanup itself is live and configurable/fail-open."
+}
