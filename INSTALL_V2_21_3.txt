@@ -1,0 +1,15 @@
+V2.21.3 delta package
+=====================
+
+1. Extract over the current skjutbana repo root.
+2. Run:
+
+   python3 -m automation.offline_v2213_selftest
+
+3. Then run:
+
+   python3 -m automation.direct_proposal_v2213_benchmark \
+     --root content/ai/candidate_shadow_v216
+
+No new projector/camera capture is required for this step.
+No live hit authority is changed.

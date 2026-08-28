@@ -1,0 +1,8 @@
+automation/direct_proposal_v2213_benchmark.py
+automation/offline_v2213_selftest.py
+src/engine/offline/temporal_consensus_v2213.py
+src/engine/offline/fullframe_benchmark_v2213.py
+DETECTOR_V2_21_3.md
+SELFTEST_V2_21_3.md
+INSTALL_V2_21_3.txt
+docs/ai_hit_detection/V2_21_3_CONSENSUS.md
