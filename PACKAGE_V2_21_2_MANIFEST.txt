@@ -1,0 +1,13 @@
+V2.21.2 DELTA
+==============
+Added:
+  src/engine/offline/temporal_local_v2212.py
+  src/engine/offline/fullframe_benchmark_v2212.py
+  automation/direct_proposal_v2212_benchmark.py
+  automation/offline_v2212_selftest.py
+  DETECTOR_V2_21_2.md
+  SELFTEST_V2_21_2.md
+  INSTALL_V2_21_2.txt
+  docs/ai_hit_detection/V2_21_2_DIAGNOSTIC.md
+
+No live/runtime authority changes.

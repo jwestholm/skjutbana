@@ -1,0 +1,16 @@
+V2.21.2 delta package
+=====================
+
+Prerequisite: V2.21 + V2.21.1 already installed.
+
+Extract this ZIP over the repository root. It adds offline/shadow-only code and documentation.
+No live hit authority, game menu, calibration or normal game behavior is changed.
+
+Run:
+  python3 -m automation.offline_v2212_selftest
+
+Then:
+  python3 -m automation.direct_proposal_v2212_benchmark --root content/ai/candidate_shadow_v216
+
+Send the terminal output. If useful, also send 2-4 PNGs from:
+  content/ai/reports/v2212/debug/
