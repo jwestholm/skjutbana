@@ -88,6 +88,16 @@ def _make_fake_runtime_module() -> ModuleType:
             return float(candidate.get("existed_before", 0.0))
 
     module.AIRuntime = AIRuntime
+
+    def get_ai_runtime():
+        # src.engine.ai.__init__ imports get_ai_runtime while the fake legacy
+        # runtime is installed in sys.modules.  The selftest must therefore
+        # provide the same public singleton accessor as the real module.
+        if module._RUNTIME is None:
+            module._RUNTIME = AIRuntime(storage_dir="unused")
+        return module._RUNTIME
+
+    module.get_ai_runtime = get_ai_runtime
     return module
 
 
