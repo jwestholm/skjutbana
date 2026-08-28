@@ -338,3 +338,57 @@ projector/camera rounds with online learning frozen and full recent PRE + two
 full POST frames saved. The first target is to raise CURRENT+AI_DIRECT
 candidate oracle recall at <=20 px toward/above **70%** before ranking work
 continues. Live authority remains unchanged.
+
+---
+
+## V2.21.2 / V2.21.3 observed physical full-frame results — 2026-08-28
+
+The first honest 30-round full-frame projector/camera capture changed the immediate priority.
+
+### V2.21.2
+
+- CURRENT oracle <=20 px: **26.67%**.
+- CURRENT oracle <=42 px: **90.00%**.
+- V2.21 global AI_DIRECT oracle <=20/42 px: **3.33% / 3.33%**.
+- anchored local temporal oracle <=20 px: **53.33%**.
+- CURRENT + local temporal oracle <=20 px: **63.33%**.
+- CURRENT + local temporal oracle <=42 px: **93.33%**.
+- local temporal proposals rescued **11/30** CURRENT misses at <=20 px.
+- registration was essentially zero; there is no useful single global calibration offset.
+
+### V2.21.3
+
+Plateau-aware consensus and a candidate-derived target mask were tested as a hand-written refinement. They were **rejected**:
+
+- final union <=20 px fell to **46.67%** overall,
+- confirmation final union <=20 px fell to **16.67%**,
+- holdout final union <=20 px was **50.00%**,
+- masked global direct proposals rescued **0** CURRENT misses at <=20 px,
+- V2.21.2 remains the better handcrafted baseline at **63.33%** <=20 px overall.
+
+Decision: stop adding hand-written temporal heuristics for now. Preserve V2.21.2 as the handcrafted baseline and move to a learned physical-domain dense proposal ranker.
+
+## V2.21.4 — Learned physical-domain dense temporal ranker
+
+V2.21.4 is offline/shadow-only and uses the 30 honest full-frame packs already captured.
+
+Training contract:
+
+- fit only on full-frame **DEVELOPMENT** shots,
+- never fit/normalise/mine hard negatives from confirmation or holdout,
+- create a broad GT-free temporal proposal pool using deliberately lower map thresholds than V2.21.3,
+- learn a pairwise linear ranker from physical PRE->POST evidence,
+- freeze the model before evaluating protected splits,
+- keep V2.21.2 local temporal union as the baseline/fallback comparator.
+
+The key diagnostic is now two-stage:
+
+1. **dense pool oracle** — if this is low, candidate generation is still the bottleneck;
+2. **learned top-K oracle/rank** — if the pool is high but top-K is low, the learned ranker/data volume is the bottleneck.
+
+Initial V2.21.4 gates remain offline only:
+
+- development dense-pool oracle <=20 px should reach at least 90% before ranking is blamed,
+- frozen confirmation/holdout final union should target >=70% <=20 px first,
+- the split remains provisional until additional independent full-frame projector/camera sessions exist,
+- no live authority regardless of one-session benchmark quality.

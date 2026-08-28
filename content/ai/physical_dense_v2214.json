@@ -1,0 +1,39 @@
+{
+  "schema_version": "2.21.4",
+  "pool": {
+    "source_percentiles": {
+      "blackhat_gain": 82.0,
+      "tophat_gain": 82.0,
+      "persistent_abs": 72.0,
+      "gradient_gain": 70.0,
+      "persistent_dark": 68.0,
+      "persistent_bright": 68.0,
+      "fused": 64.0,
+      "compact_change": 55.0
+    },
+    "target_margin_px": 46,
+    "local_max_kernel": 3,
+    "per_source_limit": 2600,
+    "elongated_sample_step_px": 9,
+    "component_max_area_for_centroid": 96,
+    "cross_source_cluster_radius_px": 3.0,
+    "final_nms_radius_px": 2.5,
+    "pool_limit": 14000
+  },
+  "training": {
+    "positive_radius_px": 10.0,
+    "forced_positive_jitter_px": [-4, -2, 0, 2, 4],
+    "negative_exclusion_radius_px": 42.0,
+    "hard_negatives_per_shot": 800,
+    "random_negatives_per_shot": 240,
+    "pairs_per_positive": 96,
+    "stage1_epochs": 180,
+    "stage2_epochs": 120,
+    "stage2_mined_negatives_per_shot": 420,
+    "learning_rate": 0.035,
+    "l2": 0.0025,
+    "seed": 2214,
+    "top_k_values": [64, 128, 256, 512],
+    "frozen_top_k": 512
+  }
+}

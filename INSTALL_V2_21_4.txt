@@ -1,0 +1,33 @@
+V2.21.4 delta installation
+==========================
+
+Overlay the ZIP on the repository root after V2.21.3.
+
+1) Selftest
+-----------
+python3 -m automation.offline_v2214_selftest
+
+2) Train on DEVELOPMENT full-frame shots only
+----------------------------------------------
+python3 -m automation.physical_dense_v2214_train \
+  --root content/ai/candidate_shadow_v216
+
+Expected output model:
+content/ai/reports/v2214/physical_dense_ranker_v2214.npz
+
+Expected training report:
+content/ai/reports/v2214/physical_dense_training_v2214.json
+
+3) Frozen benchmark
+-------------------
+python3 -m automation.physical_dense_v2214_benchmark \
+  --root content/ai/candidate_shadow_v216
+
+Expected benchmark report:
+content/ai/reports/v2214/fullframe_benchmark_v2214.json
+
+Debug images:
+content/ai/reports/v2214/debug/
+
+No additional projector/camera capture is required for this step.
+No live hit authority is changed.
