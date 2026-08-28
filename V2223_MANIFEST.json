@@ -1,0 +1,78 @@
+{
+  "schema_version": "2.22.3",
+  "delta_name": "Shot-Critical Runtime + Object-Hit Foundation",
+  "install_over": "working V2.22.2-r2 checkout on dev",
+  "authority": {
+    "global_hit_scanner": "authoritative",
+    "v222_resolver": "existing configured advisory/authority semantics unchanged",
+    "object_hit_v2223": "shadow_only"
+  },
+  "key_changes": [
+    "main.py installs shot-critical runtime before App().run()",
+    "queued audio peak serviced before ordinary engine work",
+    "camera capability probing removed from per-frame hot path",
+    "CameraManager no longer consumes HitScanner ring pickup cursor",
+    "recent timestamped PRE preferred for AI/diagnostic snapshot; static scene reference kept as fallback/baseline",
+    "object hit region registry and frozen per-shot snapshots",
+    "weak center/edge advisory metadata",
+    "AI Training F3 mouse-debug and F4 latency-cursor controls",
+    "append-only idempotent documentation updater"
+  ],
+  "files": [
+    {
+      "path": "DELTA_README_V2223.md",
+      "sha256": "ac448a8511428da9ef348f380187af90eb5ef10d418157d0445e3ca4d17ac50f",
+      "bytes": 1313
+    },
+    {
+      "path": "V2223_DOC_PATCH.md",
+      "sha256": "22b4fb3f6f0343c13a7b70529db34c5514d152d869145253e4c6ef1b6821c926",
+      "bytes": 3243
+    },
+    {
+      "path": "V2223_PLAN.md",
+      "sha256": "c527b692ffaf6d17e825aeca6c58db2047d9145914fb91fc01adf74f81c25b48",
+      "bytes": 6465
+    },
+    {
+      "path": "V2223_SHOT_CRITICAL_AND_OBJECT_HITS.md",
+      "sha256": "b8ae76f7c96fd454cb25c4346ff303d4a3d99a423150d07e264ce55b8b5da7b2",
+      "bytes": 3127
+    },
+    {
+      "path": "V2223_TEST_PLAN.md",
+      "sha256": "659f0a48a90675c68502e4c6e32df6addecfc3bb896de72d4cf2783f331532ee",
+      "bytes": 3088
+    },
+    {
+      "path": "automation/v2223_apply_docs.py",
+      "sha256": "fcdd84ee3d1cba50d7008f8243f7198e8c34e43ae123a455c0c218f955bbd857",
+      "bytes": 8046
+    },
+    {
+      "path": "automation/v2223_selftest.py",
+      "sha256": "00b3043f6607f7bc12a2a6d7704a622a40be0884b205d7bd3136c7a42300e026",
+      "bytes": 4288
+    },
+    {
+      "path": "automation/v2223_verify_install.py",
+      "sha256": "a1c235f877a8daea38d5c9d885aac2fee3176e6f42a3514e9d3449e90b94d59c",
+      "bytes": 2360
+    },
+    {
+      "path": "main.py",
+      "sha256": "455639290c2bdc44a37269f76bd2a84fbc923d72636e30d18aa6db185c659d9d",
+      "bytes": 1561
+    },
+    {
+      "path": "src/engine/input/object_hit_v2223.py",
+      "sha256": "fee139ca5f6270523c6a83a3aae04e5831cc2507489f58595cdf6d4c60d420be",
+      "bytes": 14450
+    },
+    {
+      "path": "src/engine/shot_critical_v2223.py",
+      "sha256": "1515875b77c3a35d38c94d9685a742ce831340778eac6e9c3d92f1bd25180793",
+      "bytes": 25474
+    }
+  ]
+}
