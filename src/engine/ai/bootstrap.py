@@ -10,6 +10,7 @@ def apply_bootstrap() -> None:
     if _bootstrapped:
         return
     _install_v222_runtime()
+    _install_v2221_hit_scanner()
     _patch_menu_loader()
     _patch_scene_factory()
     _patch_hit_scanner()
@@ -28,6 +29,20 @@ def _install_v222_runtime() -> None:
         install_v222_runtime_patch()
     except Exception as exc:
         print(f"[V2.22] ShotResolver unavailable; continuing with legacy AI runtime: {exc}")
+
+
+def _install_v2221_hit_scanner() -> None:
+    """Install the perspective-safe ROI optimizer before AI wraps HitScanner.
+
+    Fail-open: if this delta cannot initialize, the existing full-frame detector
+    continues unchanged.
+    """
+    try:
+        from src.engine.camera.hit_scanner_v2221 import install_v2221_hit_scanner_patch
+
+        install_v2221_hit_scanner_patch()
+    except Exception as exc:
+        print(f"[V2.22.1] ROI optimizer unavailable; continuing full-frame: {exc}")
 
 
 def _patch_menu_loader() -> None:
@@ -53,6 +68,9 @@ def _patch_scene_factory() -> None:
         if item.type == "ai_training":
             from src.engine.scenes.ai_training import AITrainingScene
             return scene_factory._wrap(AITrainingScene(bg_color=item.bg_color), item, return_menu_state)
+        if item.type == "ai_results":
+            from src.engine.scenes.ai_results import AIResultsScene
+            return scene_factory._wrap(AIResultsScene(bg_color=item.bg_color), item, return_menu_state)
         return original_build_scene_from_item(item, return_menu_state=return_menu_state)
 
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item

@@ -27,6 +27,14 @@ V222_DEFAULT_SETTINGS: Dict[str, Any] = {
     "resolver_v222_max_external_votes": 96,
     "resolver_v222_game_prior_weight": 0.06,
     "resolver_v222_latency_history": 512,
+    # V2.22.1 live detector optimization. The guard is expressed in screen/game
+    # pixels before inverse homography so it follows the physical playfield edges
+    # under camera perspective.
+    "analysis_roi_crop_v2221_enabled": True,
+    "analysis_playfield_edge_guard_screen_px": 12.0,
+    "analysis_crop_padding_camera_px": 16,
+    "analysis_fallback_edge_guard_camera_px": 8,
+    "analysis_v2221_log": True,
     # Existing settings remain authoritative for mode/min/override/trust.
 }
 

@@ -1,0 +1,29 @@
+{
+  "version": "2.22.1",
+  "delta_name": "perspective_roi_edge_guard_latency_ai_results_fix",
+  "applies_over": "V2.22 r2 on dev",
+  "authority_change": false,
+  "changes": [
+    "Perspective-aware playfield ROI crop for live HitScanner CV",
+    "Screen-space edge guard transformed through inverse homography",
+    "Crop-local candidates restored to canonical full-camera coordinates before tracking/AI/HitInput",
+    "Live ROI/detector/end-to-end latency diagnostics",
+    "Correct event.shot_id in HIT/MISS logs",
+    "Restore ai_results scene factory mapping omitted by V2.22 delta",
+    "Fix V2.21.5 physical probe to use the model's official trusted loader"
+  ],
+  "defaults": {
+    "analysis_roi_crop_v2221_enabled": true,
+    "analysis_playfield_edge_guard_screen_px": 12.0,
+    "analysis_crop_padding_camera_px": 16,
+    "analysis_fallback_edge_guard_camera_px": 8,
+    "analysis_v2221_log": true
+  },
+  "tests": [
+    "python3 -m automation.v2221_selftest",
+    "python3 -m automation.offline_v222_selftest",
+    "python3 -m automation.runtime_v222_selftest",
+    "python3 -m automation.v2221_verify_install",
+    "python3 -m automation.v222_physical_probe"
+  ]
+}

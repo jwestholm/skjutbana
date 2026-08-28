@@ -51,12 +51,20 @@ def main() -> None:
         return
     print(f"[PASS] frozen model exists: {model_path} ({model_path.stat().st_size} bytes)")
     try:
-        import numpy as np
-        with np.load(model_path, allow_pickle=False) as data:
-            print("NPZ keys:")
-            for key in data.files:
-                value = data[key]
-                print(f"  {key}: shape={getattr(value, 'shape', None)} dtype={getattr(value, 'dtype', None)}")
+        # This is a trusted locally-trained model. V2.21.5 intentionally stores
+        # feature_names/metadata_json as NumPy object arrays, and its official
+        # loader therefore uses allow_pickle=True. Use that loader instead of
+        # incorrectly treating the file as an untrusted generic NPZ.
+        from src.engine.offline.physical_dense_v2215 import ListwiseModelV2215
+
+        model = ListwiseModelV2215.load(model_path)
+        print("Model metadata:")
+        print(f"  features: {len(model.feature_names)}")
+        print(f"  mean: shape={model.mean.shape} dtype={model.mean.dtype}")
+        print(f"  scale: shape={model.scale.shape} dtype={model.scale.dtype}")
+        print(f"  weights: shape={model.weights.shape} dtype={model.weights.dtype}")
+        print(f"  metadata keys: {sorted(model.metadata.keys())}")
+        print("[PASS] V2.21.5 frozen model loaded through official loader")
     except Exception as exc:
         print(f"[WARN] model metadata probe failed: {type(exc).__name__}: {exc}")
 
