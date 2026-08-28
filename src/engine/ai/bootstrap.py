@@ -7,23 +7,33 @@ _bootstrapped = False
 
 def apply_bootstrap() -> None:
     global _bootstrapped
-
     if _bootstrapped:
         return
-
+    _install_v222_runtime()
     _patch_menu_loader()
     _patch_scene_factory()
-    _patch_ranker_v6()
     _patch_hit_scanner()
-
     _bootstrapped = True
+
+
+def _install_v222_runtime() -> None:
+    """Install the V2.22 resolver patch before AIRuntime is first used.
+
+    V2.22 is deliberately fail-open: if the resolver cannot be imported, the
+    existing V2.21.x AI/runtime path continues unchanged.
+    """
+    try:
+        from src.engine.ai.runtime_v222 import install_v222_runtime_patch
+
+        install_v222_runtime_patch()
+    except Exception as exc:
+        print(f"[V2.22] ShotResolver unavailable; continuing with legacy AI runtime: {exc}")
 
 
 def _patch_menu_loader() -> None:
     import src.engine.content_loader as content_loader
 
     original_load_menu = content_loader.load_menu
-
     def wrapped_load_menu(path):
         data = original_load_menu(path)
         return augment_menu(data)
@@ -35,53 +45,17 @@ def _patch_scene_factory() -> None:
     import src.engine.scene_factory as scene_factory
 
     original_build_scene_from_item = scene_factory.build_scene_from_item
-
     def wrapped_build_scene_from_item(item, return_menu_state: dict | None = None):
         if item.type == "ai_settings":
             from src.engine.scenes.ai_settings import AISettingsScene
 
-            return scene_factory._wrap(
-                AISettingsScene(bg_color=item.bg_color),
-                item,
-                return_menu_state,
-            )
-
+            return scene_factory._wrap(AISettingsScene(bg_color=item.bg_color), item, return_menu_state)
         if item.type == "ai_training":
             from src.engine.scenes.ai_training import AITrainingScene
-
-            return scene_factory._wrap(
-                AITrainingScene(bg_color=item.bg_color),
-                item,
-                return_menu_state,
-            )
-
-        if item.type == "ai_results":
-            from src.engine.scenes.ai_results import AIResultsScene
-
-            return scene_factory._wrap(
-                AIResultsScene(bg_color=item.bg_color),
-                item,
-                return_menu_state,
-            )
-
-        return original_build_scene_from_item(
-            item,
-            return_menu_state=return_menu_state,
-        )
+            return scene_factory._wrap(AITrainingScene(bg_color=item.bg_color), item, return_menu_state)
+        return original_build_scene_from_item(item, return_menu_state=return_menu_state)
 
     scene_factory.build_scene_from_item = wrapped_build_scene_from_item
-
-
-def _patch_ranker_v6() -> None:
-    # V2.8 deliberately does NOT install the older V4/V5 wrappers. Their files
-    # may remain on disk for history/rollback, but a fresh process gets exactly
-    # one ranking extension: filtered observations -> hypotheses -> V6.
-    try:
-        from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
-
-        install_ranker_v6_extension()
-    except Exception as exc:
-        print(f"[RANKER-V6] unavailable, base ranker kept: {exc}")
 
 
 def _patch_hit_scanner() -> None:
@@ -89,10 +63,8 @@ def _patch_hit_scanner() -> None:
 
     original_update = HitScanner.update
     original_emit = HitScanner._emit_track_result
-
     def wrapped_update(self: HitScanner, dt: float):
         result = original_update(self, dt)
-
         try:
             from src.engine.ai.runtime import get_ai_runtime
 
@@ -103,15 +75,17 @@ def _patch_hit_scanner() -> None:
             # AI remains fail-open: a diagnostics/runtime problem must never stop
             # the ordinary detector from updating.
             pass
-
         return result
-
     def wrapped_emit(self: HitScanner, track, event):
-        """Synchronize the exact shot before AI is allowed to override it."""
+        """Synchronize the exact shot before AI is allowed to override it.
+
+        HitScanner can emit from inside update(), before wrapped_update gets a
+        chance to call observe_scanner(). Without this synchronization the AI
+        may still contain candidates from the preceding shot.
+        """
         runtime = None
         chosen = {"apply": False}
         shot_id = int(getattr(event, "shot_id", 0) or 0)
-
         try:
             from src.engine.ai.runtime import get_ai_runtime
 
@@ -123,14 +97,10 @@ def _patch_hit_scanner() -> None:
                 shot_id=shot_id,
             )
         except Exception:
+            # Preserve the original detector result if the AI layer fails.
             chosen = {"apply": False}
-
         if chosen.get("apply"):
-            old_x, old_y, old_score = (
-                track.camera_x,
-                track.camera_y,
-                track.best_score,
-            )
+            old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
             try:
                 track.camera_x = float(chosen["camera_x"])
                 track.camera_y = float(chosen["camera_y"])
@@ -145,7 +115,6 @@ def _patch_hit_scanner() -> None:
                 track.best_score = old_score
         else:
             result = original_emit(self, track, event)
-
         if runtime is not None:
             try:
                 runtime.mark_shot_finished(
@@ -154,7 +123,6 @@ def _patch_hit_scanner() -> None:
                 )
             except Exception:
                 pass
-
         return result
 
     HitScanner.update = wrapped_update

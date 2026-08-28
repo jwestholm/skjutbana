@@ -1,0 +1,27 @@
+{
+  "version": "2.22",
+  "branch": "dev",
+  "type": "delta-overlay",
+  "design_base": "V2.21.5 dev state",
+  "authority_default": "unchanged/train_only",
+  "confidence_calibrated": false,
+  "files": {
+    "modified": [
+      "src/engine/ai/bootstrap.py"
+    ],
+    "new": [
+      "src/engine/ai/shot_resolver_v222.py",
+      "src/engine/ai/runtime_v222.py",
+      "automation/offline_v222_selftest.py",
+      "automation/runtime_v222_selftest.py",
+      "automation/v222_verify_install.py",
+      "automation/v222_physical_probe.py",
+      "V222_SHOT_RESOLVER.md",
+      "V222_TEST_PLAN.md",
+      "V222_DOC_NOTES.md",
+      "DELTA_README_V222.md",
+      "V222_MANIFEST.json",
+      "SHA256SUMS_V222.txt"
+    ]
+  }
+}
