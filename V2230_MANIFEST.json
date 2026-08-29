@@ -1,0 +1,43 @@
+{
+  "base": "V2.22.6 frame-unique/audio telemetry delta chain",
+  "created": "2026-08-29",
+  "features": [
+    "native append-only F2/manual shot-group capture",
+    "legacy V2.16/V2.20 candidate-pack importer",
+    "stable physical feature contract with leakage guards",
+    "linear and compact NumPy MLP listwise challengers",
+    "research shadow champion registry",
+    "F2 background quick autotrain",
+    "offline time-budgeted autotrain",
+    "dynamic local model/data/code audit",
+    "idempotent documentation updater"
+  ],
+  "files": [
+    "DELTA_README_V2230.md",
+    "V2230_AUDIT_NOTES.md",
+    "V2230_DOC_PATCH.md",
+    "V2230_TEST_PLAN.md",
+    "V2230_TRAINING_MODEL_PIPELINE.md",
+    "automation/v2230_apply_docs.py",
+    "automation/v2230_audit.py",
+    "automation/v2230_autotrain.py",
+    "automation/v2230_selftest.py",
+    "automation/v2230_status.py",
+    "automation/v2230_train.py",
+    "automation/v2230_verify_install.py",
+    "main.py",
+    "src/engine/ai/training_v223/__init__.py",
+    "src/engine/ai/training_v223/audit.py",
+    "src/engine/ai/training_v223/capture.py",
+    "src/engine/ai/training_v223/dataset.py",
+    "src/engine/ai/training_v223/integration.py",
+    "src/engine/ai/training_v223/model.py",
+    "src/engine/ai/training_v223/registry.py",
+    "src/engine/ai/training_v223/schema.py",
+    "src/engine/ai/training_v223/trainer.py"
+  ],
+  "live_authority_changed": false,
+  "name": "Unified autonomous training/model pipeline",
+  "protected_holdout_used_for_auto_selection": false,
+  "version": "2.23.0"
+}
