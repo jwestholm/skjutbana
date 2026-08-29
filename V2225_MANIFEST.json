@@ -1,0 +1,103 @@
+{
+  "version": "2.22.5",
+  "kind": "delta",
+  "base": "V2.22.4-r2",
+  "title": "Fast Proposal + Local Confirmation",
+  "files": [
+    {
+      "path": "DELTA_README_V2225.md",
+      "sha256": "9835ec1f52e7b91ce888cf4c747c35c43da0c9e9c1d2e86805168b10733a5193",
+      "bytes": 1669
+    },
+    {
+      "path": "V2223_DOC_PATCH.md",
+      "sha256": "22b4fb3f6f0343c13a7b70529db34c5514d152d869145253e4c6ef1b6821c926",
+      "bytes": 3243
+    },
+    {
+      "path": "V2223_PLAN.md",
+      "sha256": "c527b692ffaf6d17e825aeca6c58db2047d9145914fb91fc01adf74f81c25b48",
+      "bytes": 6465
+    },
+    {
+      "path": "V2223_SHOT_CRITICAL_AND_OBJECT_HITS.md",
+      "sha256": "b8ae76f7c96fd454cb25c4346ff303d4a3d99a423150d07e264ce55b8b5da7b2",
+      "bytes": 3127
+    },
+    {
+      "path": "V2223_TEST_PLAN.md",
+      "sha256": "659f0a48a90675c68502e4c6e32df6addecfc3bb896de72d4cf2783f331532ee",
+      "bytes": 3088
+    },
+    {
+      "path": "V2224_ASYNC_ARCHITECTURE.md",
+      "sha256": "2f55d50efaba03bcdd2f3339d19fd336ffa56dea2f1824ef11316e862a0616e7",
+      "bytes": 2771
+    },
+    {
+      "path": "V2224_DOC_PATCH.md",
+      "sha256": "cdb8a37e02764fb7f442a9c04dab833656e2eecac68cab2e3c85d103c45b88cb",
+      "bytes": 1047
+    },
+    {
+      "path": "V2224_PLAN.md",
+      "sha256": "2ea04a91a27e7f639dcd825514d4d996f4332f9bd2cd72b32299499cf845094b",
+      "bytes": 4995
+    },
+    {
+      "path": "V2224_TEST_PLAN.md",
+      "sha256": "e3d91327f5b21c1f9405dc233375e14c22e843a26a3019982e4e25a9ae7992b1",
+      "bytes": 2462
+    },
+    {
+      "path": "V2225_DOC_PATCH.md",
+      "sha256": "35ddaa6dd47ade1ad840c2572aa535ce9239bffcdc211327967ad3501a19d1cd",
+      "bytes": 3427
+    },
+    {
+      "path": "V2225_FAST_PROPOSAL_AND_CONFIRMATION.md",
+      "sha256": "70a36b231bf0c3a5b58085d626f66a49e50654ec769375a7707ea55570e17610",
+      "bytes": 1754
+    },
+    {
+      "path": "V2225_PLAN.md",
+      "sha256": "39700ac3cd2b2df2ce0301281daa58c284394f8d6e5d559dee25cb767bb7a09e",
+      "bytes": 4649
+    },
+    {
+      "path": "V2225_TEST_PLAN.md",
+      "sha256": "835b4a06ddf2ab4689354732006d9040b6166b82a82c1c6cb5fa10ec4d24edb7",
+      "bytes": 2290
+    },
+    {
+      "path": "automation/v2225_apply_docs.py",
+      "sha256": "9b75ffbea3c19a22ef5ff4e86a10c817d2db79f01a1a4e6e2f8c83b96b4f05c1",
+      "bytes": 3700
+    },
+    {
+      "path": "automation/v2225_selftest.py",
+      "sha256": "258abaaa375700aed2e3ccfe51b82c1cc771dfcf3e3ac052b997e84ec52dc75d",
+      "bytes": 7114
+    },
+    {
+      "path": "automation/v2225_verify_install.py",
+      "sha256": "4829dd483f44b5b03295fea4e348bd4163775cc08ba8adfc474c286660a77932",
+      "bytes": 1465
+    },
+    {
+      "path": "main.py",
+      "sha256": "b683c21eed8974f3afc5bece6f5dcb16c55d5bb43859b4bb65424b36ab26b39e",
+      "bytes": 1762
+    },
+    {
+      "path": "src/engine/shot_fast_v2225.py",
+      "sha256": "54054127714c05e7b11f8d0453d2738e74e939f517dc94fc64f2f2cb568caddd",
+      "bytes": 44511
+    }
+  ],
+  "runtime_order": [
+    "V2.22.3",
+    "V2.22.4-r2",
+    "V2.22.5"
+  ]
+}
