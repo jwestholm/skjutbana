@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -10,6 +12,7 @@ from typing import Any, Iterable, Mapping
 from .schema import ShotTrainingRecord, candidate_rows_from_pool
 
 NATIVE_ROOT = Path("content/ai/training_v223/sessions")
+LEGACY_CACHE_ROOT = Path("content/ai/training_v223/cache/legacy_v2231")
 LEGACY_ROOTS = (
     Path("content/ai/candidate_shadow_v216/sessions"),
     Path("content/ai/candidate_synthetic_v220/sessions"),
@@ -34,12 +37,24 @@ def _first_mapping(*values: Any) -> Mapping[str, Any]:
 
 def _get_xy(container: Mapping[str, Any], prefix: str) -> tuple[float, float] | None:
     direct = container.get(prefix)
+    if isinstance(direct, Mapping):
+        for xk, yk in (("camera_x", "camera_y"), ("x", "y")):
+            if xk in direct and yk in direct:
+                try:
+                    return float(direct[xk]), float(direct[yk])
+                except Exception:
+                    pass
     if isinstance(direct, (list, tuple)) and len(direct) >= 2:
         try:
             return float(direct[0]), float(direct[1])
         except Exception:
             pass
-    for px, py in ((f"{prefix}_x", f"{prefix}_y"), ("gt_camera_x", "gt_camera_y")):
+    pairs = (
+        (f"{prefix}_x", f"{prefix}_y"),
+        ("gt_camera_x", "gt_camera_y"),
+        ("camera_x", "camera_y") if prefix in {"gt_camera", "gt_camera_xy"} else ("__none__", "__none__"),
+    )
+    for px, py in pairs:
         if px in container and py in container:
             try:
                 return float(container[px]), float(container[py])
@@ -60,6 +75,13 @@ def _normalize_split(value: Any) -> str | None:
     return aliases.get(s)
 
 
+def _oracle(record: ShotTrainingRecord, radius: float) -> bool:
+    return any(
+        row.gt_distance_px is not None and float(row.gt_distance_px) <= float(radius)
+        for row in record.candidates
+    )
+
+
 def discover_native_records(root: Path = NATIVE_ROOT) -> list[ShotTrainingRecord]:
     records: list[ShotTrainingRecord] = []
     if not root.exists():
@@ -77,92 +99,255 @@ def discover_native_records(root: Path = NATIVE_ROOT) -> list[ShotTrainingRecord
     return records
 
 
-def _legacy_candidate_list(raw: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    for key in ("candidates", "candidate_rows", "ranked_candidates", "rows"):
-        value = raw.get(key)
-        if isinstance(value, list):
-            return [x for x in value if isinstance(x, Mapping)]
-    metadata = raw.get("metadata")
-    if isinstance(metadata, Mapping):
-        for key in ("candidates", "candidate_rows", "ranked_candidates"):
-            value = metadata.get(key)
-            if isinstance(value, list):
-                return [x for x in value if isinstance(x, Mapping)]
-    return []
+def _frame_shape_from_pack(pack: Any, meta: Mapping[str, Any]) -> tuple[int, int] | None:
+    for attr in ("full_recent_pre_frame", "full_pre_frame"):
+        frame = getattr(pack, attr, None)
+        try:
+            if frame is not None and getattr(frame, "ndim", 0) >= 2:
+                return int(frame.shape[0]), int(frame.shape[1])
+        except Exception:
+            pass
+    posts = getattr(pack, "full_post_frames", None)
+    try:
+        if posts is not None and getattr(posts, "ndim", 0) >= 3 and len(posts):
+            shape = tuple(int(x) for x in posts.shape)
+            if len(shape) == 3:      # N,H,W
+                return shape[1], shape[2]
+            if len(shape) >= 4:      # N,H,W,C
+                return shape[1], shape[2]
+    except Exception:
+        pass
+    for key in ("frame_shape", "camera_shape", "image_shape"):
+        shape = meta.get(key)
+        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+            try:
+                return int(shape[0]), int(shape[1])
+            except Exception:
+                pass
+    return None
 
 
-def load_legacy_candidate_record(path: Path, root: Path) -> ShotTrainingRecord | None:
-    raw = _read_json(path)
+
+def _legacy_cache_path(path: Path) -> Path:
+    try:
+        st = path.stat()
+        sibling = path.with_suffix(".npz")
+        if sibling.exists():
+            nst = sibling.stat()
+            npz_sig = f"{nst.st_size}|{nst.st_mtime_ns}"
+        else:
+            npz_sig = "no_npz"
+        token = f"2.23.1b|{path.resolve()}|{st.st_size}|{st.st_mtime_ns}|{npz_sig}"
+    except Exception:
+        token = f"2.23.1b|{path}"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+    return LEGACY_CACHE_ROOT / f"{digest}.json"
+
+
+def _load_cached_legacy(path: Path) -> ShotTrainingRecord | None:
+    cache = _legacy_cache_path(path)
+    raw = _read_json(cache)
     if raw is None:
         return None
-    meta = _first_mapping(raw.get("metadata"), raw.get("shot"), raw)
-    gt = (
-        _get_xy(meta, "gt_camera_xy")
-        or _get_xy(raw, "gt_camera_xy")
-        or _get_xy(meta, "gt_camera")
-        or _get_xy(raw, "gt_camera")
-    )
-    if gt is None:
+    try:
+        rec = ShotTrainingRecord.from_dict(raw["record"] if isinstance(raw.get("record"), Mapping) else raw)
+        rec.source_path = str(path)
+        rec.metadata["legacy_cache_hit"] = True
+        return rec
+    except Exception:
         return None
-    candidates = _legacy_candidate_list(raw)
-    if not candidates:
-        return None
-    frame_shape = None
-    shape = meta.get("frame_shape", raw.get("frame_shape"))
-    if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+
+
+def _save_cached_legacy(path: Path, record: ShotTrainingRecord) -> None:
+    try:
+        cache = _legacy_cache_path(path)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"schema_version": "2.23.1", "source_path": str(path), "record": record.to_dict()}
+        tmp = cache.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(cache)
+    except Exception:
+        pass
+
+def _official_pack_loader(path: Path) -> tuple[Any | None, str | None]:
+    """Load V2.16/V2.20 JSON+NPZ through the repository's canonical loader.
+
+    V2.23.0 incorrectly expected candidates to live directly in shot JSON. The
+    real pack is split across JSON + sibling NPZ and the canonical contract is
+    CandidatePackV216.load(path).
+    """
+    try:
+        mod = importlib.import_module("src.engine.offline.candidate_pack_v216")
+        cls = getattr(mod, "CandidatePackV216")
+        loader = getattr(cls, "load")
+        return loader(Path(path)), None
+    except Exception as exc:
+        return None, f"official_loader:{type(exc).__name__}:{exc}"
+
+
+def _v217_split_lookup(base_root: Path) -> dict[tuple[str, int], str]:
+    """Reuse V2.17's split contract for physical V2.16 packs when available."""
+    try:
+        mod = importlib.import_module("src.engine.offline.new_hole_training_v217")
+        fn = getattr(mod, "_shot_split_keys_v217")
+        split_keys, _provisional = fn(Path(base_root))
+        return {
+            (str(session_id), int(round_id)): _normalize_split(name) or str(name)
+            for name, keys in dict(split_keys).items()
+            for session_id, round_id in keys
+        }
+    except Exception:
+        return {}
+
+
+def _legacy_source_kind(root: Path) -> str:
+    text = str(root)
+    if "candidate_synthetic_v220_validation" in text:
+        return "v220_synthetic_validation"
+    if "candidate_synthetic_v220" in text:
+        return "v220_synthetic"
+    return "v216_projected_candidate_pack"
+
+
+def _legacy_forced_split(root: Path, *, session_id: str = "", round_id: int = 0) -> str | None:
+    text = str(root)
+    if "candidate_synthetic_v220_validation" in text:
+        return "holdout"
+    if "candidate_synthetic_v220" in text:
+        # V2.20 engineering worlds are independent seeded scenarios. Keep the
+        # separately named validation root protected, while making a stable 80/20
+        # DEVELOPMENT/engineering-validation split inside the training corpus.
+        # This is explicitly provisional and is never an authority split.
+        token = f"v220-engineering:{session_id}:{round_id}"
+        value = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:8], 16) % 100
+        return "validation" if value < 20 else "development"
+    return None
+
+
+def load_legacy_candidate_record(
+    path: Path,
+    root: Path,
+    *,
+    split_lookup: Mapping[tuple[str, int], str] | None = None,
+) -> tuple[ShotTrainingRecord | None, str]:
+    cached = _load_cached_legacy(path)
+    if cached is not None:
+        return cached, "cache"
+    pack, error = _official_pack_loader(path)
+    if pack is None:
+        return None, error or "official_loader_failed"
+
+    meta = getattr(pack, "metadata", {})
+    if not isinstance(meta, Mapping):
+        meta = {}
+    gt_value = getattr(pack, "gt_xy", None)
+    gt: tuple[float, float] | None = None
+    if isinstance(gt_value, (list, tuple)) and len(gt_value) >= 2:
         try:
-            frame_shape = (int(shape[0]), int(shape[1]))
+            gt = float(gt_value[0]), float(gt_value[1])
         except Exception:
-            frame_shape = None
+            gt = None
+    if gt is None:
+        gt = _get_xy(meta, "gt_camera_xy") or _get_xy(meta, "gt_camera")
+    if gt is None:
+        return None, "missing_gt"
+
+    candidates = getattr(pack, "candidates", None)
+    if not isinstance(candidates, list) or not candidates:
+        return None, "missing_candidates"
+    candidates = [c for c in candidates if isinstance(c, Mapping)]
+    if not candidates:
+        return None, "no_mapping_candidates"
+
+    frame_shape = _frame_shape_from_pack(pack, meta)
     rows = candidate_rows_from_pool(candidates, gt_camera_xy=gt, frame_shape=frame_shape)
     if not rows:
-        return None
+        return None, "no_trainable_candidates"
+
     session_id = str(meta.get("session_id") or path.parent.name)
-    source_kind = "synthetic_generated" if "synthetic" in str(root) else "legacy_candidate_pack"
-    split_hint = _normalize_split(meta.get("split") or meta.get("dataset_split") or raw.get("split"))
-    screen = _get_xy(meta, "gt_screen_xy") or _get_xy(raw, "gt_screen_xy")
-    challenge_tags = meta.get("challenge_tags", raw.get("challenge_tags", []))
+    try:
+        round_id = int(meta.get("round_id", meta.get("shot_id", 0)) or 0)
+    except Exception:
+        round_id = 0
+    split_hint = _legacy_forced_split(root, session_id=session_id, round_id=round_id)
+    if split_hint is None:
+        split_hint = _normalize_split(meta.get("split") or meta.get("dataset_split"))
+    if split_hint is None and split_lookup:
+        split_hint = _normalize_split(split_lookup.get((session_id, round_id)))
+
+    screen = (
+        _get_xy(meta, "gt_screen_xy")
+        or _get_xy(meta, "gt_screen")
+    )
+    challenge_tags = meta.get("challenge_tags", [])
     if not isinstance(challenge_tags, list):
         challenge_tags = []
     try:
-        ts = float(meta.get("timestamp", raw.get("timestamp", 0.0)) or 0.0)
+        ts = float(meta.get("timestamp", meta.get("captured_at", 0.0)) or 0.0)
     except Exception:
         ts = 0.0
+
     record = ShotTrainingRecord(
         session_id=session_id,
-        shot_id=str(meta.get("shot_id", raw.get("shot_id", path.stem))),
-        source_kind=source_kind,
+        shot_id=str(meta.get("shot_id", round_id or path.stem)),
+        source_kind=_legacy_source_kind(root),
         timestamp=ts,
         gt_camera_x=gt[0], gt_camera_y=gt[1],
         gt_screen_x=(screen[0] if screen else None), gt_screen_y=(screen[1] if screen else None),
-        background=str(meta.get("background_mode", meta.get("background", raw.get("background", "unknown")))),
+        background=str(meta.get("background_mode", meta.get("background", meta.get("media_category", "unknown")))),
         split_hint=split_hint,
         sampling_mode=(str(meta.get("sampling_mode")) if meta.get("sampling_mode") else None),
         challenge_tags=[str(x) for x in challenge_tags],
         source_path=str(path),
         candidates=rows,
-        metadata={"legacy_schema": raw.get("schema_version", meta.get("schema_version")), "legacy_root": str(root)},
+        metadata={
+            "legacy_schema": meta.get("schema_version", "2.16"),
+            "legacy_root": str(root),
+            "legacy_loader": "CandidatePackV216.load",
+            "legacy_round_id": round_id,
+            "frame_shape": list(frame_shape) if frame_shape else None,
+            "pack_has_recent_pre": getattr(pack, "recent_pre_patches", None) is not None,
+            "pack_has_full_frames": any(getattr(pack, name, None) is not None for name in ("full_pre_frame", "full_recent_pre_frame", "full_post_frames")),
+        },
     )
-    return record
+    _save_cached_legacy(path, record)
+    return record, "loaded"
 
 
 def discover_legacy_records(roots: Iterable[Path] = LEGACY_ROOTS) -> tuple[list[ShotTrainingRecord], dict[str, Any]]:
     records: list[ShotTrainingRecord] = []
-    report: dict[str, Any] = {"roots": {}, "loaded": 0, "skipped": 0}
+    report: dict[str, Any] = {
+        "loader": "CandidatePackV216.load",
+        "roots": {}, "loaded": 0, "skipped": 0,
+        "skip_reasons": {},
+    }
     for root in roots:
-        stats = {"json_files": 0, "loaded": 0, "skipped": 0}
+        stats: dict[str, Any] = {
+            "json_files": 0, "loaded": 0, "skipped": 0,
+            "skip_reasons": {}, "oracle20": 0, "oracle42": 0,
+            "candidates": 0,
+        }
+        base_root = root.parent if root.name == "sessions" else root
+        split_lookup = _v217_split_lookup(base_root) if "candidate_shadow_v216" in str(root) else {}
         if root.exists():
             for path in sorted(root.glob("**/shot_*.json")):
                 stats["json_files"] += 1
-                record = load_legacy_candidate_record(path, root)
+                record, reason = load_legacy_candidate_record(path, root, split_lookup=split_lookup)
                 if record is None:
                     stats["skipped"] += 1
+                    stats["skip_reasons"][reason] = stats["skip_reasons"].get(reason, 0) + 1
+                    report["skip_reasons"][reason] = report["skip_reasons"].get(reason, 0) + 1
                 else:
                     records.append(record)
                     stats["loaded"] += 1
+                    if reason == "cache":
+                        stats["cache_hits"] = int(stats.get("cache_hits", 0)) + 1
+                    stats["candidates"] += len(record.candidates)
+                    stats["oracle20"] += int(_oracle(record, 20.0))
+                    stats["oracle42"] += int(_oracle(record, 42.0))
         report["roots"][str(root)] = stats
-        report["loaded"] += stats["loaded"]
-        report["skipped"] += stats["skipped"]
+        report["loaded"] += int(stats["loaded"])
+        report["skipped"] += int(stats["skipped"])
     return records, report
 
 
@@ -186,20 +371,34 @@ class DatasetV223:
 
     def summary(self) -> dict[str, Any]:
         by_source: dict[str, int] = {}
-        oracle = 0
         candidates = 0
+        oracle_counts = {5: 0, 10: 0, 20: 0, 42: 0}
+        per_shot_candidates: list[int] = []
         for r in self.records:
             by_source[r.source_kind] = by_source.get(r.source_kind, 0) + 1
-            oracle += int(r.oracle20)
             candidates += len(r.candidates)
-        return {
-            "shots": len(self.records),
+            per_shot_candidates.append(len(r.candidates))
+            for radius in oracle_counts:
+                oracle_counts[radius] += int(_oracle(r, float(radius)))
+        n = len(self.records)
+        sorted_counts = sorted(per_shot_candidates)
+        median_candidates = (
+            float(sorted_counts[n // 2]) if n and n % 2 == 1
+            else float((sorted_counts[n // 2 - 1] + sorted_counts[n // 2]) / 2.0) if n
+            else 0.0
+        )
+        result = {
+            "shots": n,
             "sessions": len(self.session_ids),
             "candidates": candidates,
-            "oracle20": oracle,
-            "oracle20_rate": (oracle / len(self.records) if self.records else 0.0),
+            "mean_candidates_per_shot": (candidates / n if n else 0.0),
+            "median_candidates_per_shot": median_candidates,
             "by_source": by_source,
         }
+        for radius, count in oracle_counts.items():
+            result[f"oracle{radius}"] = count
+            result[f"oracle{radius}_rate"] = (count / n if n else 0.0)
+        return result
 
     def split(self) -> DatasetSplitV223:
         out = DatasetSplitV223()
@@ -216,19 +415,12 @@ class DatasetV223:
             else:
                 unknown.append(r)
 
-        # Unknown records are assigned by whole session whenever at least three
-        # sessions exist. Protected explicit holdout records are never recycled.
         unknown_sessions = sorted(set(r.session_id for r in unknown))
         if len(unknown_sessions) >= 3:
             buckets: dict[str, str] = {}
             for sid in unknown_sessions:
                 value = int(hashlib.sha256(sid.encode("utf-8")).hexdigest()[:8], 16) % 100
                 buckets[sid] = "holdout" if value < 10 else ("validation" if value < 30 else "development")
-
-            # Hash thresholds can be unlucky for a small number of sessions. If
-            # either dev/validation would be empty, choose whole-session fallback
-            # buckets by hash order. Mark provisional because this assignment was
-            # created for engineering rather than from a frozen split manifest.
             assigned_dev = [sid for sid, b in buckets.items() if b == "development"]
             assigned_val = [sid for sid, b in buckets.items() if b == "validation"]
             if not assigned_dev or not assigned_val:
@@ -242,18 +434,12 @@ class DatasetV223:
                 out.provisional = True
                 out.notes.append("Whole-session fallback split created because stable hash thresholds lacked dev/validation; freeze a split manifest before authority work.")
             else:
-                # Explicit legacy split hints may themselves be provisional; stay
-                # conservative if any were present.
                 out.provisional = bool(explicit_seen)
                 if explicit_seen:
                     out.notes.append("Legacy explicit split hints are preserved; authority remains conservative until session provenance is audited.")
-
             for r in unknown:
                 getattr(out, buckets[r.session_id]).append(r)
         else:
-            # With <3 unknown sessions we cannot honestly create independent
-            # dev/validation/holdout by session. Keep any explicit validation/
-            # holdout intact and only split the non-protected unknown pool by shot.
             out.provisional = True
             out.notes.append("Fewer than three unsplit sessions: engineering validation is provisional; no live-authority claim is allowed.")
             if out.validation:
@@ -264,9 +450,6 @@ class DatasetV223:
                     value = int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16) % 100
                     (out.validation if value < 20 else out.development).append(r)
 
-        # A data set can consist entirely of explicit development records. Create
-        # a provisional validation only from DEVELOPMENT records; never touch the
-        # protected holdout.
         if not out.validation and out.development:
             original_dev = list(out.development)
             out.development = []
@@ -279,14 +462,11 @@ class DatasetV223:
             out.provisional = True
             out.notes.append("Validation was derived from development records only; protected holdout remained untouched.")
 
-        if not out.development and out.validation:
-            # Keep one validation record, move surplus non-holdout validation to
-            # development only for provisional engineering. Never move holdout.
-            if len(out.validation) > 1:
-                out.development.extend(out.validation[1:])
-                out.validation = out.validation[:1]
-                out.provisional = True
-                out.notes.append("Development was missing; provisional development was formed from non-protected validation records.")
+        if not out.development and out.validation and len(out.validation) > 1:
+            out.development.extend(out.validation[1:])
+            out.validation = out.validation[:1]
+            out.provisional = True
+            out.notes.append("Development was missing; provisional development was formed from non-protected validation records.")
         return out
 
 
@@ -296,7 +476,6 @@ def compile_dataset(*, include_legacy: bool = True) -> DatasetV223:
     report: dict[str, Any] = {}
     if include_legacy:
         legacy, report = discover_legacy_records()
-    # De-duplicate by source path/session+shot, preferring native V2.23 records.
     records: list[ShotTrainingRecord] = []
     keys: set[tuple[str, str, str]] = set()
     for r in native + legacy:

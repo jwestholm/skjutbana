@@ -4,11 +4,17 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .dataset import compile_dataset
 from .model import evaluate_baseline, evaluate_model, train_rank_model
-from .registry import maybe_promote_research_champion, register_model
+from .registry import (
+    MIN_DEV_ORACLE20,
+    MIN_VALIDATION_ORACLE20,
+    MIN_VALIDATION_SHOTS,
+    maybe_promote_research_champion,
+    register_model,
+)
 
 REPORT_ROOT = Path("content/ai/training_v223/reports")
 _LOCK = threading.Lock()
@@ -23,31 +29,79 @@ def _safe_write_report(report: dict[str, Any], *, name: str) -> Path:
     return path
 
 
+def _oracle20_count(records: Sequence[Any]) -> int:
+    return sum(int(bool(getattr(record, "oracle20", False))) for record in records)
+
+
+def _support(split: Any) -> dict[str, Any]:
+    return {
+        "development_shots": len(split.development),
+        "development_oracle20": _oracle20_count(split.development),
+        "validation_shots": len(split.validation),
+        "validation_oracle20": _oracle20_count(split.validation),
+        "protected_holdout_shots": len(split.holdout),
+        "protected_holdout_evaluated_for_selection": False,
+    }
+
+
 def train_once_v223(
     *,
     trigger: str = "offline",
     quick: bool = False,
     include_legacy: bool = True,
-    seed_base: int = 2230,
+    seed_base: int = 2231,
 ) -> dict[str, Any]:
     with _LOCK:
         dataset = compile_dataset(include_legacy=include_legacy)
         split = dataset.split()
         summary = dataset.summary()
-        if len(split.development) < 2 or len(split.validation) < 1:
+        support = _support(split)
+
+        basic_ok = len(split.development) >= 2 and len(split.validation) >= 1
+        positive_ok = (
+            support["development_oracle20"] >= MIN_DEV_ORACLE20
+            and support["validation_shots"] >= MIN_VALIDATION_SHOTS
+            and support["validation_oracle20"] >= MIN_VALIDATION_ORACLE20
+        )
+        baseline = evaluate_baseline(split.validation) if split.validation else None
+
+        if not basic_ok or not positive_ok:
+            reasons: list[str] = []
+            if len(split.development) < 2:
+                reasons.append("development_shots_lt_2")
+            if len(split.validation) < 1:
+                reasons.append("validation_shots_lt_1")
+            if support["development_oracle20"] < MIN_DEV_ORACLE20:
+                reasons.append(f"development_oracle20_lt_{MIN_DEV_ORACLE20}")
+            if support["validation_shots"] < MIN_VALIDATION_SHOTS:
+                reasons.append(f"validation_shots_lt_{MIN_VALIDATION_SHOTS}")
+            if support["validation_oracle20"] < MIN_VALIDATION_ORACLE20:
+                reasons.append(f"validation_oracle20_lt_{MIN_VALIDATION_ORACLE20}")
             report = {
-                "schema_version": "2.23.0", "status": "insufficient_data", "trigger": trigger,
-                "dataset": summary, "split": {
+                "schema_version": "2.23.1",
+                "status": "insufficient_positive_support" if basic_ok else "insufficient_data",
+                "trigger": trigger,
+                "dataset": summary,
+                "legacy_import": dataset.legacy_report,
+                "support": support,
+                "split": {
                     "development": len(split.development), "validation": len(split.validation),
                     "holdout_protected": len(split.holdout), "provisional": split.provisional,
                     "notes": split.notes,
                 },
-                "message": "Need at least two development shots and one validation shot with usable actual candidates.",
+                "baseline_validation": baseline,
+                "reasons": reasons,
+                "message": (
+                    "V2.23.1 refuses challenger promotion/training until development and validation "
+                    "contain enough ACTUAL <=20px candidates. Improve/import proposal pools first."
+                ),
+                "research_champion_promoted": False,
+                "eligible_for_live_authority": False,
+                "protected_holdout_evaluated_for_selection": False,
             }
-            _safe_write_report(report, name=f"train_{int(time.time())}_insufficient.json")
+            _safe_write_report(report, name=f"train_{int(time.time())}_insufficient_support.json")
             return report
 
-        baseline = evaluate_baseline(split.validation)
         trials = [
             {"kind": "linear", "hidden": 0, "seed": seed_base, "epochs": 35 if quick else 90, "lr": 0.018, "l2": 0.0015},
             {"kind": "mlp", "hidden": 16, "seed": seed_base + 1, "epochs": 45 if quick else 110, "lr": 0.010, "l2": 0.0015},
@@ -63,7 +117,9 @@ def train_once_v223(
                     kind=cfg["kind"], hidden=cfg["hidden"] or 16,
                     epochs=cfg["epochs"], learning_rate=cfg["lr"], l2=cfg["l2"], seed=cfg["seed"],
                     metadata={
+                        "schema_version": "2.23.1",
                         "dataset_summary": summary,
+                        "v2231_support": support,
                         "development_sessions": sorted(set(r.session_id for r in split.development)),
                         "validation_sessions": sorted(set(r.session_id for r in split.validation)),
                         "protected_holdout_sessions": sorted(set(r.session_id for r in split.holdout)),
@@ -72,15 +128,30 @@ def train_once_v223(
                 )
                 metrics = evaluate_model(model, split.validation)
                 trial_id = f"{stamp}_{idx}_{cfg['kind']}_s{cfg['seed']}"
-                entry = register_model(model, metrics=metrics, trigger=trigger, provisional=split.provisional, trial_id=trial_id)
-                entry["train_info"] = {"usable_training_shots": train_info.get("usable_training_shots"), "final_loss": train_info.get("loss_history", [None])[-1]}
+                entry = register_model(
+                    model,
+                    metrics=metrics,
+                    baseline_metrics=baseline or {},
+                    support=support,
+                    trigger=trigger,
+                    provisional=split.provisional,
+                    trial_id=trial_id,
+                )
+                entry["train_info"] = {
+                    "usable_training_shots": train_info.get("usable_training_shots"),
+                    "final_loss": train_info.get("loss_history", [None])[-1],
+                }
                 entries.append(entry)
             except Exception as exc:
                 errors.append(f"{cfg['kind']} seed={cfg['seed']}: {type(exc).__name__}: {exc}")
 
         def objective(entry: dict[str, Any]) -> tuple[float, float, float]:
             m = entry.get("metrics", {})
-            return (float(m.get("conditional_top1_20_rate", 0.0)), float(m.get("mrr20", 0.0)), -float(m.get("median_positive_rank") or 1e9))
+            return (
+                float(m.get("conditional_top1_20_rate", 0.0)),
+                float(m.get("mrr20", 0.0)),
+                -float(m.get("median_positive_rank") or 1e9),
+            )
 
         best = max(entries, key=objective) if entries else None
         promoted = False
@@ -88,12 +159,13 @@ def train_once_v223(
         if best is not None:
             promoted, promote_reason = maybe_promote_research_champion(best)
         report = {
-            "schema_version": "2.23.0",
+            "schema_version": "2.23.1",
             "status": "ok" if entries else "failed",
             "trigger": trigger,
             "timestamp": time.time(),
             "dataset": summary,
             "legacy_import": dataset.legacy_report,
+            "support": support,
             "split": {
                 "development": len(split.development), "validation": len(split.validation),
                 "holdout_protected": len(split.holdout), "provisional": split.provisional,
@@ -103,6 +175,7 @@ def train_once_v223(
             "trials": entries,
             "errors": errors,
             "best_trial_id": best.get("trial_id") if best else None,
+            "best_promotion_gate": best.get("research_promotion_gate") if best else None,
             "research_champion_promoted": promoted,
             "promotion_reason": promote_reason,
             "eligible_for_live_authority": False,
@@ -118,17 +191,18 @@ def schedule_quick_autotrain_v223(*, trigger: str = "f2_completed") -> bool:
         return False
 
     def worker() -> None:
-        print("[V2.23 AUTOTRAIN] background challenger training started (shadow only)")
+        print("[V2.23.1 AUTOTRAIN] background challenger training started (shadow only)")
         try:
             report = train_once_v223(trigger=trigger, quick=True)
             print(
-                "[V2.23 AUTOTRAIN] finished "
+                "[V2.23.1 AUTOTRAIN] finished "
                 f"status={report.get('status')} shots={report.get('dataset', {}).get('shots', 0)} "
+                f"oracle20={report.get('dataset', {}).get('oracle20', 0)} "
                 f"best={report.get('best_trial_id')} promoted={report.get('research_champion_promoted', False)}"
             )
         except Exception as exc:
-            print(f"[V2.23 AUTOTRAIN] failed open: {type(exc).__name__}: {exc}")
+            print(f"[V2.23.1 AUTOTRAIN] failed open: {type(exc).__name__}: {exc}")
 
-    _BACKGROUND_THREAD = threading.Thread(target=worker, name="V223Autotrain", daemon=True)
+    _BACKGROUND_THREAD = threading.Thread(target=worker, name="V2231Autotrain", daemon=True)
     _BACKGROUND_THREAD.start()
     return True

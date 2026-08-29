@@ -38,32 +38,110 @@ def _frame_shape(scene: Any) -> tuple[int, int] | None:
     return None
 
 
-def _candidate_union(scene: Any) -> list[Mapping[str, Any]]:
-    pools: list[list[Any]] = []
-    for value in (
-        getattr(getattr(scene, "runtime", None), "latest_candidates", []),
-        getattr(scene, "ranked_candidates", []),
-    ):
+def _tag_pool_candidate(candidate: Mapping[str, Any], pool_name: str) -> dict[str, Any]:
+    item = dict(candidate)
+    provenance = item.get("provenance", [])
+    if isinstance(provenance, str):
+        provenance = [provenance]
+    elif not isinstance(provenance, (list, tuple)):
+        provenance = []
+    provenance = [str(x) for x in provenance]
+    if pool_name not in provenance:
+        provenance.append(pool_name)
+    item["provenance"] = provenance
+    item.setdefault("source_name", pool_name)
+    return item
+
+
+def _candidate_pool_stats(scene: Any) -> dict[str, int]:
+    runtime = getattr(scene, "runtime", None)
+    names = (
+        "_v28_all_hypotheses",
+        "_v28_hypothesis_pool",
+        "_v28_core_pool",
+        "_v28_recall_baseline_pool",
+        "latest_candidates",
+    )
+    out: dict[str, int] = {}
+    for name in names:
         try:
-            pools.append(list(value))
+            out[name] = len(list(getattr(runtime, name, []) or []))
         except Exception:
-            pass
+            out[name] = 0
     try:
         from src.engine.camera import hit_scanner
-        pools.append(list(getattr(hit_scanner, "last_candidates", [])))
+        out["hit_scanner.last_candidates"] = len(list(getattr(hit_scanner, "last_candidates", []) or []))
+    except Exception:
+        out["hit_scanner.last_candidates"] = 0
+    return out
+
+
+def _candidate_union(scene: Any, *, include_v28_recall: bool = True) -> list[Mapping[str, Any]]:
+    """Build a GT-free training pool.
+
+    V2.23.0 only captured the already-truncated final list. V2.8 already keeps
+    the wider micro-hypothesis/recall pools on AIRuntime after rank_with_funnel.
+    V2.23.1 captures those pools too. No GT coordinate participates in retention.
+    """
+    runtime = getattr(scene, "runtime", None)
+    named_pools: list[tuple[str, list[Any]]] = []
+    if include_v28_recall and runtime is not None:
+        for name in (
+            "_v28_all_hypotheses",
+            "_v28_hypothesis_pool",
+            "_v28_core_pool",
+            "_v28_recall_baseline_pool",
+            "_v28_actual_pool",
+        ):
+            try:
+                value = list(getattr(runtime, name, []) or [])
+            except Exception:
+                value = []
+            if value:
+                named_pools.append((name, value))
+    for name, value in (
+        ("runtime.latest_candidates", getattr(runtime, "latest_candidates", []) if runtime is not None else []),
+        ("scene.ranked_candidates", getattr(scene, "ranked_candidates", [])),
+    ):
+        try:
+            value = list(value or [])
+        except Exception:
+            value = []
+        if value:
+            named_pools.append((name, value))
+    try:
+        from src.engine.camera import hit_scanner
+        value = list(getattr(hit_scanner, "last_candidates", []) or [])
+        if value:
+            named_pools.append(("hit_scanner.last_candidates", value))
     except Exception:
         pass
-    out: list[Mapping[str, Any]] = []
-    seen: set[int] = set()
-    for pool in pools:
+
+    out: list[dict[str, Any]] = []
+    by_xy: dict[tuple[int, int], dict[str, Any]] = {}
+    for pool_name, pool in named_pools:
         for candidate in pool:
             if not isinstance(candidate, Mapping):
                 continue
-            ident = id(candidate)
-            if ident in seen:
-                continue
-            seen.add(ident)
-            out.append(candidate)
+            try:
+                x = float(candidate.get("camera_x", candidate.get("x", 0.0)))
+                y = float(candidate.get("camera_y", candidate.get("y", 0.0)))
+                key = (int(round(x * 2.0)), int(round(y * 2.0)))  # 0.5 px, GT-independent
+            except Exception:
+                key = (id(candidate), 0)
+            existing = by_xy.get(key)
+            if existing is None:
+                item = _tag_pool_candidate(candidate, pool_name)
+                by_xy[key] = item
+                out.append(item)
+            else:
+                prov = existing.get("provenance", [])
+                if isinstance(prov, str):
+                    prov = [prov]
+                prov = list(prov) if isinstance(prov, (list, tuple)) else []
+                if pool_name not in prov:
+                    prov.append(pool_name)
+                existing["provenance"] = prov
     return out
 
 
@@ -102,6 +180,7 @@ def _capture_known_gt(scene: Any, candidates: list[Mapping[str, Any]]) -> bool:
             shot_id = getattr(getattr(scene, "runtime", None), "_active_shot_id", None)
         if shot_id is None:
             shot_id = f"round_{getattr(scene, 'current_round_id', cap.shots_saved + 1)}"
+        pool_counts = _candidate_pool_stats(scene)
         cap.save_from_candidates(
             shot_id=shot_id,
             candidates=candidates,
@@ -112,7 +191,20 @@ def _capture_known_gt(scene: Any, candidates: list[Mapping[str, Any]]) -> bool:
             sampling_mode=str(getattr(getattr(scene, "runtime", None), "sampling_mode", "unknown")),
             frame_shape=_frame_shape(scene),
             source_kind=_source_kind(scene),
-            metadata={"capture_phase": "shot_detected_known_gt", "authority": "shadow_only"},
+            metadata={
+                "capture_phase": "shot_detected_known_gt",
+                "authority": "shadow_only",
+                "pool_contract": "v2231_v28_recall_union",
+                "pool_counts": pool_counts,
+            },
+        )
+        nearest = min((math.hypot(float(c.get("camera_x", 0.0)) - camera[0], float(c.get("camera_y", 0.0)) - camera[1]) for c in candidates), default=float("inf"))
+        print(
+            "[V2.23.1 POOL] "
+            f"shot={shot_id} union={len(candidates)} "
+            f"v28_all={pool_counts.get('_v28_all_hypotheses', 0)} "
+            f"v28_recall={pool_counts.get('_v28_hypothesis_pool', 0)} "
+            f"nearest={nearest:.1f}px oracle20={nearest <= 20.0} oracle42={nearest <= 42.0}"
         )
         setattr(scene, "_v223_last_captured_token", (cap.shots_saved, tuple(target)))
         return True
@@ -208,9 +300,12 @@ def install_v2230_training_pipeline() -> None:
         return result
 
     def wrapped_detected(self):
-        pre_candidates = _candidate_union(self)
+        # Before legacy ranking, only keep the narrow current snapshot. V2.8's
+        # recall attributes can still contain the previous shot at this point.
+        pre_candidates = _candidate_union(self, include_v28_recall=False)
         result = original_detected(self)
-        candidates = _candidate_union(self)
+        # rank_with_funnel has now populated the current shot's V2.8 pools.
+        candidates = _candidate_union(self, include_v28_recall=True)
         if not candidates:
             candidates = pre_candidates
         # For F1/F2/right-click synthetic the GT already exists at shot time.
@@ -239,7 +334,12 @@ def install_v2230_training_pipeline() -> None:
                         background=_scene_background(self),
                         sampling_mode=str(getattr(getattr(self, "runtime", None), "sampling_mode", "unknown")),
                         frame_shape=_frame_shape(self), source_kind="physical_manual",
-                        metadata={"capture_phase": "manual_gt_click", "authority": "shadow_only"},
+                        metadata={
+                            "capture_phase": "manual_gt_click",
+                            "authority": "shadow_only",
+                            "pool_contract": "v2231_v28_recall_union",
+                            "pool_counts": _candidate_pool_stats(self),
+                        },
                     )
                     print(f"[V2.23 CAPTURE] physical GT saved candidates={len(pending)}")
                 self._v223_pending_candidates = None
@@ -273,4 +373,4 @@ def install_v2230_training_pipeline() -> None:
     AITrainingScene._build_auto_report = wrapped_report
     AITrainingScene._v223_pipeline_installed = True
     _INSTALLED = True
-    print("[V2.23.0] unified training/model pipeline installed (capture + shadow champion/challenger; live authority unchanged)")
+    print("[V2.23.1] unified high-recall training/model pipeline installed (capture + shadow champion/challenger; live authority unchanged)")

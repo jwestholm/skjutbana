@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from .dataset import compile_dataset
-from .registry import load_champion_entry, load_registry
+from .registry import champion_gate_status, load_champion_entry, load_registry
 
 AI_ROOT = Path("content/ai")
 REPORT_ROOT = AI_ROOT / "training_v223" / "reports"
@@ -21,9 +20,11 @@ MODEL_PATTERNS = (
 )
 DATA_DIRS = (
     "holes", "candidate_shadow_v216", "candidate_synthetic_v220",
-    "candidate_synthetic_v220_validation", "media_bank", "offline", "training_v223",
+    "candidate_synthetic_v220_validation", "ranking_v29", "detector_v28",
+    "media_bank", "offline", "training_v223",
 )
 MODULE_PROBES = (
+    "src.engine.offline.candidate_pack_v216",
     "src.engine.offline.physical_dense_v2215",
     "automation.physical_dense_v2215_train",
     "automation.physical_dense_v2215_benchmark",
@@ -62,7 +63,11 @@ def audit_repository_state() -> dict[str, Any]:
     for name in MODULE_PROBES:
         try:
             mod = importlib.import_module(name)
-            modules[name] = {"available": True, "path": getattr(mod, "__file__", None)}
+            extra: dict[str, Any] = {}
+            if name.endswith("candidate_pack_v216"):
+                cls = getattr(mod, "CandidatePackV216", None)
+                extra["canonical_loader"] = bool(cls is not None and callable(getattr(cls, "load", None)))
+            modules[name] = {"available": True, "path": getattr(mod, "__file__", None), **extra}
         except Exception as exc:
             modules[name] = {"available": False, "error": f"{type(exc).__name__}: {exc}"}
     code_inventory: dict[str, list[str]] = {}
@@ -75,7 +80,7 @@ def audit_repository_state() -> dict[str, Any]:
     dataset = compile_dataset(include_legacy=True)
     split = dataset.split()
     return {
-        "schema_version": "2.23.0",
+        "schema_version": "2.23.1",
         "timestamp": time.time(),
         "models_and_reports": models,
         "data_directories": dirs,
@@ -86,14 +91,20 @@ def audit_repository_state() -> dict[str, Any]:
         "split_preview": {
             "development": len(split.development), "validation": len(split.validation),
             "holdout_protected": len(split.holdout), "provisional": split.provisional,
+            "development_oracle20": sum(int(r.oracle20) for r in split.development),
+            "validation_oracle20": sum(int(r.oracle20) for r in split.validation),
+            "holdout_oracle20_not_used_for_selection": sum(int(r.oracle20) for r in split.holdout),
             "notes": split.notes,
         },
         "v223_registry": load_registry(),
         "v223_champion": load_champion_entry(),
+        "v223_champion_gate": champion_gate_status(),
         "policy": {
             "live_authority_changed": False,
             "protected_holdout_used_for_auto_selection": False,
             "audio_false_trigger_fix": "parked_todo",
+            "native_capture_pool": "v28_all_micro_hypotheses_plus_recall_union",
+            "legacy_loader": "CandidatePackV216.load",
         },
     }
 

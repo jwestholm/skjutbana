@@ -251,56 +251,75 @@ def train_rank_model(
 
 def evaluate_model(model: RankModelV223, records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
     shots = 0
-    oracle20 = 0
-    top1 = 0
-    top3 = 0
+    oracle20 = oracle42 = 0
+    top1 = top3 = 0
+    top1_42 = top3_42 = 0
     ranks: list[int] = []
+    ranks42: list[int] = []
     errors: list[float] = []
     for record in records:
-        if not record.candidates:
-            shots += 1
-            continue
         shots += 1
-        positive = _positive_mask(record)
-        has = bool(np.any(positive))
-        oracle20 += int(has)
+        if not record.candidates:
+            continue
+        positive20 = _positive_mask(record, 20.0)
+        positive42 = _positive_mask(record, 42.0)
+        has20 = bool(np.any(positive20))
+        has42 = bool(np.any(positive42))
+        oracle20 += int(has20)
+        oracle42 += int(has42)
         order = model.rank_indices(record)
         if order.size:
             d0 = record.candidates[int(order[0])].gt_distance_px
             if d0 is not None:
                 errors.append(float(d0))
-            top1 += int(bool(positive[int(order[0])]))
-            top3 += int(any(bool(positive[int(i)]) for i in order[:3]))
-        if has:
+            top1 += int(bool(positive20[int(order[0])]))
+            top3 += int(any(bool(positive20[int(i)]) for i in order[:3]))
+            top1_42 += int(bool(positive42[int(order[0])]))
+            top3_42 += int(any(bool(positive42[int(i)]) for i in order[:3]))
+        if has20:
             for rank, idx in enumerate(order, start=1):
-                if positive[int(idx)]:
+                if positive20[int(idx)]:
                     ranks.append(rank)
                     break
-    conditional = (top1 / oracle20) if oracle20 else 0.0
+        if has42:
+            for rank, idx in enumerate(order, start=1):
+                if positive42[int(idx)]:
+                    ranks42.append(rank)
+                    break
     return {
         "shots": shots,
         "oracle20": oracle20,
         "oracle20_rate": oracle20 / shots if shots else 0.0,
+        "oracle42": oracle42,
+        "oracle42_rate": oracle42 / shots if shots else 0.0,
         "top1_20": top1,
         "top1_20_rate": top1 / shots if shots else 0.0,
-        "conditional_top1_20_rate": conditional,
+        "conditional_top1_20_rate": top1 / oracle20 if oracle20 else 0.0,
         "top3_20_rate": top3 / shots if shots else 0.0,
+        "conditional_top3_20_rate": top3 / oracle20 if oracle20 else 0.0,
+        "top1_42": top1_42,
+        "conditional_top1_42_rate": top1_42 / oracle42 if oracle42 else 0.0,
+        "conditional_top3_42_rate": top3_42 / oracle42 if oracle42 else 0.0,
         "median_positive_rank": float(np.median(ranks)) if ranks else None,
+        "median_positive_rank42": float(np.median(ranks42)) if ranks42 else None,
         "mrr20": float(np.mean([1.0 / r for r in ranks])) if ranks else 0.0,
+        "mrr42": float(np.mean([1.0 / r for r in ranks42])) if ranks42 else 0.0,
         "median_top1_error_px": float(np.median(errors)) if errors else None,
         "p95_top1_error_px": float(np.percentile(errors, 95)) if errors else None,
     }
 
 
 def evaluate_baseline(records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
-    shots = oracle20 = top1 = top3 = 0
+    shots = oracle20 = oracle42 = top1 = top3 = top1_42 = top3_42 = 0
     ranks: list[int] = []
+    ranks42: list[int] = []
     eligible = 0
     for record in records:
         shots += 1
-        positive_rows = [r for r in record.candidates if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
-        if positive_rows:
-            oracle20 += 1
+        pos20 = [r for r in record.candidates if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
+        pos42 = [r for r in record.candidates if r.gt_distance_px is not None and r.gt_distance_px <= 42.0]
+        oracle20 += int(bool(pos20))
+        oracle42 += int(bool(pos42))
         ranked = [(r.baseline_rank, r) for r in record.candidates if r.baseline_rank is not None and r.baseline_rank > 0]
         if not ranked:
             continue
@@ -308,16 +327,32 @@ def evaluate_baseline(records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
         ranked.sort(key=lambda t: t[0])
         top1 += int(ranked[0][1].gt_distance_px is not None and ranked[0][1].gt_distance_px <= 20.0)
         top3 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 20.0 for _, r in ranked[:3]))
+        top1_42 += int(ranked[0][1].gt_distance_px is not None and ranked[0][1].gt_distance_px <= 42.0)
+        top3_42 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 42.0 for _, r in ranked[:3]))
         pos_ranks = [rank for rank, r in ranked if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
+        pos_ranks42 = [rank for rank, r in ranked if r.gt_distance_px is not None and r.gt_distance_px <= 42.0]
         if pos_ranks:
             ranks.append(min(pos_ranks))
+        if pos_ranks42:
+            ranks42.append(min(pos_ranks42))
     return {
-        "shots": shots, "eligible_ranked_shots": eligible,
-        "oracle20": oracle20, "oracle20_rate": oracle20 / shots if shots else 0.0,
-        "top1_20": top1, "top1_20_rate_on_all": top1 / shots if shots else 0.0,
+        "shots": shots,
+        "eligible_ranked_shots": eligible,
+        "oracle20": oracle20,
+        "oracle20_rate": oracle20 / shots if shots else 0.0,
+        "oracle42": oracle42,
+        "oracle42_rate": oracle42 / shots if shots else 0.0,
+        "top1_20": top1,
+        "top1_20_rate_on_all": top1 / shots if shots else 0.0,
         "top1_20_rate_on_ranked": top1 / eligible if eligible else 0.0,
         "conditional_top1_20_rate": top1 / oracle20 if oracle20 else 0.0,
         "top3_20_rate_on_ranked": top3 / eligible if eligible else 0.0,
+        "conditional_top3_20_rate": top3 / oracle20 if oracle20 else 0.0,
+        "conditional_top1_42_rate": top1_42 / oracle42 if oracle42 else 0.0,
+        "conditional_top3_42_rate": top3_42 / oracle42 if oracle42 else 0.0,
         "median_positive_rank": float(np.median(ranks)) if ranks else None,
+        "median_positive_rank42": float(np.median(ranks42)) if ranks42 else None,
         "mrr20": float(np.mean([1.0 / r for r in ranks])) if ranks else 0.0,
+        "mrr42": float(np.mean([1.0 / r for r in ranks42])) if ranks42 else 0.0,
     }
+

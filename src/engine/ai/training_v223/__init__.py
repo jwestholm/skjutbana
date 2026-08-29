@@ -1,9 +1,9 @@
 """V2.23 unified training/model pipeline.
 
-This package is intentionally shadow/offline first.  It captures the same
-candidate groups used by the live shooting pipeline, compiles them with older
-V2.16/V2.20 packs, trains candidate-ranking challengers, and maintains a
-research champion registry without changing live hit authority.
+V2.23.1 keeps the pipeline shadow/offline first, loads canonical V2.16/V2.20
+candidate packs, captures V2.8 high-recall hypothesis pools for new F2/manual
+shots, and support-gates research champion promotion. Live hit authority is
+unchanged.
 """
 
 from .schema import SCHEMA_VERSION, FEATURE_NAMES, ShotTrainingRecord, CandidateTrainingRow

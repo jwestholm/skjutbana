@@ -1,0 +1,115 @@
+{
+  "delta_base": "V2.23.0 over V2.22.6 runtime chain",
+  "files": [
+    {
+      "bytes": 822,
+      "path": "DELTA_README_V2231.md",
+      "sha256": "e8d90fabdb71543b3745096b80c80232001681f94a3c68b3005c698a3245d329"
+    },
+    {
+      "bytes": 474,
+      "path": "V2231_DOC_PATCH.md",
+      "sha256": "602a03bff03e54f70483888d4b3e59a6489956a0550cc1835c8d8355a389144c"
+    },
+    {
+      "bytes": 1734,
+      "path": "V2231_TEST_PLAN.md",
+      "sha256": "67eec1330ec2db9c658b85bd4a8e7569caeef82574f9a829e26d14bf7cc8370c"
+    },
+    {
+      "bytes": 3320,
+      "path": "V2231_TRAINING_MODEL_PIPELINE.md",
+      "sha256": "b6c586cbd843b8f6cd6b0c20df7208aae510e714297e3c8c7ea8e41a5591fa61"
+    },
+    {
+      "bytes": 4722,
+      "path": "automation/v2231_apply_docs.py",
+      "sha256": "6f0cece65a27ab4e57caf43b32b862f2ed52222b6e92c7535a34d9ec1a94225d"
+    },
+    {
+      "bytes": 2247,
+      "path": "automation/v2231_audit.py",
+      "sha256": "3ca142338617cfefe6d480a4ae1e39cbf1b3232c67c6d2b3617bd43b3b30f448"
+    },
+    {
+      "bytes": 1874,
+      "path": "automation/v2231_autotrain.py",
+      "sha256": "f406b9c498b791eb09f40312bfbb36cdf7771d8abaae7f4f0ef8303569b0234e"
+    },
+    {
+      "bytes": 1331,
+      "path": "automation/v2231_legacy_probe.py",
+      "sha256": "bf848e26e25823ce903e7f0123564940db3dd0ddd848044ea1ff95b81eb3bd89"
+    },
+    {
+      "bytes": 4925,
+      "path": "automation/v2231_selftest.py",
+      "sha256": "a57e167779173b783f46e8811d4c3832b295f7040616a52eecb1a1a0545b6343"
+    },
+    {
+      "bytes": 1560,
+      "path": "automation/v2231_status.py",
+      "sha256": "57ae1e288b65f5eaa5444477e4cd773109eace074feb2ad561d598d707ef523a"
+    },
+    {
+      "bytes": 1507,
+      "path": "automation/v2231_train.py",
+      "sha256": "d9eceec99f5bbf7e55bfac2f49f819cb77014fa7fc145eeb706a25a3987418a6"
+    },
+    {
+      "bytes": 2229,
+      "path": "automation/v2231_verify_install.py",
+      "sha256": "d82c786bdf5a94af9b47bc5a66d7a484ebf4147aab3edb6d4988b54825bb15a2"
+    },
+    {
+      "bytes": 548,
+      "path": "src/engine/ai/training_v223/__init__.py",
+      "sha256": "6448ba84437d810952fbb07217ccf4c01ffff9fa53ff1af4de66860a16516274"
+    },
+    {
+      "bytes": 4885,
+      "path": "src/engine/ai/training_v223/audit.py",
+      "sha256": "75ed66a22f9daacf0aeae3624657e7ec346d36f8546fb187cd4c84a88a64b5fa"
+    },
+    {
+      "bytes": 19755,
+      "path": "src/engine/ai/training_v223/dataset.py",
+      "sha256": "6f0c140159aa1072e4dc42522f42d83bb95bcd9aa959805f6cd8b5226480b02b"
+    },
+    {
+      "bytes": 16184,
+      "path": "src/engine/ai/training_v223/integration.py",
+      "sha256": "5ab68cbd78a4a333bd95ea6985f346184e1ff09c4252f34900696b0e60a33fc6"
+    },
+    {
+      "bytes": 15547,
+      "path": "src/engine/ai/training_v223/model.py",
+      "sha256": "5e00a46b9ff890201ee26a8ae369acd9761176d0449719509d3ce851365a91a6"
+    },
+    {
+      "bytes": 7746,
+      "path": "src/engine/ai/training_v223/registry.py",
+      "sha256": "366439a831609457fe91d96daa020961e337ed8bce2a815786b027914c9be796"
+    },
+    {
+      "bytes": 12006,
+      "path": "src/engine/ai/training_v223/schema.py",
+      "sha256": "e1136d156e9cc889d5646dca4e2be2ed3fc0b47324e9669d91288098878c9dcf"
+    },
+    {
+      "bytes": 9234,
+      "path": "src/engine/ai/training_v223/trainer.py",
+      "sha256": "a684e0d502836675810b3688b984e2df0f7ea7a4115614effd293b2b3d50517c"
+    }
+  ],
+  "live_authority_changed": false,
+  "primary_changes": [
+    "canonical CandidatePackV216.load legacy JSON+NPZ importer + cache",
+    "native F2/manual capture includes V2.8 all-hypotheses/recall pools",
+    "proposal oracle @5/@10/@20/@42 separated from ranking metrics",
+    "support/baseline gated research champion promotion",
+    "pre-V2.23.1 insufficient-support champions quarantined",
+    "protected V2.20 validation/holdout excluded from auto selection"
+  ],
+  "schema_version": "2.23.1"
+}

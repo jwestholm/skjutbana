@@ -4,7 +4,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
-SCHEMA_VERSION = "2.23.0"
+SCHEMA_VERSION = "2.23.1"
 
 # Deliberately physical / observational features only.  Do not add fields that
 # encode GT distance, current rank policy, reason_* bookkeeping or model output.
