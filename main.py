@@ -40,14 +40,18 @@ from src.engine.app import App
 from src.engine.shot_critical_v2223 import install_v2223_runtime
 from src.engine.shot_async_v2224 import install_v2224_runtime
 from src.engine.shot_fast_v2225 import install_v2225_runtime
+from src.engine.shot_track_v2226 import install_v2226_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
 # async advisory/training AI work. V2.22.5 then replaces repeated full
 # persistence passes with a sparse live proposal + local confirmation lane.
+# V2.22.6 fixes track semantics so same-frame candidate clusters are support,
+# not fake temporal hits, and adds raw audio near-miss telemetry.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
+install_v2226_runtime(App)
 
 if __name__ == "__main__":
     try:
