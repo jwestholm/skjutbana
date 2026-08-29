@@ -4,7 +4,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
-SCHEMA_VERSION = "2.23.1"
+SCHEMA_VERSION = "2.23.2"
 
 # Deliberately physical / observational features only.  Do not add fields that
 # encode GT distance, current rank policy, reason_* bookkeeping or model output.
@@ -31,6 +31,22 @@ FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "edge_strength": ("edge_strength",),
     "x_norm": ("x_norm",),
     "y_norm": ("y_norm",),
+    # V2.23.2 offline dense-proposal evidence. These are still GT-free physical/
+    # relational features computed from PRE->POST maps; missing values remain 0.
+    "dense_score": ("dense_score",),
+    "dense_source_support": ("dense_source_support",),
+    "dense_map_percentile_max": ("dense_map_percentile_max",),
+    "dense_map_percentile_top3": ("dense_map_percentile_top3",),
+    "dense_map_percentile_mean": ("dense_map_percentile_mean",),
+    "dense_current_distance_clip100": ("dense_current_distance_clip100",),
+    "dense_current_distance_exp24": ("dense_current_distance_exp24",),
+    "dense_current_within20": ("dense_current_within20",),
+    "dense_current_within42": ("dense_current_within42",),
+    "dense_local_distance_clip100": ("dense_local_distance_clip100",),
+    "dense_local_distance_exp24": ("dense_local_distance_exp24",),
+    "dense_local_within20": ("dense_local_within20",),
+    "dense_local_within42": ("dense_local_within42",),
+    "dense_percentile_support": ("dense_percentile_support",),
 }
 FEATURE_NAMES: tuple[str, ...] = tuple(FEATURE_ALIASES)
 

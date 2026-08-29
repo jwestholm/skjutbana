@@ -6,6 +6,7 @@ import time
 from typing import Any, Mapping
 
 from .capture import TrainingCaptureV223
+from .framepack import save_scene_framepack
 from .registry import load_champion_model
 from .trainer import schedule_quick_autotrain_v223
 
@@ -196,8 +197,23 @@ def _capture_known_gt(scene: Any, candidates: list[Mapping[str, Any]]) -> bool:
                 "authority": "shadow_only",
                 "pool_contract": "v2231_v28_recall_union",
                 "pool_counts": pool_counts,
+                "v2232_framepack_expected": True,
             },
         )
+        framepack = save_scene_framepack(
+            scene,
+            session_id=cap.session_id,
+            shot_id=shot_id,
+            sequence=cap.shots_saved,
+            gt_camera_xy=camera,
+            gt_screen_xy=(float(target[0]), float(target[1])),
+            current_candidates=candidates,
+            source_kind=_source_kind(scene),
+            background=_scene_background(scene),
+            sampling_mode=str(getattr(getattr(scene, "runtime", None), "sampling_mode", "unknown")),
+        )
+        if framepack is not None:
+            print(f"[V2.23.2 FRAMEPACK] saved {framepack}")
         nearest = min((math.hypot(float(c.get("camera_x", 0.0)) - camera[0], float(c.get("camera_y", 0.0)) - camera[1]) for c in candidates), default=float("inf"))
         print(
             "[V2.23.1 POOL] "
@@ -246,10 +262,34 @@ def install_v2230_training_pipeline() -> None:
     if _INSTALLED:
         return
     try:
+        from src.engine.scenes import ai_training as ai_training_module
         from src.engine.scenes.ai_training import AITrainingScene
     except Exception as exc:
         print(f"[V2.23] training pipeline unavailable; runtime unchanged: {exc}")
         return
+
+    # V2.23.2: the historical function named center_bias was actually uniform.
+    # Make it a real soft centre prior while retaining 25% uniform exploration.
+    try:
+        import random
+        def _v2232_center_bias(vp, margin: int = 12):
+            if random.random() < 0.25:
+                x = random.randint(vp.left + margin, max(vp.left + margin, vp.right - margin))
+                y = random.randint(vp.top + margin, max(vp.top + margin, vp.bottom - margin))
+                return x, y
+            cx = vp.centerx; cy = vp.centery
+            sx = max(12.0, vp.w * 0.22); sy = max(12.0, vp.h * 0.22)
+            lo_x, hi_x = vp.left + margin, max(vp.left + margin, vp.right - margin)
+            lo_y, hi_y = vp.top + margin, max(vp.top + margin, vp.bottom - margin)
+            for _ in range(12):
+                x = int(round(random.gauss(cx, sx))); y = int(round(random.gauss(cy, sy)))
+                if lo_x <= x <= hi_x and lo_y <= y <= hi_y:
+                    return x, y
+            return max(lo_x, min(hi_x, cx)), max(lo_y, min(hi_y, cy))
+        ai_training_module.SAMPLING_MODES["center_bias"] = _v2232_center_bias
+        ai_training_module.SAMPLING_MODES["center"] = _v2232_center_bias
+    except Exception as exc:
+        print(f"[V2.23.2] center-bias patch failed open: {type(exc).__name__}: {exc}")
 
     original_enter = AITrainingScene.on_enter
     original_exit = AITrainingScene.on_exit
@@ -327,8 +367,9 @@ def install_v2230_training_pipeline() -> None:
             if cap is not None and pending is not None:
                 camera = _project_screen((float(screen_pos[0]), float(screen_pos[1])))
                 if camera is not None:
+                    manual_shot_id = f"manual_{cap.shots_saved + 1}"
                     cap.save_from_candidates(
-                        shot_id=f"manual_{cap.shots_saved + 1}", candidates=pending,
+                        shot_id=manual_shot_id, candidates=pending,
                         gt_camera_xy=camera, gt_screen_xy=(float(screen_pos[0]), float(screen_pos[1])),
                         timestamp=float(getattr(self, "_v223_pending_timestamp", time.time())),
                         background=_scene_background(self),
@@ -339,9 +380,22 @@ def install_v2230_training_pipeline() -> None:
                             "authority": "shadow_only",
                             "pool_contract": "v2231_v28_recall_union",
                             "pool_counts": _candidate_pool_stats(self),
+                            "v2232_framepack_expected": True,
                         },
                     )
-                    print(f"[V2.23 CAPTURE] physical GT saved candidates={len(pending)}")
+                    framepack = save_scene_framepack(
+                        self,
+                        session_id=cap.session_id,
+                        shot_id=manual_shot_id,
+                        sequence=cap.shots_saved,
+                        gt_camera_xy=camera,
+                        gt_screen_xy=(float(screen_pos[0]), float(screen_pos[1])),
+                        current_candidates=pending,
+                        source_kind="physical_manual",
+                        background=_scene_background(self),
+                        sampling_mode=str(getattr(getattr(self, "runtime", None), "sampling_mode", "unknown")),
+                    )
+                    print(f"[V2.23 CAPTURE] physical GT saved candidates={len(pending)} framepack={bool(framepack)}")
                 self._v223_pending_candidates = None
         except Exception as exc:
             print(f"[V2.23 CAPTURE] failed open (manual GT): {type(exc).__name__}: {exc}")
@@ -373,4 +427,4 @@ def install_v2230_training_pipeline() -> None:
     AITrainingScene._build_auto_report = wrapped_report
     AITrainingScene._v223_pipeline_installed = True
     _INSTALLED = True
-    print("[V2.23.1] unified high-recall training/model pipeline installed (capture + shadow champion/challenger; live authority unchanged)")
+    print("[V2.23.2] proposal/data/domain training pipeline installed (framepacks + fresh-F2 domain gate; live authority unchanged)")

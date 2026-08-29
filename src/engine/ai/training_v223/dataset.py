@@ -9,10 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from .schema import ShotTrainingRecord, candidate_rows_from_pool
+from .schema import CandidateTrainingRow, ShotTrainingRecord, candidate_rows_from_pool
 
 NATIVE_ROOT = Path("content/ai/training_v223/sessions")
 LEGACY_CACHE_ROOT = Path("content/ai/training_v223/cache/legacy_v2231")
+PROPOSAL_V2232_ROOT = Path("content/ai/training_v223/proposals_v2232")
 LEGACY_ROOTS = (
     Path("content/ai/candidate_shadow_v216/sessions"),
     Path("content/ai/candidate_synthetic_v220/sessions"),
@@ -82,10 +83,63 @@ def _oracle(record: ShotTrainingRecord, radius: float) -> bool:
     )
 
 
+def _proposal_v2232_lookup(root: Path = PROPOSAL_V2232_ROOT) -> dict[tuple[str, str], dict[str, Any]]:
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    if not root.exists():
+        return out
+    for path in sorted(root.glob("*/shot_*.json")):
+        raw = _read_json(path)
+        if not raw or not isinstance(raw.get("candidates"), list):
+            continue
+        key = (str(raw.get("session_id", path.parent.name)), str(raw.get("shot_id", "")))
+        out[key] = raw
+    return out
+
+
+def _merge_proposal_rows(record: ShotTrainingRecord, sidecar: Mapping[str, Any]) -> None:
+    candidates = [x for x in sidecar.get("candidates", []) if isinstance(x, Mapping)]
+    if not candidates:
+        return
+    frame_shape = None
+    try:
+        shape = record.metadata.get("frame_shape")
+        if isinstance(shape, (list, tuple)) and len(shape) >= 2:
+            frame_shape = (int(shape[0]), int(shape[1]))
+    except Exception:
+        frame_shape = None
+    new_rows = candidate_rows_from_pool(
+        candidates,
+        gt_camera_xy=(record.gt_camera_x, record.gt_camera_y),
+        frame_shape=frame_shape,
+        dedupe_radius_px=1.25,
+    )
+    merged = list(record.candidates)
+    for row in new_rows:
+        found = None
+        for old in merged:
+            if math.hypot(old.camera_x - row.camera_x, old.camera_y - row.camera_y) <= 1.25:
+                found = old
+                break
+        if found is None:
+            merged.append(row)
+        else:
+            # Preserve native/baseline fields while enriching with offline physical evidence.
+            found.features.update(row.features)
+            found.provenance = sorted(set(found.provenance + row.provenance + ["v2232_offline_proposal"]))
+            if found.baseline_score is None and row.baseline_score is not None:
+                found.baseline_score = row.baseline_score
+    record.candidates = merged
+    record.finalize_labels()
+    record.metadata["v2232_proposal_expanded"] = True
+    record.metadata["v2232_proposal_counts"] = dict(sidecar.get("counts", {}))
+    record.metadata["v2232_proposal_nearest"] = dict(sidecar.get("nearest", {}))
+
+
 def discover_native_records(root: Path = NATIVE_ROOT) -> list[ShotTrainingRecord]:
     records: list[ShotTrainingRecord] = []
     if not root.exists():
         return records
+    proposals = _proposal_v2232_lookup()
     for path in sorted(root.glob("*/shot_*.json")):
         raw = _read_json(path)
         if raw is None:
@@ -93,6 +147,9 @@ def discover_native_records(root: Path = NATIVE_ROOT) -> list[ShotTrainingRecord
         try:
             record = ShotTrainingRecord.from_dict(raw)
             record.source_path = str(path)
+            sidecar = proposals.get((record.session_id, record.shot_id))
+            if sidecar is not None:
+                _merge_proposal_rows(record, sidecar)
             records.append(record)
         except Exception:
             continue

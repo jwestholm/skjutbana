@@ -1,0 +1,41 @@
+{
+  "base_required": "V2.23.1 on top of V2.22.6 runtime chain",
+  "features": [
+    "full PRE + up to three unique POST grayscale framepacks for labelled F1/F2/manual shots",
+    "offline V2.21/V2.21.2/V2.21.5 direct/local/dense proposal expansion",
+    "GT-independent proposal union with dense physical evidence preservation",
+    "proposal sidecar caching and unified-dataset merge",
+    "baseline_score reference fallback",
+    "newest >=50-shot F2 session excluded from fitting and used as fresh-domain research gate",
+    "soft center-biased F2 sampling with 25% uniform exploration",
+    "protected holdout remains excluded from automatic selection"
+  ],
+  "files": [
+    "DELTA_README_V2232.md",
+    "V2232_DOC_PATCH.md",
+    "V2232_PROPOSAL_DATA_DOMAIN_PIPELINE.md",
+    "V2232_TEST_PLAN.md",
+    "automation/v2232_apply_docs.py",
+    "automation/v2232_audit.py",
+    "automation/v2232_cycle.py",
+    "automation/v2232_proposals.py",
+    "automation/v2232_selftest.py",
+    "automation/v2232_status.py",
+    "automation/v2232_train.py",
+    "automation/v2232_verify_install.py",
+    "src/engine/ai/training_v223/__init__.py",
+    "src/engine/ai/training_v223/dataset.py",
+    "src/engine/ai/training_v223/domain.py",
+    "src/engine/ai/training_v223/framepack.py",
+    "src/engine/ai/training_v223/integration.py",
+    "src/engine/ai/training_v223/model.py",
+    "src/engine/ai/training_v223/proposal.py",
+    "src/engine/ai/training_v223/registry.py",
+    "src/engine/ai/training_v223/schema.py",
+    "src/engine/ai/training_v223/trainer.py"
+  ],
+  "live_authority_changed": false,
+  "name": "Proposal Learning + Domain Validation",
+  "runtime_v222_changed": false,
+  "version": "2.23.2"
+}

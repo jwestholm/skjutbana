@@ -1,9 +1,9 @@
 """V2.23 unified training/model pipeline.
 
-V2.23.1 keeps the pipeline shadow/offline first, loads canonical V2.16/V2.20
-candidate packs, captures V2.8 high-recall hypothesis pools for new F2/manual
-shots, and support-gates research champion promotion. Live hit authority is
-unchanged.
+V2.23.2 adds full PRE/POST framepacks for new F2/manual GT shots, offline
+V2.21.5 dense proposal expansion, a real centre-biased training sampler, a
+reference-baseline fallback, and a fresh-F2 domain gate for research champion
+promotion. The frozen V2.22 live hit authority is unchanged.
 """
 
 from .schema import SCHEMA_VERSION, FEATURE_NAMES, ShotTrainingRecord, CandidateTrainingRow

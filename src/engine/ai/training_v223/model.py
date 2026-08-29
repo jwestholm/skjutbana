@@ -310,34 +310,49 @@ def evaluate_model(model: RankModelV223, records: Sequence[ShotTrainingRecord]) 
 
 
 def evaluate_baseline(records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
+    """Evaluate a reproducible non-learned reference ranking.
+
+    V2.23.1 required explicit baseline_rank and therefore reported zero eligible
+    shots for many imported/expanded pools. V2.23.2 falls back to baseline_score
+    (combined/detector/dense score captured with the candidate) when explicit
+    ranks are absent. This makes challenger-vs-reference comparisons meaningful.
+    """
     shots = oracle20 = oracle42 = top1 = top3 = top1_42 = top3_42 = 0
     ranks: list[int] = []
     ranks42: list[int] = []
     eligible = 0
+    explicit_ranked = 0
+    score_ranked = 0
     for record in records:
         shots += 1
         pos20 = [r for r in record.candidates if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
         pos42 = [r for r in record.candidates if r.gt_distance_px is not None and r.gt_distance_px <= 42.0]
-        oracle20 += int(bool(pos20))
-        oracle42 += int(bool(pos42))
-        ranked = [(r.baseline_rank, r) for r in record.candidates if r.baseline_rank is not None and r.baseline_rank > 0]
-        if not ranked:
+        oracle20 += int(bool(pos20)); oracle42 += int(bool(pos42))
+        ranked_rows = [r for r in record.candidates if r.baseline_rank is not None and r.baseline_rank > 0]
+        if ranked_rows:
+            ranked_rows.sort(key=lambda r: int(r.baseline_rank or 10**9))
+            explicit_ranked += 1
+        else:
+            ranked_rows = [r for r in record.candidates if r.baseline_score is not None]
+            ranked_rows.sort(key=lambda r: float(r.baseline_score or 0.0), reverse=True)
+            if ranked_rows:
+                score_ranked += 1
+        if not ranked_rows:
             continue
         eligible += 1
-        ranked.sort(key=lambda t: t[0])
-        top1 += int(ranked[0][1].gt_distance_px is not None and ranked[0][1].gt_distance_px <= 20.0)
-        top3 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 20.0 for _, r in ranked[:3]))
-        top1_42 += int(ranked[0][1].gt_distance_px is not None and ranked[0][1].gt_distance_px <= 42.0)
-        top3_42 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 42.0 for _, r in ranked[:3]))
-        pos_ranks = [rank for rank, r in ranked if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
-        pos_ranks42 = [rank for rank, r in ranked if r.gt_distance_px is not None and r.gt_distance_px <= 42.0]
-        if pos_ranks:
-            ranks.append(min(pos_ranks))
-        if pos_ranks42:
-            ranks42.append(min(pos_ranks42))
+        top1 += int(ranked_rows[0].gt_distance_px is not None and ranked_rows[0].gt_distance_px <= 20.0)
+        top3 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 20.0 for r in ranked_rows[:3]))
+        top1_42 += int(ranked_rows[0].gt_distance_px is not None and ranked_rows[0].gt_distance_px <= 42.0)
+        top3_42 += int(any(r.gt_distance_px is not None and r.gt_distance_px <= 42.0 for r in ranked_rows[:3]))
+        pos_ranks = [rank for rank, r in enumerate(ranked_rows, start=1) if r.gt_distance_px is not None and r.gt_distance_px <= 20.0]
+        pos_ranks42 = [rank for rank, r in enumerate(ranked_rows, start=1) if r.gt_distance_px is not None and r.gt_distance_px <= 42.0]
+        if pos_ranks: ranks.append(min(pos_ranks))
+        if pos_ranks42: ranks42.append(min(pos_ranks42))
     return {
         "shots": shots,
         "eligible_ranked_shots": eligible,
+        "explicit_ranked_shots": explicit_ranked,
+        "score_fallback_ranked_shots": score_ranked,
         "oracle20": oracle20,
         "oracle20_rate": oracle20 / shots if shots else 0.0,
         "oracle42": oracle42,
@@ -354,5 +369,6 @@ def evaluate_baseline(records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
         "median_positive_rank42": float(np.median(ranks42)) if ranks42 else None,
         "mrr20": float(np.mean([1.0 / r for r in ranks])) if ranks else 0.0,
         "mrr42": float(np.mean([1.0 / r for r in ranks42])) if ranks42 else 0.0,
+        "reference_policy": "explicit_baseline_rank_else_baseline_score_desc",
     }
 
