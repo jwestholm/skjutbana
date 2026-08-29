@@ -29,21 +29,22 @@ def _save_and_guard_terminal():
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _saved_tty)
         except Exception:
             pass
-        # Fallback: always run stty sane as safety net
         _restore_terminal()
 
     atexit.register(_restore_saved)
 
 
-# Guard terminal BEFORE any imports that might change TTY state
 _save_and_guard_terminal()
 
 from src.engine.app import App
 from src.engine.shot_critical_v2223 import install_v2223_runtime
+from src.engine.shot_async_v2224 import install_v2224_runtime
 
-# V2.22.3 is a top-level runtime policy, not a scene-local AI feature.  Install
-# it from the program entrypoint before the App instance starts running.
+# Install in order: V2.22.3 establishes top-level PANG priority / object
+# snapshots; V2.22.4 then replaces the blocking shot path with async CV and
+# async advisory/training AI work.
 install_v2223_runtime(App)
+install_v2224_runtime(App)
 
 if __name__ == "__main__":
     try:

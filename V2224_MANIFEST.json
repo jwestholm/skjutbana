@@ -1,0 +1,90 @@
+{
+  "version": "2.22.4",
+  "type": "delta",
+  "base": "tested V2.22.3 + V2.22.2-r2 chain",
+  "date": "2026-08-29",
+  "summary": "async physical CV worker + off-critical non-authoritative AI shadow + detector stage profiler",
+  "authority": {
+    "global_hit_scanner": "unchanged authority",
+    "object_hit": "shadow",
+    "ai_off_train_only_advisory": "async shadow / immediate camera passthrough",
+    "ai_authority_modes": "historical synchronous semantics retained"
+  },
+  "files": [
+    {
+      "path": "DELTA_README_V2224.md",
+      "sha256": "bf81e1ba6f1b25d23bba89fa4f4180547d5a611b53c59f1d15b54b8b782abc83",
+      "bytes": 1029
+    },
+    {
+      "path": "V2223_DOC_PATCH.md",
+      "sha256": "22b4fb3f6f0343c13a7b70529db34c5514d152d869145253e4c6ef1b6821c926",
+      "bytes": 3243
+    },
+    {
+      "path": "V2223_PLAN.md",
+      "sha256": "c527b692ffaf6d17e825aeca6c58db2047d9145914fb91fc01adf74f81c25b48",
+      "bytes": 6465
+    },
+    {
+      "path": "V2223_SHOT_CRITICAL_AND_OBJECT_HITS.md",
+      "sha256": "b8ae76f7c96fd454cb25c4346ff303d4a3d99a423150d07e264ce55b8b5da7b2",
+      "bytes": 3127
+    },
+    {
+      "path": "V2223_TEST_PLAN.md",
+      "sha256": "659f0a48a90675c68502e4c6e32df6addecfc3bb896de72d4cf2783f331532ee",
+      "bytes": 3088
+    },
+    {
+      "path": "V2224_ASYNC_ARCHITECTURE.md",
+      "sha256": "2f55d50efaba03bcdd2f3339d19fd336ffa56dea2f1824ef11316e862a0616e7",
+      "bytes": 2771
+    },
+    {
+      "path": "V2224_DOC_PATCH.md",
+      "sha256": "cdb8a37e02764fb7f442a9c04dab833656e2eecac68cab2e3c85d103c45b88cb",
+      "bytes": 1047
+    },
+    {
+      "path": "V2224_PLAN.md",
+      "sha256": "2ea04a91a27e7f639dcd825514d4d996f4332f9bd2cd72b32299499cf845094b",
+      "bytes": 4995
+    },
+    {
+      "path": "V2224_TEST_PLAN.md",
+      "sha256": "e3d91327f5b21c1f9405dc233375e14c22e843a26a3019982e4e25a9ae7992b1",
+      "bytes": 2462
+    },
+    {
+      "path": "automation/v2223_apply_docs.py",
+      "sha256": "fcdd84ee3d1cba50d7008f8243f7198e8c34e43ae123a455c0c218f955bbd857",
+      "bytes": 8046
+    },
+    {
+      "path": "automation/v2224_apply_docs.py",
+      "sha256": "2674712d5f9d2cc8971a8cc0c072f84f2446b6d4e8455a05098d5d66b48147a9",
+      "bytes": 7470
+    },
+    {
+      "path": "automation/v2224_selftest.py",
+      "sha256": "495cad1b97200079ff1ddd9e06b2cfb8cf8f214ee884d0165c8fc86140bd39b1",
+      "bytes": 7395
+    },
+    {
+      "path": "automation/v2224_verify_install.py",
+      "sha256": "ccd001c62eb96ba0aa19ca3ea73bc51f1b04d08777d9581c4807a044f4ec10c7",
+      "bytes": 2706
+    },
+    {
+      "path": "main.py",
+      "sha256": "4b0950a93cd4d405a1b6c4af7a90c73913df6e54d926429949f38dab0d753895",
+      "bytes": 1562
+    },
+    {
+      "path": "src/engine/shot_async_v2224.py",
+      "sha256": "c0be1a19c8eb62925ccc02b80ac4578e65c0e4efd1681ae5208bd4096a629120",
+      "bytes": 39242
+    }
+  ]
+}
