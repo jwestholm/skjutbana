@@ -1,0 +1,21 @@
+{
+  "version": "2.22.4-r2",
+  "base": "V2.22.4",
+  "files": [
+    {
+      "path": "src/engine/shot_async_v2224.py",
+      "sha256": "40ccbae919371204e569fe9354b6eb483431498560ab321e613266c2a67f8c66",
+      "bytes": 40798
+    },
+    {
+      "path": "automation/v2224_selftest.py",
+      "sha256": "b1a8dbc314b335d704b33972242f02ae3946e2ceb374d393225ea1dc4728fa21",
+      "bytes": 8079
+    },
+    {
+      "path": "DELTA_README_V2224_R2.md",
+      "sha256": "6d223c545183fe5bdd6186c77b6e449c3c7432f1ea207075054c0a0562f1603b",
+      "bytes": 1531
+    }
+  ]
+}

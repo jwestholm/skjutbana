@@ -28,6 +28,7 @@ from typing import Any, Callable, Mapping
 import numpy as np
 
 SCHEMA_VERSION = "2.22.4"
+PATCH_REVISION = "r2"
 _INSTALLED = False
 
 _PROFILE_TLS = threading.local()
@@ -167,9 +168,30 @@ class AsyncDetectorV2224:
         self._last_applied_frame_ts: dict[int, float] = {}
         self._sync_detect: Callable[..., Any] | None = None
         self._shutdown = False
+        # Submission-path configuration is cached at install/startup.  Do not
+        # perform lazy AIRuntime imports or settings lookups on the first PANG.
+        self._max_queued_per_shot = 1
+        self._frame_spacing_s = 0.055
 
     def set_sync_detector(self, fn: Callable[..., Any]) -> None:
         self._sync_detect = fn
+
+    def configure(self, *, max_queued_per_shot: int = 1, frame_spacing_ms: float = 55.0) -> None:
+        self._max_queued_per_shot = max(1, min(4, int(max_queued_per_shot)))
+        self._frame_spacing_s = max(0.010, min(0.500, float(frame_spacing_ms) / 1000.0))
+
+    def configure_from_runtime(self) -> None:
+        self.configure(
+            max_queued_per_shot=_setting_int("async_detector_max_queued_per_shot_v2224", 1, 1, 4),
+            frame_spacing_ms=_setting_float("async_detector_frame_spacing_ms_v2224", 55.0, 10.0, 500.0),
+        )
+
+    def warmup(self, timeout_s: float = 1.0) -> None:
+        """Start the executor thread during application startup, not on PANG."""
+        if self._shutdown:
+            return
+        future = self._executor.submit(lambda: None)
+        future.result(timeout=max(0.05, float(timeout_s)))
 
     def wait_for_idle(self, timeout_s: float = 3.0) -> None:
         deadline = time.perf_counter() + max(0.0, float(timeout_s))
@@ -246,8 +268,8 @@ class AsyncDetectorV2224:
         if sid <= 0:
             return
 
-        max_queued = _setting_int("async_detector_max_queued_per_shot_v2224", 1, 1, 4)
-        spacing_s = _setting_float("async_detector_frame_spacing_ms_v2224", 55.0, 10.0, 500.0) / 1000.0
+        max_queued = self._max_queued_per_shot
+        spacing_s = self._frame_spacing_s
         last_ts = float(self._submitted_frame_ts.get(sid, 0.0) or 0.0)
         if last_ts > 0.0 and float(frame_ts) - last_ts < spacing_s:
             return
@@ -460,6 +482,13 @@ class AIShadowWorkerV2224:
         self._original_observe = observe
         self._original_choose = choose
         self._original_mark = mark
+
+    def warmup(self, timeout_s: float = 1.0) -> None:
+        """Start the shadow executor during application startup."""
+        if self._shutdown:
+            return
+        future = self._executor.submit(lambda: None)
+        future.result(timeout=max(0.05, float(timeout_s)))
 
     def record_finish(self, runtime: Any, shot_id: int, state: str) -> None:
         sid = int(shot_id or 0)
@@ -798,6 +827,11 @@ def install_v2224_runtime(AppClass: Any) -> None:
         return
 
     _install_settings_defaults()
+    # Pay executor-thread startup and settings/import cost now, while the game
+    # is starting.  The first real PANG must only snapshot + enqueue work.
+    async_detector_v2224.configure_from_runtime()
+    async_detector_v2224.warmup()
+    ai_shadow_worker_v2224.warmup()
     DetectorStageProfilerV2224.install()
     _install_async_detector_patch()
     _install_async_ai_shadow_patch()
@@ -922,7 +956,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
     AppClass.run = run_v2224
     AppClass._v2224_async_shot_patch = True
     _INSTALLED = True
-    print("[V2.22.4] async CV + off-critical AI shadow pipeline installed")
+    print("[V2.22.4-r2] async CV + off-critical AI shadow pipeline installed")
 
 
 __all__ = [

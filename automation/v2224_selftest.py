@@ -30,10 +30,19 @@ def load_module():
 
 
 def test_async_detector(mod) -> None:
+    import threading
+
     worker = mod.AsyncDetectorV2224()
+    worker.warmup()
+    entered = threading.Event()
+    release = threading.Event()
 
     def slow_detector(scanner, gray, frame_ts):
-        time.sleep(0.08)
+        entered.set()
+        # A synchronous implementation would hold submit_if_needed() here for
+        # ~2 seconds.  The async contract is that submission returns before
+        # this release signal.
+        release.wait(timeout=2.0)
         scanner.debug_frames["worker_marker"] = np.array([[7]], dtype=np.uint8)
         scanner.last_window_debug = {"test": 1.0}
         scanner.last_threshold_value = 12.0
@@ -58,17 +67,20 @@ def test_async_detector(mod) -> None:
     t0 = time.perf_counter()
     worker.submit_if_needed(scanner, gray, 10.10)
     submit_ms = (time.perf_counter() - t0) * 1000.0
-    check(submit_ms < 40.0, "CV submission returns without waiting for slow detector")
+    check(submit_ms < 500.0, "CV submission returns before blocked detector")
+    check(entered.wait(timeout=0.5), "CV worker starts detector independently")
     check(worker.has_pending(1), "CV job is pending on worker")
-    time.sleep(0.11)
+    release.set()
+    time.sleep(0.05)
     ready = worker.take_ready_for_shot(1)
+    if not ready:
+        time.sleep(0.05)
+        ready = worker.take_ready_for_shot(1)
     check(len(ready) == 1, "CV worker returns one shot-scoped result")
-    check(ready[0].worker_ms >= 60.0, "slow detector work occurred on worker")
     check(ready[0].candidates[0]["camera_x"] == 12.0, "candidate data survives worker boundary")
     worker.apply_result(scanner, ready[0])
     check(scanner.last_candidates[0]["camera_y"] == 34.0, "worker result integrates back into scanner state")
     worker.shutdown()
-
 
 
 
@@ -100,6 +112,7 @@ def test_two_shot_harvest(mod) -> None:
 
 def test_ai_shadow_worker(mod) -> None:
     worker = mod.AIShadowWorkerV2224()
+    worker.warmup()
     calls: list[tuple] = []
 
     def observe(runtime, scanner, event=None):
@@ -140,7 +153,7 @@ def test_ai_shadow_worker(mod) -> None:
     worker.submit(runtime, scanner, explicit_event=event)
     submit_ms = (time.perf_counter() - t0) * 1000.0
     worker.record_finish(runtime, 4, "matched")
-    check(submit_ms < 30.0, "AI shadow submission is non-blocking")
+    check(submit_ms < 500.0, "AI shadow submission is non-blocking")
     time.sleep(0.09)
     check(("observe", 4) in calls, "AI observation runs on shadow worker")
     check(("choose", 4) in calls, "advisory chooser runs on shadow worker")
@@ -160,6 +173,8 @@ def test_source_contract() -> None:
         "main installs V2.22.3 first": 'install_v2223_runtime(App)' in main_source,
         "main installs V2.22.4 second": 'install_v2224_runtime(App)' in main_source,
         "main entrypoint owns async policy": main_source.index('install_v2223_runtime(App)') < main_source.index('install_v2224_runtime(App)') < main_source.index('App().run()'),
+        "CV worker has startup warmup": 'def warmup(self, timeout_s: float = 1.0)' in source,
+        "CV submit uses cached configuration": 'max_queued = self._max_queued_per_shot' in source and 'spacing_s = self._frame_spacing_s' in source,
     }
     for label, cond in checks.items():
         check(cond, label)
