@@ -1,0 +1,123 @@
+{
+  "bootstrap_gate": {
+    "median_positive_rank20_max": 100.0,
+    "retention20_at_128_min": 0.6,
+    "retention20_at_512_min": 0.8
+  },
+  "created_date": "2026-09-03",
+  "delta_base": "V2.23.3",
+  "files": [
+    {
+      "bytes": 2556,
+      "path": "DELTA_README_V2234.md",
+      "sha256": "b745b946cf215b8d831d05c8ea19f28df5118079e3c0073d605d34464fe362ef"
+    },
+    {
+      "bytes": 661,
+      "path": "V2234_DOC_PATCH.md",
+      "sha256": "b5e12cd727898e93dff826e3df96d303314afe2c1189fcae2577415af20e0cc6"
+    },
+    {
+      "bytes": 3872,
+      "path": "V2234_PATCH_NEWHOLE_PIPELINE.md",
+      "sha256": "85853cf3aff4673a1ea8600a73d57df9db5a21065c513edcda0f0788c0fd44b3"
+    },
+    {
+      "bytes": 2065,
+      "path": "V2234_TEST_PLAN.md",
+      "sha256": "9357b6a064d15ca4926365dbfaca8e72915c5d81a0a2bf38c22250ba1d1c83e6"
+    },
+    {
+      "bytes": 1925,
+      "path": "automation/v2234_apply_docs.py",
+      "sha256": "f93adbbc1dd898e401cdcd599474981c78bc4fd7fe04599cc39a190dba1716a8"
+    },
+    {
+      "bytes": 517,
+      "path": "automation/v2234_cycle.py",
+      "sha256": "1f8fb566b760d6c2a9248ca4274bc8d132bde488907b0b5ce9f271a75d2769a3"
+    },
+    {
+      "bytes": 1022,
+      "path": "automation/v2234_prepare.py",
+      "sha256": "fa37c48c4d884ad14b6d00e40d6d72193391b4eec825218e3a3674d8b78ab9c3"
+    },
+    {
+      "bytes": 4386,
+      "path": "automation/v2234_selftest.py",
+      "sha256": "d42729823cdfd5ebea7a2b2d301e3fe0a3f9aab928e5b32363a8913a0934b525"
+    },
+    {
+      "bytes": 2458,
+      "path": "automation/v2234_status.py",
+      "sha256": "93363945e0f9f3cd6a45156c4ac8dd3a6c1d4ed9f1d5927688145fa8f0a4c419"
+    },
+    {
+      "bytes": 2437,
+      "path": "automation/v2234_train.py",
+      "sha256": "d251939aa0de6edad1000f20c2a204c20bd62b483155ed0fd2c3f8cd7517b4c5"
+    },
+    {
+      "bytes": 1869,
+      "path": "automation/v2234_verify_install.py",
+      "sha256": "a7d8084cc3c3ee16bf4a8164b978a665770781fd9d5c4fbf4d19df3e440e34bd"
+    },
+    {
+      "bytes": 606,
+      "path": "src/engine/ai/training_v223/__init__.py",
+      "sha256": "d1898466c7c38205bf7df42740afb78ecbabbb8ff8e28cffb0d7ded39109d7ca"
+    },
+    {
+      "bytes": 19189,
+      "path": "src/engine/ai/training_v223/integration.py",
+      "sha256": "39229bf1ddc9a3cd4210d310e2ff17d2589d410acfa85a16d14493ff6d44ee80"
+    },
+    {
+      "bytes": 14402,
+      "path": "src/engine/ai/training_v223/patch_model_v2234.py",
+      "sha256": "3c899811a6674225fdebfe4861c104236a331d7f3c396b009f57efc795025d0b"
+    },
+    {
+      "bytes": 11542,
+      "path": "src/engine/ai/training_v223/patch_v2234.py",
+      "sha256": "bc0b1ea42945c7c61890e3145a9177a63864f8e2825c10dad3bc150a86ceee74"
+    },
+    {
+      "bytes": 17341,
+      "path": "src/engine/ai/training_v223/trainer_v2234.py",
+      "sha256": "2120956eab990d1e1a7176bf31ef82948674d42a0919daafb528b858920f6357"
+    }
+  ],
+  "live_authority_changed": false,
+  "model_backends": [
+    "dependency-free NumPy patch MLP",
+    "dependency-free NumPy tiny CNN"
+  ],
+  "name": "Patch NewHole Candidate Model",
+  "patch_contract": {
+    "channels": [
+      "pre_gray",
+      "post_mean_gray",
+      "absdiff_x8",
+      "signed_diff_x4_center128",
+      "persistence_0_255"
+    ],
+    "crop_size": 32,
+    "gt_anchor_enters_candidate_pool": false,
+    "gt_anchor_training_only": true,
+    "patch_size": 16
+  },
+  "requires": [
+    "V2.23.3 installed",
+    "NumPy",
+    "existing project OpenCV stack for proposal/framepack preparation"
+  ],
+  "research_domain_gate": {
+    "final_conditional_top1_20_min": 0.1,
+    "median_positive_rank20_max": 150.0,
+    "retention20_at_128_min": 0.55,
+    "retention20_at_512_min": 0.85
+  },
+  "selection_discipline": "engineering validation selects trials; fresh-domain evaluated only after selection",
+  "version": "2.23.4"
+}
