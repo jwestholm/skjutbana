@@ -1,0 +1,31 @@
+{
+  "base": "V2.23.4",
+  "core_changes": [
+    "candidate-centred patches from registered V2.21 physical evidence maps",
+    "tight patch labels: <=6px positive, 6..42px neutral, >42px negative",
+    "two rounds of model-hard-negative mining over all training candidates",
+    "validation-only model selection; newest substantial F2 session stays fresh-domain",
+    "bootstrap gate R512>=0.70, R128>=0.45, median positive rank<=200"
+  ],
+  "files": [
+    "DELTA_README_V2235.md",
+    "V2235_DOC_PATCH.md",
+    "V2235_REGISTERED_EVIDENCE_PIPELINE.md",
+    "V2235_TEST_PLAN.md",
+    "automation/v2235_apply_docs.py",
+    "automation/v2235_cycle.py",
+    "automation/v2235_prepare.py",
+    "automation/v2235_selftest.py",
+    "automation/v2235_status.py",
+    "automation/v2235_train.py",
+    "automation/v2235_verify_install.py",
+    "src/engine/ai/training_v223/__init__.py",
+    "src/engine/ai/training_v223/evidence_model_v2235.py",
+    "src/engine/ai/training_v223/evidence_patch_v2235.py",
+    "src/engine/ai/training_v223/integration.py",
+    "src/engine/ai/training_v223/trainer_v2235.py"
+  ],
+  "live_authority": false,
+  "name": "Registered Evidence Patch Ranker + Iterative Hard-Negative Mining",
+  "version": "2.23.5"
+}
