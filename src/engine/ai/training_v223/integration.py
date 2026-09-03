@@ -9,6 +9,7 @@ from .capture import TrainingCaptureV223
 from .framepack import save_scene_framepack
 from .registry import load_champion_model
 from .trainer import schedule_quick_autotrain_v223
+from .trainer_v2233 import schedule_cycle_v2233
 
 _INSTALLED = False
 
@@ -408,8 +409,9 @@ def install_v2230_training_pipeline() -> None:
             shots = int(getattr(cap, "shots_saved", 0) if cap is not None else 0)
             if bool(getattr(self, "_v223_f2_started", False)) and shots >= 10 and not bool(getattr(self, "_v223_autotrain_scheduled", False)):
                 self._v223_autotrain_scheduled = True
-                started = schedule_quick_autotrain_v223(trigger=f"f2:{getattr(cap, 'session_id', 'unknown')}")
-                msg = f"V2.23: {shots} grupper sparade; challenger-träning {'startad' if started else 'redan aktiv'} (shadow)."
+                session_id = str(getattr(cap, "session_id", "unknown"))
+                started = schedule_cycle_v2233(session_id=session_id, quick=True)
+                msg = f"V2.23.3: {shots} grupper sparade; proposal→rich→reducer-cykel {'startad' if started else 'redan aktiv'} (shadow)."
                 try:
                     self.auto_report_lines.insert(-1, msg)
                 except Exception:
@@ -427,4 +429,4 @@ def install_v2230_training_pipeline() -> None:
     AITrainingScene._build_auto_report = wrapped_report
     AITrainingScene._v223_pipeline_installed = True
     _INSTALLED = True
-    print("[V2.23.2] proposal/data/domain training pipeline installed (framepacks + fresh-F2 domain gate; live authority unchanged)")
+    print("[V2.23.3] learned reducer + rich PRE/POST training pipeline installed (F2 autotrain shadow-only; live authority unchanged)")

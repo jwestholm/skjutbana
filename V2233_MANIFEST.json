@@ -1,0 +1,106 @@
+{
+  "base": "Install over V2.23.2 / V2.22.6 checkout",
+  "files": [
+    {
+      "bytes": 964,
+      "path": "DELTA_README_V2233.md",
+      "sha256": "8ab8b6497feac1aa20fbb8b2d7f7e9569c120f7f7aa4f218d833bf779dc9f24b"
+    },
+    {
+      "bytes": 898,
+      "path": "V2233_DOC_PATCH.md",
+      "sha256": "b98d3492fe9907f9ee2ee006fd037e3c2faf24b3b5ec2d0fb766a2c3c519411e"
+    },
+    {
+      "bytes": 5526,
+      "path": "V2233_LEARNED_REDUCER_PIPELINE.md",
+      "sha256": "25e2ccd930dd9ad40d8d9d0ad822cd4d6c376bfb0c330f1b79b29ffc9a848fdb"
+    },
+    {
+      "bytes": 3133,
+      "path": "V2233_TEST_PLAN.md",
+      "sha256": "fb5dde799904ae0afa0451c1ca3c9defafcd75b224c509239dcc1d88af413ca8"
+    },
+    {
+      "bytes": 1854,
+      "path": "automation/v2233_apply_docs.py",
+      "sha256": "165e94144e5ad36924597f180a6c6c85b137de182117aec7ff8ad47eb9fbdb1c"
+    },
+    {
+      "bytes": 1081,
+      "path": "automation/v2233_cycle.py",
+      "sha256": "945d9149be4509e558ab71dbc055c2a613f0feeebdbd699bc4027002a55ed536"
+    },
+    {
+      "bytes": 1013,
+      "path": "automation/v2233_prepare.py",
+      "sha256": "137d93b346f66762c02965e33143b5ea34e47bff6d295a11f9e5cefbc14559a0"
+    },
+    {
+      "bytes": 5006,
+      "path": "automation/v2233_selftest.py",
+      "sha256": "846283c3fbd82fc086eae024ebb67aa76de26074628ccc8ae58928f49c0a8172"
+    },
+    {
+      "bytes": 2216,
+      "path": "automation/v2233_status.py",
+      "sha256": "c272fa43ccc03ff2ab891db15be9fc068a973b8cf733c197a954f63b4b3b628e"
+    },
+    {
+      "bytes": 1700,
+      "path": "automation/v2233_train.py",
+      "sha256": "cd1c3ce05951ad9fced3bfbe7c8a084502fe8939667a5040390af1b3df3e8dd7"
+    },
+    {
+      "bytes": 2588,
+      "path": "automation/v2233_verify_install.py",
+      "sha256": "389f570db38f8acf6d4b69d2209c3a2563fe95275228403fd85d0415a4ca6f31"
+    },
+    {
+      "bytes": 555,
+      "path": "src/engine/ai/training_v223/__init__.py",
+      "sha256": "cad3828822f42a0fdfe6589af93ca8dc252ba981abf6da9690e28d5cbfa8664e"
+    },
+    {
+      "bytes": 9405,
+      "path": "src/engine/ai/training_v223/dense_v2233.py",
+      "sha256": "5d22b39b4ac77bc0415ba5633141248e3026ad398bf06897660e62ccddf4ac2d"
+    },
+    {
+      "bytes": 19192,
+      "path": "src/engine/ai/training_v223/integration.py",
+      "sha256": "cb6c40419f8fee235f3c1a5cc678d860629edd7d5b3b6ec3da1bab3a77cecd2c"
+    },
+    {
+      "bytes": 12479,
+      "path": "src/engine/ai/training_v223/reducer_v2233.py",
+      "sha256": "76beeb59201bdbb9827438c9bfc666521b09c98c8214611f3ada7336f1c1aa20"
+    },
+    {
+      "bytes": 13216,
+      "path": "src/engine/ai/training_v223/rich_v2233.py",
+      "sha256": "05aa232e073dd9b1fb9306b33952bf87c1a9d581f97a37ecd58f2f131d2fe210"
+    },
+    {
+      "bytes": 14151,
+      "path": "src/engine/ai/training_v223/schema.py",
+      "sha256": "2a6dfdb45d530651c2bcd82ed6f6e666e0de5c4513d6486caae7ea50a4252d0c"
+    },
+    {
+      "bytes": 19520,
+      "path": "src/engine/ai/training_v223/trainer_v2233.py",
+      "sha256": "88f3e95593312138444e89af736f2d3770f39d447467f060a7c79380a81df9a8"
+    }
+  ],
+  "key_contracts": [
+    "V2.21.5 dense proposal remains offline teacher/high-recall pool",
+    "GT never enters rich feature generation or reducer model features",
+    "20..42px candidates are neutral during pairwise reducer training",
+    "single dense F2 session is bootstrap-only; no domain/generalisation claim",
+    "newest substantial dense F2 session becomes fresh-domain gate when >=2 exist",
+    "V2.22 live hit authority remains unchanged"
+  ],
+  "live_authority_changed": false,
+  "name": "Learned Candidate Reduction + Rich NEW-hole Ranking",
+  "version": "2.23.3"
+}

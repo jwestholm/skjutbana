@@ -4,7 +4,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping, Sequence
 
-SCHEMA_VERSION = "2.23.2"
+SCHEMA_VERSION = "2.23.3"
 
 # Deliberately physical / observational features only.  Do not add fields that
 # encode GT distance, current rank policy, reason_* bookkeeping or model output.
@@ -47,6 +47,28 @@ FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "dense_local_within20": ("dense_local_within20",),
     "dense_local_within42": ("dense_local_within42",),
     "dense_percentile_support": ("dense_percentile_support",),
+    # V2.23.3 full-frame PRE/POST rich evidence. These are generated without GT
+    # from the saved framepack and sampled at candidate coordinates.
+    "v2233_abs_r2": ("v2233_abs_r2",),
+    "v2233_abs_r5": ("v2233_abs_r5",),
+    "v2233_abs_r10": ("v2233_abs_r10",),
+    "v2233_abs_peak_r2": ("v2233_abs_peak_r2",),
+    "v2233_dark_r2": ("v2233_dark_r2",),
+    "v2233_dark_r5": ("v2233_dark_r5",),
+    "v2233_bright_r2": ("v2233_bright_r2",),
+    "v2233_bright_r5": ("v2233_bright_r5",),
+    "v2233_signed_r2": ("v2233_signed_r2",),
+    "v2233_persist_r2": ("v2233_persist_r2",),
+    "v2233_persist_r5": ("v2233_persist_r5",),
+    "v2233_temporal_std_r2": ("v2233_temporal_std_r2",),
+    "v2233_pre_std_r5": ("v2233_pre_std_r5",),
+    "v2233_post_std_r5": ("v2233_post_std_r5",),
+    "v2233_edge_gain_r3": ("v2233_edge_gain_r3",),
+    "v2233_center_ring_abs": ("v2233_center_ring_abs",),
+    "v2233_center_ring_dark": ("v2233_center_ring_dark",),
+    "v2233_small_large_ratio": ("v2233_small_large_ratio",),
+    "v2233_dark_fraction": ("v2233_dark_fraction",),
+    "v2233_newhole_heuristic": ("v2233_newhole_heuristic",),
 }
 FEATURE_NAMES: tuple[str, ...] = tuple(FEATURE_ALIASES)
 
