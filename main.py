@@ -41,7 +41,7 @@ from src.engine.shot_critical_v2223 import install_v2223_runtime
 from src.engine.shot_async_v2224 import install_v2224_runtime
 from src.engine.shot_fast_v2225 import install_v2225_runtime
 from src.engine.shot_track_v2226 import install_v2226_runtime
-from src.engine.ai.training_v223.integration import install_v2230_training_pipeline
+from src.engine.shot_object_local_v241 import install_v241_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -49,13 +49,13 @@ from src.engine.ai.training_v223.integration import install_v2230_training_pipel
 # persistence passes with a sparse live proposal + local confirmation lane.
 # V2.22.6 fixes track semantics so same-frame candidate clusters are support,
 # not fake temporal hits, and adds raw audio near-miss telemetry.
+# V2.24.1 consumes the V2.24.0 shot-time camera HitRegions to constrain the
+# FIRST physical proposal search. V2.22.5 full rescue remains global.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
 install_v2226_runtime(App)
-# V2.23 is deliberately installed after the frozen V2.22 runtime chain. It
-# captures/trains shadow models only and must not alter live hit authority.
-install_v2230_training_pipeline()
+install_v241_runtime(App)
 
 if __name__ == "__main__":
     try:

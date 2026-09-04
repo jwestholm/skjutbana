@@ -237,3 +237,98 @@ V2.24.0 provides:
 
 V2.24.0 does **not** yet make local object-aware physical search authoritative.
 That is V2.24.1. Until then, the existing global hit path remains unchanged.
+
+<!-- V2.24.1 OBJECT_LOCAL_PHYSICAL_SEARCH -->
+## 11. V2.24.1 — object-aware local physical search
+
+V2.24.1 is the first runtime consumer of the frozen camera-space HitRegions.
+The contract from V2.24.0 does not change: games still expose approximate
+viewport-local/game-local AABBs through `get_hit_regions()`.
+
+At PANG the V2.24.0 snapshot freezes the object geometry. The new live path is:
+
+```text
+PANG
+  |
+  v
+frozen camera HitRegions
+  |
+  +-- add camera-space safety margin (default 36 px)
+  +-- merge overlapping windows
+  +-- intersect with the detector's existing valid perspective ROI
+  v
+V2.22.5 FAST physical proposal extraction inside those windows
+  |
+  v
+V2.22.5 PRE->POST local confirmation
+  |
+  +-- physical proof -> ordinary resolver / HitEvent
+  |
+  +-- no proof / zero proposals -> ONE existing V2.22.5 FULL-RESCUE
+                                   (GLOBAL, not region-masked)
+```
+
+### Authority rule
+
+A region means **"search here first"**, never **"this object was hit"**.
+
+- `target`, `no_shoot`, `breakable` and other roles are searched equally.
+- No candidate coordinate is snapped to a region or object centre.
+- A shot just outside an object is not moved onto it.
+- Physical PRE->POST evidence remains mandatory.
+- Exact object collision still happens in the game after a physical
+  `HitEvent.game_x/game_y` exists.
+
+### Fallback behaviour
+
+The normal/global V2.22.5 path is used unchanged when:
+
+- the game exposes no HitRegions,
+- no shot-time snapshot exists,
+- game->camera transformation was unavailable,
+- transformed regions do not intersect the detector ROI,
+- region data is invalid or exceeds the safety cap,
+- V2.22.5 requests its one FULL-RESCUE pass.
+
+The FULL-RESCUE is deliberately not masked by game context. This is the main
+false-negative safety valve for V2.24.1.
+
+### Runtime diagnostics
+
+For an object-aware shot, expect a line like:
+
+```text
+[V2.24.1 LOCAL-SEARCH] shot=17 regions=4 merged=2 valid=8.7% margin=36px
+```
+
+If the existing rescue is needed:
+
+```text
+[V2.24.1 GLOBAL-FALLBACK] shot=17 reason=v2225_full_rescue
+[V2.22.5 FULL-RESCUE] shot=17 using high-recall extractor
+```
+
+`last_window_debug` also receives `v241_*` fields including region count,
+merged-window count and the fraction of the original valid detector ROI searched.
+
+### Performance scope
+
+V2.24.1 restricts the **candidate/proposal extraction** stage by replacing the
+`valid` mask passed to the already-installed V2.22.5 FAST extractor. Some
+upstream evidence maps may still be computed for the normal perspective ROI.
+This is intentional for the first object-aware release: it gives us a small,
+reversible integration before considering deeper ROI/crop changes.
+
+### Tunables
+
+Runtime settings (defaults):
+
+```text
+object_local_search_enabled_v241 = true
+object_local_search_margin_px_v241 = 36.0
+object_local_search_max_regions_v241 = 256
+object_local_search_log_v241 = true
+```
+
+Do not tune the margin for benchmark scores before the V2.24.2 physical test
+scene exists. The first goal is correctness and false-attraction measurement.
