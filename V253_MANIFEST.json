@@ -36,7 +36,12 @@
     "V253_DOC_PATCH.md",
     "DELTA_README_V253.md",
     "V253_MANIFEST.json",
-    "SHA256SUMS_V253.txt"
+    "SHA256SUMS_V253.txt",
+    "automation/v253_r2_repair_settings.py",
+    "automation/v253_r2_apply_docs.py",
+    "V253_R2_SETTINGS_PACKAGING_REPAIR.md",
+    "DELTA_README_V253_R2.md",
+    "SHA256SUMS_V253_R2.txt"
   ],
   "modified_files": [
     "main.py",
@@ -55,5 +60,8 @@
     "V252_DOC_PATCH.md"
   ],
   "physical_acceptance": "pending repeat of the same five-object physical shot series",
-  "next_planned": "V2.25.4 moving-object continuity only after V2.25.3 physical XY acceptance"
+  "next_planned": "V2.25.4 moving-object continuity only after V2.25.3 physical XY acceptance",
+  "package_revision": "r2",
+  "package_fix": "remove accidental settings.py unit-test stub; recover complete settings from Git history during prepare",
+  "runtime_schema_version": "2.25.3"
 }
