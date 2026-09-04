@@ -9,7 +9,7 @@ from .capture import TrainingCaptureV223
 from .framepack import save_scene_framepack
 from .registry import load_champion_model
 from .trainer import schedule_quick_autotrain_v223
-from .trainer_v2235 import schedule_cycle_v2235
+from .trainer_v2236 import schedule_cycle_v2236
 
 _INSTALLED = False
 
@@ -410,8 +410,8 @@ def install_v2230_training_pipeline() -> None:
             if bool(getattr(self, "_v223_f2_started", False)) and shots >= 10 and not bool(getattr(self, "_v223_autotrain_scheduled", False)):
                 self._v223_autotrain_scheduled = True
                 session_id = str(getattr(cap, "session_id", "unknown"))
-                started = schedule_cycle_v2235(session_id=session_id, quick=True)
-                msg = f"V2.23.5: {shots} grupper sparade; proposal→registered-evidence→hard-mine→ranker-cykel {'startad' if started else 'redan aktiv'} (shadow)."
+                started = schedule_cycle_v2236(session_id=session_id, quick=True)
+                msg = f"V2.23.6: {shots} grupper sparade; proposal→registered maps→direct heatmap-cykel {'startad' if started else 'redan aktiv'} (shadow)."
                 try:
                     self.auto_report_lines.insert(-1, msg)
                 except Exception:
@@ -429,4 +429,4 @@ def install_v2230_training_pipeline() -> None:
     AITrainingScene._build_auto_report = wrapped_report
     AITrainingScene._v223_pipeline_installed = True
     _INSTALLED = True
-    print("[V2.23.5] registered evidence patch + hard-negative cascade installed (F2 autotrain shadow-only; live authority unchanged)")
+    print("[V2.23.6] registered-evidence direct heatmap localizer installed (F2 autotrain shadow-only; live authority unchanged)")

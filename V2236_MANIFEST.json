@@ -1,0 +1,25 @@
+{
+  "files": [
+    "DELTA_README_V2236.md",
+    "V2236_DIRECT_HEATMAP_PIPELINE.md",
+    "V2236_DOC_PATCH.md",
+    "V2236_TEST_PLAN.md",
+    "automation/v2236_apply_docs.py",
+    "automation/v2236_cycle.py",
+    "automation/v2236_prepare.py",
+    "automation/v2236_selftest.py",
+    "automation/v2236_status.py",
+    "automation/v2236_train.py",
+    "automation/v2236_verify_install.py",
+    "src/engine/ai/training_v223/__init__.py",
+    "src/engine/ai/training_v223/heatmap_model_v2236.py",
+    "src/engine/ai/training_v223/heatmap_v2236.py",
+    "src/engine/ai/training_v223/integration.py",
+    "src/engine/ai/training_v223/trainer_v2236.py"
+  ],
+  "install_on_top_of": "2.23.5",
+  "live_authority": false,
+  "name": "Registered Evidence Direct Heatmap Localizer",
+  "purpose": "Advance from global dense-candidate ranking to direct spatial localisation over registered physical evidence maps.",
+  "version": "2.23.6"
+}
