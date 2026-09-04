@@ -21,11 +21,25 @@ class OverlayScene(Scene):
     def wants_camera_preview(self) -> bool:
         return bool(getattr(self.inner, "wants_camera_preview", False))
 
+    def get_hit_regions(self):
+        """Proxy optional game hit-context through the normal scene wrapper.
+
+        V2.22.3 snapshots the *active* scene before scene update.  Games are
+        normally wrapped in OverlayScene, so without this proxy the underlying
+        GameScene/game provider is invisible to the shot-critical path.
+        """
+        provider = getattr(self.inner, "get_hit_regions", None)
+        if not callable(provider):
+            return ()
+        values = provider()
+        return () if values is None else values
+
     def on_enter(self):
         if hasattr(self.inner, "on_enter"):
             self.inner.on_enter()
 
     def on_exit(self):
+        hit_visualizer.clear()
         if hasattr(self.inner, "on_exit"):
             self.inner.on_exit()
 
@@ -35,9 +49,7 @@ class OverlayScene(Scene):
             menu_state = getattr(self.inner, "return_menu_state", None)
         if menu_state is None:
             return None
-
         from src.engine.scenes.menu import MenuScene
-
         return SceneSwitch(MenuScene(menu_state=menu_state))
 
     def _accepts_mouse_simulated_hits(self) -> bool:
@@ -63,13 +75,11 @@ class OverlayScene(Scene):
 
     def update(self, dt):
         result = self.inner.update(dt)
+        hit_visualizer.update(dt)
         return result
 
     def render(self, screen):
         self.inner.render(screen)
-        # Suppress overlays when inner scene requests it (e.g. during calibration)
-        if getattr(self.inner, "suppress_overlays", False):
-            return
         hit_visualizer.render(screen)
         scanner_debug_overlay.render(screen)
         scanner_status_overlay.render(screen)
