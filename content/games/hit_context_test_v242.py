@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V2.24.2 Game Hit Context verification scene.
+"""V2.24.3 Game Hit Context verification scene.
 
 This is deliberately a diagnostic scene rather than a reusable object engine.
 It exercises the V2.24 HitRegion contract and V2.24.1 local physical search with:
@@ -70,7 +70,7 @@ class TestBox:
         return self.x <= x <= self.x + self.w and self.y <= y <= self.y + self.h
 
 
-class HitContextTestV242:
+class HitContextTestV243:
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
         del game_root
         self.viewport = viewport.copy()
@@ -89,6 +89,7 @@ class HitContextTestV242:
         self.last_frozen_regions: tuple = ()
         self.last_frozen_until = 0.0
         self.last_snapshot_id = None
+        self.last_motion_px = 0.0
         self._font_big = None
         self._font = None
         self._font_small = None
@@ -104,7 +105,7 @@ class HitContextTestV242:
         if not self._subscribed:
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
-        print("[V2.24.2 TESTSCENE] entered; E=empty/global P=pause R=reset")
+        print("[V2.24.3 TESTSCENE] entered; E=empty/global P=pause R=reset")
 
     def on_exit(self) -> None:
         if self._subscribed:
@@ -134,7 +135,7 @@ class HitContextTestV242:
             TestBox("static_no_shoot", "no_shoot", w * 0.77, play_top + 18, bw, bh,
                     NO_SHOOT, "NO SHOOT"),
             TestBox("moving_target", "target", w * 0.35, play_top + play_h * 0.34,
-                    bw, bh, TARGET, "TARGET / RÖRLIG", vx=max(70.0, w * 0.075), moving=True),
+                    bw, bh, TARGET, "TARGET / RÖRLIG", vx=max(180.0, w * 0.18), moving=True),
             TestBox("overlap_target", "target", w * 0.39, play_top + play_h * 0.68,
                     bw, bh, TARGET, "OVERLAP TARGET"),
             TestBox("overlap_no_shoot", "no_shoot", w * 0.46, play_top + play_h * 0.72,
@@ -210,6 +211,25 @@ class HitContextTestV242:
         frozen_hits = self._regions_containing(frozen_regions, x, y)
         current_hits = self._current_regions_containing(x, y)
 
+        # Measure how far matching objects moved between PANG and HitEvent.
+        # This is more useful than only counting role/containment changes: the
+        # moving target may still contain the same XY after moving 20-60 px.
+        current_by_id = {b.object_id: b for b in self.boxes}
+        motion_px = 0.0
+        for region in frozen_regions:
+            box = current_by_id.get(str(getattr(region, "object_id", "")))
+            if box is None:
+                continue
+            try:
+                frozen_cx = float(region.x) + float(region.width) * 0.5
+                frozen_cy = float(region.y) + float(region.height) * 0.5
+                current_cx = float(box.x) + float(box.w) * 0.5
+                current_cy = float(box.y) + float(box.h) * 0.5
+                motion_px = max(motion_px, ((current_cx - frozen_cx) ** 2 + (current_cy - frozen_cy) ** 2) ** 0.5)
+            except Exception:
+                pass
+        self.last_motion_px = motion_px
+
         # Camera/audio hits should have a frozen snapshot. Mouse hits may not.
         authoritative_regions = frozen_hits if frozen_regions else current_hits
         roles = {str(getattr(r, "role", "")) for r in authoritative_regions}
@@ -239,9 +259,9 @@ class HitContextTestV242:
         self.last_detail = f"frozen: {frozen_desc} | current: {current_desc}"
 
         print(
-            "[V2.24.2 TEST-HIT] "
+            "[V2.24.3 TEST-HIT] "
             f"source={source} event_shot={event_shot_id} snapshot={snapshot_id} "
-            f"xy=({x:.1f},{y:.1f}) empty={self.empty_regions} "
+            f"xy=({x:.1f},{y:.1f}) empty={self.empty_regions} motion={self.last_motion_px:.1f}px "
             f"verdict={verdict_color}:{verdict} frozen=[{frozen_desc}] current=[{current_desc}]"
         )
 
@@ -254,7 +274,7 @@ class HitContextTestV242:
         if event.key == pygame.K_e:
             self.empty_regions = not self.empty_regions
             mode = "EMPTY/GLOBAL" if self.empty_regions else "REGION-FIRST"
-            print(f"[V2.24.2 TESTSCENE] mode={mode}")
+            print(f"[V2.24.3 TESTSCENE] mode={mode}")
         elif event.key == pygame.K_p:
             self.pause_motion = not self.pause_motion
         elif event.key == pygame.K_r:
@@ -263,6 +283,7 @@ class HitContextTestV242:
             self.last_result = "Räknare nollställda"
             self.last_detail = ""
             self.last_xy = None
+            self.last_motion_px = 0.0
             self.last_frozen_regions = ()
         return None
 
@@ -289,11 +310,11 @@ class HitContextTestV242:
         pygame.draw.rect(surface, (21, 26, 35), (0, 0, surface.get_width(), HUD_H))
         mode = "EMPTY REGIONS → GLOBAL" if self.empty_regions else "HITREGIONS → LOCAL FIRST"
         mode_color = AMBER if self.empty_regions else CYAN
-        title = self._font_big.render(f"V2.24.2 HIT CONTEXT TEST   |   {mode}", True, mode_color)
+        title = self._font_big.render(f"V2.24.3 HIT CONTEXT TEST   |   {mode}", True, mode_color)
         surface.blit(title, (14, 10))
         stats = (
             f"Hits {self.hit_count}   target {self.target_hits}   no-shoot {self.no_shoot_hits}   "
-            f"outside {self.outside_hits}   frozen/current diff {self.snapshot_mismatch}"
+            f"outside {self.outside_hits}   role diff {self.snapshot_mismatch}   last motion {self.last_motion_px:.0f}px"
         )
         surface.blit(self._font.render(stats, True, TEXT), (14, 45))
         surface.blit(self._font_small.render(
@@ -348,4 +369,4 @@ class HitContextTestV242:
 
 
 def create_game(game_root: str, viewport: pygame.Rect):
-    return HitContextTestV242(game_root=game_root, viewport=viewport)
+    return HitContextTestV243(game_root=game_root, viewport=viewport)

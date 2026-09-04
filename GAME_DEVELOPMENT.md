@@ -367,3 +367,8 @@ visible even if the moving object has advanced before HitEvent delivery.
 The scene does **not** grant object authority. Returned `HitEvent.game_x/game_y`
 is classified against frozen/current geometry only for diagnostics. It never
 snaps hit XY to a box and never changes detector evidence thresholds.
+
+<!-- V2.24.3 GAME_DEVELOPMENT -->
+## V2.24.3 detector integration note
+
+Games still expose the same viewport-local `get_hit_regions()` contract. No game API changed. V2.24.3 only moves consumption of those frozen camera AABBs upward to HitScanner's first-pass ROI so every live proposal branch sees the same region restriction. Object roles remain context only; final game collision uses returned HitEvent XY.

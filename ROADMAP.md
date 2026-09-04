@@ -38,3 +38,8 @@
   inspect local-search, fallback, frozen geometry and returned XY.
 - [ ] **V2.25.0** — first shared GameObject / HittableObject / BreakableObject /
   ObjectManager layer, assuming V2.24.2 acceptance is clean.
+
+<!-- V2.24.3 DIRECT_ROADMAP -->
+## V2.24.3 corrective checkpoint
+
+V2.24.2 physical testing exposed an ROI integration defect. V2.24.3 fixes implicit content-rect origin, moves local region restriction to HitScanner ROI level, preserves global FULL-RESCUE and upgrades the physical testscene. Physical acceptance of V2.24.3 precedes V2.25.0.

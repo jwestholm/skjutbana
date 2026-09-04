@@ -42,6 +42,7 @@ from src.engine.shot_async_v2224 import install_v2224_runtime
 from src.engine.shot_fast_v2225 import install_v2225_runtime
 from src.engine.shot_track_v2226 import install_v2226_runtime
 from src.engine.shot_object_local_v241 import install_v241_runtime
+from src.engine.shot_object_local_v243 import install_v243_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -51,11 +52,14 @@ from src.engine.shot_object_local_v241 import install_v241_runtime
 # not fake temporal hits, and adds raw audio near-miss telemetry.
 # V2.24.1 consumes the V2.24.0 shot-time camera HitRegions to constrain the
 # FIRST physical proposal search. V2.22.5 full rescue remains global.
+# V2.24.3 fixes the implicit content-rect origin and moves that restriction
+# up to HitScanner ROI level so legacy/V1, early V2 and normal V2 share it.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
 install_v2226_runtime(App)
 install_v241_runtime(App)
+install_v243_runtime(App)
 
 if __name__ == "__main__":
     try:
