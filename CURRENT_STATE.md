@@ -126,3 +126,9 @@ V2.25.0 shot_id/frozen GameObject resolution is physically verified. V2.25.1 per
 proposal works. V2.25.2 registered evidence runs physically but its readiness bridge
 was instance-local and its freshness gate remained too permissive. V2.25.3 fixes both
 at the authority layer; five-shot physical acceptance is pending.
+
+<!-- V2.25.3-r3 FULL_FILE_DELIVERY -->
+## V2.25.3-r3 – full-file delivery
+
+Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
+

@@ -121,3 +121,9 @@ of this bridge is the final V2.24 gate before V2.25 reusable game objects.
 - [x] V2.25.3 — worker/main readiness bridge + cross-shot physical novelty; acceptance pending.
 - [ ] V2.25.4 — moving-object continuity after physical XY acceptance.
 - [ ] V2.25.5 — effect/audio dispatcher when required by a migrated game.
+
+<!-- V2.25.3-r3 FULL_FILE_DELIVERY -->
+## V2.25.3-r3 – full-file delivery
+
+Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
+

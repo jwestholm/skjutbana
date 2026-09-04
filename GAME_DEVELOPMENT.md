@@ -426,3 +426,9 @@ GameObjects still contribute only search regions. V2.25.3 can prefer a newly app
 camera-space physical change over a hotspot repeatedly confirmed on earlier shots, but
 it may not prefer a target over no-shoot or move XY into an object. Re-hit is legal and
 can recover via stronger registered evidence.
+
+<!-- V2.25.3-r3 FULL_FILE_DELIVERY -->
+## V2.25.3-r3 – full-file delivery
+
+Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
+
