@@ -86,10 +86,10 @@ of this bridge is the final V2.24 gate before V2.25 reusable game objects.
 - [x] V2.24.4 — physical local-ROI bridge accepted.
 - [x] V2.25.0 — composable GameObject foundation, exact frozen collision,
   shot-id HitEvent bridge, gameplay penetration/damage, reactions/effect requests.
-- [ ] V2.25.1 — permit/verify continuous moving-object updates while a physical
-  shot resolves, using exact shot_id snapshot collision.
-- [ ] V2.25.2 — optional sound/effect dispatcher and lightweight visual effects.
-- [ ] V2.25.3+ — multipart entity aggregation only when a concrete game needs it.
+- [x] V2.25.1 — region-balanced physical proposal/confirmation inserted after physical XY failures.
+- [x] V2.25.2 — registered PRE→POST freshness authority and early legacy gate.
+- [ ] V2.25.3 — continuous moving-object updates using exact shot_id snapshot collision.
+- [ ] V2.25.4+ — effect/audio dispatcher and multipart aggregation when concrete games need them.
 - [ ] Build/migrate production games incrementally on the stable object API.
 
 <!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
@@ -98,7 +98,16 @@ of this bridge is the final V2.24 gate before V2.25 reusable game objects.
 - [x] V2.25.0 — composable GameObject foundation and physical shot-id/frozen bridge.
 - [x] V2.25.1 — build balanced per-object physical proposal/confirmation; physical
   acceptance pending.
-- [ ] V2.25.2 — continuous moving-object updates while CV resolves, using frozen
-  shot-id snapshots for exact collision.
-- [ ] V2.25.3 — effect/audio dispatcher foundation if needed by the first migrated game.
-- [ ] Migrate/build production games only after V2.25.1 physical XY is accepted.
+- [x] V2.25.2 — registered freshness authority + early legacy emission gate, inserted after V2.25.1 physical testing.
+- [ ] V2.25.3 — continuous moving-object updates while CV resolves, using frozen shot-id snapshots for exact collision.
+- [ ] V2.25.4 — effect/audio dispatcher foundation if needed by the first migrated game.
+- [ ] Migrate/build production games only after V2.25.2 physical XY is accepted.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 authority correction
+
+- [x] V2.25.0 — composable GameObject foundation + shot-id/frozen bridge.
+- [x] V2.25.1 — balanced per-region physical proposal/confirmation.
+- [x] V2.25.2 — registered freshness authority + early legacy emission gate; physical acceptance pending.
+- [ ] V2.25.3 — continuous moving-object updates while CV resolves, retaining frozen PANG collision.
+- [ ] V2.25.4 — effect/audio dispatcher foundation when required by the first migrated game.

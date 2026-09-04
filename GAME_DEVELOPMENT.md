@@ -409,3 +409,12 @@ z-order, health, penetration and reactions remain downstream of resolved HitEven
 
 For overlapping objects at the same projected location, detector work may be grouped;
 ObjectManager must still resolve all frozen objects at the final XY in gameplay order.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 — GameObject context and physical authority
+
+A GameObject HitRegion may supply a physical search partition, but a local hit cannot
+be emitted merely because a legacy/bank candidate lies inside that region. Normal local
+authority must have registered immediate PRE→POST freshness at the same physical XY.
+This remains independent of role, health, penetration and reactions. Exact object
+collision still begins only after HitEvent XY exists.

@@ -163,3 +163,8 @@ Existing games do not need to migrate immediately. A game that does not use
 ## V2.25.1 physical-search note
 
 GameObject semantics remain unchanged. The detector may balance proposals per frozen HitRegion, but exact collision, z-order, damage and penetration run only after physical HitEvent XY exists. See `V251_OBJECT_REGION_PHYSICAL_PROPOSAL.md`.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 detector boundary
+
+The object model is unchanged. V2.25.2 only strengthens physical hit authority before ObjectManager collision.

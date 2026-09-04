@@ -1,0 +1,49 @@
+{
+  "schema_version": "2.25.2",
+  "base_version": "2.25.1",
+  "package_kind": "cumulative_delta",
+  "title": "Registered PRE->POST Freshness Authority + Early Legacy Gate",
+  "runtime_entry": "src/engine/shot_region_freshness_v252.py",
+  "install_after": "src/engine/shot_region_proposal_v251.py",
+  "physical_authority": "registered immediate PRE->POST evidence at unchanged candidate XY",
+  "legacy_policy": "legacy/V1/bank remains proposal-only until independently revalidated",
+  "full_rescue": "V2.22.5 global high-recall rescue preserved",
+  "primary_changes": [
+    "registered compact center/ring freshness metrics",
+    "immediate PRE-stack temporal-noise soft penalty",
+    "legacy candidate revalidation against registered V2 evidence",
+    "early waiting_post_peak emission gate",
+    "registered-fresh-only normal object-context track authority",
+    "V2.22.5 second-frame persistence retained",
+    "bounded fail-open to prevent deadlock",
+    "no role/target/gameplay semantic weighting and no XY snapping"
+  ],
+  "new_files": [
+    "src/engine/shot_region_freshness_v252.py",
+    "automation/v252_apply_docs.py",
+    "automation/v252_apply_menu.py",
+    "automation/v252_prepare.py",
+    "automation/v252_selftest.py",
+    "automation/v252_verify_install.py",
+    "automation/v252_status.py",
+    "menu_games_entry_v252.json",
+    "V252_REGISTERED_FRESHNESS_AUTHORITY.md",
+    "AI_REGISTERED_FRESHNESS.md",
+    "V252_TEST_PLAN.md",
+    "V252_DOC_PATCH.md",
+    "DELTA_README_V252.md",
+    "SHA256SUMS_V252.txt"
+  ],
+  "modified_files": [
+    "main.py",
+    "content/games/game_objects_test_v250.py",
+    "GAME_DEVELOPMENT.md",
+    "ROADMAP.md",
+    "GAME_OBJECT_SYSTEM.md",
+    "AI_GAME_OBJECTS.md",
+    "AI_PHYSICAL_REGION_PROPOSAL.md",
+    "V250_GAME_OBJECT_SYSTEM_PLAN.md"
+  ],
+  "physical_acceptance": "pending repeat of the same five-object physical shot series",
+  "next_planned": "V2.25.3 moving-object continuity after V2.25.2 physical XY acceptance"
+}

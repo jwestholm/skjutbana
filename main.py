@@ -46,6 +46,7 @@ from src.engine.shot_object_local_v243 import install_v243_runtime
 from src.engine.shot_object_local_v244 import install_v244_runtime
 from src.engine.shot_context_v250 import install_v250_runtime
 from src.engine.shot_region_proposal_v251 import install_v251_runtime
+from src.engine.shot_region_freshness_v252 import install_v252_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -63,6 +64,9 @@ from src.engine.shot_region_proposal_v251 import install_v251_runtime
 # are notified, allowing GameObjects to resolve against the exact frozen snapshot.
 # V2.25.1 then partitions that frozen object search area into balanced physical
 # proposal/confirmation regions so one noisy object area cannot monopolise hits.
+# V2.25.2 closes the remaining authority leak: early/legacy candidates may aid
+# recall, but object-context hits cannot emit until exact XY has registered V2
+# PRE->POST freshness evidence. The explicit V2.22.5 FULL rescue stays global.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
@@ -72,6 +76,7 @@ install_v243_runtime(App)
 install_v244_runtime(App)
 install_v250_runtime(App)
 install_v251_runtime(App)
+install_v252_runtime(App)
 
 if __name__ == "__main__":
     try:

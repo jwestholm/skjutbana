@@ -63,3 +63,8 @@ before adding a subclass.
 ## V2.25.1 detector boundary
 
 For object-aware hit detection also read `AI_PHYSICAL_REGION_PROPOSAL.md`. HitRegions may partition physical search, but gameplay semantics may never create, move or prefer a physical hit.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 physical authority boundary
+
+Also read `AI_REGISTERED_FRESHNESS.md`. GameObject semantics remain downstream of physical HitEvent XY.
