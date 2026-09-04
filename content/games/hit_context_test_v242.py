@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""V2.24.3 Game Hit Context verification scene.
+"""V2.24.4 Game Hit Context verification scene.
 
 This is deliberately a diagnostic scene rather than a reusable object engine.
 It exercises the V2.24 HitRegion contract and V2.24.1 local physical search with:
@@ -70,7 +70,7 @@ class TestBox:
         return self.x <= x <= self.x + self.w and self.y <= y <= self.y + self.h
 
 
-class HitContextTestV243:
+class HitContextTestV244:
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
         del game_root
         self.viewport = viewport.copy()
@@ -105,7 +105,7 @@ class HitContextTestV243:
         if not self._subscribed:
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
-        print("[V2.24.3 TESTSCENE] entered; E=empty/global P=pause R=reset")
+        print("[V2.24.4 TESTSCENE] entered; E=empty/global P=pause R=reset")
 
     def on_exit(self) -> None:
         if self._subscribed:
@@ -259,7 +259,7 @@ class HitContextTestV243:
         self.last_detail = f"frozen: {frozen_desc} | current: {current_desc}"
 
         print(
-            "[V2.24.3 TEST-HIT] "
+            "[V2.24.4 TEST-HIT] "
             f"source={source} event_shot={event_shot_id} snapshot={snapshot_id} "
             f"xy=({x:.1f},{y:.1f}) empty={self.empty_regions} motion={self.last_motion_px:.1f}px "
             f"verdict={verdict_color}:{verdict} frozen=[{frozen_desc}] current=[{current_desc}]"
@@ -274,7 +274,7 @@ class HitContextTestV243:
         if event.key == pygame.K_e:
             self.empty_regions = not self.empty_regions
             mode = "EMPTY/GLOBAL" if self.empty_regions else "REGION-FIRST"
-            print(f"[V2.24.3 TESTSCENE] mode={mode}")
+            print(f"[V2.24.4 TESTSCENE] mode={mode}")
         elif event.key == pygame.K_p:
             self.pause_motion = not self.pause_motion
         elif event.key == pygame.K_r:
@@ -310,7 +310,7 @@ class HitContextTestV243:
         pygame.draw.rect(surface, (21, 26, 35), (0, 0, surface.get_width(), HUD_H))
         mode = "EMPTY REGIONS → GLOBAL" if self.empty_regions else "HITREGIONS → LOCAL FIRST"
         mode_color = AMBER if self.empty_regions else CYAN
-        title = self._font_big.render(f"V2.24.3 HIT CONTEXT TEST   |   {mode}", True, mode_color)
+        title = self._font_big.render(f"V2.24.4 HIT CONTEXT TEST   |   {mode}", True, mode_color)
         surface.blit(title, (14, 10))
         stats = (
             f"Hits {self.hit_count}   target {self.target_hits}   no-shoot {self.no_shoot_hits}   "
@@ -369,4 +369,4 @@ class HitContextTestV243:
 
 
 def create_game(game_root: str, viewport: pygame.Rect):
-    return HitContextTestV243(game_root=game_root, viewport=viewport)
+    return HitContextTestV244(game_root=game_root, viewport=viewport)

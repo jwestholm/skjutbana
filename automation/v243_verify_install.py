@@ -59,7 +59,7 @@ def main() -> None:
     check("content/menu.json exists", menu.exists())
     entry = _find_entry(json.loads(menu.read_text(encoding="utf-8")))
     check("Hit Context Test menu entry exists", entry is not None)
-    check("menu labels testscene V2.24.3 after prepare", "V2.24.3" in str(entry.get("title", "")))
+    check("menu labels testscene V2.24.3 or successor after prepare", ("V2.24.3" in str(entry.get("title", ""))) or ("V2.24.4" in str(entry.get("title", ""))))
 
     print("\nV2.24.3 installation verification passed.")
 

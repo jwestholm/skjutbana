@@ -43,3 +43,11 @@
 ## V2.24.3 corrective checkpoint
 
 V2.24.2 physical testing exposed an ROI integration defect. V2.24.3 fixes implicit content-rect origin, moves local region restriction to HitScanner ROI level, preserves global FULL-RESCUE and upgrades the physical testscene. Physical acceptance of V2.24.3 precedes V2.25.0.
+
+<!-- V2.24.4 DIRECT_ROADMAP -->
+## V2.24.4 — detector working-space mapping
+
+V2.24.3 physical testing isolated a canonical-camera vs V2.22.1 crop-local
+coordinate mismatch. V2.24.4 maps frozen camera HitRegions into the active
+detector working image before building the first-pass mask. Physical acceptance
+of this bridge is the final V2.24 gate before V2.25 reusable game objects.

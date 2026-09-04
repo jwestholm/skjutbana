@@ -45,7 +45,7 @@ def main() -> None:
     check("V2.24.3 installs after V2.24.1", main_source.rfind("install_v243_runtime(App)") > main_source.rfind("install_v241_runtime(App)"))
 
     scene_source = (ROOT / "content/games/hit_context_test_v242.py").read_text(encoding="utf-8")
-    check("physical testscene identifies V2.24.3", "V2.24.3 HIT CONTEXT TEST" in scene_source)
+    check("physical testscene identifies V2.24.3 or successor", ("V2.24.3 HIT CONTEXT TEST" in scene_source) or ("V2.24.4 HIT CONTEXT TEST" in scene_source))
     check("moving target is faster for snapshot separation", "max(180.0, w * 0.18)" in scene_source)
     check("scene logs frozen/current motion distance", "last_motion_px" in scene_source and "motion=" in scene_source)
 

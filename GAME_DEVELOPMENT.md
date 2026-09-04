@@ -372,3 +372,16 @@ snaps hit XY to a box and never changes detector evidence thresholds.
 ## V2.24.3 detector integration note
 
 Games still expose the same viewport-local `get_hit_regions()` contract. No game API changed. V2.24.3 only moves consumption of those frozen camera AABBs upward to HitScanner's first-pass ROI so every live proposal branch sees the same region restriction. Object roles remain context only; final game collision uses returned HitEvent XY.
+
+<!-- V2.24.4 GAME_DEV_WORKING_SPACE -->
+## V2.24.4 — detector working-space note
+
+Game authors still provide `HitRegion` in **game/viewport-local XY**. Games must
+not know about camera crops or detector worker coordinates. The engine owns the
+entire transform chain:
+
+`game-local -> screen -> full camera -> detector working space`
+
+V2.24.4 adds the final internal step using the live V2.22.1 analysis geometry.
+This does not change the game-facing API and games must never pre-transform or
+scale their HitRegions for the camera/detector.
