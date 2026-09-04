@@ -51,3 +51,43 @@ V2.24.3 physical testing isolated a canonical-camera vs V2.22.1 crop-local
 coordinate mismatch. V2.24.4 maps frozen camera HitRegions into the active
 detector working image before building the first-pass mask. Physical acceptance
 of this bridge is the final V2.24 gate before V2.25 reusable game objects.
+
+<!-- V2.24.3 LOCAL_ROI_INTEGRATION_FIX -->
+## Game-ready hit-engine path — V2.24.3 correction
+
+- [x] **V2.24.0** — HitRegion API, transforms and shot-time snapshot.
+- [x] **V2.24.1** — first object-local proposal implementation.
+- [x] **V2.24.2** — dedicated physical game-context testscene.
+- [x] **V2.24.2 physical probe** — exposed ROI integration/bypass defect.
+- [x] **V2.24.3 code** — HitScanner-level local ROI, implicit content-rect fix,
+  latest-calibration refresh and global FULL-RESCUE preservation.
+- [ ] **V2.24.3 physical acceptance** — repeat target/no-shoot/moving/overlap/
+  edge/outside/EMPTY matrix and verify LOCAL-ROI/ROI-RECOVERY/global rescue logs.
+- [ ] **V2.25.0** — GameObject / HittableObject / BreakableObject / ObjectManager
+  after V2.24.3 physical acceptance.
+
+<!-- V2.24.4 DETECTOR_WORKING_SPACE_ROI -->
+## Game-ready hit-engine path — V2.24.4 working-space correction
+
+- [x] **V2.24.0** — HitRegion API, transforms and shot-time snapshot.
+- [x] **V2.24.1** — first object-local proposal implementation.
+- [x] **V2.24.2** — dedicated physical game-context testscene.
+- [x] **V2.24.3 physical probe** — isolated full-camera vs crop-local ROI mismatch.
+- [x] **V2.24.4 code** — map frozen camera AABBs into V2.22.1 analysis working
+  space; preserve physical authority and global FULL-RESCUE.
+- [ ] **V2.24.4 physical acceptance** — verify `ROI-MAP`, non-zero `region`,
+  target/no-shoot/moving/overlap/edge/outside and EMPTY/global behaviour.
+- [ ] **V2.25.0** — GameObject / HittableObject / BreakableObject / ObjectManager
+  after V2.24.4 physical acceptance.
+
+<!-- V2.25.0 GAME_OBJECT_FOUNDATION -->
+## V2.25 object-system path
+
+- [x] V2.24.4 — physical local-ROI bridge accepted.
+- [x] V2.25.0 — composable GameObject foundation, exact frozen collision,
+  shot-id HitEvent bridge, gameplay penetration/damage, reactions/effect requests.
+- [ ] V2.25.1 — permit/verify continuous moving-object updates while a physical
+  shot resolves, using exact shot_id snapshot collision.
+- [ ] V2.25.2 — optional sound/effect dispatcher and lightweight visual effects.
+- [ ] V2.25.3+ — multipart entity aggregation only when a concrete game needs it.
+- [ ] Build/migrate production games incrementally on the stable object API.

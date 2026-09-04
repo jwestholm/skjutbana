@@ -44,6 +44,7 @@ from src.engine.shot_track_v2226 import install_v2226_runtime
 from src.engine.shot_object_local_v241 import install_v241_runtime
 from src.engine.shot_object_local_v243 import install_v243_runtime
 from src.engine.shot_object_local_v244 import install_v244_runtime
+from src.engine.shot_context_v250 import install_v250_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -57,6 +58,8 @@ from src.engine.shot_object_local_v244 import install_v244_runtime
 # up to HitScanner ROI level so legacy/V1, early V2 and normal V2 share it.
 # V2.24.4 then maps canonical full-camera HitRegions into V2.22.1's active
 # crop/worker-local detector plane before the local ROI mask is built.
+# V2.25.0 finally carries scanner shot_id through HitEvent before subscribers
+# are notified, allowing GameObjects to resolve against the exact frozen snapshot.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
@@ -64,6 +67,7 @@ install_v2226_runtime(App)
 install_v241_runtime(App)
 install_v243_runtime(App)
 install_v244_runtime(App)
+install_v250_runtime(App)
 
 if __name__ == "__main__":
     try:

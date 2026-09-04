@@ -23,7 +23,11 @@ from typing import Iterable
 import pygame
 
 from src.engine.input.hit_input import HitEvent, hit_input
-from src.engine.input.hit_regions import HitRegion, latest_hit_context_snapshot
+from src.engine.input.hit_regions import (
+    HitRegion,
+    hit_context_snapshot_for_shot,
+    latest_hit_context_snapshot,
+)
 
 
 BG = (15, 18, 24)
@@ -195,16 +199,19 @@ class HitContextTestV244:
         self.hit_count += 1
         self.last_xy = (x, y)
 
-        snapshot = latest_hit_context_snapshot()
         event_shot_id = getattr(hit, "shot_id", None)
         source = str(getattr(hit, "source", getattr(hit, "kind", "unknown")))
+        snapshot = (
+            hit_context_snapshot_for_shot(event_shot_id)
+            if event_shot_id is not None
+            else latest_hit_context_snapshot()
+        )
 
         frozen_regions = ()
         snapshot_id = None
         if snapshot is not None:
             snapshot_id = getattr(snapshot, "shot_id", None)
             candidate_regions = tuple(getattr(snapshot, "game_regions", ()) or ())
-            # If HitEvent exposes shot_id, do not accidentally attribute an old snapshot.
             if event_shot_id is None or snapshot_id == event_shot_id:
                 frozen_regions = candidate_regions
 

@@ -28,6 +28,11 @@ def latest_hit_context_snapshot():
     return object_hit_registry_v2223.latest_snapshot()
 
 
+def hit_context_snapshot_for_shot(shot_id: int):
+    """Return the exact frozen game context for one scanner shot id."""
+    return object_hit_registry_v2223.snapshot_for_shot(int(shot_id))
+
+
 __all__ = [
     "HitRegion",
     "CameraHitRegion",
@@ -35,4 +40,5 @@ __all__ = [
     "camera_to_game_point",
     "game_rect_to_camera_aabb",
     "latest_hit_context_snapshot",
+    "hit_context_snapshot_for_shot",
 ]

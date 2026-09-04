@@ -385,3 +385,16 @@ entire transform chain:
 V2.24.4 adds the final internal step using the live V2.22.1 analysis geometry.
 This does not change the game-facing API and games must never pre-transform or
 scale their HitRegions for the camera/detector.
+
+<!-- V2.25.0 GAME_OBJECT_FOUNDATION -->
+## V2.25.0 — GameObject contract
+
+Prefer `src.engine.game_objects` and composition. GameObject owns identity,
+projected game-local geometry and lifecycle; hit shape, ballistic body, damage,
+motion and reactions are independent capabilities. `make_living_object()` and
+`make_breakable_object()` are convenience presets, not inheritance requirements.
+
+For every camera shot, ObjectManager should resolve exact collision from
+`HitEvent.shot_id` against the frozen PANG snapshot. Never use current moving
+geometry when the matching frozen snapshot exists and never alter HitEvent XY.
+See `GAME_OBJECT_SYSTEM.md` for the stable API.
