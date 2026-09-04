@@ -309,7 +309,7 @@ is still resolved against the PANG snapshot.
 Add an effect dispatcher plus optional sound cue service and lightweight
 particle/animation requests without putting media code in GameObject.
 
-### V2.25.3 — entity/part aggregation if a game needs it
+### Future — entity/part aggregation if a game needs it
 Parent entity state/shared health, hit-zone multipliers and part-specific
 reactions. Build only when a concrete game needs compound entities.
 
@@ -338,4 +338,4 @@ V2.25.0 is acceptable when:
 <!-- V2.25.2 SEQUENCING_UPDATE -->
 ## Sequencing update after physical V2.25.0/V2.25.1 tests
 
-The original section below assigned moving-object continuity to V2.25.1. Physical detector findings inserted V2.25.1 (region-balanced proposal) and V2.25.2 (registered freshness authority) ahead of that work. Moving-object continuity is now V2.25.3; the underlying GameObject design remains unchanged.
+The original section below assigned moving-object continuity to V2.25.1. Physical detector findings inserted V2.25.1 (region-balanced proposal) and V2.25.2 (registered freshness authority) ahead of that work. V2.25.3 was subsequently used for the cross-thread/novelty authority correction. Moving-object continuity is now V2.25.4; the underlying GameObject design remains unchanged.

@@ -168,3 +168,9 @@ GameObject semantics remain unchanged. The detector may balance proposals per fr
 ## V2.25.2 detector boundary
 
 The object model is unchanged. V2.25.2 only strengthens physical hit authority before ObjectManager collision.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 detector boundary
+
+The composable GameObject schema is unchanged. V2.25.3 is strictly upstream physical
+authority plumbing and recurrence handling.

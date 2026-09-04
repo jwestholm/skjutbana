@@ -1,0 +1,7 @@
+{
+  "id": "game_objects_test_v250",
+  "title": "Game Objects Test (V2.25.3)",
+  "type": "game",
+  "module": "content.games.game_objects_test_v250",
+  "factory": "create_game"
+}

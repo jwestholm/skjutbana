@@ -42,3 +42,10 @@ Look for:
 
 If a wrong region wins, compare center/ring compactness, z-score and PRE noise. Do not
 solve it with target-role bonuses or object-centre snapping.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 follow-up
+
+Registered freshness is still required but is not treated as sufficient on its own.
+Physical testing showed it could be permissive on a worn/projected surface. V2.25.3
+adds cross-shot recurrence without hard-excluding old coordinates.

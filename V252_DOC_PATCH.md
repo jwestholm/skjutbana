@@ -9,5 +9,4 @@ Stable references shipped with this delta:
 - `AI_REGISTERED_FRESHNESS.md`
 - `V252_TEST_PLAN.md`
 
-V2.25.2 moves continuous moving-object updates to the next milestone (V2.25.3) because
-the physical XY authority leak must be closed first.
+V2.25.2 originally moved continuous moving-object updates to V2.25.3. Physical V2.25.2 acceptance then exposed another authority issue, so V2.25.3 became the cross-thread/novelty correction and moving-object continuity is now V2.25.4.

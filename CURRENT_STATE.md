@@ -1,98 +1,128 @@
-# Nuvarande status
+# CURRENT_STATE.md fixture
 
-## Fungerar
+<!-- V2.24.0 GAME_HIT_CONTEXT -->
+## V2.24.0 checkpoint
 
-- **Kamera** — 4K USB, 30fps, rotation/spegling konfigurerbar
-- **Ljud** — ffmpeg-baserad peak-detektor, PulseAudio/ALSA
-- **Träffdetektion** — pre-shot diff (subtract + absdiff) + blackhat + whitehat, tracking, emission
-- **Kalibrering** — ArUco-baserad homografi med 24 markörer, RANSAC. Återanvändbar motor (`ArucoCalibrator`)
-- **Auto-kalibrering** — AI-träningsscenen kalibrerar automatiskt vid start (~3s: ArUco + vit/svart reference)
-- **Board reference** — multi-exposure (vit + svart) ger projector response map och filtrerar bort tejp/lappningar
-- **Viewport** — separat justering av skjutgränser/rityta
-- **Koordinattransform** — kamera → screen → viewport → content via homografi
-- **Visuella träffar** — fade/persistent, kandidatvisning med snapshot
-- **LED** — Deltaco SH-LS3M via Tuya, scen-driven
-- **AI-modul** — runtime, minne, träningsscen, export/import av hjärna
-- **AI-observability** — RoundRecord (single source of truth), funnel-diagnostik, CSV-export, blockstatistik
-- **Autoträning** — F1 (visuell) och F2 (headless), 100 skott per serie
-- **Sampling modes** — center_bias, uniform, edge_bias, corners (konfigurerbar via settings.json)
-- **Shot-diagnostik** — detaljerad per-skott-loggning i terminalen ([SHOT-DIAG]) + pre/post/diff bilder i content/ai/shot_diag/
-- **Spel** — Shoot/Don't Shoot, skjutbana med helfigur
-- **Bilder/video** — stillbilder och videoklipp med träffdetektion
-- **Automation/IPC** — lokal TCP/JSON-server på `127.0.0.1:8765`, generisk command/response-kanal och persistent event-subscription
-- **EventBus** — intern publish/subscribe-buss som broadcastas till externa lyssnare
-- **Extern AI-träningsautomation** — `automation.autostart_ai_training` kan flytta fönstret, skapa ny AI-träningsscen, vänta på kalibrering, skicka F2 och ta emot slutrapport
+Game-hit context foundation is available. Existing games remain valid without
+changes. Future games may return `HitRegion` AABBs in game-local coordinates;
+shot-critical snapshotting and game->camera transformation are prepared for the
+next local-physical-search stage. No local object-aware hit authority is enabled
+in V2.24.0.
 
-## Senaste förbättringar
+<!-- V2.24.1 OBJECT_LOCAL_PHYSICAL_SEARCH -->
+## V2.24.1 checkpoint — object-aware local physical search
 
-- **ArucoCalibrator** — återanvändbar kalibreringsmotor, används av både manuell kalibrering och AI-träning
-- **Auto-kalibrering** — AI-scenen kalibrerar automatiskt vid start, slipper manuellt steg
-- **Whitehat + absdiff** — hittar ljusa hål (LED-genomlysning) på mörka bakgrunder
-- **Adaptiva center/ring-masker** — skalas med konturradie, hanterar stora luftgevärshål
-- **Höjda area/radius-gränser** — max_area 900, max_radius 35 (stöd för luftgevär)
-- **Smartare existed_before_shot** — hanterar hög-kontrast bakgrunder (checker) utan false rejections
-- **RoundRecord** — enda sanningskälla för all statistik (rapport, funnel, CSV)
-- **AI guess pre-facit** — rapporten visar AI:ns gissning före facit
-- **Blockstatistik** — per 100 skott, visar om AI:n lär sig under körningen
-- **Kandidatstatistik** — medel/min/max, noll-rundor, >50/>100/>200
-- **Shot-diagnostik** — loggar per frame: konturer, rejections, patch-värden, tracking, emission/timeout
-- **Pre-shot timing** — 500ms före audio peak (400-600ms fönster), extra marginal för kamerabuffring
-- **Shot-diagnostik bilder** — pre/post/diff PNG + animerad GIF per skott i content/ai/shot_diag/
-- **Koordinatrutnät** — nytt bakgrundsläge med A0/B1-etiketter för att verifiera pre/post-alignment
-- **HUD undertrycks** under auto-kalibrering (suppress_overlays)
-- **Terminal-restore** — stty sane + termios vid alla exit-vägar (atexit + try/finally)
-- **Automation command path** — nätverkstråd → thread-safe queue → `app.py` → Pygame main thread
-- **Event-driven AI automation** — kalibrering och träning signaleras via `aiTraining.*` events; automation behöver inte gissa med sleep/polling
-- **AutomationAITrainingScene** — separat subklass för event-observability så vanlig AI-träningsscen kan förbli oförändrad
+V2.24.0 has been physically smoke-tested on the shooting PC: its selftests pass
+and the application starts. V2.24.1 now uses frozen camera HitRegions to
+constrain the first V2.22.5 FAST physical proposal search. Overlapping regions
+are merged after a camera-space safety margin. Existing V2.22.5 PRE->POST local
+confirmation remains the physical gate and its FULL-RESCUE remains global.
 
-## Benchmark-resultat (F2, 100 skott per bakgrund)
+Games with no HitRegions retain the existing global detector behaviour. No new
+AI or game-context hit authority is enabled. Next planned checkpoint is V2.24.2
+with a dedicated game-context verification scene before V2.25.0 introduces the
+small shared GameObject/Hittable/Breakable/ObjectManager layer.
 
-| Bakgrund | Found | Top-1 | Top-3 | Medel dist |
-|----------|-------|-------|-------|------------|
-| white | 87% | 64% | 67% | 19.0 px |
-| white_grid | 77% | 41% | 50% | 25.9 px |
-| gray | 36% | 5% | 5% | 75.9 px |
-| black | 37% | 2% | 3% | 76.0 px |
-| checker | 20% | 9% | 10% | 141.1 px |
-| checker_anim | 19% | 1% | 1% | 138.5 px |
-| bubbles | inkonsistent | — | — | — |
+<!-- V2.24.2 GAME_CONTEXT_TESTSCENE -->
+## V2.24.2 checkpoint — dedicated HitRegion testscene
 
-**Mål:** white stabil som baseline, gray/black förbättra raw recall, checker förbättra filter/ranking.
+V2.24.1 installed and started successfully after V2.24.0. No physical V2.24.1
+shot series was required before proceeding because V2.24.2 provides the scene
+needed to exercise HitRegions intentionally.
 
-## Kända begränsningar
+The new scene is available under Games after running
+`python3 -m automation.v242_prepare`. It exposes target/no-shoot/moving/overlap/
+edge/outside-region cases plus an EMPTY-regions global-fallback mode. The scene
+logs returned HitEvent XY and shows the frozen shot-time region geometry in
+cyan for direct visual comparison.
 
-- Automation-servern är avsiktligt localhost-only och saknar autentisering/TLS; exponera inte port 8765 på nätverket utan separat säkerhetsdesign
-- Event-broadcast är best-effort i minnet; events persisteras inte och en klient som ansluter sent får inte historiska events
-- Command/response har 5 s server-timeout för att själva kommandot ska bli behandlat; långvariga operationer ska startas snabbt och följas via events
+No V2.25 object system or new AI authority is enabled yet. The next decision is
+based on physical V2.24.2 results: fix the V2.24 bridge if required, otherwise
+proceed to V2.25.0 GameObject/HittableObject/BreakableObject/ObjectManager.
 
-- Gray/black bakgrund har fortfarande låg recall — whitehat+absdiff bör hjälpa men ej verifierat
-- Checker-mönster förlorar GT i filter-steget — relaxade trösklar bör hjälpa men ej verifierat
-- Bubbles-läge ger inkonsistenta resultat — troligen timing/freeze-relaterat
-- Kamerabuffring ger ~100-200ms fördröjning på frame-timestamps (kompenseras med 500ms pre-shot offset)
-- AI:n är i train_only-läge — påverkar inte träffar ännu
-- Detektorn hittar ibland kanter/tejp/sprickor som kandidater (board reference bör minska detta)
-- Luftgevärshål (stora) behöver verifieras med shot-diagnostik
+<!-- V2.24.3 LOCAL_ROI_ALIGNMENT -->
+## V2.24.3 checkpoint — physical V2.24.2 findings and correction
 
----
+A physical V2.24.2 run on 2026-09-04 produced nine camera shots. HitRegion
+snapshots reported seven game and seven camera regions, the moving target was
+classified successfully in two shots, EMPTY/GLOBAL correctly produced
+`objects=0`, and shot-critical timing remained healthy. However, no
+`V2.24.1 LOCAL-SEARCH` line appeared in the run. Most region shots instead
+logged `outside_detector_roi`, and two early frames bypassed the V2.24.1
+extractor through CandidateGenerator V2's `waiting_post_peak` path.
 
-## Automation update — repeated AI training
+V2.24.3 therefore corrects ROI coordinate alignment and moves object-local
+search to the whole live HitScanner ROI. It also changes zero local overlap from
+a silent global first pass to an explicit V2.22.5 FULL-RESCUE transition.
 
-The event-driven automation path has been verified on the physical range:
-calibration completes, `waitingForFirstShot` is emitted, automation injects F2,
-progress is returned and the completed report is received. A new automation
-run can then be started without restarting the game.
+Next action: run `Hit Context Test (V2.24.3)` with the short physical matrix in
+`V243_TEST_PLAN.md`. Do not start V2.25.0 until normal region shots visibly use
+the local ROI path and returned XY matches the physical holes reasonably.
 
-Added repeated-run support:
+<!-- V2.24.3 LOCAL_ROI_INTEGRATION_FIX -->
+## V2.24.3 checkpoint — local ROI integration fix
 
-```bash
-python3 -m automation.ai_training_loop 1 100
-```
+The first V2.24.2 physical test verified game->camera snapshots, moving-target
+classification, overlap/no-shoot semantics and EMPTY/global compatibility, but
+it also exposed that the intended V2.24.1 local-first detector was frequently
+bypassed. Most shots logged `outside_detector_roi` and no V2.24.1 LOCAL-SEARCH.
 
-The loop keeps the game running and starts a fresh automation-enabled AI
-training scene for each run. Results are persisted under
-`content/ai/automation_runs/` as full JSON, compact JSONL, CSV and an aggregate
-`summary.json`.
+V2.24.3 fixes the implicit viewport-local content-rect origin, refreshes HitInput
+calibration before the shot snapshot and applies the frozen object mask at
+HitScanner ROI level. FULL-RESCUE remains global. The V2.24.2 testscene is
+retained and upgraded with faster movement plus frozen/current motion distance.
 
-`aiTraining.completed` now carries structured AI-friendly diagnostics:
-percentages, distance statistics, candidate statistics, funnel summary,
-consistency checks, timing and all per-round `RoundRecord` rows.
+Next action: repeat the short physical Hit Context Test matrix. Only after clean
+local-ROI results should development proceed to V2.25.0 reusable objects.
+
+<!-- V2.24.4 DETECTOR_WORKING_SPACE_ROI -->
+## V2.24.4 checkpoint — detector working-space ROI mapping
+
+The V2.24.3 physical run isolated the remaining integration bug: HitRegions
+were present and transformed, but every region-enabled shot logged
+`region=0.0% overlap=0`. V2.22.1 intentionally executes detection on a smaller
+crop-local image and restores full camera coordinates afterwards; V2.24.3 fed
+full-camera AABBs directly into that local mask.
+
+V2.24.4 maps full-camera HitRegions to the active analysis working space using
+`AnalysisGeometryV2221` crop origin and actual work/crop scale. The testscene
+and logs now expose full-frame size, crop rectangle, work size, scale and an
+example camera->work region mapping. V2.25.0 remains gated on one clean physical
+acceptance run of this bridge.
+
+<!-- V2.25.0 GAME_OBJECT_FOUNDATION -->
+## V2.25.0 checkpoint — reusable game objects
+
+V2.24.4 is accepted as the game-context bridge. V2.25 introduces a stable
+`src.engine.game_objects` package with exact shapes, entity/part identity,
+gameplay projectile penetration, layered durability, event/reaction handling,
+effect requests and ObjectManager resolution against PANG-time snapshots.
+
+A shot-id bridge fixes the prior `event_shot=None` limitation without replacing
+HitInput or changing detector authority. Continuous object motion during the
+shot-critical wait remains a later checkpoint.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 checkpoint — region-balanced physical hit proposals
+
+V2.25.0 GameObject `shot_id` and frozen collision were physically verified. Detector
+XY remained the blocker: five widely separated real shots were selected in one small
+camera area. V2.25.1 adds balanced per-region proposal/confirmation on top of the
+accepted V2.24.4 working-space mapping. Physical acceptance is pending a repeat of
+the five-object test.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 checkpoint — registered PRE→POST authority
+
+V2.25.0 shot-id/frozen GameObject resolution is physically verified. V2.25.1 region
+proposal balancing is physically verified but did not correct final XY because local
+authority still leaked through early/legacy candidates. V2.25.2 closes that authority
+boundary. Physical five-shot acceptance is pending.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 checkpoint — cross-thread novelty authority
+
+V2.25.0 shot_id/frozen GameObject resolution is physically verified. V2.25.1 per-region
+proposal works. V2.25.2 registered evidence runs physically but its readiness bridge
+was instance-local and its freshness gate remained too permissive. V2.25.3 fixes both
+at the authority layer; five-shot physical acceptance is pending.

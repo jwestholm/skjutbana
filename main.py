@@ -47,6 +47,7 @@ from src.engine.shot_object_local_v244 import install_v244_runtime
 from src.engine.shot_context_v250 import install_v250_runtime
 from src.engine.shot_region_proposal_v251 import install_v251_runtime
 from src.engine.shot_region_freshness_v252 import install_v252_runtime
+from src.engine.shot_cross_thread_novelty_v253 import install_v253_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -67,6 +68,8 @@ from src.engine.shot_region_freshness_v252 import install_v252_runtime
 # V2.25.2 closes the remaining authority leak: early/legacy candidates may aid
 # recall, but object-context hits cannot emit until exact XY has registered V2
 # PRE->POST freshness evidence. The explicit V2.22.5 FULL rescue stays global.
+# V2.25.3 fixes the worker/main readiness boundary and adds cross-shot physical
+# novelty so recurrent camera hotspots do not dominate every object-context shot.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
@@ -77,6 +80,7 @@ install_v244_runtime(App)
 install_v250_runtime(App)
 install_v251_runtime(App)
 install_v252_runtime(App)
+install_v253_runtime(App)
 
 if __name__ == "__main__":
     try:

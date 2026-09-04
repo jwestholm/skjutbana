@@ -418,3 +418,11 @@ be emitted merely because a legacy/bank candidate lies inside that region. Norma
 authority must have registered immediate PRE→POST freshness at the same physical XY.
 This remains independent of role, health, penetration and reactions. Exact object
 collision still begins only after HitEvent XY exists.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 — repeated hotspot handling remains physical
+
+GameObjects still contribute only search regions. V2.25.3 can prefer a newly appearing
+camera-space physical change over a hotspot repeatedly confirmed on earlier shots, but
+it may not prefer a target over no-shoot or move XY into an object. Re-hit is legal and
+can recover via stronger registered evidence.

@@ -54,7 +54,7 @@ rescue infer that a shot had to hit an object.
 ## Shot identity and motion
 
 Preserve scanner `shot_id` through HitEvent. ObjectManager uses it to choose the
-frozen PANG-time object shape. V2.25.3 is reserved for continuous moving-object
+frozen PANG-time object shape. V2.25.4 is reserved for continuous moving-object
 updates while physical CV resolves; do not solve that by using current object
 geometry for an old shot.
 
@@ -62,3 +62,9 @@ geometry for an old shot.
 ## V2.25.2 authority follow-up
 
 Region fairness alone is not authority. Legacy/bank coordinates require registered PRE→POST revalidation; see `V252_REGISTERED_FRESHNESS_AUTHORITY.md`.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 follow-up
+
+Per-region proposal remains the recall partition. Final local authority now also uses a
+shared worker/main ready bridge and soft cross-shot camera-space novelty.

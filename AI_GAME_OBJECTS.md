@@ -68,3 +68,9 @@ For object-aware hit detection also read `AI_PHYSICAL_REGION_PROPOSAL.md`. HitRe
 ## V2.25.2 physical authority boundary
 
 Also read `AI_REGISTERED_FRESHNESS.md`. GameObject semantics remain downstream of physical HitEvent XY.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 detector note
+
+GameObject role/type must not enter cross-shot novelty. Only physical camera evidence
+and shot history are permitted before HitEvent XY is resolved.
