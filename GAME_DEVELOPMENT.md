@@ -398,3 +398,14 @@ For every camera shot, ObjectManager should resolve exact collision from
 `HitEvent.shot_id` against the frozen PANG snapshot. Never use current moving
 geometry when the matching frozen snapshot exists and never alter HitEvent XY.
 See `GAME_OBJECT_SYSTEM.md` for the stable API.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 — detector fairness around GameObjects
+
+`GameObject.get_hit_region()` still means only "search here first". V2.25.1 may
+partition those regions so every physical area contributes a bounded proposal set,
+but it must not infer which object the player intended to hit. Exact object shape,
+z-order, health, penetration and reactions remain downstream of resolved HitEvent XY.
+
+For overlapping objects at the same projected location, detector work may be grouped;
+ObjectManager must still resolve all frozen objects at the final XY in gameplay order.

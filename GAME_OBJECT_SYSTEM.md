@@ -158,3 +158,8 @@ particle or rigid-body code into `GameObject`.
 
 Existing games do not need to migrate immediately. A game that does not use
 `ObjectManager` can continue using HitInput exactly as before.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 physical-search note
+
+GameObject semantics remain unchanged. The detector may balance proposals per frozen HitRegion, but exact collision, z-order, damage and penetration run only after physical HitEvent XY exists. See `V251_OBJECT_REGION_PHYSICAL_PROPOSAL.md`.

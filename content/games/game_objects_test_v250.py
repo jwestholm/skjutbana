@@ -74,7 +74,7 @@ class GameObjectsTestV250:
         if not self._subscribed:
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
-        print("[V2.25.0 OBJECT-TEST] entered; 1/2/3 projectile profile, R reset")
+        print("[V2.25.1 OBJECT-TEST] entered; 1/2/3 projectile profile, R reset")
 
     def on_exit(self) -> None:
         if self._subscribed:
@@ -247,7 +247,7 @@ class GameObjectsTestV250:
             f"{e.payload.get('kind')}:{e.payload.get('name')}" for e in new_effects
         ) or "inga effect requests"
         print(
-            "[V2.25.0 OBJECT-HIT] "
+            "[V2.25.1 OBJECT-HIT] "
             f"shot={self.last_shot_id} frozen={result.used_frozen_snapshot} "
             f"xy=({result.game_x:.1f},{result.game_y:.1f}) "
             f"projectile={result.projectile_profile_id} "
@@ -272,7 +272,7 @@ class GameObjectsTestV250:
     def _draw_hud(self, surf: pygame.Surface) -> None:
         pygame.draw.rect(surf, (21, 26, 35), (0, 0, surf.get_width(), HUD_H))
         profile = self.projectile
-        title = self._font_big.render("V2.25.0 GAME OBJECT SYSTEM", True, CYAN)
+        title = self._font_big.render("V2.25.1 GAME OBJECT + REGION PROPOSAL", True, CYAN)
         surf.blit(title, (14, 10))
         ptxt = (
             f"Projectile {profile.profile_id}: damage={profile.damage:g} penetration={profile.penetration_power:g} "

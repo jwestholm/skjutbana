@@ -58,3 +58,8 @@ service locator.
 If adding a new object category, first ask whether it is only a combination of
 existing hit-shape, body, damage layers, motion, tags and reactions. Add a preset
 before adding a subclass.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 detector boundary
+
+For object-aware hit detection also read `AI_PHYSICAL_REGION_PROPOSAL.md`. HitRegions may partition physical search, but gameplay semantics may never create, move or prefer a physical hit.

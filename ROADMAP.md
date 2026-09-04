@@ -91,3 +91,14 @@ of this bridge is the final V2.24 gate before V2.25 reusable game objects.
 - [ ] V2.25.2 — optional sound/effect dispatcher and lightweight visual effects.
 - [ ] V2.25.3+ — multipart entity aggregation only when a concrete game needs it.
 - [ ] Build/migrate production games incrementally on the stable object API.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 detector/object bridge correction
+
+- [x] V2.25.0 — composable GameObject foundation and physical shot-id/frozen bridge.
+- [x] V2.25.1 — build balanced per-object physical proposal/confirmation; physical
+  acceptance pending.
+- [ ] V2.25.2 — continuous moving-object updates while CV resolves, using frozen
+  shot-id snapshots for exact collision.
+- [ ] V2.25.3 — effect/audio dispatcher foundation if needed by the first migrated game.
+- [ ] Migrate/build production games only after V2.25.1 physical XY is accepted.

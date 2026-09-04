@@ -1,0 +1,44 @@
+{
+  "schema_version": "2.25.1",
+  "base_version": "2.25.0",
+  "package_kind": "cumulative_delta",
+  "title": "Balanced Object-Region Physical Proposal / Confirmation",
+  "runtime_entry": "src/engine/shot_region_proposal_v251.py",
+  "install_after": "src/engine/shot_context_v250.py",
+  "physical_authority": "unchanged detector XY; no snapping",
+  "full_rescue": "V2.22.5 global high-recall rescue preserved",
+  "primary_changes": [
+    "per-frozen-region registered physical proposal",
+    "region-local robust thresholds",
+    "bounded proposal quota per physical region group",
+    "balanced V1/V2/candidate-bank output",
+    "bounded V2.22.5 local confirmation per region",
+    "physical-evidence track selection for V2.25.1-confirmed tracks",
+    "near-identical overlap grouping for e.g. glass/rear target"
+  ],
+  "new_files": [
+    "src/engine/shot_region_proposal_v251.py",
+    "automation/v251_apply_docs.py",
+    "automation/v251_apply_menu.py",
+    "automation/v251_prepare.py",
+    "automation/v251_selftest.py",
+    "automation/v251_verify_install.py",
+    "automation/v251_status.py",
+    "menu_games_entry_v251.json",
+    "V251_OBJECT_REGION_PHYSICAL_PROPOSAL.md",
+    "AI_PHYSICAL_REGION_PROPOSAL.md",
+    "V251_TEST_PLAN.md",
+    "V251_DOC_PATCH.md",
+    "DELTA_README_V251.md",
+    "SHA256SUMS_V251.txt"
+  ],
+  "modified_files": [
+    "main.py",
+    "content/games/game_objects_test_v250.py",
+    "GAME_DEVELOPMENT.md",
+    "ROADMAP.md",
+    "GAME_OBJECT_SYSTEM.md",
+    "AI_GAME_OBJECTS.md"
+  ],
+  "physical_acceptance": "pending repeat of the five-object V2.25.0 shot series"
+}
