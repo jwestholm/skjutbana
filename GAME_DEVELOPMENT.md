@@ -332,3 +332,38 @@ object_local_search_log_v241 = true
 
 Do not tune the margin for benchmark scores before the V2.24.2 physical test
 scene exists. The first goal is correctness and false-attraction measurement.
+
+---
+
+## V2.24.2 — Hit Context Test scene
+
+Before V2.25 introduces reusable objects, use `Hit Context Test (V2.24.2)` as
+the physical acceptance harness for the HitRegion bridge.
+
+The scene intentionally uses plain local test rectangles rather than a shared
+GameObject hierarchy. It implements the same contract future games use:
+
+```python
+from src.engine.input.hit_regions import HitRegion
+
+def get_hit_regions(self):
+    return tuple(...)
+```
+
+Cases visible in the scene:
+
+- stationary `target`,
+- stationary `no_shoot`,
+- moving `target`,
+- overlapping `target` + `no_shoot`,
+- target near a viewport edge,
+- an outside-region challenge,
+- `E` toggles EMPTY regions so hit detection must use the ordinary global path.
+
+For camera/audio hits the scene reads the latest frozen shot context and draws
+its game regions in cyan for a few seconds. This makes the PANG-time position
+visible even if the moving object has advanced before HitEvent delivery.
+
+The scene does **not** grant object authority. Returned `HitEvent.game_x/game_y`
+is classified against frozen/current geometry only for diagnostics. It never
+snaps hit XY to a box and never changes detector evidence thresholds.

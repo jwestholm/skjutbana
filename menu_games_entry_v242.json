@@ -1,0 +1,13 @@
+{
+  "id": "hit_context_test_v242",
+  "title": "Hit Context Test (V2.24.2)",
+  "type": "game",
+  "description": "Diagnostik för HitRegions: target/no-shoot, rörligt mål, overlap, kant, outside-region och global fallback.",
+  "preview": "assets/thumbs/game_icon.png",
+  "script": "content/games/hit_context_test_v242.py",
+  "path": "",
+  "led": {
+    "enabled": true,
+    "color": [255, 255, 255]
+  }
+}
