@@ -187,3 +187,13 @@ per-event audio thresholds/cooldown evidence. Canonical scoring runs only when
 finalizing the trace, with explicit retained-pool and post-decision semantics.
 `automation.physical_test` supplies start/check/label/classify/evaluate/stop helpers.
 All generated evaluations remain under ignored `evaluation_runs/`.
+
+### Async track timestamp correction
+
+A reproduced installer-composition regression let V2.22.6 overwrite V2.22.4's
+camera-frame timestamp handoff and its “worker waiting is not a negative frame”
+rule. The wrappers now share one timestamp-consumption helper; older ready results
+also use the currently installed tracking method. Two failing-before/passing-after
+regressions cover delayed-result association and waiting-frame aging. This changes
+runtime timing semantics, not detector/audio thresholds or AI authority. Physical
+acceptance remains pending; historical traces are not rewritten or claimed fixed.

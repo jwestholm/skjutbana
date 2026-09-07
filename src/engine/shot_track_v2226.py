@@ -276,7 +276,11 @@ def _install_frame_unique_tracking_patch() -> None:
     HitScanner._v2226_update_tracks_original = previous_update_tracks
 
     def update_tracks_v2226(self, candidates, frame_ts):
-        diag = update_tracks_frame_unique_v2226(self, candidates, frame_ts)
+        from src.engine.shot_async_v2224 import tracking_frame_timestamp
+        observation_ts = tracking_frame_timestamp(self, candidates, frame_ts)
+        if observation_ts is None:
+            return None
+        diag = update_tracks_frame_unique_v2226(self, candidates, observation_ts)
         if _TRACK_CONFIG.track_log and list(candidates or []) and bool(getattr(self, "_has_open_events", lambda: False)()):
             print(
                 f"[V2.22.6 TRACK] frame={float(frame_ts):.3f} "
