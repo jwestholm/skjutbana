@@ -21,7 +21,7 @@ def export(root: Path, output: Path) -> None:
             emitted = [{"camera_x": emitted["camera_x"], "camera_y": emitted["camera_y"]}]
         else:
             emitted = [] if trace.get("outcome", {}).get("emitted") else None
-        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": None if gt is None else {"camera_x": gt["camera_x"], "camera_y": gt["camera_y"]}, "raw": None, "filtered": None, "retained": candidates, "confirmed": None, "selected": emitted, "emitted": emitted, "ranked": candidates, "rescue_used": trace.get("outcome", {}).get("rescue_used"), "latency_ms": trace.get("outcome", {}).get("latency_ms")})
+        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": None if gt is None else {"camera_x": gt["camera_x"], "camera_y": gt["camera_y"]}, "raw": None, "filtered": None, "retained": candidates, "confirmed": None, "selected": emitted, "emitted": emitted, "ranked": candidates, "rescue_used": trace.get("outcome", {}).get("rescue_used"), "latency_ms": trace.get("outcome", {}).get("latency_ms"), "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
     if not shots:
         raise ValueError(f"No traces found in {root}")
     first_path = next((root / "shots").glob("shot_*/trace.json"))

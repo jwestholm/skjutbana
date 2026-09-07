@@ -4,7 +4,14 @@ This instrumentation records observations around the existing V2.25.x scanner;
 it does not change thresholds, ranking, candidate selection, confirmation,
 rescue, or emission behavior. Capture is disabled by default. A writer thread
 performs disk I/O; if its queue is full or writing fails, the detector continues
-and records an error count.
+and records a structured error. Trace JSON is finalized after queued artifacts
+are persisted, so it never advertises a frame or evidence file that failed to
+write. Each trace includes expected/persisted PRE, POST, and evidence counts,
+queue drops, writer errors, and a `trace_complete` flag.
+
+The asynchronous queue is bounded to 128 jobs and a 1 GiB payload budget; the
+writer uses multiple workers, while detector-side capture remains nonblocking.
+Shutdown performs a bounded flush and reports any incomplete persistence.
 
 ## Enable for one physical session
 
@@ -54,6 +61,12 @@ python3 -m automation.physical_trace_label \
   --root content/ai/physical_traces/session_20260907
 ```
 
+When `content/settings.json` contains `camera_calibration.homography`, the
+default view is a perspective-corrected target/projector view with enhanced
+physical PRE→POST evidence overlaid. Use `--calibration PATH` to select another
+saved calibration, or `--target-width`/`--target-height` to change the target
+canvas size.
+
 Controls:
 
 - Left click: mark the exact hole location.
@@ -62,6 +75,8 @@ Controls:
 - S: mark the shot unresolved and continue.
 - Left/Right arrows: previous/next shot.
 - Up/Down arrows: previous/next captured POST frame.
+- `1`: target/projector view; `2`: enhanced physical difference; `3`: raw POST;
+  `4`: raw PRE.
 - C: toggle optional yellow detector-candidate overlays (off by default).
 - Q or Escape: quit; rerun the same command to resume.
 
@@ -69,6 +84,12 @@ The tool prints total, labeled, skipped/unresolved, and remaining counts. To
 relabel existing human annotations, use `--include-labeled`; to revisit skipped
 shots, use `--include-skipped`. A skipped shot is recorded separately in
 `ground_truth_status.json` and is not treated as detector output.
+
+The target view uses only saved camera frames and calibration geometry. It does
+not use resolver results, selected candidates, game hit markers, or any other
+detector output as ground truth. If a session has frame files but lost its
+`trace.json`, the labeler can reconstruct display-only frame metadata; it does
+not invent detector stages or outcomes.
 
 For scripted or headless attachment, the existing command remains available:
 

@@ -16,6 +16,13 @@ from typing import Any
 import numpy as np
 
 from src.engine.physical_trace import TRACE_SCHEMA, _json
+from automation.physical_trace_target import (
+    TargetEvidenceError,
+    camera_to_target,
+    load_calibration,
+    target_evidence_view,
+    target_to_camera,
+)
 
 
 class AnnotationDataError(ValueError):
@@ -58,11 +65,32 @@ def load_existing_annotation(shot_dir: Path) -> dict[str, Any] | None:
 
 def discover_shots(root: Path, *, include_labeled: bool = False, include_skipped: bool = False) -> list[dict[str, Any]]:
     shots: list[dict[str, Any]] = []
-    for trace_path in sorted((root / "shots").glob("shot_*/trace.json")):
-        trace = _read_json(trace_path)
+    shot_dirs = sorted(p for p in (root / "shots").glob("shot_*") if p.is_dir())
+    for shot_dir in shot_dirs:
+        trace_path = shot_dir / "trace.json"
+        if trace_path.exists():
+            trace = _read_json(trace_path)
+        else:
+            # A crash can leave immutable frame files without the final JSON.
+            # Reconstruct only display metadata; never infer detector output.
+            try:
+                shot_id = int(shot_dir.name.rsplit("_", 1)[1])
+            except (IndexError, ValueError) as exc:
+                raise AnnotationDataError(f"Unrecognized shot directory: {shot_dir}") from exc
+            frames = []
+            for path in sorted((shot_dir / "frames").glob("*.npy")):
+                kind = "post" if path.name.startswith("post_") else "pre_snapshot" if path.name.startswith("pre_snapshot_") else "pre_history"
+                try:
+                    seq = int(path.stem.rsplit("_", 1)[1])
+                except (IndexError, ValueError):
+                    seq = len(frames)
+                frames.append({"kind": kind, "timestamp": float(seq), "path": str(path.relative_to(shot_dir))})
+            trace = {"schema_version": TRACE_SCHEMA, "shot_id": shot_id, "session_id": root.name,
+                     "coordinate_space": "camera", "frames": frames, "stages": [],
+                     "context": {"calibration": "UNAVAILABLE"},
+                     "provenance": {"status": "trace_json_unavailable"}}
         if trace.get("schema_version") != TRACE_SCHEMA:
             raise AnnotationDataError(f"Unsupported trace schema: {trace_path}")
-        shot_dir = trace_path.parent
         annotation = load_existing_annotation(shot_dir)
         skipped = status_path(shot_dir).exists()
         if (annotation is not None and not include_labeled) or (skipped and not include_skipped):
@@ -72,29 +100,42 @@ def discover_shots(root: Path, *, include_labeled: bool = False, include_skipped
     return shots
 
 
-def frame_entries(trace: dict[str, Any]) -> list[dict[str, Any]]:
+def frame_entries(trace: dict[str, Any], kind: str | None = None) -> list[dict[str, Any]]:
     frames = [f for f in trace.get("frames", []) if isinstance(f, dict)]
+    if kind is not None:
+        return sorted([f for f in frames if f.get("kind") == kind], key=lambda f: (float(f.get("timestamp", 0.0)), str(f.get("path", ""))))
     posts = [f for f in frames if f.get("kind") == "post"]
     selected = posts or [f for f in frames if f.get("kind") in {"pre_snapshot", "pre_history"}]
     return sorted(selected, key=lambda f: (float(f.get("timestamp", 0.0)), str(f.get("path", ""))))
 
 
-def load_frame(shot: dict[str, Any], index: int = -1) -> tuple[np.ndarray, dict[str, Any], int]:
-    entries = frame_entries(shot["trace"])
+def load_frame(shot: dict[str, Any], index: int = -1, kind: str | None = None) -> tuple[np.ndarray, dict[str, Any], int]:
+    entries = frame_entries(shot["trace"], kind)
     if not entries:
         raise AnnotationDataError(f"No annotation frames in {shot['trace_path']}")
     actual = len(entries) + index if index < 0 else index
     if actual < 0 or actual >= len(entries):
         raise AnnotationDataError(f"Frame index out of range for {shot['trace_path']}")
-    entry = entries[actual]
-    path = shot["shot_dir"] / str(entry.get("path", ""))
-    try:
-        image = np.load(path, allow_pickle=False)
-    except (OSError, ValueError) as exc:
-        raise AnnotationDataError(f"Cannot load frame {path}: {exc}") from exc
-    if image.ndim not in (2, 3) or image.shape[0] < 1 or image.shape[1] < 1:
-        raise AnnotationDataError(f"Unsupported frame shape {image.shape}: {path}")
-    return image, entry, actual
+    candidates = range(actual, -1, -1) if index < 0 else (actual,)
+    last_error = None
+    for candidate_index in candidates:
+        entry = entries[candidate_index]
+        path = shot["shot_dir"] / str(entry.get("path", ""))
+        try:
+            image = np.load(path, allow_pickle=False)
+            if image.ndim not in (2, 3) or image.shape[0] < 1 or image.shape[1] < 1:
+                raise ValueError(f"unsupported shape {image.shape}")
+            return image, entry, candidate_index
+        except (OSError, ValueError) as exc:
+            last_error = f"Cannot load frame {path}: {exc}"
+    raise AnnotationDataError(last_error or f"Cannot load frame for {shot['trace_path']}")
+
+
+def load_best_pre_frame(shot: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any], int]:
+    """Use the latest stored PRE history, falling back to the snapshot."""
+    if frame_entries(shot["trace"], "pre_history"):
+        return load_frame(shot, -1, "pre_history")
+    return load_frame(shot, -1, "pre_snapshot")
 
 
 def fit_display(shape: tuple[int, ...], max_size: tuple[int, int]) -> tuple[tuple[float, float], tuple[int, int], tuple[int, int]]:
@@ -237,22 +278,144 @@ def _run_ui(root: Path, shots: list[dict[str, Any]], max_size: tuple[int, int], 
     pygame.quit()
 
 
+def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_candidates: bool,
+                   calibration: dict[str, Any] | None, target_size: tuple[int, int]) -> None:
+    """Interactive UI with target-space evidence and explicit raw-image modes."""
+    try:
+        import pygame
+    except ImportError as exc:
+        raise AnnotationDataError("pygame is required for interactive labeling") from exc
+    homography = None
+    if calibration is not None:
+        from automation.physical_trace_target import homography_from_calibration
+        homography = homography_from_calibration(calibration)
+    pygame.init()
+    screen = pygame.display.set_mode(max_size)
+    pygame.display.set_caption("Physical trace ground truth")
+    font = pygame.font.Font(None, 26)
+    index, frame_index, pending, mode, show = 0, -1, None, "target" if homography is not None else "post", bool(show_candidates)
+    running = True
+    while running and shots:
+        shot = shots[index]
+        try:
+            post, post_entry, post_actual = load_frame(shot, frame_index, "post")
+            pre, _, _ = load_best_pre_frame(shot)
+            if homography is not None:
+                target_base, target_overlay = target_evidence_view(pre, post, homography, target_size)
+            else:
+                target_base = target_overlay = None
+            if mode == "target" and target_overlay is not None:
+                image, click_space, image_shape = target_overlay, "target", target_overlay.shape
+            elif mode == "diff":
+                from automation.physical_trace_target import enhanced_difference
+                image, click_space, image_shape = enhanced_difference(pre, post), "camera", post.shape
+            elif mode == "pre":
+                image, click_space, image_shape = pre, "camera", pre.shape
+            else:
+                image, click_space, image_shape = post, "camera", post.shape
+            scale, size, origin = fit_display(image.shape, max_size)
+        except (AnnotationDataError, TargetEvidenceError) as exc:
+            print(f"Skipping shot {shot['trace'].get('shot_id')}: {exc}")
+            save_skip(shot["shot_dir"], int(shot["trace"]["shot_id"]), "missing_or_malformed_evidence")
+            shots.pop(index)
+            if shots:
+                index %= len(shots)
+            continue
+        screen.fill((24, 24, 24))
+        screen.blit(_pygame_surface(pygame, image, size), origin)
+        if show:
+            for candidate in (shot["trace"].get("stages", [])[-1].get("candidates", []) if shot["trace"].get("stages") else []):
+                if "camera_x" not in candidate or "camera_y" not in candidate:
+                    continue
+                point = (float(candidate["camera_x"]), float(candidate["camera_y"]))
+                if click_space == "target" and homography is not None:
+                    point = camera_to_target(point, homography)
+                cx = int(origin[0] + point[0] * scale[0])
+                cy = int(origin[1] + point[1] * scale[1])
+                pygame.draw.circle(screen, (255, 220, 0), (cx, cy), 7, 1)
+        if pending is not None:
+            point = pending
+            if click_space == "target" and homography is not None:
+                point = camera_to_target(pending, homography)
+            px = int(origin[0] + point[0] * scale[0])
+            py = int(origin[1] + point[1] * scale[1])
+            pygame.draw.line(screen, (0, 255, 0), (px - 12, py), (px + 12, py), 2)
+            pygame.draw.line(screen, (0, 255, 0), (px, py - 12), (px, py + 12), 2)
+        text = f"shot_id {shot['trace'].get('shot_id')} | {index + 1}/{len(shots)} | mode {mode} | POST {post_actual + 1}"
+        controls = "click hole  Enter accept  R retry  S skip  arrows shot/frame  1 target 2 diff 3 POST 4 PRE  C candidates  Q quit"
+        screen.blit(font.render(text, True, (255, 255, 255)), (12, 10))
+        screen.blit(font.render(controls, True, (190, 190, 190)), (12, max_size[1] - 32))
+        pygame.display.flip()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_q, pygame.K_ESCAPE):
+                    running = False
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and pending is not None:
+                    save_annotation(shot["shot_dir"], int(shot["trace"]["shot_id"]), pending)
+                    shots.pop(index)
+                    if shots:
+                        index %= len(shots)
+                    pending, frame_index = None, -1
+                elif event.key == pygame.K_r:
+                    pending = None
+                elif event.key == pygame.K_s:
+                    save_skip(shot["shot_dir"], int(shot["trace"]["shot_id"]))
+                    shots.pop(index)
+                    if shots:
+                        index %= len(shots)
+                    pending, frame_index = None, -1
+                elif event.key == pygame.K_c:
+                    show = not show
+                elif event.key == pygame.K_1 and homography is not None:
+                    mode = "target"
+                elif event.key == pygame.K_2:
+                    mode = "diff"
+                elif event.key == pygame.K_3:
+                    mode = "post"
+                elif event.key == pygame.K_4:
+                    mode = "pre"
+                elif event.key == pygame.K_LEFT:
+                    index = (index - 1) % len(shots)
+                    pending, frame_index = None, -1
+                elif event.key == pygame.K_RIGHT:
+                    index = (index + 1) % len(shots)
+                    pending, frame_index = None, -1
+                elif event.key == pygame.K_UP:
+                    frame_index = max(-len(frame_entries(shot["trace"], "post")), frame_index - 1)
+                elif event.key == pygame.K_DOWN:
+                    frame_index = min(-1, frame_index + 1)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                from automation.physical_trace_label import display_to_camera
+                point = display_to_camera(event.pos, origin, scale, image_shape)
+                if point is not None:
+                    pending = target_to_camera(point, homography) if click_space == "target" and homography is not None else point
+    pygame.quit()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--include-labeled", action="store_true", help="include existing labels for relabeling")
     parser.add_argument("--include-skipped", action="store_true", help="include previously skipped shots")
     parser.add_argument("--show-candidates", action="store_true", help="show yellow candidate overlays (off by default)")
+    parser.add_argument("--calibration", type=Path, default=Path("content/settings.json"), help="settings JSON containing camera_calibration")
+    parser.add_argument("--target-width", type=int, default=760)
+    parser.add_argument("--target-height", type=int, default=580)
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=900)
     args = parser.parse_args()
     shots = discover_shots(args.root, include_labeled=args.include_labeled, include_skipped=args.include_skipped)
-    total = len(list((args.root / "shots").glob("shot_*/trace.json")))
+    total = len([p for p in (args.root / "shots").glob("shot_*") if p.is_dir()])
     print(f"Shots total: {total}; to label: {len(shots)}")
     if shots:
-        _run_ui(args.root, shots, (args.width, args.height), args.show_candidates)
-    labeled = sum(annotation_path(p.parent).exists() for p in (args.root / "shots").glob("shot_*/trace.json"))
-    skipped = sum(status_path(p.parent).exists() for p in (args.root / "shots").glob("shot_*/trace.json"))
+        calibration = load_calibration(args.calibration)
+        _run_target_ui(shots, (args.width, args.height), args.show_candidates, calibration,
+                       (args.target_width, args.target_height))
+    shot_dirs = [p for p in (args.root / "shots").glob("shot_*") if p.is_dir()]
+    labeled = sum(annotation_path(p).exists() for p in shot_dirs)
+    skipped = sum(status_path(p).exists() for p in shot_dirs)
     print(f"Shots total: {total}; labeled: {labeled}; skipped/unresolved: {skipped}; remaining: {total - labeled - skipped}")
 
 

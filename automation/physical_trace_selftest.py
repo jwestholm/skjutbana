@@ -103,17 +103,15 @@ class TraceTests(unittest.TestCase):
             root = Path(directory)
             recorder = PhysicalTraceRecorder(root, enabled=True)
             recorder._queue = queue.Queue(maxsize=1)
-            self.assertTrue(recorder._enqueue("json", (root / "a.json", {"x": 1})))
-            self.assertFalse(recorder._enqueue("json", (root / "b.json", {"x": 2})))
-            bad = root / "bad"
-            bad.mkdir()
-            recorder._enqueue("array", (bad, np.ones((2, 2))))
+            job = {"kind": "json", "path": root / "a.json", "value": {"x": 1}, "meta": {}, "shot_id": None}
+            self.assertTrue(recorder._enqueue(job))
+            self.assertFalse(recorder._enqueue({**job, "path": root / "b.json"}))
             self.assertGreaterEqual(recorder._error_count, 1)
             writer_error = PhysicalTraceRecorder(root / "writer", enabled=True)
             (root / "writer").mkdir(parents=True, exist_ok=True)
             bad_parent = root / "writer" / "not-a-directory"
             bad_parent.write_text("x")
-            self.assertTrue(writer_error._enqueue("array", (bad_parent / "frame.npy", np.ones((2, 2)))))
+            self.assertTrue(writer_error._enqueue({"kind": "array", "path": bad_parent / "frame.npy", "value": np.ones((2, 2)), "meta": {}, "shot_id": None}))
             self.assertTrue(writer_error.flush())
             self.assertGreaterEqual(writer_error._error_count, 1)
             (root / "shots/shot_00000001").mkdir(parents=True)

@@ -12,6 +12,7 @@ from automation.physical_trace_label import (
     discover_shots,
     fit_display,
     load_frame,
+    load_best_pre_frame,
     load_existing_annotation,
     save_annotation,
     save_skip,
@@ -26,9 +27,11 @@ class LabelTests(unittest.TestCase):
         for sid in (1, 2):
             shot = root / "shots" / f"shot_{sid:08d}"
             (shot / "frames").mkdir(parents=True)
+            np.save(shot / "frames/pre_snapshot_000000.npy", np.zeros((4, 6), dtype=np.uint8))
             np.save(shot / "frames/post_000000.npy", np.arange(24, dtype=np.uint8).reshape(4, 6))
             np.save(shot / "frames/post_000001.npy", np.full((4, 6), sid, dtype=np.uint8))
             trace = {"schema_version": TRACE_SCHEMA, "shot_id": sid, "frames": [
+                {"kind": "pre_snapshot", "timestamp": 1.0, "path": "frames/pre_snapshot_000000.npy"},
                 {"kind": "post", "timestamp": 2.0, "path": "frames/post_000000.npy"},
                 {"kind": "post", "timestamp": 3.0, "path": "frames/post_000001.npy"}],
                 "stages": [{"candidates": [{"camera_x": 1, "camera_y": 1}]}]}
@@ -66,6 +69,7 @@ class LabelTests(unittest.TestCase):
             self.assertEqual(index, 1)
             self.assertEqual(entry["timestamp"], 3.0)
             self.assertEqual(int(image[0, 0]), 1)
+            self.assertEqual(load_best_pre_frame(shots[0])[1]["kind"], "pre_snapshot")
             save_skip(shots[0]["shot_dir"], 1)
             self.assertEqual([s["trace"]["shot_id"] for s in discover_shots(root)], [2])
             self.assertEqual([s["trace"]["shot_id"] for s in discover_shots(root, include_skipped=True)], [1, 2])
@@ -73,14 +77,25 @@ class LabelTests(unittest.TestCase):
     def test_missing_or_malformed_image_is_clean_error(self):
         temp, root = self.make_session()
         with temp:
-            path = root / "shots/shot_00000001/frames/post_000001.npy"
-            path.unlink()
+            for path in (root / "shots/shot_00000001/frames").glob("post_*.npy"):
+                path.unlink()
             shot = discover_shots(root)[0]
             with self.assertRaises(AnnotationDataError):
                 load_frame(shot, -1)
             (shot["shot_dir"] / "trace.json").write_text("not-json")
             with self.assertRaises(AnnotationDataError):
                 discover_shots(root)
+
+    def test_incomplete_session_frame_directory_is_displayable_without_predictions(self):
+        temp, root = self.make_session()
+        with temp:
+            trace = root / "shots/shot_00000002/trace.json"
+            trace.unlink()
+            shots = discover_shots(root)
+            fallback = next(s for s in shots if s["trace"]["shot_id"] == 2)
+            self.assertEqual(fallback["trace"]["stages"], [])
+            self.assertEqual(len(fallback["trace"]["frames"]), 3)
+            self.assertEqual(load_frame(fallback, -1, "post")[1]["kind"], "post")
 
 
 if __name__ == "__main__":
