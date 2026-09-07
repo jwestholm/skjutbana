@@ -37,10 +37,40 @@ After shooting, disable capture by setting `physical_trace_capture_enabled` back
 to `false` (or removing the key) and restart the game. Capture remains disabled
 by default and is never enabled by source code.
 
-## Attach physical ground truth
+The complete workflow is: (1) enable tracing in local settings, (2) start the
+game, (3) shoot normally, (4) stop the game, (5) run the label command, (6)
+click and accept each visible hole, (7) export the traces, (8) run the
+evaluation command, and (9) disable tracing again before the next normal run.
 
-The recorder never invents labels. After independently verifying a hole in camera
-coordinates, attach it to a shot directory:
+## Label physical ground truth by clicking
+
+The recorder never invents labels. After stopping the game, run one interactive
+labeling session. It opens the best captured POST frame for each unlabeled shot;
+the click is stored in original full-camera coordinates and is never snapped to a
+detector candidate:
+
+```bash
+python3 -m automation.physical_trace_label \
+  --root content/ai/physical_traces/session_20260907
+```
+
+Controls:
+
+- Left click: mark the exact hole location.
+- Enter or Space: accept the click and save `ground_truth.json`.
+- R: clear the click and retry.
+- S: mark the shot unresolved and continue.
+- Left/Right arrows: previous/next shot.
+- Up/Down arrows: previous/next captured POST frame.
+- C: toggle optional yellow detector-candidate overlays (off by default).
+- Q or Escape: quit; rerun the same command to resume.
+
+The tool prints total, labeled, skipped/unresolved, and remaining counts. To
+relabel existing human annotations, use `--include-labeled`; to revisit skipped
+shots, use `--include-skipped`. A skipped shot is recorded separately in
+`ground_truth_status.json` and is not treated as detector output.
+
+For scripted or headless attachment, the existing command remains available:
 
 ```python
 from src.engine.physical_trace import get_physical_trace_recorder
