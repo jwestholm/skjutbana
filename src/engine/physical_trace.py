@@ -39,6 +39,8 @@ def _safe(value: Any) -> Any:
         return [_safe(v) for v in value]
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
+    if hasattr(value, "__dict__"):
+        return _safe(vars(value))
     return str(value)
 
 
@@ -320,6 +322,15 @@ class PhysicalTraceRecorder:
                              "tracks": _safe(getattr(scanner, "last_stable_tracks", [])), "pipeline": _safe(getattr(scanner, "last_trace_pipeline", "UNAVAILABLE")),
                              "thresholds": {"combined": getattr(scanner, "last_threshold_value", None), "change": getattr(scanner, "last_change_threshold_value", None), "vote": getattr(scanner, "last_vote_threshold_value", None)},
                              "window_debug": _safe(getattr(scanner, "last_window_debug", {})), "evidence_maps": {}, "event": _safe(item)}
+                    stable_tracks = getattr(scanner, "last_stable_tracks", [])
+                    if isinstance(stable_tracks, (list, tuple)):
+                        confirmed = []
+                        for track in stable_tracks:
+                            value = _safe(track)
+                            if isinstance(value, Mapping) and str(value.get("state", "")).lower() == "confirmed":
+                                if "camera_x" in value and "camera_y" in value:
+                                    confirmed.append({"camera_x": value["camera_x"], "camera_y": value["camera_y"], "track_id": value.get("track_id")})
+                        stage["confirmed_candidates"] = confirmed if confirmed else None
                     trace["stages"].append(stage); active["stages_by_id"][stage_id] = stage
                     if new_post and active["expected_counts"]["evidence"] < 64:
                         for name, value in dict(getattr(scanner, "debug_frames", {}) or {}).items():
@@ -354,12 +365,19 @@ class PhysicalTraceRecorder:
             if active is None:
                 return
             trace = active["trace"]
+            debug = _safe(getattr(scanner, "last_event_debug", {}))
+            debug_shot = debug.get("shot_id") if isinstance(debug, Mapping) else None
+            detector_e2e = (debug.get("detector_e2e_ms")
+                            if isinstance(debug, Mapping) and (debug_shot is None or int(debug_shot) == int(shot_id))
+                            else None)
+            trace_completion = max(0.0, (time.time() - float(trace["peak_ts"])) * 1000.0)
             trace["outcome"] = {"status": str(getattr(event, "state", "finished")), "emitted": bool(getattr(event, "emitted", False)),
                 "matched_track_id": getattr(event, "matched_track_id", None), "matched_hole_id": getattr(event, "matched_hole_id", None),
                 "confidence": getattr(event, "confidence", None), "note": str(getattr(event, "note", "")),
                 "final_camera_xy": None if getattr(scanner, "last_best_candidate", None) is None else _safe(getattr(scanner, "last_best_candidate")),
                 "rescue_used": bool(getattr(scanner, "last_window_debug", {}).get("rescue_used", False)),
-                "latency_ms": max(0.0, (time.time() - float(trace["peak_ts"])) * 1000.0), "timeout": str(getattr(event, "state", "")) == "missed", "ground_truth": None}
+                "detector_e2e_latency_ms": detector_e2e, "trace_completion_latency_ms": trace_completion,
+                "runtime_event_debug": debug, "timeout": str(getattr(event, "state", "")) == "missed", "ground_truth": None}
             active["finished"] = True
 
     def _finalize_trace(self, shot_id: int, active: dict[str, Any], *, timed_out: bool) -> bool:

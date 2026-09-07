@@ -279,8 +279,20 @@ def install_v2222_hit_scanner_patch() -> None:
 
         limit = max(1, _as_int(getattr(self, "candidate_limit", 200), 200))
         candidates.sort(key=lambda c: _finite(c.get("score", 0.0)), reverse=True)
+        pre_limit_candidates = [dict(c) for c in candidates]
         candidates = candidates[:limit]
         self.last_candidates = candidates
+        # Observational snapshot for physical traces; it is never read by the
+        # detector and therefore cannot affect ordering or policy.
+        if bool(getattr(self, "physical_trace_capture_enabled", False)):
+            self.last_trace_pipeline = {
+                "raw_candidates": "UNAVAILABLE",
+                "filtered_candidates": pre_limit_candidates,
+                "retained_candidates": [dict(c) for c in candidates],
+                "confirmed_candidates": "UNAVAILABLE",
+                "ranked_candidates": "UNAVAILABLE",
+                "coordinate_space": "camera",
+            }
 
         stats = dict(getattr(self, "last_window_debug", {}) or {})
         stats.update({

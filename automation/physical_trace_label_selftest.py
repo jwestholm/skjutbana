@@ -60,6 +60,17 @@ class LabelTests(unittest.TestCase):
             save_annotation(shot, 1, (5.5, 3.5))
             self.assertEqual(load_existing_annotation(shot)["camera_x"], 5.5)
 
+    def test_approximate_label_schema_and_invalid_quality(self):
+        temp, root = self.make_session()
+        with temp:
+            shot = root / "shots/shot_00000001"
+            save_annotation(shot, 1, (4.25, 2.5), quality="approximate", uncertainty_radius_px=30)
+            annotation = load_existing_annotation(shot)
+            self.assertEqual(annotation["quality"], "approximate")
+            self.assertEqual(annotation["uncertainty_radius_px"], 30.0)
+            with self.assertRaises(AnnotationDataError):
+                save_annotation(shot, 1, (1, 1), quality="approximate")
+
     def test_skip_resume_and_multiple_post_frame_selection(self):
         temp, root = self.make_session()
         with temp:

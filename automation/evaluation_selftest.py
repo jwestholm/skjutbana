@@ -124,6 +124,24 @@ class EvaluationTests(unittest.TestCase):
         s["latency_ms"] = None
         self.assertEqual(score([s])["latency_ms"]["evaluated"], 0)
 
+    def test_approximate_ground_truth_is_uncertainty_aware(self):
+        s = shot()
+        s["ground_truth"] = {"camera_x": 0, "camera_y": 0, "quality": "approximate", "uncertainty_radius_px": 30}
+        s["emitted"] = [{"camera_x": 25, "camera_y": 0}]
+        report = score([s])["tolerances_camera_px"]["10"]
+        self.assertEqual(report["shots"][0]["distances_px"]["emitted"], 25.0)
+        self.assertEqual(report["shots"][0]["interpretations"]["emitted"], "uncertain_within_label_uncertainty")
+        self.assertEqual(report["shots"][0]["first_loss"], "uncertain_label")
+        self.assertEqual(report["stages"]["emitted"]["correct"], 0)
+        self.assertEqual(report["stages"]["emitted"]["uncertain"], 1)
+
+    def test_unresolved_ground_truth_is_unavailable(self):
+        s = shot()
+        s["ground_truth"] = None
+        report = score([s])
+        self.assertEqual(report["labelled_shots"], 0)
+        self.assertEqual(report["tolerances_camera_px"]["20"]["first_loss_counts"], {"not_evaluated": 1})
+
     def test_source_hash_independent_of_staging(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

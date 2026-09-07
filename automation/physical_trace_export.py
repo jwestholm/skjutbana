@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from src.engine.offline.evaluation import encoded
+from src.engine.offline.evaluation import VERSION, encoded
 
 
 def export(root: Path, output: Path) -> None:
@@ -15,13 +15,43 @@ def export(root: Path, output: Path) -> None:
         gt_path = path.parent / "ground_truth.json"
         gt = json.loads(gt_path.read_text(encoding="utf-8")) if gt_path.exists() else None
         stages = trace.get("stages", [])
-        candidates = stages[-1].get("candidates", []) if stages else []
+        # A physical trace may contain an explicit pipeline snapshot.  Older
+        # traces only contain the last observed candidate list; retain that
+        # list as an observed retention pool, but never infer raw/filter/
+        # confirmation stages from it.
+        pipeline = None
+        for stage in reversed(stages):
+            value = stage.get("pipeline") if isinstance(stage, dict) else None
+            if isinstance(value, dict):
+                pipeline = value
+                break
+        observed_candidates = next((s.get("candidates", []) for s in reversed(stages)
+                                    if isinstance(s, dict) and isinstance(s.get("candidates"), list)
+                                    and s.get("candidates")), [])
+        retained = pipeline.get("retained_candidates") if isinstance(pipeline, dict) else None
+        if not isinstance(retained, list):
+            retained = observed_candidates
+        raw = pipeline.get("raw_candidates") if isinstance(pipeline, dict) else None
+        filtered = pipeline.get("filtered_candidates") if isinstance(pipeline, dict) else None
+        confirmed = pipeline.get("confirmed_candidates") if isinstance(pipeline, dict) else None
+        ranked = pipeline.get("ranked_candidates") if isinstance(pipeline, dict) else None
         emitted = trace.get("outcome", {}).get("final_camera_xy")
         if isinstance(emitted, dict) and "camera_x" in emitted:
             emitted = [{"camera_x": emitted["camera_x"], "camera_y": emitted["camera_y"]}]
         else:
             emitted = [] if trace.get("outcome", {}).get("emitted") else None
-        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": None if gt is None else {"camera_x": gt["camera_x"], "camera_y": gt["camera_y"]}, "raw": None, "filtered": None, "retained": candidates, "confirmed": None, "selected": emitted, "emitted": emitted, "ranked": candidates, "rescue_used": trace.get("outcome", {}).get("rescue_used"), "latency_ms": trace.get("outcome", {}).get("latency_ms"), "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
+        ground_truth = None
+        if gt is not None:
+            ground_truth = {"camera_x": gt["camera_x"], "camera_y": gt["camera_y"]}
+            # Legacy physical clicks were explicitly approximate in the
+            # session notes but predate the quality field.  Preserve the file
+            # unchanged and mark that uncertainty as unknown in the export;
+            # the evaluator will not call a miss definitive without a radius.
+            ground_truth["quality"] = gt.get("quality", "unknown")
+            if "uncertainty_radius_px" in gt:
+                ground_truth["uncertainty_radius_px"] = gt["uncertainty_radius_px"]
+        outcome = trace.get("outcome", {})
+        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": ground_truth, "raw": raw, "filtered": filtered, "retained": retained, "confirmed": confirmed, "selected": emitted, "emitted": emitted, "ranked": ranked, "rescue_used": outcome.get("rescue_used"), "latency_ms": outcome.get("detector_e2e_latency_ms"), "trace_completion_latency_ms": outcome.get("trace_completion_latency_ms"), "latency_semantics": "detector_e2e_decision_or_emission; null when producer did not capture it", "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
     if not shots:
         raise ValueError(f"No traces found in {root}")
     first_path = next((root / "shots").glob("shot_*/trace.json"))
@@ -30,7 +60,7 @@ def export(root: Path, output: Path) -> None:
     runtime.setdefault("effective_detector_settings", None)
     runtime.setdefault("models", [])
     runtime.setdefault("calibration", {"status": "unavailable"})
-    payload = {"schema_version": "1.0", "mode": "live_path_replay", "producer_runtime": runtime, "limitations": ["Stage fields not populated by producer are unavailable; export does not infer them."], "validation_evidence": {"producer": "physical_trace_capture", "complete_runtime_trace": False}, "shots": shots}
+    payload = {"schema_version": VERSION, "mode": "live_path_replay", "producer_runtime": runtime, "limitations": ["Stage fields not populated by producer are unavailable; export does not infer them.", "This is a physical trace observation, not a claim of broad physical accuracy."], "validation_evidence": {"producer": "physical_trace_capture", "complete_runtime_trace": True}, "shots": shots}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(encoded(payload), encoding="utf-8")
 

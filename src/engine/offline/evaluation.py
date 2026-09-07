@@ -13,7 +13,7 @@ from statistics import mean, median
 
 from .metrics import DEFAULT_RADII, nearest_distance, within
 
-VERSION = "1.0"
+VERSION = "1.1"
 STAGES = ("raw", "filtered", "retained", "confirmed", "selected", "emitted")
 LOSSES = ("before_candidates", "filtering", "retention", "confirmation", "selection", "emission_localization")
 MODES = ("offline_candidate", "live_path_replay", "physical_validation")
@@ -63,6 +63,40 @@ def points(value):
     return value
 
 
+def _ground_truth_info(gt):
+    if gt is None:
+        return None
+    quality = str(gt.get("quality", "precise"))
+    if quality not in {"precise", "approximate", "unknown"}:
+        raise ValueError("ground_truth quality must be precise, approximate, or unknown")
+    radius = gt.get("uncertainty_radius_px")
+    if quality == "approximate":
+        if isinstance(radius, bool) or not isinstance(radius, (int, float)) or not math.isfinite(radius) or radius < 0:
+            raise ValueError("approximate ground truth requires finite uncertainty_radius_px")
+    elif radius is not None and (isinstance(radius, bool) or not isinstance(radius, (int, float)) or not math.isfinite(radius) or radius < 0):
+        raise ValueError("invalid ground truth uncertainty_radius_px")
+    return {"quality": quality, "uncertainty_radius_px": None if radius is None else float(radius)}
+
+
+def _interpret(distance, threshold, gt_info):
+    if distance is None or gt_info is None:
+        return None
+    if distance <= threshold:
+        return "within_threshold"
+    if gt_info["quality"] == "approximate" and distance <= float(gt_info["uncertainty_radius_px"]):
+        return "uncertain_within_label_uncertainty"
+    if gt_info["quality"] == "unknown":
+        return "uncertain_label_quality_unrecorded"
+    return "outside_label_uncertainty" if gt_info["quality"] == "approximate" else "outside_threshold"
+
+
+def _stage_distance(obs, xy):
+    if obs is None or xy is None:
+        return None
+    distance = nearest_distance(obs, xy)
+    return float("inf") if isinstance(obs, list) and not obs else distance
+
+
 def evaluate(shots, *, mode, top_k=10):
     if mode not in MODES or type(top_k) is not int or top_k < 1:
         raise ValueError("Invalid mode or Top-K")
@@ -77,6 +111,7 @@ def evaluate(shots, *, mode, top_k=10):
         gt = shot.get("ground_truth")
         if gt is not None:
             points([gt])
+            _ground_truth_info(gt)
         for stage in (*STAGES, "saved_pool", "ranked"):
             points(shot.get(stage))
         if shot.get("selected") is not None and len(shot["selected"]) > 1:
@@ -95,18 +130,26 @@ def evaluate(shots, *, mode, top_k=10):
         for shot in shots:
             gt = shot.get("ground_truth")
             xy = (gt["camera_x"], gt["camera_y"]) if gt else None
+            gt_info = _ground_truth_info(gt)
             observations = {s: shot.get(s) for s in (*STAGES, "saved_pool")}
             ranked = shot.get("ranked")
             observations.update({name: None if ranked is None else ranked[:k]
                                  for name, k in (("top_1", 1), ("top_3", 3), ("top_k", top_k))})
-            hits = {s: None if xy is None or obs is None else within(nearest_distance(obs, xy), radius)
+            distances_by_stage = {s: _stage_distance(obs, xy)
+                                  for s, obs in observations.items()}
+            hits = {s: None if distances_by_stage[s] is None else within(distances_by_stage[s], radius)
                     for s, obs in observations.items()}
+            interpretations = {s: _interpret(distances_by_stage[s], radius, gt_info)
+                               for s in observations}
             # Only a fully observed successful prefix permits first-loss attribution.
             failure = "not_evaluated"
             for stage, loss in zip(STAGES, LOSSES):
                 if hits[stage] is None:
                     break
                 if not hits[stage]:
+                    if interpretations[stage] in {"uncertain_within_label_uncertainty", "uncertain_label_quality_unrecorded"}:
+                        failure = "uncertain_label"
+                        break
                     failure = loss
                     break
             else:
@@ -114,19 +157,26 @@ def evaluate(shots, *, mode, top_k=10):
             emissions = shot.get("emitted")
             distances = None if emissions is None or xy is None else [nearest_distance([p], xy) for p in emissions]
             correct = None if distances is None else sum(within(d, radius) for d in distances)
-            details.append({"session_id": shot["session_id"], "shot_id": shot["shot_id"], "hits": hits,
+            emission_interpretations = None if distances is None else [_interpret(d, radius, gt_info) for d in distances]
+            uncertain_emissions = None if emission_interpretations is None else sum(v in {"uncertain_within_label_uncertainty", "uncertain_label_quality_unrecorded"} for v in emission_interpretations)
+            definitive_false = None if distances is None else len(distances) - correct - (uncertain_emissions or 0)
+            details.append({"session_id": shot["session_id"], "shot_id": shot["shot_id"], "ground_truth_quality": None if gt_info is None else gt_info["quality"], "ground_truth_uncertainty_radius_px": None if gt_info is None else gt_info["uncertainty_radius_px"], "distances_px": distances_by_stage, "interpretations": interpretations, "emission_interpretations": emission_interpretations, "hits": hits,
                             "first_loss": failure,
-                            "false_emissions": None if distances is None else len(distances) - correct,
+                            "false_emissions": definitive_false,
+                            "uncertain_emissions": uncertain_emissions,
                             "duplicates": None if correct is None else max(0, correct - 1)})
         stages = {}
         for name in names:
             observed = [d["hits"][name] for d in details if d["hits"][name] is not None]
+            uncertain = sum(d["interpretations"].get(name) in {"uncertain_within_label_uncertainty", "uncertain_label_quality_unrecorded"} for d in details)
             stages[name] = {"correct": sum(observed), "evaluated": len(observed),
                             "unavailable": len(shots) - len(observed),
                             "accuracy_percent": 100 * sum(observed) / len(observed) if observed else None}
+            if uncertain:
+                stages[name]["uncertain"] = uncertain
         reports[str(int(radius))] = {"stages": stages, "first_loss_counts": dict(Counter(d["first_loss"] for d in details)),
             **{key: {"count": sum(d[key] for d in details if d[key] is not None),
-                     "evaluated_shots": sum(d[key] is not None for d in details)} for key in ("false_emissions", "duplicates")},
+                     "evaluated_shots": sum(d[key] is not None for d in details)} for key in ("false_emissions", "uncertain_emissions", "duplicates")},
             "shots": details}
     latencies = sorted(s["latency_ms"] for s in shots if s.get("latency_ms") is not None)
     rescue = [s["rescue_used"] for s in shots if s.get("rescue_used") is not None]

@@ -70,7 +70,10 @@ canvas size.
 Controls:
 
 - Left click: mark the exact hole location.
-- Enter or Space: accept the click and save `ground_truth.json`.
+- Enter, Space, or P: accept as a precise label. `A` accepts as an approximate
+  label (default uncertainty radius 42 camera px; change with
+  `--uncertainty-radius-px`). Approximate labels include `quality` and
+  `uncertainty_radius_px`; the raw click is always preserved.
 - R: clear the click and retry.
 - S: mark the shot unresolved and continue.
 - Left/Right arrows: previous/next shot.
@@ -106,8 +109,12 @@ python3 -m automation.physical_trace_attach_gt \
   --shot-id 1 --camera-x 1234.5 --camera-y 678.0
 ```
 
-The label is stored separately as `ground_truth.json`, with `space: "camera"` and
-`label_source: "manual_verified"`. Attach labels only after the physical session.
+The label is stored separately as `ground_truth.json`, with `space: "camera"`,
+`quality: "precise"` or `"approximate"`, and `label_source: "manual_verified"`.
+Unresolved shots remain in `ground_truth_status.json`. Attach labels only after
+the physical session. The evaluator reports raw click distances and separately
+marks approximate labels that fall within their uncertainty radius; it does not
+turn those into definitive threshold failures.
 
 ## Export and evaluate
 
@@ -124,6 +131,8 @@ python3 -m automation.evaluate_pipeline \
 ```
 
 The export preserves missing stages as unavailable; it does not infer raw,
-filtered, confirmation or rescue lineage from later candidates. A real physical
-session is required to verify timing, frame completeness, calibration context,
-and writer performance. No physical capture has been run or validated yet.
+filtered, confirmation or rescue lineage from later candidates. Detector
+latency is populated only when the runtime captured a detector end-to-end timing
+field; asynchronous trace completion time is reported separately and is not
+used as detector latency. A real physical session is required to verify timing,
+frame completeness, calibration context, and writer performance.

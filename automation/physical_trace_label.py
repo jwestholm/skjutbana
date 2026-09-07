@@ -60,6 +60,15 @@ def load_existing_annotation(shot_dir: Path) -> dict[str, Any] | None:
         raise AnnotationDataError(f"Invalid ground truth coordinates: {path}") from exc
     if not math.isfinite(x) or not math.isfinite(y):
         raise AnnotationDataError(f"Non-finite ground truth coordinates: {path}")
+    quality = str(value.get("quality", "precise"))
+    if quality not in {"precise", "approximate"}:
+        raise AnnotationDataError(f"Invalid ground truth quality: {path}")
+    radius = value.get("uncertainty_radius_px")
+    if quality == "approximate":
+        if isinstance(radius, bool) or not isinstance(radius, (int, float)) or not math.isfinite(float(radius)) or float(radius) < 0:
+            raise AnnotationDataError(f"Approximate labels require uncertainty_radius_px: {path}")
+        value["uncertainty_radius_px"] = float(radius)
+    value["quality"] = quality
     return {**value, "camera_x": x, "camera_y": y}
 
 
@@ -165,14 +174,23 @@ def display_to_camera(click: tuple[float, float], origin: tuple[int, int], scale
     return x, y
 
 
-def save_annotation(shot_dir: Path, shot_id: int, camera_xy: tuple[float, float], *, label_source: str = "manual_click") -> Path:
+def save_annotation(shot_dir: Path, shot_id: int, camera_xy: tuple[float, float], *, label_source: str = "manual_click",
+                    quality: str = "precise", uncertainty_radius_px: float | None = None) -> Path:
     x, y = map(float, camera_xy)
     if not all(math.isfinite(v) for v in (x, y)):
         raise AnnotationDataError("Ground truth click must be finite")
+    if quality not in {"precise", "approximate"}:
+        raise AnnotationDataError("Ground truth quality must be precise or approximate")
+    if quality == "approximate":
+        if uncertainty_radius_px is None or not math.isfinite(float(uncertainty_radius_px)) or float(uncertainty_radius_px) < 0:
+            raise AnnotationDataError("Approximate labels require a nonnegative uncertainty radius")
     path = annotation_path(shot_dir)
-    path.write_text(_json({"schema_version": TRACE_SCHEMA, "shot_id": int(shot_id), "space": "camera",
-                           "camera_x": x, "camera_y": y, "label_source": label_source,
-                           "attached_at": time.time()}), encoding="utf-8")
+    payload = {"schema_version": TRACE_SCHEMA, "shot_id": int(shot_id), "space": "camera",
+               "camera_x": x, "camera_y": y, "label_source": label_source, "quality": quality,
+               "attached_at": time.time()}
+    if quality == "approximate":
+        payload["uncertainty_radius_px"] = float(uncertainty_radius_px)
+    path.write_text(_json(payload), encoding="utf-8")
     status_path(shot_dir).unlink(missing_ok=True)
     return path
 
@@ -279,7 +297,8 @@ def _run_ui(root: Path, shots: list[dict[str, Any]], max_size: tuple[int, int], 
 
 
 def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_candidates: bool,
-                   calibration: dict[str, Any] | None, target_size: tuple[int, int]) -> None:
+                   calibration: dict[str, Any] | None, target_size: tuple[int, int],
+                   uncertainty_radius_px: float = 42.0) -> None:
     """Interactive UI with target-space evidence and explicit raw-image modes."""
     try:
         import pygame
@@ -342,7 +361,7 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
             pygame.draw.line(screen, (0, 255, 0), (px - 12, py), (px + 12, py), 2)
             pygame.draw.line(screen, (0, 255, 0), (px, py - 12), (px, py + 12), 2)
         text = f"shot_id {shot['trace'].get('shot_id')} | {index + 1}/{len(shots)} | mode {mode} | POST {post_actual + 1}"
-        controls = "click hole  Enter accept  R retry  S skip  arrows shot/frame  1 target 2 diff 3 POST 4 PRE  C candidates  Q quit"
+        controls = "click hole  P precise  A approximate  Enter precise  R retry  S unresolved  arrows shot/frame  1 target 2 diff 3 POST 4 PRE  C candidates  Q quit"
         screen.blit(font.render(text, True, (255, 255, 255)), (12, 10))
         screen.blit(font.render(controls, True, (190, 190, 190)), (12, max_size[1] - 32))
         pygame.display.flip()
@@ -352,8 +371,15 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
             elif event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_q, pygame.K_ESCAPE):
                     running = False
-                elif event.key in (pygame.K_RETURN, pygame.K_SPACE) and pending is not None:
-                    save_annotation(shot["shot_dir"], int(shot["trace"]["shot_id"]), pending)
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_p) and pending is not None:
+                    save_annotation(shot["shot_dir"], int(shot["trace"]["shot_id"]), pending, quality="precise")
+                    shots.pop(index)
+                    if shots:
+                        index %= len(shots)
+                    pending, frame_index = None, -1
+                elif event.key == pygame.K_a and pending is not None:
+                    save_annotation(shot["shot_dir"], int(shot["trace"]["shot_id"]), pending,
+                                    quality="approximate", uncertainty_radius_px=uncertainty_radius_px)
                     shots.pop(index)
                     if shots:
                         index %= len(shots)
@@ -403,6 +429,8 @@ def main() -> None:
     parser.add_argument("--calibration", type=Path, default=Path("content/settings.json"), help="settings JSON containing camera_calibration")
     parser.add_argument("--target-width", type=int, default=760)
     parser.add_argument("--target-height", type=int, default=580)
+    parser.add_argument("--uncertainty-radius-px", type=float, default=42.0,
+                        help="default radius saved when accepting an approximate label")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=900)
     args = parser.parse_args()
@@ -412,7 +440,7 @@ def main() -> None:
     if shots:
         calibration = load_calibration(args.calibration)
         _run_target_ui(shots, (args.width, args.height), args.show_candidates, calibration,
-                       (args.target_width, args.target_height))
+                       (args.target_width, args.target_height), args.uncertainty_radius_px)
     shot_dirs = [p for p in (args.root / "shots").glob("shot_*") if p.is_dir()]
     labeled = sum(annotation_path(p).exists() for p in shot_dirs)
     skipped = sum(status_path(p).exists() for p in shot_dirs)
