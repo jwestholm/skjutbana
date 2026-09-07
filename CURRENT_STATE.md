@@ -148,3 +148,18 @@ The initial existing-data run covered 101 projected captures (100 F2, one single
 projected): saved-pool recall was 1/101 @5 px, 2/101 @10 px, 6/101 @20 px and
 26/101 @42 px. POST coverage was 93 with one frame, six with two and two with
 three. These are historical snapshot measurements, not V2.25.3 detector results.
+
+## Offline ten-iteration ranker research
+
+Completed ten isolated native-F2 ranking trials on chronological 100-shot TRAIN,
+100-shot DEVELOPMENT and 100-shot protected final holdout sessions. No live code,
+settings, model registry or detector thresholds changed. Iteration 10 (geometry-only
+linear ranker) won only the development MRR20 tie-break: Top1@20 stayed 0/100.
+Holdout Top1/Top3/Top10@20 all remained 0/100; MRR20 improved, while Top1@42 regressed
+1/100 to 0/100. No primary accuracy improvement or promotion is justified. Candidate
+coverage remains the dominant limitation (6/100 holdout @20). See
+[OFFLINE_10ITER.md](OFFLINE_10ITER.md); models and full JSON results are isolated under
+`evaluation_runs/offline_10iter_20260907/`. V2.25.3 physical acceptance remains pending.
+
+Iteration 10 is NOT approved for live use. All experiment data is projected F2
+data and does not establish physical/live performance.
