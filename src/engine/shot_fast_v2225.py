@@ -912,6 +912,12 @@ def _install_local_confirmation_patch() -> None:
                 state.candidates,
                 frame_ts=float(frame_ts),
             )
+            if getattr(self, "physical_trace_capture_enabled", False):
+                self.last_trace_confirmation = {
+                    "shot_id": int(state.shot_id), "frame_ts": float(frame_ts),
+                    "candidates": [dict(c) for c in confirmed], "diagnostics": dict(diag),
+                    "semantics": "V2.22.5 local confirmation output, before tracking and authority gates",
+                }
             if _CONFIG.local_log:
                 print(
                     f"[V2.22.5 LOCAL-CONFIRM] shot={state.shot_id} round={state.rounds} "

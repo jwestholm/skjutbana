@@ -35,6 +35,18 @@ def export(root: Path, output: Path) -> None:
         filtered = pipeline.get("filtered_candidates") if isinstance(pipeline, dict) else None
         confirmed = pipeline.get("confirmed_candidates") if isinstance(pipeline, dict) else None
         ranked = pipeline.get("ranked_candidates") if isinstance(pipeline, dict) else None
+        raw = raw if isinstance(raw, list) else None
+        filtered = filtered if isinstance(filtered, list) else None
+        confirmed = confirmed if isinstance(confirmed, list) else None
+        if confirmed is None:
+            confirmation = next((s.get("local_confirmation") for s in reversed(stages)
+                                 if isinstance(s, dict) and isinstance(s.get("local_confirmation"), dict)), None)
+            if confirmation is not None:
+                confirmed = confirmation.get("candidates")
+        ranked = ranked if isinstance(ranked, list) else None
+        decision = trace.get("decision_input", {}).get("deterministic_selection")
+        selected = ([{"camera_x": decision["camera_x"], "camera_y": decision["camera_y"]}]
+                    if isinstance(decision, dict) and "camera_x" in decision else None)
         emitted = trace.get("outcome", {}).get("final_camera_xy")
         if isinstance(emitted, dict) and "camera_x" in emitted:
             emitted = [{"camera_x": emitted["camera_x"], "camera_y": emitted["camera_y"]}]
@@ -51,7 +63,7 @@ def export(root: Path, output: Path) -> None:
             if "uncertainty_radius_px" in gt:
                 ground_truth["uncertainty_radius_px"] = gt["uncertainty_radius_px"]
         outcome = trace.get("outcome", {})
-        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": ground_truth, "raw": raw, "filtered": filtered, "retained": retained, "confirmed": confirmed, "selected": emitted, "emitted": emitted, "ranked": ranked, "rescue_used": outcome.get("rescue_used"), "latency_ms": outcome.get("detector_e2e_latency_ms"), "trace_completion_latency_ms": outcome.get("trace_completion_latency_ms"), "latency_semantics": "detector_e2e_decision_or_emission; null when producer did not capture it", "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
+        shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": ground_truth, "raw": raw, "filtered": filtered, "retained": retained, "confirmed": confirmed, "selected": selected, "emitted": emitted, "ranked": ranked, "rescue_used": outcome.get("rescue_used"), "latency_ms": outcome.get("detector_e2e_latency_ms"), "trace_completion_latency_ms": outcome.get("trace_completion_latency_ms"), "latency_semantics": "detector_e2e_decision_or_emission; null when producer did not capture it", "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
     if not shots:
         raise ValueError(f"No traces found in {root}")
     first_path = next((root / "shots").glob("shot_*/trace.json"))

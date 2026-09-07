@@ -84,6 +84,7 @@ class DetectorJobResultV2224:
     vote_threshold: float
     stages_ms: dict[str, float] = field(default_factory=dict)
     error: str = ""
+    trace_pipeline: dict[str, Any] | None = None
 
     @property
     def queue_ms(self) -> float:
@@ -252,6 +253,7 @@ class AsyncDetectorV2224:
         clone.known_holes = [dict(h) for h in list(getattr(scanner, "known_holes", []) or [])]
         clone.debug_frames = {}
         clone.last_candidates = []
+        clone.last_trace_pipeline = None
         clone.last_window_debug = dict(getattr(scanner, "last_window_debug", {}) or {})
         clone.last_stable_tracks = []
         clone._active_tracks = {}
@@ -327,6 +329,8 @@ class AsyncDetectorV2224:
             threshold=_finite(getattr(clone, "last_threshold_value", 0.0)),
             change_threshold=_finite(getattr(clone, "last_change_threshold_value", 0.0)),
             vote_threshold=_finite(getattr(clone, "last_vote_threshold_value", 0.0)),
+            trace_pipeline=(copy.deepcopy(getattr(clone, "last_trace_pipeline", None))
+                            if getattr(clone, "physical_trace_capture_enabled", False) else None),
             stages_ms=dict(stages),
             error=error,
         )
@@ -410,6 +414,9 @@ class AsyncDetectorV2224:
     @staticmethod
     def apply_result(scanner: Any, result: DetectorJobResultV2224) -> None:
         scanner.last_candidates = [dict(c) for c in result.candidates]
+        if getattr(scanner, "physical_trace_capture_enabled", False):
+            scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
+            scanner.last_trace_pipeline_shot_id = int(result.shot_id)
         if result.debug_frames:
             # Preserve reference/debug entries created elsewhere, update only
             # maps produced by this detector job.

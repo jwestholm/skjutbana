@@ -365,8 +365,19 @@ def _install_audio_telemetry_patch() -> None:
                 chunk_end_ts=now,
                 trigger_threshold=max(self.min_abs_peak, trigger_threshold * 0.85),
             )
+            previous_peak_ts = self.last_peak_ts
             self.last_peak_ts = event_ts
             ev = AudioPeakEvent(timestamp=event_ts, peak=peak, rms=rms)
+            # Bind evidence to this raw event, never the mutable latest decision.
+            ev.diagnostics = {
+                "chunk_end_ts": float(now), "previous_peak_ts": float(previous_peak_ts),
+                "event_interval_s": float(event_ts - previous_peak_ts) if previous_peak_ts else None,
+                "cooldown_s": float(self.cooldown_s), "cooldown_elapsed_at_chunk_end_s": float(now - previous_peak_ts),
+                "abs_threshold": float(self.min_abs_peak), "dynamic_threshold": float(dyn_threshold),
+                "crest_threshold": float(crest_threshold), "noise_floor": float(self.noise_floor),
+                "sample_rate": int(self.sample_rate), "chunk_samples": int(data.size),
+                "near_misses_before": list(getattr(self, "v2226_near_misses", [])),
+            }
             with self._lock:
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)

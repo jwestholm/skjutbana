@@ -130,6 +130,11 @@ def _patch_hit_scanner() -> None:
             from src.engine.ai.runtime import get_ai_runtime
 
             runtime = get_ai_runtime()
+            try:
+                from src.engine.physical_trace import get_physical_trace_recorder
+                get_physical_trace_recorder().capture_decision(self, track, event, runtime.settings)
+            except Exception:
+                pass
             runtime.observe_scanner(self, event=event)
             chosen = runtime.choose_for_emission(
                 track.camera_x,

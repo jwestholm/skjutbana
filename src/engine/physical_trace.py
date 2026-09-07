@@ -228,6 +228,7 @@ class PhysicalTraceRecorder:
                     return
                 directory = self._shot_dir(shot_id)
                 trace = {"schema_version": TRACE_SCHEMA, "shot_id": shot_id,
+                    "audio_trigger": _safe(getattr(event, "audio_trigger", None)),
                     "session_id": str(settings.get("physical_trace_session_id", "runtime") if isinstance(settings, Mapping) else "runtime"),
                     "peak_ts": float(getattr(event, "peak_ts", 0.0)), "created_at": time.time(),
                     "coordinate_space": "camera", "provenance": self._provenance(settings),
@@ -319,18 +320,17 @@ class PhysicalTraceRecorder:
                     maps = {}
                     stage_id = len(trace["stages"])
                     stage = {"timestamp": time.time(), "stage": "scanner_observation", "candidates": _copy_candidates(getattr(scanner, "last_candidates", [])),
-                             "tracks": _safe(getattr(scanner, "last_stable_tracks", [])), "pipeline": _safe(getattr(scanner, "last_trace_pipeline", "UNAVAILABLE")),
+                             "tracks": _safe(getattr(scanner, "last_stable_tracks", [])),
+                             "pipeline": (_safe(getattr(scanner, "last_trace_pipeline", "UNAVAILABLE"))
+                                          if getattr(scanner, "last_trace_pipeline_shot_id", sid) == sid else "UNAVAILABLE"),
+                             "candidate_pool_shot_id": getattr(scanner, "last_trace_pipeline_shot_id", None),
                              "thresholds": {"combined": getattr(scanner, "last_threshold_value", None), "change": getattr(scanner, "last_change_threshold_value", None), "vote": getattr(scanner, "last_vote_threshold_value", None)},
                              "window_debug": _safe(getattr(scanner, "last_window_debug", {})), "evidence_maps": {}, "event": _safe(item)}
-                    stable_tracks = getattr(scanner, "last_stable_tracks", [])
-                    if isinstance(stable_tracks, (list, tuple)):
-                        confirmed = []
-                        for track in stable_tracks:
-                            value = _safe(track)
-                            if isinstance(value, Mapping) and str(value.get("state", "")).lower() == "confirmed":
-                                if "camera_x" in value and "camera_y" in value:
-                                    confirmed.append({"camera_x": value["camera_x"], "camera_y": value["camera_y"], "track_id": value.get("track_id")})
-                        stage["confirmed_candidates"] = confirmed if confirmed else None
+                    confirmation = getattr(scanner, "last_trace_confirmation", None)
+                    stage["local_confirmation"] = (_safe(confirmation) if isinstance(confirmation, Mapping)
+                                                   and confirmation.get("shot_id") == sid else None)
+                    stage["confirmed_candidates"] = (stage["local_confirmation"]["candidates"]
+                                                     if stage["local_confirmation"] is not None else None)
                     trace["stages"].append(stage); active["stages_by_id"][stage_id] = stage
                     if new_post and active["expected_counts"]["evidence"] < 64:
                         for name, value in dict(getattr(scanner, "debug_frames", {}) or {}).items():
@@ -359,6 +359,21 @@ class PhysicalTraceRecorder:
         except Exception as exc:
             self._record_error(None, kind="capture_exception", exc=exc)
 
+    def capture_decision(self, scanner: Any, track: Any, event: Any, settings=None) -> None:
+        """Freeze deterministic authority input before any existing AI override."""
+        if not self.enabled:
+            return
+        self.start_from_scanner(scanner, event, settings)
+        with self._lock:
+            active = self._active.get(int(event.shot_id))
+            if active is not None:
+                active["trace"]["decision_input"] = {
+                    "shot_id": int(event.shot_id), "timestamp": time.time(),
+                    "deterministic_selection": _safe(track),
+                    "retained_candidates": _copy_candidates(getattr(scanner, "last_candidates", [])),
+                    "semantics": "retained proposal pool at emission boundary; not all candidates passed local confirmation",
+                }
+
     def finish(self, shot_id: int, scanner: Any, event: Any) -> None:
         with self._lock:
             active = self._active.get(int(shot_id))
@@ -374,7 +389,8 @@ class PhysicalTraceRecorder:
             trace["outcome"] = {"status": str(getattr(event, "state", "finished")), "emitted": bool(getattr(event, "emitted", False)),
                 "matched_track_id": getattr(event, "matched_track_id", None), "matched_hole_id": getattr(event, "matched_hole_id", None),
                 "confidence": getattr(event, "confidence", None), "note": str(getattr(event, "note", "")),
-                "final_camera_xy": None if getattr(scanner, "last_best_candidate", None) is None else _safe(getattr(scanner, "last_best_candidate")),
+                "final_camera_xy": (_safe(getattr(scanner, "last_best_candidate", None))
+                    if bool(getattr(event, "emitted", False)) and (debug_shot is None or int(debug_shot) == int(shot_id)) else None),
                 "rescue_used": bool(getattr(scanner, "last_window_debug", {}).get("rescue_used", False)),
                 "detector_e2e_latency_ms": detector_e2e, "trace_completion_latency_ms": trace_completion,
                 "runtime_event_debug": debug, "timeout": str(getattr(event, "state", "")) == "missed", "ground_truth": None}
@@ -385,6 +401,19 @@ class PhysicalTraceRecorder:
             expected, persisted = dict(active["expected_counts"]), dict(active["persisted_counts"])
             complete = (not timed_out and not active["errors"] and active["post_limit_drops"] == 0 and expected == persisted and active["finished"])
             trace = active["trace"]
+            manifest = active["settings"].get("canonical_challenger_manifest")
+            if manifest and "canonical_challenger" not in trace:
+                try:
+                    from src.engine.ai.canonical_challenger import CanonicalChallenger
+                    decision = trace.get("decision_input", {})
+                    pool = decision.get("retained_candidates")
+                    if pool is None:
+                        pool = next((s["candidates"] for s in reversed(trace["stages"]) if s.get("candidates")), [])
+                    trace["canonical_challenger"] = CanonicalChallenger(manifest).rank(pool)
+                    trace["canonical_challenger"]["evaluation_timing"] = "post_decision_at_trace_finalization"
+                    trace["canonical_challenger"]["pool_semantics"] = "decision_boundary_retained" if decision else "last_observed_retained"
+                except Exception as exc:
+                    trace["canonical_challenger"] = {"mode": "SHADOW", "status": "UNAVAILABLE", "error": str(exc)}
             trace["frames"].sort(key=lambda f: f.get("order", 0))
             trace["writer_errors"] = active["writer_errors"]
             trace["completeness"] = {"pre_frames_expected": expected["pre"], "pre_frames_persisted": persisted["pre"], "post_frames_expected": expected["post"], "post_frames_persisted": persisted["post"], "evidence_artifacts_expected": expected["evidence"], "evidence_artifacts_persisted": persisted["evidence"], "writer_errors": active["writer_errors"], "queue_drops": active["queue_drops"], "post_frame_limit_drops": active["post_limit_drops"], "trace_complete": complete, "completion_reason": "complete" if complete else ("flush_timeout" if timed_out else "incomplete_persistence"), "errors": list(active["errors"])}

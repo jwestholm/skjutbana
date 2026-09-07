@@ -35,6 +35,7 @@ class AudioShotEvent:
     matched_hole_id: int | None = None
     confidence: float = 0.0
     note: str = ""
+    audio_trigger: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -385,6 +386,8 @@ class HitScanner:
                 shot_id=self._next_shot_id,
                 peak_ts=ev.timestamp,
                 created_at=time.time(),
+                audio_trigger={"timestamp": float(ev.timestamp), "peak": float(ev.peak), "rms": float(ev.rms),
+                               "diagnostics": dict(getattr(ev, "diagnostics", {}))},
             )
         )
         self._next_shot_id += 1

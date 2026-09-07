@@ -163,3 +163,27 @@ coverage remains the dominant limitation (6/100 holdout @20). See
 
 Iteration 10 is NOT approved for live use. All experiment data is projected F2
 data and does not establish physical/live performance.
+
+## Overnight physical audit and isolated challenger — 2026-09-07
+
+On `codex/overnight-ai`, the biathlon audit assigns five holes to event groups
+`{1,2},3,4,5,6`; event 2 is the likely redundant trigger 100.66 ms after event 1.
+Original labels and traces remain untouched; ordinal-to-event mapping is external.
+The first pair cannot be acoustically disambiguated without missing audio logs.
+The second physical shot (event 3) has explicit local-confirmation evidence near
+human GT but loses selection to the first hole. Legacy `state=confirmed` means
+emitted; the saved top-eight track view is not a complete confirmation pool.
+
+A frozen, SHADOW-only adapter consolidates the existing V2.23 linear listwise model.
+Six historical conditional-ranking trials used chronological whole sessions;
+stronger regularization gives only a small development MRR20 tie-break gain,
+with Top1@20 unchanged (1/19 oracle-positive). Reused holdout Top1@20 remains 0/6.
+No model/config is promoted to live authority. See `OVERNIGHT_AI_REPORT.md`
+for the completed session report and caveats when available.
+
+Measurement improvements transport worker pipeline snapshots, capture the actual
+local-confirmation output and deterministic emission-boundary selection, and attach
+per-event audio thresholds/cooldown evidence. Canonical scoring runs only when
+finalizing the trace, with explicit retained-pool and post-decision semantics.
+`automation.physical_test` supplies start/check/label/classify/evaluate/stop helpers.
+All generated evaluations remain under ignored `evaluation_runs/`.
