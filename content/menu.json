@@ -417,6 +417,57 @@
                 255
               ]
             }
+          },
+          {
+            "id": "pop_the_balloon",
+            "title": "Pop the Balloon",
+            "type": "game",
+            "description": "Två spelare. Poppa dina 30 ballonger före motståndaren. Power-ups, 20 sekunder per skott och max 3 missar.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/pop_the_balloon_game.py",
+            "path": "",
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },
+          {
+            "id": "hit_context_test_v242",
+            "title": "Hit Context Test (V2.24.4)",
+            "type": "game",
+            "description": "Fysisk HitRegion-diagnostik med full-pipeline local ROI, target/no-shoot, rörligt mål, overlap, kant, outside-region och global rescue.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/hit_context_test_v242.py",
+            "path": "",
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },
+          {
+            "id": "game_objects_test_v250",
+            "title": "Game Objects Test (V2.25.3)",
+            "type": "game",
+            "description": "Diagnostik för GameObject + registrerad freshness/novelty authority, shot_id, living, breakable och penetration.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/game_objects_test_v250.py",
+            "path": "",
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
           }
         ]
       },

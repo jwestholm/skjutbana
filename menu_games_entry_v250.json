@@ -1,0 +1,13 @@
+{
+  "id": "game_objects_test_v250",
+  "title": "Game Objects Test (V2.25.0)",
+  "type": "game",
+  "description": "Diagnostik för GameObject-systemet: living, breakable, penetrering, overlap, shot_id, events och effect requests.",
+  "preview": "assets/thumbs/game_icon.png",
+  "script": "content/games/game_objects_test_v250.py",
+  "path": "",
+  "led": {
+    "enabled": true,
+    "color": [255, 255, 255]
+  }
+}

@@ -41,7 +41,13 @@ from src.engine.shot_critical_v2223 import install_v2223_runtime
 from src.engine.shot_async_v2224 import install_v2224_runtime
 from src.engine.shot_fast_v2225 import install_v2225_runtime
 from src.engine.shot_track_v2226 import install_v2226_runtime
-from src.engine.ai.training_v223.integration import install_v2230_training_pipeline
+from src.engine.shot_object_local_v241 import install_v241_runtime
+from src.engine.shot_object_local_v243 import install_v243_runtime
+from src.engine.shot_object_local_v244 import install_v244_runtime
+from src.engine.shot_context_v250 import install_v250_runtime
+from src.engine.shot_region_proposal_v251 import install_v251_runtime
+from src.engine.shot_region_freshness_v252 import install_v252_runtime
+from src.engine.shot_cross_thread_novelty_v253 import install_v253_runtime
 
 # Install in order: V2.22.3 establishes top-level PANG priority / object
 # snapshots; V2.22.4 then replaces the blocking shot path with async CV and
@@ -49,13 +55,32 @@ from src.engine.ai.training_v223.integration import install_v2230_training_pipel
 # persistence passes with a sparse live proposal + local confirmation lane.
 # V2.22.6 fixes track semantics so same-frame candidate clusters are support,
 # not fake temporal hits, and adds raw audio near-miss telemetry.
+# V2.24.1 consumes the V2.24.0 shot-time camera HitRegions to constrain the
+# FIRST physical proposal search. V2.22.5 full rescue remains global.
+# V2.24.3 fixes the implicit content-rect origin and moves that restriction
+# up to HitScanner ROI level so legacy/V1, early V2 and normal V2 share it.
+# V2.24.4 then maps canonical full-camera HitRegions into V2.22.1's active
+# crop/worker-local detector plane before the local ROI mask is built.
+# V2.25.0 finally carries scanner shot_id through HitEvent before subscribers
+# are notified, allowing GameObjects to resolve against the exact frozen snapshot.
+# V2.25.1 then partitions that frozen object search area into balanced physical
+# proposal/confirmation regions so one noisy object area cannot monopolise hits.
+# V2.25.2 closes the remaining authority leak: early/legacy candidates may aid
+# recall, but object-context hits cannot emit until exact XY has registered V2
+# PRE->POST freshness evidence. The explicit V2.22.5 FULL rescue stays global.
+# V2.25.3 fixes the worker/main readiness boundary and adds cross-shot physical
+# novelty so recurrent camera hotspots do not dominate every object-context shot.
 install_v2223_runtime(App)
 install_v2224_runtime(App)
 install_v2225_runtime(App)
 install_v2226_runtime(App)
-# V2.23 is deliberately installed after the frozen V2.22 runtime chain. It
-# captures/trains shadow models only and must not alter live hit authority.
-install_v2230_training_pipeline()
+install_v241_runtime(App)
+install_v243_runtime(App)
+install_v244_runtime(App)
+install_v250_runtime(App)
+install_v251_runtime(App)
+install_v252_runtime(App)
+install_v253_runtime(App)
 
 if __name__ == "__main__":
     try:

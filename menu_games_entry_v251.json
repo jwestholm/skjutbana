@@ -1,0 +1,13 @@
+{
+  "id": "game_objects_test_v250",
+  "title": "Game Objects Test (V2.25.1)",
+  "type": "game",
+  "description": "Diagnostik för GameObject + balanserad per-region fysisk proposal/confirmation, shot_id, living, breakable och penetration.",
+  "preview": "assets/thumbs/game_icon.png",
+  "script": "content/games/game_objects_test_v250.py",
+  "path": "",
+  "led": {
+    "enabled": true,
+    "color": [255, 255, 255]
+  }
+}
