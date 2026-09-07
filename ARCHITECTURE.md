@@ -162,3 +162,12 @@ that state to a lock-protected process-local bridge keyed by shot id and peak ti
 It also compares confirmed candidate locations across prior shots in canonical camera
 coordinates so persistent hotspots receive a soft recurrence penalty. Re-hits remain
 legal through registered signature-gain recovery. FULL rescue remains global.
+
+## Evaluation foundation (codex/eval-loop)
+
+`src.engine.offline.evaluation` extends the offline measurement layer with a
+versioned observation contract and stage scorecards. `automation.evaluate_pipeline`
+adapts existing V2.23 framepacks or explicit stage traces. It uses existing camera
+pixel metrics and framepack readers; no live detector code is changed. Saved pools
+remain distinct from raw/filtered/retained/confirmed/selected/emitted observations.
+See [EVALUATION.md](EVALUATION.md) for evidence levels, provenance and replay gaps.

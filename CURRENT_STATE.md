@@ -132,3 +132,19 @@ at the authority layer; five-shot physical acceptance is pending.
 
 Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
 
+
+## Evaluation foundation — measurement only
+
+A versioned stage-observation scorecard, JSON/terminal CLI, provenance manifests,
+and measurement selftests are available; see [EVALUATION.md](EVALUATION.md).
+Historical V2.23 framepacks can measure saved candidate-pool recall at separately
+reported 5/10/20/42 camera-pixel tolerances. They do not record complete stage
+boundaries, effective producer settings/models/calibration, or final emissions.
+Unavailable stages remain explicit. No detector behavior, parameters, models or
+ranking changed. Full live-path replay and V2.25.3 physical acceptance remain
+pending; projected F2 data is not physical validation.
+
+The initial existing-data run covered 101 projected captures (100 F2, one single
+projected): saved-pool recall was 1/101 @5 px, 2/101 @10 px, 6/101 @20 px and
+26/101 @42 px. POST coverage was 93 with one frame, six with two and two with
+three. These are historical snapshot measurements, not V2.25.3 detector results.
