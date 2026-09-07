@@ -12,3 +12,4 @@ content/ai/candidate_shadow_v216/
 content/settings.json
 # Immutable local evaluation runs (source and tests remain tracked).
 evaluation_runs/
+content/ai/physical_traces/

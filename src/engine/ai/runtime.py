@@ -51,6 +51,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "candidate_limit": 200,
     "sampling_mode": "center_bias",  # center_bias | uniform | edge_bias | corners
     "benchmark_mode": False,  # True = eval only, no model updates during F1/F2
+    # Observational physical trace capture; disabled unless explicitly enabled.
+    "physical_trace_capture_enabled": False,
+    "physical_trace_root": "content/ai/physical_traces",
 
     # Ranking V2.2. The old learner reached a state where a correct candidate
     # survived filtering in ~42% of synthetic shots but was selected only ~3%.

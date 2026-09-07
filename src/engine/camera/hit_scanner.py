@@ -824,7 +824,7 @@ class HitScanner:
 
             if area < self.min_area or area > self.max_area:
                 rejected["area"] += 1
-                if self.shot_diag_enabled and area >= 1.0:
+                if (self.shot_diag_enabled or getattr(self, "physical_trace_capture_enabled", False)) and area >= 1.0:
                     _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": f"area ({area:.0f} vs {self.min_area}-{self.max_area})"})
                 continue
 
@@ -834,7 +834,7 @@ class HitScanner:
                 circularity = float((4.0 * np.pi * area) / (perimeter * perimeter))
             if circularity < self.min_circularity:
                 rejected["circ"] += 1
-                if self.shot_diag_enabled:
+                if self.shot_diag_enabled or getattr(self, "physical_trace_capture_enabled", False):
                     _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": f"circ ({circularity:.3f} < {self.min_circularity})"})
                 continue
 
@@ -842,7 +842,7 @@ class HitScanner:
             radius = float(radius)
             if radius < self.min_radius or radius > self.max_radius:
                 rejected["radius"] += 1
-                if self.shot_diag_enabled:
+                if self.shot_diag_enabled or getattr(self, "physical_trace_capture_enabled", False):
                     _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "radius": radius, "reason": f"radius ({radius:.1f} vs {self.min_radius}-{self.max_radius})"})
                 continue
 
@@ -853,7 +853,7 @@ class HitScanner:
                 or cy >= gray.shape[0] - self.border_margin
             ):
                 rejected["border"] += 1
-                if self.shot_diag_enabled:
+                if self.shot_diag_enabled or getattr(self, "physical_trace_capture_enabled", False):
                     _diag_rejected_blobs.append({"cx": cx, "cy": cy, "area": area, "reason": "border"})
                 continue
 
@@ -869,7 +869,7 @@ class HitScanner:
             )
             if patch is None:
                 rejected["patch"] += 1
-                if self.shot_diag_enabled:
+                if self.shot_diag_enabled or getattr(self, "physical_trace_capture_enabled", False):
                     # Get patch values for diagnostic even though it was rejected
                     _diag_rejected_blobs.append({
                         "cx": cx, "cy": cy, "area": area, "radius": radius,
@@ -956,6 +956,17 @@ class HitScanner:
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)
         self.last_candidates = candidates[:self.candidate_limit]
+
+        if getattr(self, "physical_trace_capture_enabled", False):
+            self.last_trace_pipeline = {
+                "raw_blobs": raw_blobs,
+                "rejected_counts": rejected,
+                "rejected_blobs": list(_diag_rejected_blobs),
+                "pre_limit_candidates": [dict(c) for c in candidates],
+                "retained_candidates": [dict(c) for c in self.last_candidates],
+                "candidate_limit": int(self.candidate_limit),
+                "quota_limited": len(candidates) > len(self.last_candidates),
+            }
 
         # Zone stats for kept candidates
         kept_zones = {"left": 0, "mid": 0, "right": 0}
