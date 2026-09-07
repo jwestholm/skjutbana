@@ -479,3 +479,120 @@ Read in this order when diagnosing performance:
 When comparing code changes, always record/check `git_commit` in the session
 results. A performance number without the code revision and background is not
 a reliable benchmark.
+
+<!-- V2223_AI_CONTEXT -->
+---
+## V2.22.3 shot-critical / object-hit semantics
+
+### Top-level audio priority
+
+`main.py` installs V2.22.3 before `App().run()`. The actual loop still executes as `App.run()`, but shot priority is a program-level runtime policy, not scene-local AI behaviour. The microphone reader thread remains producer-only: timestamp/queue only, no Pygame or game calls. The main thread acknowledges a queued shot before ordinary engine work.
+
+### Camera frame ownership
+
+CameraManager's normal main-thread update is a cheap latest-frame pickup. It must not mutate HitScanner's `_last_pickup_count`. HitScanner owns the timestamped new-frame cursor. Camera capability probing is not allowed in the per-frame shot-critical path.
+
+### Static reference != recent PRE
+
+Keep both:
+
+- static scene/surface reference = calibration-time repairs/tape/paper/projector baseline,
+- dynamic recent PRE = timestamped camera state before the current PANG, used for current-shot novelty.
+
+Hole appearance and NEW-hole evidence are different labels. An old hole may be highly hole-like without being new. Known-hole distance stays soft so a genuine re-hit/hole-in-hole can survive when recent PRE->POST evidence is strong.
+
+### Object-hit context
+
+Game scenes may expose `get_hit_regions()` or register hit polygons/rectangles with `object_hit_registry_v2223`. Regions are frozen per shot before normal scene movement. V2.22.3 maps existing camera candidates to those regions and records object id, object-local XY and an **uncalibrated shadow confidence**. Object results have no authority in this version.
+
+### Spatial context
+
+`center_prior` and `edge_distance_norm` are advisory metadata only. A central location may be a mild generic prior, but strong physical evidence or a real target near an edge must win. Game context may support physical evidence but never drag/invent a hit.
+
+### Cursor/debug
+
+AI Training hides the pointer while armed for a real shot and shows it for manual GT/review. `F3` is the explicit mouse-shot/debug visibility override. `F4` toggles a latency wait cursor: it starts when the main thread acknowledges the audio event, so PANG -> hourglass delay is a useful human indicator of pre-dispatch latency; timestamp telemetry remains authoritative.
+
+
+---
+## V2.22.5 proposal / confirmation semantics
+
+- A candidate is a proposed physical location, not proof of a new hit.
+- Local confirmation means a later timestamped frame provides compact PRE->POST change near the same candidate XY.
+- Local confirmation never moves authoritative XY; diagnostic best-offset values are evidence only.
+- An unchanged old hole may look hole-like but should fail current-shot temporal confirmation.
+- A true re-hit may pass because fresh PRE->POST evidence exists.
+- Live FAST extraction does not replace the full research/high-recall extractor; FULL rescue and offline/F2 paths retain it.
+
+---
+## V2.22.6 frame-unique evidence contract
+
+- `track.hits` means observations on different camera timestamps.
+- `same_frame_support` means multiple proposals agree spatially in one image; it is useful ranking/fusion evidence but is not persistence.
+- A candidate cluster from one frame must never satisfy a multi-frame confirmation requirement by itself.
+- V2.22.5 LOCAL-CONFIRM is the preferred cheap second temporal observation after a global proposal.
+- Audio near-miss telemetry is diagnostic only. It does not create soft shot events or change trigger authority in V2.22.6.
+
+
+---
+### V2.23.1 training contract
+
+Current model work should prefer reusable candidate groups over more live-runtime heuristics. F2/manual capture is append-only; old V2.16/V2.20 packs are converted once and cached. The V2.8 all-micro-hypothesis / recall pools are legitimate GT-free proposal sources and may be used for training. GT is used only after proposal creation for labels, diagnostics, split metrics and supervised fitting.
+
+Keep three semantics separate: static physical-hole appearance; current NEW-hole evidence; final within-shot candidate ranking. Policy/bookkeeping fields, GT distance, current model score and forced-GT storage helpers remain forbidden as physical model inputs. V2.21.5 dense physical proposal remains an independent high-recall expert/research source to be fused deliberately later rather than silently mixed into labels.
+
+A `research_shadow_champion` is only a benchmark champion. V2.23.1 quarantines pre-gate V2.23.0 champions with zero/insufficient positive validation support. No V2.23 model grants game authority.
+
+
+---
+### V2.23.2 proposal/domain training contract
+
+For labelled F1/F2/manual shots, preserve full recent PRE plus up to three unique POST grayscale frames in a compressed JSON+NPZ framepack. GT coordinates are metadata labels only and are forbidden from direct/local/dense proposal generation. Offline proposal results are cached as sidecars and may contribute physical dense features/provenance to the unified ranking record.
+
+The newest F2/projector session with at least 50 shots is a fresh-domain research gate and must not enter model fitting. Once a newer substantial F2 session exists, an older one may re-enter engineering data according to the normal split policy. This creates a conservative one-session lag for self-learning instead of training and validating on the same projector run.
+
+`baseline_rank` is preferred for reference ranking; where legacy/native data lacks it, captured `baseline_score` may be sorted deterministically. A research champion must beat this reference on both ordinary validation and fresh-F2 domain with sufficient positive proposal support. Protected holdout remains untouched; no V2.23 model has live authority.
+
+<!-- V2.25.0 GAME_OBJECT_FOUNDATION -->
+## V2.25.0 AI guidance — GameObjects
+
+Read `AI_GAME_OBJECTS.md` and `GAME_OBJECT_SYSTEM.md` before changing game-object
+or hit/game integration. Preserve physical HitEvent XY, preserve scanner
+`shot_id`, keep object geometry game-local, use unique object ids for multipart
+parts, treat caliber labels as metadata/config selectors, prefer composition,
+and route sound/particles/animation/physics through effect requests rather than
+embedding those services in GameObject.
+
+<!-- V2.25.1 OBJECT_REGION_PHYSICAL_PROPOSAL -->
+## V2.25.1 AI guidance — physical region proposal
+
+Read `AI_PHYSICAL_REGION_PROPOSAL.md` before changing object-aware hit detection.
+Keep full-camera, V2.22.1 work-plane and CandidateGenerator bbox-local coordinates
+explicit. Region balancing is a physical search/fairness mechanism only. Never weight
+`target` above `no_shoot`, never use damage/projectile/game score to choose detector
+XY, never snap XY, and preserve the global V2.22.5 FULL-rescue path.
+
+<!-- V2.25.2 REGISTERED_FRESHNESS_AUTHORITY -->
+## V2.25.2 AI guidance — registered freshness
+
+Read `AI_REGISTERED_FRESHNESS.md`. For object-context authority distinguish proposal
+recall from physical authority. Legacy/V1/bank candidates remain legal proposals but
+must be revalidated against registered immediate PRE→POST evidence before normal local
+emission. Do not use target/no-shoot/game semantics, do not snap XY, and preserve the
+global V2.22.5 FULL rescue.
+
+<!-- V2.25.3 CROSS_THREAD_NOVELTY_AUTHORITY -->
+## V2.25.3 AI guidance
+
+Read `AI_CROSS_SHOT_NOVELTY.md`. Worker and main scanners do not share arbitrary
+instance fields. Keep authority state shot-scoped across threads, compare recurrence in
+canonical camera XY, preserve legal re-hits, never use game semantics for physical
+selection, and retain global FULL rescue.
+
+<!-- V2.25.3-r2 SETTINGS_PACKAGING_REPAIR -->
+## V2.25.3-r2 packaging lesson
+
+Never ship a unit-test stub in a cumulative delta. Files modified only for isolated tests
+must be created in a temporary test tree, not in the package tree. `settings.py` is a
+shared compatibility surface; future deltas should patch it surgically or use an
+idempotent installer rather than replacing it with a reconstructed subset.

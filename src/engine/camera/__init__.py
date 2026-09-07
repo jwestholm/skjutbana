@@ -43,3 +43,15 @@ except Exception as exc:
     print(f"[DETECTOR-V2] unavailable, legacy detector kept: {exc}")
 
 __all__ = ["camera_manager", "hit_scanner"]
+
+# --- V2.7.1 RANKER-V6 AUTOLOAD ---
+# V2.7 originally relied on the AI bootstrap path. Some project revisions do
+# not execute that hook early enough (or at all) before automated F2 training.
+# The camera package is guaranteed to load because HitScanner/Detector V2.x is
+# already active. Install V2.7 ranking here as a second, independent hook.
+try:
+    from src.engine.ai.ranker_v6_extension import install_ranker_v6_extension
+    install_ranker_v6_extension()
+except Exception as exc:
+    print(f"[RANKER-V6] V2.7.1 camera autoload failed: {exc}")
+# --- END V2.7.1 RANKER-V6 AUTOLOAD ---
