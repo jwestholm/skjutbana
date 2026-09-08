@@ -7,6 +7,8 @@ import numpy as np
 from automation.physical_session_audit import audit,distance
 from automation.physical_trace_export import export
 from src.engine.ai.canonical_challenger import CanonicalChallenger
+from src.engine.ai.confirmation_selection_shadow import CONFIG_HASH
+from src.engine.physical_trace import selector_snapshot
 
 ROOT=Path(__file__).resolve().parents[1]
 ACTIVE=ROOT/'evaluation_runs/physical_test_active.json'
@@ -17,6 +19,39 @@ DEFAULT_CHALLENGER=ROOT/'evaluation_runs/overnight_20260907/ranking/challenger.j
 def write(path,value):
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.tmp');temp.write_text(json.dumps(value,indent=2)+'\n');os.replace(temp,path)
+
+
+def _xy(value):
+    return value if isinstance(value,dict) and 'camera_x' in value and 'camera_y' in value else None
+
+
+def _selector_metrics(rows):
+    metrics={}
+    for name in ('CURRENT_DETERMINISTIC','CONFIRMATION_SELECTION_SHADOW','CANONICAL_AI_SHADOW'):
+        errors=[]; oracle={str(r):0 for r in (5,10,20,42)}; hits={str(r):0 for r in (5,10,20,42)}
+        conditional_hits={str(r):0 for r in (5,10,20,42)}; conditional_den={str(r):0 for r in (5,10,20,42)}
+        misses=0
+        for row in rows:
+            gt=row.get('ground_truth'); selected=(row.get('selectors',{}).get(name) or {}).get('selected')
+            if not gt: continue
+            err=distance(selected,gt) if _xy(selected) else None
+            if err is None: misses+=1; continue
+            errors.append(float(err))
+            for radius in (5,10,20,42):
+                key=str(radius); available=row.get('oracle_candidate_available',{}).get(key)
+                if available: oracle[key]+=1; conditional_den[key]+=1
+                if err<=radius:
+                    hits[key]+=1
+                    if available: conditional_hits[key]+=1
+        errors_sorted=sorted(errors)
+        p95=errors_sorted[max(0,int(np.ceil(.95*len(errors_sorted)))-1)] if errors_sorted else None
+        metrics[name]={'shots_with_ground_truth':sum(bool(r.get('ground_truth')) for r in rows),
+            'selected_evaluated':len(errors),'misses_or_timeouts':misses,'oracle_candidate_available':oracle,
+            'accuracy':{str(r):hits[str(r)]/len(errors) if errors else None for r in (5,10,20,42)},
+            'conditional_accuracy':{str(r):conditional_hits[str(r)]/conditional_den[str(r)] if conditional_den[str(r)] else None for r in (5,10,20,42)},
+            'conditional_denominator':conditional_den,'errors_gt_100_px':sum(e>100 for e in errors),
+            'mean_error_px':float(np.mean(errors)) if errors else None,'median_error_px':float(np.median(errors)) if errors else None,'p95_error_px':p95}
+    return metrics
 
 
 def start(args):
@@ -98,7 +133,27 @@ def evaluate_session(root,output,manifest,mapping=None):
             row['challenger_distance_px']=distance(chosen,gt) if chosen and gt else None
             row['challenger_positive_ranks']={str(r):next((j+1 for j,i in enumerate(ranked['order']) if gt and distance(pool[i],gt)<=r),None) for r in (5,10,20,42)}
             row['shadow_semantics']='post-decision retained-pool ranking; ignores confirmation eligibility; not live-path replay'
-    payload['shots']=real;write(output/'evaluation_trace.json',payload);write(output/'false_events.json',false);write(output/'physical_comparison.json',result)
+        selectors=selector_snapshot(trace, str(manifest) if manifest else None)
+        canonical=selectors.get('CANONICAL_AI_SHADOW',{})
+        order=canonical.get('order',[]); candidates=canonical.get('candidates',[])
+        if order and candidates:
+            chosen_index=order[0]
+            chosen=next((c for c in candidates if c.get('input_index')==chosen_index),None)
+            if chosen:
+                canonical['selected']={'camera_x':chosen.get('camera_x'),'camera_y':chosen.get('camera_y'),**chosen}
+        row['selectors']=selectors
+        retained_pool=trace.get('decision_input',{}).get('retained_candidates') or []
+        row['oracle_candidate_available']={str(r):any(gt and distance(c,gt)<=r for c in retained_pool) for r in (5,10,20,42)}
+        for name,selector in selectors.items():
+            chosen=_xy(selector.get('selected')) if isinstance(selector,dict) else None
+            row.setdefault('selector_distances_px',{})[name]=distance(chosen,gt) if chosen and gt else None
+        shot['selectors']=selectors
+        shot['oracle_candidate_available']=row['oracle_candidate_available']
+        shot['selector_distances_px']=row['selector_distances_px']
+    payload['shots']=real;write(output/'evaluation_trace.json',payload);write(output/'false_events.json',false)
+    result['selector_metrics']=_selector_metrics(real)
+    result['confirmation_selection_shadow_config_hash']=CONFIG_HASH
+    write(output/'physical_comparison.json',result)
     from src.engine.offline.evaluation import evaluate
     write(output/'metrics.json',evaluate(real,mode='live_path_replay'))
     print('Evaluation:',output,'Real/unresolved events:',len(real),'Nonphysical events:',len(false))

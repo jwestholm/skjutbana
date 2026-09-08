@@ -188,6 +188,17 @@ finalizing the trace, with explicit retained-pool and post-decision semantics.
 `automation.physical_test` supplies start/check/label/classify/evaluate/stop helpers.
 All generated evaluations remain under ignored `evaluation_runs/`.
 
+### Frozen confirmation selection shadow
+
+The accepted development replay formula is now frozen in
+`src/engine/ai/confirmation_selection_shadow.py` as
+`CONFIRMATION_SELECTION_SHADOW` with status `PHYSICAL_REPLAY_CHALLENGER` and a
+configuration hash. Physical traces record it beside `CURRENT_DETERMINISTIC` and
+`CANONICAL_AI_SHADOW`; it cannot alter emitted coordinates. The physical-test
+evaluator reports overall and conditional selector metrics plus retained-pool oracle
+availability. The 10-shot replay remains development evidence; the next labelled
+session is the independent validation dataset.
+
 ### Async track timestamp correction
 
 A reproduced installer-composition regression let V2.22.6 overwrite V2.22.4's

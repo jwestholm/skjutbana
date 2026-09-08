@@ -50,6 +50,38 @@ def _copy_candidates(values: Any) -> list[dict[str, Any]]:
     return [_safe(dict(v)) for v in values if isinstance(v, Mapping)]
 
 
+def selector_snapshot(trace: Mapping[str, Any], canonical_manifest: str | None = None) -> dict[str, Any]:
+    """Build independent selector diagnostics without changing runtime output."""
+    decision = trace.get("decision_input", {}) if isinstance(trace, Mapping) else {}
+    deterministic = decision.get("deterministic_selection") if isinstance(decision, Mapping) else None
+    selectors: dict[str, Any] = {
+        "CURRENT_DETERMINISTIC": {
+            "selector": "CURRENT_DETERMINISTIC", "status": "LIVE_DETERMINISTIC",
+            "selected": _safe(deterministic),
+            "track_id": (trace.get("outcome", {}) or {}).get("matched_track_id"),
+        }
+    }
+    try:
+        from src.engine.ai.confirmation_selection_shadow import from_trace
+        selectors["CONFIRMATION_SELECTION_SHADOW"] = from_trace(trace)
+    except Exception as exc:
+        selectors["CONFIRMATION_SELECTION_SHADOW"] = {
+            "selector": "CONFIRMATION_SELECTION_SHADOW", "status": "UNAVAILABLE", "error": str(exc),
+        }
+    canonical = trace.get("canonical_challenger")
+    if canonical is None and canonical_manifest:
+        try:
+            from src.engine.ai.canonical_challenger import CanonicalChallenger
+            pool = decision.get("retained_candidates") if isinstance(decision, Mapping) else None
+            if pool is None:
+                pool = next((s["candidates"] for s in reversed(trace.get("stages", [])) if s.get("candidates")), [])
+            canonical = CanonicalChallenger(canonical_manifest).rank(pool)
+        except Exception as exc:
+            canonical = {"mode": "SHADOW", "status": "UNAVAILABLE", "error": str(exc)}
+    selectors["CANONICAL_AI_SHADOW"] = canonical or {"mode": "SHADOW", "status": "UNAVAILABLE"}
+    return selectors
+
+
 def _git(root: Path, *args: str) -> str | None:
     try:
         return subprocess.check_output(["git", "-C", str(root), *args], text=True, stderr=subprocess.DEVNULL).strip()
@@ -414,6 +446,10 @@ class PhysicalTraceRecorder:
                     trace["canonical_challenger"]["pool_semantics"] = "decision_boundary_retained" if decision else "last_observed_retained"
                 except Exception as exc:
                     trace["canonical_challenger"] = {"mode": "SHADOW", "status": "UNAVAILABLE", "error": str(exc)}
+            trace["selectors"] = selector_snapshot(trace, manifest)
+            # Keep the historical top-level key while exposing the frozen
+            # selector beside it for consumers that understand the new schema.
+            trace["confirmation_selection_shadow"] = trace["selectors"]["CONFIRMATION_SELECTION_SHADOW"]
             trace["frames"].sort(key=lambda f: f.get("order", 0))
             trace["writer_errors"] = active["writer_errors"]
             trace["completeness"] = {"pre_frames_expected": expected["pre"], "pre_frames_persisted": persisted["pre"], "post_frames_expected": expected["post"], "post_frames_persisted": persisted["post"], "evidence_artifacts_expected": expected["evidence"], "evidence_artifacts_persisted": persisted["evidence"], "writer_errors": active["writer_errors"], "queue_drops": active["queue_drops"], "post_frame_limit_drops": active["post_limit_drops"], "trace_complete": complete, "completion_reason": "complete" if complete else ("flush_timeout" if timed_out else "incomplete_persistence"), "errors": list(active["errors"])}

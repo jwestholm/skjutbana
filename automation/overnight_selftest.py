@@ -26,6 +26,45 @@ class Tests(unittest.TestCase):
             ranked=ranker.rank(c);self.assertEqual(ranked['order'],[1,0]);self.assertEqual(before,c);self.assertNotIn('apply',ranked);self.assertEqual(ranker.rank([])['order'],[])
             (p/'model/model.json').write_text('{}')
             with self.assertRaises(ValueError):CanonicalChallenger(p/'manifest.json')
+
+    def test_confirmation_shadow_is_frozen_and_non_authoritative(self):
+        from src.engine.ai.confirmation_selection_shadow import CONFIG,CONFIG_HASH,select
+        import hashlib
+        encoded=json.dumps(CONFIG,sort_keys=True,separators=(',',':'),allow_nan=False)
+        self.assertEqual(CONFIG_HASH,hashlib.sha256(encoded.encode()).hexdigest())
+        candidates=[{'camera_x':1,'camera_y':2,'score':40,'v2225_confirm_center_abs':2,'v2225_confirm_darkening':1,'v2225_confirm_compact':.2},
+                    {'camera_x':8,'camera_y':9,'score':1,'v2225_confirm_center_abs':4,'v2225_confirm_darkening':2,'v2225_confirm_compact':.1}]
+        before=copy.deepcopy(candidates);result=select(candidates)
+        self.assertEqual(candidates,before);self.assertEqual(result['selected']['camera_x'],8)
+        self.assertEqual(select(candidates),select(copy.deepcopy(candidates)))
+        self.assertEqual(select([{'camera_x':1,'camera_y':2}])['status'],'UNAVAILABLE')
+
+    def test_trace_keeps_three_selectors_independent(self):
+        from src.engine.physical_trace import selector_snapshot
+        trace={'decision_input':{'deterministic_selection':{'camera_x':10,'camera_y':11}},
+               'outcome':{'matched_track_id':7},
+               'stages':[{'local_confirmation':{'candidates':[{'camera_x':20,'camera_y':21,'v2225_confirm_center_abs':3,'v2225_confirm_darkening':2,'v2225_confirm_compact':.1}]}}],
+               'canonical_challenger':{'mode':'SHADOW','status':'OFFLINE_CHALLENGER','order':[0],'candidates':[{'input_index':0,'camera_x':30,'camera_y':31}]}}
+        selectors=selector_snapshot(trace)
+        self.assertEqual(set(selectors),{'CURRENT_DETERMINISTIC','CONFIRMATION_SELECTION_SHADOW','CANONICAL_AI_SHADOW'})
+        self.assertEqual(selectors['CURRENT_DETERMINISTIC']['selected']['camera_x'],10)
+        self.assertEqual(selectors['CONFIRMATION_SELECTION_SHADOW']['selected']['camera_x'],20)
+        self.assertEqual(selectors['CANONICAL_AI_SHADOW']['candidates'][0]['camera_x'],30)
+
+    def test_finalized_physical_trace_persists_three_selectors(self):
+        from src.engine.physical_trace import PhysicalTraceRecorder
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); recorder=PhysicalTraceRecorder(root,enabled=True)
+            trace={'shot_id':1,'stages':[{'local_confirmation':{'candidates':[{'camera_x':2,'camera_y':3,'v2225_confirm_center_abs':2}]}}],
+                   'decision_input':{'deterministic_selection':{'camera_x':4,'camera_y':5}},
+                   'outcome':{'matched_track_id':9},'frames':[]}
+            active={'expected_counts':{'pre':0,'post':0,'evidence':0},'persisted_counts':{'pre':0,'post':0,'evidence':0},
+                    'errors':[],'post_limit_drops':0,'finished':True,'trace':trace,'settings':{},'directory':root/'shots/shot_00000001',
+                    'writer_errors':0,'queue_drops':0}
+            self.assertTrue(recorder._finalize_trace(1,active,timed_out=False))
+            saved=json.loads((root/'shots/shot_00000001/trace.json').read_text())
+            self.assertEqual(set(saved['selectors']),{'CURRENT_DETERMINISTIC','CONFIRMATION_SELECTION_SHADOW','CANONICAL_AI_SHADOW'})
+            self.assertEqual(saved['outcome']['matched_track_id'],9)
     def test_nonphysical_requires_explicit_mapping(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);sp=p/'shots/shot_00000006';sp.mkdir(parents=True)
