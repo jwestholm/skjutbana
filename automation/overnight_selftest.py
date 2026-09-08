@@ -66,6 +66,16 @@ class Tests(unittest.TestCase):
             self.assertEqual(set(saved['selectors']),{'CURRENT_DETERMINISTIC','CONFIRMATION_SELECTION_SHADOW','CANONICAL_AI_SHADOW'})
             self.assertEqual(saved['outcome']['matched_track_id'],9)
 
+    def test_trace_score_diagnostics_are_annotations_only(self):
+        from src.engine.physical_trace import _annotate_score_diagnostics
+        candidate={'camera_x':1,'camera_y':2,'score':35.0,'v2225_fast_extract':1.0}
+        trace={'decision_input':{'retained_candidates':[candidate]}}
+        _annotate_score_diagnostics(trace)
+        self.assertEqual(candidate['score'],35.0)
+        self.assertEqual(candidate['diagnostic_source'],'FAST_V2225')
+        self.assertTrue(candidate['diagnostic_score_saturated'])
+        self.assertEqual(candidate['diagnostic_source_percentile'],1.0)
+
     def test_physical_score_decomposition_is_explicit(self):
         from automation.physical_score_audit import decomposition,source
         candidate={'v2_saliency':10,'center_darkening':2,'local_contrast_gain':1,'blackhat_value':1,'v2_zscore':50,'score':10,'v2225_fast_extract':1}

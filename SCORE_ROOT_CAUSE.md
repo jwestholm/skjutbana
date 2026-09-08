@@ -84,6 +84,27 @@ It does not identify whether the underlying image evidence or the carry/merge
 policy is the first cause. The score ceiling and bank replacement rules are
 the concrete mechanisms that amplify the mismatch.
 
+The exact FAST saturation cause is the shared V2 feature formula's final
+`clip(raw, 3.6, 35.0)`. FAST and full V2 use the same feature computation, but
+FAST keeps sparse peaks selected from a different temporal/saliency path. In
+this trace every FAST candidate at the raw ceiling is recorded as 35.0; the
+only observed physical-positive FAST candidate is shot 6 (36.5 after later
+carry/merge evidence). The nine other nearest physical-positive candidates
+are V2.6 vault records.
+
+| Source | Candidates | Median | P90 | P99 | Max | Saturated (>=35) | Physical-positive |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| FAST_V2225 | 245 | 35.0 | 35.0 | 35.0 | 36.5 | 244 | 1 |
+| V26_VAULT | 954 | 5.69 | 7.33 | 8.73 | 12.45 | 0 | 9 |
+
+No V1, standalone rescue, registered, or unclassified legacy candidates were
+present in this retained pool. Rescue peaks use a temporal map
+`absdiff*(1+0.55*clip(zscore,0,6))+0.35*max(dog,0)` before candidate conversion;
+bank/vault carries replace score with
+`best_score + min(3.4,0.85*(hits-1)) + 0.35`. These paths do not document a
+common calibrated probability or likelihood meaning, so higher score is not
+proven semantically comparable across sources.
+
 ## Correct-candidate versus wrong-winner comparison
 
 The nearest correct candidates in shots 1, 2, 5, 7, 8 and 10 are low-score
@@ -94,6 +115,38 @@ highest score, and is retained at position 1. The canonical AI follows the
 same score/provenance ordering and does not fix the mismatch. The frozen
 confirmation shadow improves retrospective selection on this development set,
 but it is not physical validation.
+
+Among the eight newest-session selection losses where a retained candidate was
+within 42 px, six are strongly attributable to cross-source scale mismatch:
+the GT candidate is V2.6 vault, the deterministic winner is FAST, and the
+winner score is at least 30 while the GT score is below 10. Shots 2 and 3 are
+ambiguous same-source/history cases. The other two shots have no retained
+candidate within 42 px and cannot be classified as selection-scale losses.
+This supports “6/8 oracle-positive losses”, rather than claiming all ten
+failures are explained by calibration.
+
+The older smoke2 and biathlon5 traces show compatible low-score vault and
+high-score FAST patterns, but their deterministic selections are not preserved
+in a uniform selector schema. They are a generality check only, not validation.
+
+## Replay normalization experiments
+
+`automation/score_normalization_research.py` runs fixed deterministic
+RESEARCH_ONLY selectors over frozen retained pools: within-source percentile,
+source median/MAD robust-z, and confirmation-first percentile.
+
+| Selector | Accuracy @42 | Mean px | Median px | P95 px | >100 px |
+|---|---:|---:|---:|---:|---:|
+| Current deterministic | 0.10 | 582.59 | 675.99 | 1029.60 | 9 |
+| Canonical AI shadow | 0.10 | 602.52 | 698.51 | 1063.83 | 9 |
+| Confirmation selection shadow (frozen) | 0.20 | 96.32 | 73.40 | 262.64 | 3 |
+| Within-source percentile | 0.10 | 608.81 | 702.37 | 1063.83 | 9 |
+| Source robust-z | 0.00 | 408.30 | 347.56 | 795.02 | 10 |
+| Confirmation-first percentile | 0.10 | 608.81 | 702.37 | 1063.83 | 9 |
+
+The fixed normalizers do not improve the development set. Source-scale mismatch
+is a real mechanism, but normalization alone cannot identify the new hole among
+same-source vault artifacts. No `SCORE_NORMALIZATION_SHADOW` is frozen.
 
 ## Diagnostic tooling added
 

@@ -114,16 +114,20 @@ def audit(root: Path, comparison: Path):
                      "candidates": entries, "trace_sha256": row.get("trace_sha256"),
                      "audio_peak_ts": trace.get("peak_ts")})
     distributions = defaultdict(list)
+    physical_positive_sources = Counter()
     for row in rows:
         pool = json.loads((root / "shots" / f"shot_{int(row['shot_id']):08d}" / "trace.json").read_text()).get("decision_input", {}).get("retained_candidates") or []
         for candidate in pool:
             distributions[source(candidate)].append(float(candidate.get("score", 0.0) or 0.0))
+        nearest_entry = row["candidates"].get("nearest_physical_gt", {})
+        nearest_candidate = nearest_entry.get("candidate")
+        if nearest_candidate: physical_positive_sources[source(nearest_candidate)] += 1
     def quantiles(values):
         values = sorted(values)
         if not values: return {"count": 0, "median": None, "p90": None, "p99": None, "max": None}
         def q(p): return values[min(len(values) - 1, max(0, math.ceil(p * len(values)) - 1))]
         return {"count": len(values), "median": q(.5), "p90": q(.9), "p99": q(.99), "max": values[-1]}
-    distributions_out = {name: quantiles(values) for name, values in sorted(distributions.items())}
+    distributions_out = {name: {**quantiles(values), "physical_positive_candidates": physical_positive_sources.get(name, 0)} for name, values in sorted(distributions.items())}
     return {"schema": "physical-score-audit-1", "session": str(root), "comparison": str(comparison),
             "score_formula": {"coefficients": COEFFICIENTS, "clip": [3.6, 35.0],
                                "source": "CandidateGeneratorV2._candidate_features"},

@@ -50,6 +50,41 @@ def _copy_candidates(values: Any) -> list[dict[str, Any]]:
     return [_safe(dict(v)) for v in values if isinstance(v, Mapping)]
 
 
+def _diagnostic_source(candidate: Mapping[str, Any]) -> str:
+    if candidate.get("v2225_fast_extract"): return "FAST_V2225"
+    if candidate.get("v2_rescue_temporal") or candidate.get("v2_rescue_blob"): return "V2_RESCUE"
+    if candidate.get("v26_vault_carried") or candidate.get("v26_vault_hits") or candidate.get("v26_vault_seen_frames"): return "V26_VAULT"
+    if candidate.get("candidate_bank_confirmed") or candidate.get("v2_bank_confirmed"): return "V2_BANK"
+    if candidate.get("detector_v1") and not candidate.get("detector_v2"): return "V1"
+    if candidate.get("v2_primary_peak"): return "V2_PRIMARY"
+    return "V2_OTHER"
+
+
+def _annotate_score_diagnostics(trace: dict[str, Any]) -> None:
+    """Annotate copied trace candidates only; never changes runtime objects."""
+    formula = "0.16*v2_saliency+0.23*center_darkening+0.15*local_contrast_gain+0.11*blackhat_value+0.06*min(v2_zscore,25);clip[3.6,35.0]"
+    pools = []
+    decision = trace.get("decision_input", {})
+    if isinstance(decision, Mapping) and isinstance(decision.get("retained_candidates"), list): pools.append(decision["retained_candidates"])
+    for stage in trace.get("stages", []):
+        if isinstance(stage, Mapping) and isinstance(stage.get("candidates"), list): pools.append(stage["candidates"])
+        confirmation = stage.get("local_confirmation") if isinstance(stage, Mapping) else None
+        if isinstance(confirmation, Mapping) and isinstance(confirmation.get("candidates"), list): pools.append(confirmation["candidates"])
+    for pool in pools:
+        groups: dict[str, list[float]] = {}
+        for candidate in pool:
+            if not isinstance(candidate, dict): continue
+            name = _diagnostic_source(candidate); groups.setdefault(name, []).append(float(candidate.get("score", 0.0) or 0.0))
+        for candidate in pool:
+            if not isinstance(candidate, dict): continue
+            name = _diagnostic_source(candidate); values = sorted(groups.get(name, [])); score = float(candidate.get("score", 0.0) or 0.0)
+            rank = sum(value <= score for value in values) - 1
+            candidate["diagnostic_source"] = name
+            candidate["diagnostic_score_formula"] = formula
+            candidate["diagnostic_score_saturated"] = bool(score >= 35.0 - 1e-9)
+            candidate["diagnostic_source_percentile"] = (rank / (len(values) - 1)) if len(values) > 1 else 1.0
+
+
 def selector_snapshot(trace: Mapping[str, Any], canonical_manifest: str | None = None) -> dict[str, Any]:
     """Build independent selector diagnostics without changing runtime output."""
     decision = trace.get("decision_input", {}) if isinstance(trace, Mapping) else {}
@@ -446,6 +481,7 @@ class PhysicalTraceRecorder:
                     trace["canonical_challenger"]["pool_semantics"] = "decision_boundary_retained" if decision else "last_observed_retained"
                 except Exception as exc:
                     trace["canonical_challenger"] = {"mode": "SHADOW", "status": "UNAVAILABLE", "error": str(exc)}
+            _annotate_score_diagnostics(trace)
             trace["selectors"] = selector_snapshot(trace, manifest)
             # Keep the historical top-level key while exposing the frozen
             # selector beside it for consumers that understand the new schema.
