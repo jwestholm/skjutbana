@@ -2,6 +2,15 @@
 
 ## CURRENT FACTS — physical causal audit, 2026-09-08
 
+- Post-fix independent validation: causal availability 7/10 at 5/10 px and
+  9/10 at 20/42 px; CURRENT 2/10 @42, mean 171.10 px. All seven
+  oracle-positive failures selected FAST; both successes selected V1. FAST
+  final authority/order is the leading hypothesis.
+- PRE coordinate mapping and pending-event ownership are fixed and committed;
+  FAST score saturation remains absent after correction. No selector or AI is
+  promoted. Next step is complete-pool, source-aware research replay followed
+  by a fresh physical validation.
+
 - Latest independent physical validation: **1/20 @42 (5%) for CURRENT,
   CONFIRMATION_SELECTION_SHADOW and CANONICAL_AI_SHADOW**. Original status,
   labels and results remain unchanged; no promotion.

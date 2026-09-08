@@ -284,3 +284,14 @@ median PRE residual 192.385→1.538 and removes all corrected score saturation
 (median and p90 corrected score 3.6; 0 saturated). This proves the input-plane
 bug naturally caused the observed saturation in replay; regenerated candidate
 recall and live accuracy remain unvalidated.
+
+## Post-fix physical validation
+
+The independent ten-shot validation reached 9/10 causal candidates within 42 px
+(7/10 within 5 and 10 px), while CURRENT reached 2/10 (mean 171.10 px). Every
+one of the seven oracle-positive CURRENT failures selected FAST; both correct
+selections were V1. This is strong evidence that FAST final authority/order is
+the dominant selection hypothesis. PRE mapping is fixed and corrected FAST
+scores are not saturated (retained median 9.91, maximum 16.03), so saturation
+is a separate historical defect. See `FAST_SELECTION_AUDIT.md`; no live policy
+was changed.
