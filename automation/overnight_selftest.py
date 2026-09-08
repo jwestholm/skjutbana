@@ -65,6 +65,14 @@ class Tests(unittest.TestCase):
             saved=json.loads((root/'shots/shot_00000001/trace.json').read_text())
             self.assertEqual(set(saved['selectors']),{'CURRENT_DETERMINISTIC','CONFIRMATION_SELECTION_SHADOW','CANONICAL_AI_SHADOW'})
             self.assertEqual(saved['outcome']['matched_track_id'],9)
+
+    def test_physical_score_decomposition_is_explicit(self):
+        from automation.physical_score_audit import decomposition,source
+        candidate={'v2_saliency':10,'center_darkening':2,'local_contrast_gain':1,'blackhat_value':1,'v2_zscore':50,'score':10,'v2225_fast_extract':1}
+        result=decomposition(candidate)
+        self.assertEqual(source(candidate),'FAST_V2225')
+        self.assertAlmostEqual(result['raw_score'],3.82)
+        self.assertAlmostEqual(result['clipped_base_score'],3.82)
     def test_nonphysical_requires_explicit_mapping(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);sp=p/'shots/shot_00000006';sp.mkdir(parents=True)

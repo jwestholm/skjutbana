@@ -1,0 +1,174 @@
+# Detector score root-cause audit
+
+## Executive summary
+
+The 10-shot physical development trace shows a repeatable score-scale and
+provenance problem. Genuine holes are usually carried by the V2.6 vault with
+low candidate scores (0.57–2.63 in the closest examples), while many wrong
+winners are FAST V2.22.5 proposals saturated at the V2 score ceiling (35.0;
+track `best_score` commonly 36–39). Shot 6 is different: its genuine candidate
+is also a FAST proposal, has score 36.5, and is retained at position 1, so all
+three selectors choose it. This explains the selection failure without proving
+that the image score formula is intrinsically incorrect.
+
+The frozen `CONFIRMATION_SELECTION_SHADOW` was not changed. The audit is
+read-only and uses the existing labelled session as development evidence.
+
+## Exact detector score path
+
+`CandidateGeneratorV2._candidate_features` in
+`src/engine/camera/candidate_generator_v2.py` computes:
+
+```text
+raw = 0.16*v2_saliency
+    + 0.23*center_change
+    + 0.15*local_contrast
+    + 0.11*dog_value
+    + 0.06*min(zscore, 25)
+score = clip(raw, 3.6, 35.0)
+```
+
+`center_change` comes from the radius-2 absolute-difference patch mean;
+`local_contrast` is center change minus the radius-4..7 ring mean;
+`dog_value` is the local DoG/blackhat response; `zscore` is the local
+absolute-difference value divided by the estimated noise. The score is not
+normalised by proposal source or shot percentile.
+
+`_apply_known_hole_penalty` then multiplies the clipped score by 0.15, 0.4 or
+0.7 near a known hole. Hybrid V1/V2 agreement adds 1.5. Candidate-bank carried
+entries replace their score with `best_score + repeat_bonus + 0.35`, where the
+repeat bonus is capped at 3.4. The live track selector then ranks eligible
+tracks by onset distance first and `-track.best_score` second. Track history can
+therefore produce a `best_score` greater than the current candidate's score.
+
+The FAST extractor uses the same feature formula but only retains a bounded
+sparse peak set and marks `v2225_fast_extract`. V2.6 vault candidates preserve
+older candidate features and provenance, but their numeric score remains on the
+same nominal field without source calibration.
+
+## Physical score decomposition
+
+The audit command generated JSON and CSV for every retained candidate. The
+closest physical candidates had candidate scores:
+
+```text
+shot 1  2.63    shot 2  1.63    shot 5  1.68    shot 7  1.72
+shot 8  0.69    shot 10 1.28    shot 6 36.50
+```
+
+Those low-score candidates are V2.6 vault records. Wrong deterministic winners
+in shots 1, 4, 5, 7, 8, 9 and 10 are FAST V2.22.5 records at score 35.0; their
+track best scores are approximately 36.6–38.9. Shot 6's genuine FAST candidate
+has score 36.5 and track best score 41.5. The shadow winner is often closer
+because local confirmation fields distinguish the low-score vault candidate,
+but this is a retrospective development result and remains frozen shadow-only.
+
+The audit also records candidate bank hits, vault hits, unique-frame support,
+timestamps, source flags, all available local-confirmation values, and matching
+track snapshots. The saved top-eight track view does not contain every retained
+candidate, so missing track identity is reported as unavailable rather than
+inferred.
+
+## Candidate-source score distributions
+
+From the trustworthy retained candidate flags in this session:
+
+| Source | Count | Median | P90 | P99 | Max |
+|---|---:|---:|---:|---:|---:|
+| FAST_V2225 | 245 | 35.0 | 35.0 | 35.0 | 36.5 |
+| V26_VAULT | 954 | 5.69 | 7.33 | 8.73 | 12.45 |
+
+The distributions are sharply separated. This is evidence that the global
+numeric ordering is not comparable across proposal provenance in practice.
+It does not identify whether the underlying image evidence or the carry/merge
+policy is the first cause. The score ceiling and bank replacement rules are
+the concrete mechanisms that amplify the mismatch.
+
+## Correct-candidate versus wrong-winner comparison
+
+The nearest correct candidates in shots 1, 2, 5, 7, 8 and 10 are low-score
+V2.6 vault candidates buried at positions 69, 101, 86, 85, 87 and 81. The
+deterministic winners are mostly high-score FAST candidates near the front of
+the list. Shot 6 is the positive control: its true candidate is FAST, has the
+highest score, and is retained at position 1. The canonical AI follows the
+same score/provenance ordering and does not fix the mismatch. The frozen
+confirmation shadow improves retrospective selection on this development set,
+but it is not physical validation.
+
+## Diagnostic tooling added
+
+Run:
+
+```bash
+python3 -m automation.physical_score_audit \
+  --root content/ai/physical_traces/session_20260908_144822_d6713dec \
+  --comparison evaluation_runs/physical_20260908_145817_9cdbf1e1/selector_shadow_recheck2/physical_comparison.json \
+  --output evaluation_runs/physical_20260908_145817_9cdbf1e1/score_audit_<id>
+```
+
+It writes `score_audit.json`, `score_audit.md`, and `candidates.csv` without
+altering traces. Visual images are intentionally not produced because the
+recorded traces do not guarantee a synchronized candidate-to-crop mapping.
+
+## Validation-workflow improvements
+
+`automation.physical_test start` now snapshots the session git commit,
+settings, canonical challenger manifest hash, and frozen shadow hash.
+`evaluate` reports `INDEPENDENT_PHYSICAL_VALIDATION` only when the shadow hash,
+source commit, manifest, and label timing checks pass. Sessions without setup
+metadata remain explicitly `DEVELOPMENT`; mismatches are `INVALIDATED`.
+Selector metrics retain oracle availability separately from ranking accuracy.
+
+Next validation commands:
+
+```bash
+python3 -m automation.physical_test start
+# fire exactly the planned shots
+python3 -m automation.physical_test check
+python3 -m automation.physical_test label
+python3 -m automation.physical_test evaluate
+```
+
+Do not edit the frozen selector or label shots before runtime selections are
+complete. No selector is promoted automatically.
+
+## Research-only conclusions
+
+No live detector or selector experiment was run. The evidence supports a future
+research hypothesis—source-balanced or within-source score normalisation before
+global ordering—but this session does not tune or install it. A safe experiment
+must be replay-only, use a new hypothesis name, and report development metrics
+against the frozen baseline before any physical consideration.
+
+## Negative results and limitations
+
+The trace does not retain every raw generator intermediate, so source classes
+are flag-based. Track snapshots expose only a debug subset, so persistence for a
+candidate absent from that view cannot be inferred. The 10-shot dataset is too
+small for calibration or physical claims. No visual diagnostic is generated for
+the same synchronization reason.
+
+## Tests and commits
+
+Passed:
+
+```bash
+python3 -m automation.overnight_selftest
+python3 -m automation.evaluation_selftest
+python3 -m automation.physical_trace_selftest
+python3 -m automation.async_track_timing_selftest
+python3 -m py_compile automation/physical_score_audit.py automation/physical_test.py
+git diff --check
+```
+
+Earlier checkpoint: `a4c5a12 Add frozen confirmation selection shadow diagnostics`.
+This branch adds the score audit and validation metadata in a separate local
+commit. `content/ai/settings.json` remains intentionally uncommitted.
+
+## Current status and recommended next test
+
+Work remains on `codex/score-root-cause`. The only intentional working-tree
+change outside this work is `content/ai/settings.json`. The next useful step is
+an independent physical session using the commands above, followed by the
+automatic three-selector comparison and score audit. Treat the result as
+validation only if the report says `INDEPENDENT_PHYSICAL_VALIDATION`.

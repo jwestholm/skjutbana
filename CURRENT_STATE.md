@@ -199,6 +199,15 @@ evaluator reports overall and conditional selector metrics plus retained-pool or
 availability. The 10-shot replay remains development evidence; the next labelled
 session is the independent validation dataset.
 
+### Detector score root-cause audit
+
+`automation.physical_score_audit` now decomposes the V2 score formula and reports
+candidate-source distributions, per-shot selector comparisons, and track-score
+evidence without changing runtime behavior. The 10-shot development trace shows
+FAST V2.22.5 candidates saturated near 35–38 while genuine V2.6 vault candidates
+are commonly below 3; the next research question is source-balanced ordering.
+The frozen confirmation selector remains unchanged and shadow-only.
+
 ### Async track timestamp correction
 
 A reproduced installer-composition regression let V2.22.6 overwrite V2.22.4's

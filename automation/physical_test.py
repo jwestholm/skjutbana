@@ -1,6 +1,6 @@
 """Physical-test lifecycle: start, check, label, classify, evaluate and restore settings."""
 from __future__ import annotations
-import argparse,json,os,socket,subprocess,sys,uuid
+import argparse,json,os,socket,subprocess,sys,uuid,hashlib
 from datetime import datetime,timezone
 from pathlib import Path
 import numpy as np
@@ -14,11 +14,21 @@ ROOT=Path(__file__).resolve().parents[1]
 ACTIVE=ROOT/'evaluation_runs/physical_test_active.json'
 SETTINGS=ROOT/'content/ai/settings.json'
 DEFAULT_CHALLENGER=ROOT/'evaluation_runs/overnight_20260907/ranking/challenger.json'
+FROZEN_SHADOW_HASH='123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f'
 
 
 def write(path,value):
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.tmp');temp.write_text(json.dumps(value,indent=2)+'\n');os.replace(temp,path)
+
+
+def _digest(path):
+    h=hashlib.sha256(); h.update(path.read_bytes()); return h.hexdigest()
+
+
+def _git_commit():
+    try: return subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
+    except Exception: return None
 
 
 def _xy(value):
@@ -54,6 +64,32 @@ def _selector_metrics(rows):
     return metrics
 
 
+def _validation_status(root, rows, real, manifest):
+    setup_path=root/'test_setup.json'; setup=json.loads(setup_path.read_text()) if setup_path.exists() else {}
+    if not setup or not setup.get('session_git_commit') or not setup.get('frozen_shadow_config_hash') or not setup.get('canonical_manifest_sha256'):
+        return {'status':'DEVELOPMENT','reason':'session setup metadata lacks frozen provenance; validation cannot be established','event_count':len(rows)}
+    expected=setup.get('frozen_shadow_config_hash',FROZEN_SHADOW_HASH)
+    hashes=[]; source_commits=[]; labels_before_selection=[]
+    for row,shot in zip(rows,real):
+        shadow=(shot.get('selectors',{}).get('CONFIRMATION_SELECTION_SHADOW') or {})
+        if shadow.get('config_hash') is not None: hashes.append(shadow.get('config_hash'))
+        trace_path=root/'shots'/f"shot_{int(row['shot_id']):08d}"/'trace.json'
+        trace=json.loads(trace_path.read_text())
+        source_commits.append(trace.get('provenance',{}).get('git_commit'))
+        gt=row.get('ground_truth') or {}; attached=gt.get('attached_at')
+        if attached is not None and float(attached) < float(trace.get('created_at',0.0)): labels_before_selection.append(row['shot_id'])
+    hash_ok=bool(hashes) and all(value==expected for value in hashes)
+    commit_ok=bool(set(source_commits)) and len(set(source_commits))==1 and source_commits[0]==setup.get('session_git_commit')
+    labels_ok=not labels_before_selection
+    manifest_ok=bool(manifest and setup.get('canonical_manifest_sha256') in (None,_digest(Path(manifest))) )
+    status='INDEPENDENT_PHYSICAL_VALIDATION' if hash_ok and commit_ok and labels_ok and manifest_ok else ('INVALIDATED' if not hash_ok or not commit_ok or not labels_ok else 'DEVELOPMENT')
+    return {'status':status,'selector_hash_expected':expected,'selector_hashes_observed':sorted(set(hashes)),
+            'selector_hash_match':hash_ok,'session_git_commit':setup.get('session_git_commit'),
+            'trace_git_commits':sorted(set(source_commits)),'source_commit_match':commit_ok,
+            'labels_before_selection':labels_before_selection,'labels_frozen_after_selection':labels_ok,
+            'canonical_manifest_hash_match':manifest_ok,'event_count':len(rows)}
+
+
 def start(args):
     try:
         with socket.create_connection(('127.0.0.1',8765),timeout=.3):
@@ -70,7 +106,10 @@ def start(args):
     root=ROOT/'content/ai/physical_traces'/name;root.mkdir(parents=True,exist_ok=False)
     changes={'physical_trace_capture_enabled':True,'physical_trace_root':str(root),
              'physical_trace_session_id':name,'canonical_challenger_manifest':str(challenger)}
-    state={'root':str(root),'before':{k:{'present':k in settings,'value':settings.get(k)} for k in changes},'applied':changes,'restored':False}
+    state={'root':str(root),'before':{k:{'present':k in settings,'value':settings.get(k)} for k in changes},'applied':changes,'restored':False,
+           'session_git_commit':_git_commit(),'frozen_shadow_config_hash':FROZEN_SHADOW_HASH,
+           'canonical_manifest_sha256':_digest(challenger),'settings_snapshot':settings.copy(),
+           'validation_label':'DEVELOPMENT'}
     write(root/'test_setup.json',state);write(ACTIVE,state);settings.update(changes);write(SETTINGS,settings)
     print('Session:',root)
     if not args.prepare_only:
@@ -153,6 +192,7 @@ def evaluate_session(root,output,manifest,mapping=None):
     payload['shots']=real;write(output/'evaluation_trace.json',payload);write(output/'false_events.json',false)
     result['selector_metrics']=_selector_metrics(real)
     result['confirmation_selection_shadow_config_hash']=CONFIG_HASH
+    result['validation']=_validation_status(root,real,real,manifest)
     write(output/'physical_comparison.json',result)
     from src.engine.offline.evaluation import evaluate
     write(output/'metrics.json',evaluate(real,mode='live_path_replay'))
