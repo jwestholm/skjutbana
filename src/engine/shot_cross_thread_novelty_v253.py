@@ -632,6 +632,9 @@ def _install_authority_selector_patch() -> None:
 
         eligible: list[tuple[Any, dict[str, Any], float]] = []
         for track in getattr(self, "_active_tracks", {}).values():
+            producer_sid = (getattr(track, "last_candidate", {}) or {}).get("v2224_producer_shot_id")
+            if producer_sid is not None and int(producer_sid) != sid:
+                continue
             onset_dt = float(track.first_seen_ts) - float(event.peak_ts)
             if onset_dt < -float(self.association_lead_s) or onset_dt > float(self.association_lag_s):
                 continue

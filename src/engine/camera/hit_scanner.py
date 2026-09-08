@@ -486,6 +486,9 @@ class HitScanner:
         best: HoleTrack | None = None
         best_metric: tuple[float, float] | None = None
         for track in self._active_tracks.values():
+            producer_sid = (getattr(track, "last_candidate", {}) or {}).get("v2224_producer_shot_id")
+            if producer_sid is not None and int(producer_sid) != int(event.shot_id):
+                continue
             onset_dt = track.first_seen_ts - event.peak_ts
             if onset_dt < -self.association_lead_s or onset_dt > self.association_lag_s:
                 continue

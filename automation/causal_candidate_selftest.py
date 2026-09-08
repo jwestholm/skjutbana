@@ -89,6 +89,13 @@ class Tests(unittest.TestCase):
         manager.start(6, 100.04, [candidate], pre)
         self.assertIsNone(manager.active_waiting(scanner, 101.4862853))
 
+    def test_track_with_newer_producer_is_not_eligible_for_older_event(self):
+        from src.engine.camera.hit_scanner import HitScanner, AudioShotEvent
+        scanner = HitScanner()
+        scanner._update_tracks([{'camera_x':32., 'camera_y':32., 'score':10., 'v2224_producer_shot_id':7}], 101.5)
+        event = AudioShotEvent(6, 100., 100.)
+        self.assertIsNone(scanner._best_track_for_event(event))
+
     def test_temporal_research_preserves_new_change_near_old_structure(self):
         from automation.causal_temporal_research import temporal_score
         pre = np.full((64, 64), 120., np.float32)
