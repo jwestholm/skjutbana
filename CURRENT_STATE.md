@@ -38,6 +38,11 @@
 Full evidence and reproduction: [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md).
 Older checkpoints below are historical and do not supersede these facts.
 
+Pending-event ownership is fixed in `5d45527`; physical validation is pending.
+V2 PRE spatial mapping is corrected in the working tree. Offline replay removes
+the recorded FAST saturation (731 proposals, median residual 192.385→1.538,
+zero corrected saturated scores), but does not establish new live accuracy.
+
 
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 checkpoint

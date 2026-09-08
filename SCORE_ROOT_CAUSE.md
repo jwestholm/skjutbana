@@ -273,3 +273,14 @@ live-path-equivalent replay. They neither replace the frozen confirmation shadow
 nor constitute physical validation. Repair pending-event evidence ownership,
 then test spatial-reference correction in full detector replay as a separate
 hypothesis, before another frozen physical evaluation.
+
+Pending-event ownership is fixed in commit `5d45527`: local confirmation now
+stops at the next audio peak, while delayed worker results remain valid when
+their captured evidence frame predates that boundary. Physical validation remains
+pending. The V2 PRE spatial mapping correction is implemented in the working
+tree and translates crop-local bboxes to full-camera frame-history coordinates
+exactly once. Offline replay of 731 recorded FAST proposal versions reduces
+median PRE residual 192.385→1.538 and removes all corrected score saturation
+(median and p90 corrected score 3.6; 0 saturated). This proves the input-plane
+bug naturally caused the observed saturation in replay; regenerated candidate
+recall and live accuracy remain unvalidated.

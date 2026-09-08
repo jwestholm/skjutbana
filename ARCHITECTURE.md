@@ -189,3 +189,9 @@ The 2026-09-08 audit proves an uncorrected V2 PRE-history violation of that cont
 It also reproduces a missing next-event evidence boundary for still-pending local
 confirmation/shared tracks. See `CAUSAL_CANDIDATE_AUDIT.md`; neither runtime
 correction is implied by the measurement changes.
+
+The accepted pending-event ownership correction (`5d45527`) makes the next
+audio peak an event boundary for local confirmation while preserving delayed
+worker results captured before that boundary. The V2 PRE mapping correction in
+the working tree translates crop-local detector regions into full-camera
+frame-history coordinates exactly once for normal and fallback references.

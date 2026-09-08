@@ -444,7 +444,10 @@ class CandidateGeneratorV2:
                             "shot_id": shot_id,
                         },
                     )
-                pre_frames = [fallback[y0:y1, x0:x1]]
+                geometry = getattr(scanner, "_v2221_active_geometry", None)
+                ox = int(getattr(geometry, "crop_x0", 0) or 0)
+                oy = int(getattr(geometry, "crop_y0", 0) or 0)
+                pre_frames = [fallback[oy + y0:oy + y1, ox + x0:ox + x1]]
 
             reference, temporal_noise, stack_stats = self._build_reference_and_noise(
                 pre_frames,
@@ -837,6 +840,12 @@ class CandidateGeneratorV2:
         cfg: dict[str, Any],
     ) -> list[np.ndarray]:
         x0, y0, x1, y1 = bbox
+        geometry = getattr(scanner, "_v2221_active_geometry", None)
+        # Detection runs in crop-local coordinates while the camera ring is
+        # stored in full-camera coordinates. Translate exactly once here; the
+        # full-frame geometry path has origin (0, 0).
+        origin_x = int(getattr(geometry, "crop_x0", 0) or 0)
+        origin_y = int(getattr(geometry, "crop_y0", 0) or 0)
         max_frames = max(1, _safe_int(cfg.get("pre_stack_frames", 3), 3))
         window = max(0.05, _safe_float(cfg.get("pre_stack_window_s", 0.32), 0.32))
         min_gap = max(0.0, _safe_float(cfg.get("pre_stack_min_gap_s", 0.006), 0.006))
@@ -856,10 +865,12 @@ class CandidateGeneratorV2:
             gray = getattr(frame, "gray", None)
             if not isinstance(gray, np.ndarray):
                 continue
-            if gray.shape[0] < y1 or gray.shape[1] < x1:
+            full_x0, full_x1 = origin_x + x0, origin_x + x1
+            full_y0, full_y1 = origin_y + y0, origin_y + y1
+            if gray.shape[0] < full_y1 or gray.shape[1] < full_x1:
                 continue
 
-            selected.append(gray[y0:y1, x0:x1])
+            selected.append(gray[full_y0:full_y1, full_x0:full_x1])
             if len(selected) >= max_frames:
                 break
 

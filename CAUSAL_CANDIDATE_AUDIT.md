@@ -458,6 +458,25 @@ confirmation residuals, whether particular visible marks are old physical holes
 or projected/printed structures, and corrected full-pipeline recall/accuracy.
 The present evidence does not validate a new detector or selector for live use.
 
+## Engineering fixes after acceptance
+
+Commit `5d45527` isolates pending-event ownership. Local confirmation now stops
+at the next audio peak, and delayed worker results are accepted only when their
+own evidence frame predates that peak. Focused regressions cover both false-event
+timing patterns, late delivery, terminal immutability, pending/new-event ordering,
+and normal delayed single-shot processing.
+
+The V2 PRE collector now translates crop-local detector bboxes to the
+full-camera frame-history plane exactly once, including fallback background
+slicing. Corrected offline source-frame replay
+(`evaluation_runs/causal_audit_20260908/temporal_postfix_v6`) covers 731 FAST
+proposal versions: median PRE residual 192.385→1.538, median and p90 corrected
+diagnostic score 3.6, and 0 saturated corrected scores. The 15 physical FAST
+false-winner score artifacts collapse in this replay. This is recorded-source
+replay, not regenerated live candidate selection or physical validation; temporal
+selection remains 1/20 @42. Cross-source ordering, stale structures and
+permissive confirmation remain separate bottlenecks.
+
 ## Per-winner feature evidence
 
 Track score includes confirmation/history; PSC is the producer residual described above.
