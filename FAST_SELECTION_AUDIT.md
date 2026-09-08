@@ -50,6 +50,12 @@ Using recorded top-eight track snapshots (therefore not a complete live replay):
 These are development diagnostics only; no live authority or shadow selector
 was changed. The result supports source-aware selection as the next experiment.
 
+The follow-up track-survival audit found that only the two successful true
+candidates are visible in the saved eight-track snapshots. The other seven are
+in the retained causal candidate pool but have no corresponding exported track;
+this is an export limitation, not proof of runtime eviction. See
+`TRACK_SURVIVAL_AUDIT.md`.
+
 ## Historical comparison and confirmation
 
 FAST-selected success was 0/16 in the prior 20-shot session, 0/7 here, and

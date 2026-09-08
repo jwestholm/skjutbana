@@ -10,6 +10,9 @@
   FAST score saturation remains absent after correction. No selector or AI is
   promoted. Next step is complete-pool, source-aware research replay followed
   by a fresh physical validation.
+- Latest funnel: 9 causal candidates -> 2 demonstrably tracked in the exported
+  top-eight view -> 2 confirmed -> 2 eligible -> 2 selected. Seven candidate
+  fates remain unknown until complete eligible track pools are traced.
 
 - Latest independent physical validation: **1/20 @42 (5%) for CURRENT,
   CONFIRMATION_SELECTION_SHADOW and CANONICAL_AI_SHADOW**. Original status,
