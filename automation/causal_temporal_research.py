@@ -71,12 +71,23 @@ def run(root, output):
             reg[name]={**info,'offset':offset,'pre_mode':stats['mode']}
         fast=[c for c in pool if c.get('v2225_fast_extract')]
         comparison=[]
+        corrected_fast_scores=[]
+        corrected_fast_pool=[]
+        corr_ref, corr_norm, corr_abs, corr_dark = arrays['correct_camera_plane']
+        noise = np.full(corr_abs.shape, 1.35, np.float32)
+        zscore = corr_abs / noise
+        dog = engine._multiscale_change_response(corr_abs, cfg)
+        saliency = (cfg.get('weight_zscore',5.8)*zscore + cfg.get('weight_absdiff',.72)*corr_abs + cfg.get('weight_dog',1.75)*dog + cfg.get('weight_darkening',.32)*corr_dark).astype(np.float32)
         for c in fast:
             x=int(round(c['camera_x']-ox-x0));y=int(round(c['camera_y']-oy-y0))
             yy,xx=np.ogrid[-2:3,-2:3];mask=xx*xx+yy*yy<=4
             if x<2 or y<2 or x>=post.shape[1]-2 or y>=post.shape[0]-2:continue
             values={k:float(np.mean(v[2][y-2:y+3,x-2:x+3][mask])) for k,v in arrays.items()}
             comparison.append({'xy':[c['camera_x'],c['camera_y']],'saved_psc':c['pre_shot_change'],**values})
+            feat=engine._candidate_features(px=x,py=y,saliency=saliency,absdiff=corr_abs,darkening=corr_dark,dog=dog,zscore=zscore)
+            raw=.16*float(np.mean(saliency[max(0,y-6):y+7,max(0,x-6):x+7])) + .23*feat['center_change'] + .15*feat['local_contrast'] + .11*feat.get('blackhat_value',0) + .06*min(float(np.mean(zscore[max(0,y-6):y+7,max(0,x-6):x+7])),25)
+            corrected=float(np.clip(raw,3.6,35.0)); corrected_fast_scores.append(corrected)
+            corrected_fast_pool.append({**c,'score':corrected,'pre_shot_change':feat['center_change'],'corrected_score':corrected})
         # Rank on the exact synchronous confirmation frame consumed before
         # the decision, retaining the proposal-frame reproduction separately.
         confirm_entry = next(f for f in t['frames'] if abs(f['timestamp']-winner['timestamp']) < 1e-6 and f['kind']=='post')
@@ -95,7 +106,9 @@ def run(root, output):
             rankings[name]={'score':score,'candidate':c,'error_px':math.hypot(c['camera_x']-gt['camera_x'],c['camera_y']-gt['camera_y']) if gt else None}
         rows.append({'event':t['shot_id'],'physical':gt is not None,'pre_timestamps':[f['timestamp'] for f in pre_entries],
                      'post_ts':post_entry['timestamp'], 'ranking_confirmation_ts':confirm_entry['timestamp'], 'ranking_registration':confirm_reg,'decision_ts':decision['timestamp'],'bbox_local':[x0,y0,x1,y1], 'crop_origin':[ox,oy],
-                     'registration':reg,'fast_comparison':comparison,'rankings':rankings})
+                     'registration':reg,'fast_comparison':comparison,'corrected_fast_scores':corrected_fast_scores,
+                     'corrected_fast_saturated':sum(v>=35 for v in corrected_fast_scores),
+                     'corrected_fast_pool':corrected_fast_pool,'rankings':rankings})
         # Recorded PRE/POST patches around every winner and GT; same display
         # scale, absolute residual x8 for visibility. No image editing model.
         pre=np.load(path.parent/next(f['path'] for f in t['frames'] if f['kind']=='pre_snapshot'),mmap_mode='r')
@@ -112,6 +125,11 @@ def run(root, output):
         panels.append(panel)
     # Report evaluated and unavailable separately. No replacement with a later frame.
     metrics={}
+    scores=[v for r in rows for v in r.get('corrected_fast_scores',[])]
+    before=[c['saved_psc'] for r in rows for c in r.get('fast_comparison',[])]
+    metrics['FAST_SCORE_DISTRIBUTION_CORRECTED']={'count':len(scores),'median':float(np.median(scores)) if scores else None,'p90':float(np.percentile(scores,90)) if scores else None,'saturated':sum(v>=35 for v in scores)}
+    metrics['FAST_PRE_RESIDUAL_BEFORE']={'count':len(before),'median':float(np.median(before)) if before else None}
+    metrics['FAST_PRE_RESIDUAL_CORRECTED']={'count':len([c for r in rows for c in r.get('fast_comparison',[])]),'median':float(np.median([c['correct_camera_plane'] for r in rows for c in r.get('fast_comparison',[])]))}
     for name in ('REGISTERED_ABS_COMPACT','REGISTERED_DARK_COMPACT'):
         errors=[r['rankings'][name]['error_px'] for r in rows if r['physical'] and 'rankings' in r]
         metrics[name]={'evaluated':len(errors),'unavailable':20-len(errors),'hits':{str(k):sum(e<=k for e in errors) for k in (5,10,20,42)},
