@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from src.engine.physical_trace import TRACE_SCHEMA, _json
+from src.engine.offline.causal_candidates import overlay_candidates
 from automation.physical_trace_target import (
     TargetEvidenceError,
     camera_to_target,
@@ -74,6 +75,7 @@ def load_existing_annotation(shot_dir: Path) -> dict[str, Any] | None:
 
 def discover_shots(root: Path, *, include_labeled: bool = False, include_skipped: bool = False) -> list[dict[str, Any]]:
     shots: list[dict[str, Any]] = []
+    peaks: list[float] = []
     shot_dirs = sorted(p for p in (root / "shots").glob("shot_*") if p.is_dir())
     for shot_dir in shot_dirs:
         trace_path = shot_dir / "trace.json"
@@ -100,12 +102,20 @@ def discover_shots(root: Path, *, include_labeled: bool = False, include_skipped
                      "provenance": {"status": "trace_json_unavailable"}}
         if trace.get("schema_version") != TRACE_SCHEMA:
             raise AnnotationDataError(f"Unsupported trace schema: {trace_path}")
+        if "peak_ts" in trace:
+            peaks.append(float(trace["peak_ts"]))
         annotation = load_existing_annotation(shot_dir)
         skipped = status_path(shot_dir).exists()
         if (annotation is not None and not include_labeled) or (skipped and not include_skipped):
             continue
         shots.append({"trace_path": trace_path, "shot_dir": shot_dir, "trace": trace,
                       "annotation": annotation, "skipped": skipped})
+    # Find boundaries from all events, including already labelled/false events.
+    peaks.sort()
+    for shot in shots:
+        peak = shot["trace"].get("peak_ts", float("inf"))
+        shot["next_audio_peak"] = next((p for p in peaks if p > peak), None)
+        shot["causal_overlay"] = list(overlay_candidates(shot["trace"], include_later=True, next_peak=shot["next_audio_peak"]))
     return shots
 
 
@@ -227,6 +237,7 @@ def _run_ui(root: Path, shots: list[dict[str, Any]], max_size: tuple[int, int], 
     screen = pygame.display.set_mode(max_size)
     pygame.display.set_caption("Physical trace ground truth")
     font = pygame.font.Font(None, 26)
+    include_later = False
     index, frame_index, pending, show = 0, -1, None, bool(show_candidates)
     running = True
     while running and shots:
@@ -244,19 +255,22 @@ def _run_ui(root: Path, shots: list[dict[str, Any]], max_size: tuple[int, int], 
         screen.fill((24, 24, 24))
         screen.blit(_pygame_surface(pygame, image, size), origin)
         if show:
-            for candidate in (shot["trace"].get("stages", [])[-1].get("candidates", []) if shot["trace"].get("stages") else []):
+            for candidate, category, color in (item for item in shot["causal_overlay"] if include_later or item[1] == "CAUSALLY_AVAILABLE"):
                 if "camera_x" in candidate and "camera_y" in candidate:
                     cx = int(origin[0] + float(candidate["camera_x"]) * scale[0])
                     cy = int(origin[1] + float(candidate["camera_y"]) * scale[1])
-                    pygame.draw.circle(screen, (255, 220, 0), (cx, cy), 7, 1)
+                    pygame.draw.circle(screen, color, (cx, cy), 7, 1)
         if pending is not None:
             px = int(origin[0] + pending[0] * scale[0])
             py = int(origin[1] + pending[1] * scale[1])
             pygame.draw.line(screen, (0, 255, 0), (px - 12, py), (px + 12, py), 2)
             pygame.draw.line(screen, (0, 255, 0), (px, py - 12), (px, py + 12), 2)
         text = f"shot_id {shot['trace'].get('shot_id')} | {index + 1}/{len(shots)} | frame {actual + 1}/{len(frame_entries(shot['trace']))}"
-        controls = "click hole  Enter accept  R retry  S skip  arrows shot/frame  C candidates  Q quit"
+        controls = "click hole  Enter accept  R retry  S skip  arrows shot/frame  C candidates  T later evidence  Q quit"
         screen.blit(font.render(text, True, (255, 255, 255)), (12, 10))
+        if show:
+            legend = "green: causal | orange: post-decision | magenta: cross-event | grey: unknown" if include_later else "Causal candidates only (green); T includes later evidence"
+            screen.blit(font.render(legend, True, (230, 230, 230)), (12, 34))
         screen.blit(font.render(controls, True, (190, 190, 190)), (12, max_size[1] - 32))
         pygame.display.flip()
         for event in pygame.event.get():
@@ -279,6 +293,8 @@ def _run_ui(root: Path, shots: list[dict[str, Any]], max_size: tuple[int, int], 
                     if shots:
                         index %= len(shots)
                     pending, frame_index = None, -1
+                elif event.key == pygame.K_t:
+                    include_later = not include_later
                 elif event.key == pygame.K_c:
                     show = not show
                 elif event.key == pygame.K_LEFT:
@@ -312,6 +328,7 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
     screen = pygame.display.set_mode(max_size)
     pygame.display.set_caption("Physical trace ground truth")
     font = pygame.font.Font(None, 26)
+    include_later = False
     index, frame_index, pending, mode, show = 0, -1, None, "target" if homography is not None else "post", bool(show_candidates)
     running = True
     while running and shots:
@@ -343,7 +360,7 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
         screen.fill((24, 24, 24))
         screen.blit(_pygame_surface(pygame, image, size), origin)
         if show:
-            for candidate in (shot["trace"].get("stages", [])[-1].get("candidates", []) if shot["trace"].get("stages") else []):
+            for candidate, category, color in (item for item in shot["causal_overlay"] if include_later or item[1] == "CAUSALLY_AVAILABLE"):
                 if "camera_x" not in candidate or "camera_y" not in candidate:
                     continue
                 point = (float(candidate["camera_x"]), float(candidate["camera_y"]))
@@ -351,7 +368,7 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
                     point = camera_to_target(point, homography)
                 cx = int(origin[0] + point[0] * scale[0])
                 cy = int(origin[1] + point[1] * scale[1])
-                pygame.draw.circle(screen, (255, 220, 0), (cx, cy), 7, 1)
+                pygame.draw.circle(screen, color, (cx, cy), 7, 1)
         if pending is not None:
             point = pending
             if click_space == "target" and homography is not None:
@@ -361,8 +378,11 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
             pygame.draw.line(screen, (0, 255, 0), (px - 12, py), (px + 12, py), 2)
             pygame.draw.line(screen, (0, 255, 0), (px, py - 12), (px, py + 12), 2)
         text = f"shot_id {shot['trace'].get('shot_id')} | {index + 1}/{len(shots)} | mode {mode} | POST {post_actual + 1}"
-        controls = "click hole  P precise  A approximate  Enter precise  R retry  S unresolved  arrows shot/frame  1 target 2 diff 3 POST 4 PRE  C candidates  Q quit"
+        controls = "click hole  P precise  A approximate  Enter precise  R retry  S unresolved  arrows shot/frame  1 target 2 diff 3 POST 4 PRE  C candidates  T later evidence  Q quit"
         screen.blit(font.render(text, True, (255, 255, 255)), (12, 10))
+        if show:
+            legend = "green: causal | orange: post-decision | magenta: cross-event | grey: unknown" if include_later else "Causal candidates only (green); T includes later evidence"
+            screen.blit(font.render(legend, True, (230, 230, 230)), (12, 34))
         screen.blit(font.render(controls, True, (190, 190, 190)), (12, max_size[1] - 32))
         pygame.display.flip()
         for event in pygame.event.get():
@@ -392,6 +412,8 @@ def _run_target_ui(shots: list[dict[str, Any]], max_size: tuple[int, int], show_
                     if shots:
                         index %= len(shots)
                     pending, frame_index = None, -1
+                elif event.key == pygame.K_t:
+                    include_later = not include_later
                 elif event.key == pygame.K_c:
                     show = not show
                 elif event.key == pygame.K_1 and homography is not None:
@@ -425,7 +447,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--include-labeled", action="store_true", help="include existing labels for relabeling")
     parser.add_argument("--include-skipped", action="store_true", help="include previously skipped shots")
-    parser.add_argument("--show-candidates", action="store_true", help="show yellow candidate overlays (off by default)")
+    parser.add_argument("--show-candidates", action="store_true", help="show causal candidate overlays (off by default; T adds later evidence)")
     parser.add_argument("--calibration", type=Path, default=Path("content/settings.json"), help="settings JSON containing camera_calibration")
     parser.add_argument("--target-width", type=int, default=760)
     parser.add_argument("--target-height", type=int, default=580)

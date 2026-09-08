@@ -315,6 +315,9 @@ class PhysicalTraceRecorder:
                           "persisted_counts": {"pre": 0, "post": 0, "evidence": 0}, "post_limit_drops": 0}
                 self._active[shot_id] = active
                 self._seen_events.add(shot_id)
+                for previous_id, previous in self._active.items():
+                    if previous_id != shot_id and previous['trace']['peak_ts'] < trace['peak_ts']:
+                        previous['trace'].setdefault('next_audio_peak_ts', trace['peak_ts'])
             history = list(getattr(scanner, "frame_history", []) or [])
             pre_snapshot = getattr(scanner, "pre_shot_snapshot", None)
             pre_ts = float(getattr(scanner, "pre_shot_snapshot_ts", 0.0) or 0.0)
@@ -398,6 +401,13 @@ class PhysicalTraceRecorder:
                                                    and confirmation.get("shot_id") == sid else None)
                     stage["confirmed_candidates"] = (stage["local_confirmation"]["candidates"]
                                                      if stage["local_confirmation"] is not None else None)
+                    from src.engine.offline.causal_candidates import classify
+                    stage['causal_observation_class'] = classify(
+                        cutoff=trace.get('decision_input', {}).get('timestamp'),
+                        observed_at=stage['timestamp'], evidence_at=None,
+                        owner=stage['candidate_pool_shot_id'], shot_id=sid,
+                        next_peak=trace.get('next_audio_peak_ts'))
+                    stage['observation_semantics'] = 'shared scanner diagnostic snapshot; use decision_input for authority availability'
                     trace["stages"].append(stage); active["stages_by_id"][stage_id] = stage
                     if new_post and active["expected_counts"]["evidence"] < 64:
                         for name, value in dict(getattr(scanner, "debug_frames", {}) or {}).items():
@@ -438,6 +448,9 @@ class PhysicalTraceRecorder:
                     "shot_id": int(event.shot_id), "timestamp": time.time(),
                     "deterministic_selection": _safe(track),
                     "retained_candidates": _copy_candidates(getattr(scanner, "last_candidates", [])),
+                    "candidate_pool_shot_id": getattr(scanner, "last_trace_pipeline_shot_id", None),
+                    "local_confirmation": (_safe(getattr(scanner, "last_trace_confirmation", None))
+                        if (getattr(scanner, "last_trace_confirmation", None) or {}).get('shot_id') == int(event.shot_id) else None),
                     "semantics": "retained proposal pool at emission boundary; not all candidates passed local confirmation",
                 }
 
@@ -446,6 +459,8 @@ class PhysicalTraceRecorder:
             active = self._active.get(int(shot_id))
             if active is None:
                 return
+            if active['finished']:
+                return  # Later scanner activity must not overwrite the terminal event outcome.
             trace = active["trace"]
             debug = _safe(getattr(scanner, "last_event_debug", {}))
             debug_shot = debug.get("shot_id") if isinstance(debug, Mapping) else None
@@ -469,6 +484,13 @@ class PhysicalTraceRecorder:
             complete = (not timed_out and not active["errors"] and active["post_limit_drops"] == 0 and expected == persisted and active["finished"])
             trace = active["trace"]
             manifest = active["settings"].get("canonical_challenger_manifest")
+            from src.engine.offline.causal_candidates import classify
+            for stage in trace['stages']:
+                stage['causal_observation_class'] = classify(
+                    cutoff=trace.get('decision_input', {}).get('timestamp'),
+                    observed_at=stage.get('timestamp'), evidence_at=None,
+                    owner=stage.get('candidate_pool_shot_id'), shot_id=shot_id,
+                    next_peak=trace.get('next_audio_peak_ts'))
             if manifest and "canonical_challenger" not in trace:
                 try:
                     from src.engine.ai.canonical_challenger import CanonicalChallenger

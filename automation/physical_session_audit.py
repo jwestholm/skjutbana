@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from src.engine.offline.causal_candidates import analyze_trace
 
 
 def distance(c, gt):
@@ -24,8 +25,10 @@ def pool_summary(pool, gt):
 
 def audit(root, mapping=None):
     rows=[]
-    for path in sorted((root/'shots').glob('*/trace.json')):
-        t=json.loads(path.read_text()); sid=str(t['shot_id']); assignment=(mapping or {}).get(sid, {})
+    paths = sorted((root/'shots').glob('*/trace.json'))
+    traces = [json.loads(path.read_text()) for path in paths]
+    for index, (path, t) in enumerate(zip(paths, traces)):
+        sid=str(t['shot_id']); assignment=(mapping or {}).get(sid, {})
         label_id=assignment.get('label_shot_id',sid)
         gp=root/'shots'/f'shot_{int(label_id):08d}'/'ground_truth.json' if label_id is not None else None
         gt=json.loads(gp.read_text()) if gp and gp.exists() else None
@@ -55,6 +58,8 @@ def audit(root, mapping=None):
           'emitted':final,'emitted_distance_px':distance(final,gt) if final and gt else None,
           'outcome':outcome,'complete':t.get('completeness'),
           'registration_observations':[{k:v for k,v in d.items() if k.startswith('v2_registration')} for d in debug]})
+        causal = analyze_trace(t, traces[index+1]['peak_ts'] if index+1 < len(traces) else None, gt)
+        rows[-1]['causal_candidate_audit_v1'] = {k:v for k,v in causal.items() if k not in ('records','observations')}
     return {'schema':'physical-session-audit-1','coordinate_space':'original_camera','session':str(root),
       'limitations':['Saved-list position is not authority rank. Observations may follow the decision; do not treat union recall as decision-time recall.',
                      'RAW and FILTERED not captured by these producers. Legacy tracks are top-eight debug views: presence of local-confirm flag proves confirmation; absence does not prove loss. Track state confirmed means emitted, not local-confirmation eligibility.',

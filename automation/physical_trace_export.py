@@ -6,12 +6,14 @@ import json
 from pathlib import Path
 
 from src.engine.offline.evaluation import VERSION, encoded
+from src.engine.offline.causal_candidates import analyze_trace
 
 
 def export(root: Path, output: Path) -> None:
     shots = []
-    for path in sorted((root / "shots").glob("shot_*/trace.json")):
-        trace = json.loads(path.read_text(encoding="utf-8"))
+    paths = sorted((root / "shots").glob("shot_*/trace.json"))
+    traces = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    for index, (path, trace) in enumerate(zip(paths, traces)):
         gt_path = path.parent / "ground_truth.json"
         gt = json.loads(gt_path.read_text(encoding="utf-8")) if gt_path.exists() else None
         stages = trace.get("stages", [])
@@ -64,6 +66,10 @@ def export(root: Path, output: Path) -> None:
                 ground_truth["uncertainty_radius_px"] = gt["uncertainty_radius_px"]
         outcome = trace.get("outcome", {})
         shots.append({"session_id": trace.get("session_id", root.name), "shot_id": str(trace["shot_id"]), "source_kind": "physical_trace", "coordinate_space": "camera", "ground_truth": ground_truth, "raw": raw, "filtered": filtered, "retained": retained, "confirmed": confirmed, "selected": selected, "emitted": emitted, "ranked": ranked, "rescue_used": outcome.get("rescue_used"), "latency_ms": outcome.get("detector_e2e_latency_ms"), "trace_completion_latency_ms": outcome.get("trace_completion_latency_ms"), "latency_semantics": "detector_e2e_decision_or_emission; null when producer did not capture it", "trace_complete": trace.get("completeness", {}).get("trace_complete"), "trace_completeness": trace.get("completeness")})
+        causal = analyze_trace(trace, traces[index + 1]['peak_ts'] if index + 1 < len(traces) else None, gt)
+        shots[-1]['causal_candidate_audit_v1'] = {k: v for k, v in causal.items() if k not in ('records', 'observations')}
+        shots[-1]['causally_available_candidates_v1'] = [r['candidate'] for r in causal['records'] if r['availability'] == 'CAUSALLY_AVAILABLE']
+        shots[-1]['legacy_stage_semantics'] = 'historical last-observed snapshots; may include post-decision evidence; not causal oracle'
     if not shots:
         raise ValueError(f"No traces found in {root}")
     first_path = next((root / "shots").glob("shot_*/trace.json"))

@@ -225,3 +225,51 @@ change outside this work is `content/ai/settings.json`. The next useful step is
 an independent physical session using the commands above, followed by the
 automatic three-selector comparison and score audit. Treat the result as
 validation only if the report says `INDEPENDENT_PHYSICAL_VALIDATION`.
+
+## Independent 20-shot validation and causal follow-up — 2026-09-08
+
+The earlier next-validation recommendation above is now fulfilled by
+`session_20260908_163626_9b47fac6`, evaluated in
+`physical_20260908_172039_ae9d026f`. Its **INDEPENDENT_PHYSICAL_VALIDATION** result
+is preserved unchanged: CURRENT, frozen confirmation shadow and canonical AI
+shadow each achieve **1/20 @42 (5%)**. Their mean errors are respectively
+509.362, 415.914 and 557.925 px. Lower geographical error did not improve Top1;
+no confirmation-shadow promotion is justified. Events 7 and 15 are nonphysical
+triggers; the remaining events map to deliberate dart shots 1–20 in order.
+
+See [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md) for the complete source,
+all-event timeline, measurements, limitations and reproduction commands.
+Causal oracle is **10/20 @5/@10/@20 and 12/20 @42**. Last-observed retained
+oracle appears to be 11/20 @5 and 12/20 @10/@20, 14/20 @42. The extra successes
+at events 6 and 14 are actually later-event candidates, recorded after their
+live decisions. The original selector comparison already used decision pools
+and correctly reported 12/20 @42; its validation is not rewritten.
+
+**PROVEN upstream score cause:** the crop wrapper supplies crop-local current
+images to V2 but leaves PRE frame history in full-camera coordinates. V2 slices
+that history with a crop-local bbox, comparing unrelated image regions. Offline
+source-frame reconstruction matches all **681 physical FAST proposal PSC values
+exactly**. Correcting only the PRE spatial origin reduces median residual from
+192.384613 to 1.538462 at those frozen coordinates. This is an intensity-residual
+measurement, not an accuracy claim. The source-scale mismatch is real, but a
+reference-image defect precedes it; normalization cannot repair invalid evidence.
+
+Fifteen of 19 wrong winners (78.9%) are FAST with PSC >=100 and saturated base
+scores; all 19 pass permissive local confirmation, six with zero darkening.
+Four wrong winners have legacy/vault provenance. The sole correct shot is event
+11 / physical shot 10: V2 returns `waiting_post_peak`, the genuine legacy proposal
+ranks first, and no broken FAST proposal competes. Its error is 1.718733 px.
+
+The observed 6→7 and 14→15 contamination affects diagnostics, not their completed
+live decisions. **A separate runtime correctness gap is reproduced:** an earlier
+still-pending event can use local-confirmation evidence after the next audio
+peak, and shared tracks have no next-event evidence guard. This is the highest
+priority next fix. No live authority code was changed by this measurement audit.
+
+Two fixed RESEARCH_ONLY temporal rankings using correctly positioned immediate
+PRE and the causal confirmation frame each achieve 1/20 @42; means are 313.276
+and 346.184 px. These offline candidate tests do not improve Top1 and are not
+live-path-equivalent replay. They neither replace the frozen confirmation shadow
+nor constitute physical validation. Repair pending-event evidence ownership,
+then test spatial-reference correction in full detector replay as a separate
+hypothesis, before another frozen physical evaluation.

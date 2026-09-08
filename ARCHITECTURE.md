@@ -171,3 +171,21 @@ adapts existing V2.23 framepacks or explicit stage traces. It uses existing came
 pixel metrics and framepack readers; no live detector code is changed. Saved pools
 remain distinct from raw/filtered/retained/confirmed/selected/emitted observations.
 See [EVALUATION.md](EVALUATION.md) for evidence levels, provenance and replay gaps.
+
+## Physical trace causality and authority boundaries
+
+Camera evidence time, worker delivery time, scanner observation time and decision
+time are separate clocks/roles. `decision_input.timestamp` is captured by the
+emission hook and identifies the consumed proposal snapshot; a candidate's frame
+timestamp alone does not prove delivery before selection. Physical trace windows
+can outlive terminal events and overlap later audio events. Shared diagnostic
+pools must carry producer ownership and must not be treated as earlier authority
+inputs. Causal audit/export fields are additive; historical stage metrics retain
+their named snapshot meaning. New captures preserve the first terminal outcome.
+
+The V2.22.1 working-space contract applies to **every image read by a detector**,
+including PRE frame history, not only current/reference masks and output XY.
+The 2026-09-08 audit proves an uncorrected V2 PRE-history violation of that contract.
+It also reproduces a missing next-event evidence boundary for still-pending local
+confirmation/shared tracks. See `CAUSAL_CANDIDATE_AUDIT.md`; neither runtime
+correction is implied by the measurement changes.

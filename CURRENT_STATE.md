@@ -1,5 +1,44 @@
 # CURRENT_STATE.md fixture
 
+## CURRENT FACTS — physical causal audit, 2026-09-08
+
+- Latest independent physical validation: **1/20 @42 (5%) for CURRENT,
+  CONFIRMATION_SELECTION_SHADOW and CANONICAL_AI_SHADOW**. Original status,
+  labels and results remain unchanged; no promotion.
+- Session `session_20260908_163626_9b47fac6`: 20 deliberate dart shots in order,
+  22 audio events; 7 and 15 are `NO_PHYSICAL_SHOT`. All events/files analyzed.
+- Causal candidate oracle: **10/20 @5/@10/@20; 12/20 @42**. Apparent last-observed
+  @42 oracle 14/20 includes two later-event candidates. Original selector metrics
+  already used decision pools and reported 12/20.
+- Dominant proven input defect: V2 crops current but slices full-camera PRE
+  history with crop-local indices. All 681 physical FAST proposal residuals
+  reproduce exactly; correct-plane median residual is 1.538 vs recorded 192.385.
+  This does not establish corrected detector accuracy. Eight shots have no causal
+  proposal @42; eleven causal-positive shots lose selection.
+- FAST score-scale issue remains real: decision FAST median 35 versus vault
+  1.929. Fifteen of 19 wrong winners are FAST; all 19 pass local confirmation.
+- Future-event contamination in this session affects **diagnostics**, with no
+  effect on already-completed live decisions. Separately, a source characterization
+  test proves a **runtime bug for still-pending events**: later-event frames can
+  confirm an older track. That runtime defect is not fixed by this audit.
+- New causal evaluator/export fields and colored label overlays distinguish
+  causal/post-decision/cross-event evidence. New captures preserve the first
+  terminal outcome and snapshot confirmation/pool ownership. Originals untouched.
+- Frozen confirmation remains PHYSICAL_REPLAY_CHALLENGER / shadow-only, hash
+  `123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f`.
+  Canonical remains SHADOW / OFFLINE_CHALLENGER; explicit model/manifest hashes
+  are documented in CAUSAL_CANDIDATE_AUDIT.md. Neither was modified.
+- Two fixed temporal research rankings each score 1/20. No temporal selector,
+  reference correction or live authority is promoted or physically validated.
+- **Exact next engineering step:** enforce the next-audio evidence boundary for
+  pending-event local confirmation and track consumption while preserving delayed
+  pre-boundary worker delivery. Then separately correct V2 PRE spatial mapping
+  and measure full detector replay before collecting a new frozen physical test.
+
+Full evidence and reproduction: [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md).
+Older checkpoints below are historical and do not supersede these facts.
+
+
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 checkpoint
 
