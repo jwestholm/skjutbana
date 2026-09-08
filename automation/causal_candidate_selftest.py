@@ -68,17 +68,12 @@ class Tests(unittest.TestCase):
         from src.engine.camera.candidate_generator_v2 import CandidateGeneratorV2
         engine=CandidateGeneratorV2.__new__(CandidateGeneratorV2)
         frame=np.zeros((60,80),np.uint8);frame[30:50,40:70]=200
-        scanner=SimpleNamespace(frame_history=[SimpleNamespace(timestamp=9.9,gray=frame)])
+        scanner=SimpleNamespace(frame_history=[SimpleNamespace(timestamp=9.9,gray=frame)], _v2221_active_geometry=SimpleNamespace(crop_x0=40,crop_y0=30))
         kwargs={'peak_ts':10.,'bbox':(0,0,30,20),'roi':np.ones((20,30),np.uint8),'cfg':{}}
-        bad=engine._collect_pre_frames(scanner,**kwargs)[0]
-        scanner.frame_history=[SimpleNamespace(timestamp=9.9,gray=frame[30:50,40:70])]
         good=engine._collect_pre_frames(scanner,**kwargs)[0]
-        self.assertEqual(float(bad.mean()),0.)
         self.assertEqual(float(good.mean()),200.)
 
-    def test_pending_event_can_consume_next_event_frame_characterization(self):
-        # Characterize the unchanged runtime correctness gap. This is NOT
-        # evidence that completed physical events 6 or 14 consumed the future.
+    def test_pending_event_cannot_consume_next_event_frame(self):
         from src.engine.camera.hit_scanner import HitScanner, AudioShotEvent
         from src.engine.shot_fast_v2225 import LocalConfirmManagerV2225, local_confirm_candidates_v2225
         from src.engine.shot_track_v2226 import _install_frame_unique_tracking_patch
@@ -92,18 +87,7 @@ class Tests(unittest.TestCase):
         scanner._update_tracks([candidate], 100.04)
         manager = LocalConfirmManagerV2225()
         manager.start(6, 100.04, [candidate], pre)
-        state = manager.active_waiting(scanner, 101.4862853)
-        self.assertEqual(state.shot_id, 6)
-        # No change before next event. A new localized change after event 7
-        # provides the second frame and can make pending event 6 ready.
-        post = pre.copy(); post[30:35, 30:35] = 20
-        confirmed, _ = local_confirm_candidates_v2225(pre, post, state.candidates, frame_ts=101.4862853)
-        self.assertTrue(confirmed)
-        scanner._update_tracks(confirmed, 101.4862853)
-        track = scanner._best_track_for_event(first)
-        self.assertIsNotNone(track)
-        self.assertTrue(scanner._track_is_ready(track, 101.6, first))
-        self.assertGreater(track.last_seen_ts, later.peak_ts)
+        self.assertIsNone(manager.active_waiting(scanner, 101.4862853))
 
     def test_temporal_research_preserves_new_change_near_old_structure(self):
         from automation.causal_temporal_research import temporal_score

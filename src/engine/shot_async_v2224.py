@@ -428,7 +428,10 @@ class AsyncDetectorV2224:
 
     @staticmethod
     def apply_result(scanner: Any, result: DetectorJobResultV2224) -> None:
-        scanner.last_candidates = [dict(c) for c in result.candidates]
+        scanner.last_candidates = [
+            {**dict(c), "v2224_producer_shot_id": int(result.shot_id)}
+            for c in result.candidates
+        ]
         if getattr(scanner, "physical_trace_capture_enabled", False):
             scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
             scanner.last_trace_pipeline_shot_id = int(result.shot_id)

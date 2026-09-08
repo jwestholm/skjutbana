@@ -706,6 +706,22 @@ class LocalConfirmManagerV2225:
             ]
         if not waiting:
             return None
+        # A newer audio peak is a hard ownership boundary. The older event may
+        # still consume a worker result whose evidence frame predates that peak,
+        # but it must not run local confirmation on the current frame after the
+        # newer event has started.
+        next_peak_by_event = {
+            sid: min(
+                (float(getattr(ev, "peak_ts", float("inf"))) for ev in list(getattr(scanner, "audio_events", []) or [])
+                 if int(getattr(ev, "shot_id", 0) or 0) > sid
+                 and float(getattr(ev, "peak_ts", float("inf"))) > float(st.first_result_ts)),
+                default=float("inf"),
+            )
+            for sid, st in ((st.shot_id, st) for st in waiting)
+        }
+        waiting = [st for st in waiting if float(frame_ts) < next_peak_by_event.get(st.shot_id, float("inf"))]
+        if not waiting:
+            return None
         waiting.sort(key=lambda st: st.first_result_ts)
         return waiting[0]
 
@@ -972,6 +988,19 @@ def _install_local_confirmation_patch() -> None:
             if str(getattr(ev, "state", "")) == "pending"
         }
         if result_sid not in pending_ids:
+            return []
+
+        # A completed worker result remains valid after a newer peak only when
+        # its own camera frame was captured before that newer event. This keeps
+        # delayed asynchronous delivery working while preventing cross-event
+        # evidence from becoming an older event's proposal.
+        newer_peaks = [
+            float(getattr(ev, "peak_ts", float("inf")))
+            for ev in list(getattr(self, "audio_events", []) or [])
+            if int(getattr(ev, "shot_id", 0) or 0) > result_sid
+            and str(getattr(ev, "state", "")) in {"pending", "matched", "missed"}
+        ]
+        if newer_peaks and result_ts >= min(newer_peaks):
             return []
 
         old_state = local_confirm_manager_v2225.get(result_sid)
