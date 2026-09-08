@@ -39,6 +39,7 @@ def audit(root, mapping=None):
             observations.append({'index':i,'timestamp':s['timestamp'],'event_state':(s.get('event') if isinstance(s.get('event'),dict) else {}).get('state'),
                                  'retained':pool_summary(pool,gt),'emitted_track_states':pool_summary(confirmed,gt),
                                  'local_confirmation_evidence':pool_summary([c for c in tracks if isinstance(c,dict) and c.get('last_candidate',{}).get('v2225_local_confirm')],gt) if isinstance(tracks,list) and all(isinstance(c,dict) for c in tracks) else {'availability':'UNAVAILABLE'}})
+        pipeline=next((s['pipeline'] for s in reversed(stages) if isinstance(s.get('pipeline'),dict)),{})
         nonempty=[s for s in stages if s.get('candidates')]
         retained=nonempty[-1]['candidates'] if nonempty else None
         final=outcome.get('final_camera_xy') if outcome.get('emitted') else None
@@ -47,7 +48,8 @@ def audit(root, mapping=None):
         debug=[s.get('window_debug',{}) for s in nonempty]
         rows.append({'shot_id':sid,'peak_ts':t['peak_ts'],'physical_state':state,'assignment':assignment,
           'ground_truth':gt,'ground_truth_source':str(gp) if gt else None,'trace_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
-          'raw':{'availability':'UNAVAILABLE'},'filtered':{'availability':'UNAVAILABLE'},
+          'raw':pool_summary(pipeline.get('raw_candidates') if isinstance(pipeline.get('raw_candidates'),list) else None,gt),
+          'filtered':pool_summary(pipeline.get('filtered_candidates') if isinstance(pipeline.get('filtered_candidates'),list) else None,gt),
           'last_observed_retained':pool_summary(retained,gt),'observations':observations,
           'selected_track':selected,'selected_distance_px':distance(selected,gt) if selected and gt else None,
           'emitted':final,'emitted_distance_px':distance(final,gt) if final and gt else None,

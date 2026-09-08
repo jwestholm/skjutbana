@@ -11,3 +11,8 @@
 - Do not modify unrelated OS configuration or credentials, or delete training data.
 - Run relevant evaluation selftests when changing measurement code.
 - Update CURRENT_STATE.md when a completed development step changes actual project state.
+- Never stage/commit `content/ai/settings.json`, generated physical traces, or local
+  evaluation artifacts. Physical summary documentation is permitted.
+- The canonical challenger remains SHADOW-only; model status and hash are explicit.
+- Do not confuse a track's emitted `state=confirmed` with local-confirmation proof.
+  Legacy `last_stable_tracks` contains only the top-eight debug view.

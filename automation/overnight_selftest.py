@@ -64,4 +64,58 @@ class Tests(unittest.TestCase):
             (p/'trace.json').write_text(json.dumps({'completeness':{'trace_complete':True},'peak_ts':1,'frames':[{'kind':'post','path':'missing.npy','shape':[2,2],'dtype':'uint8'}]}))
             self.assertFalse(health(root)['healthy'])
 
+    def test_audio_diagnostics_are_bound_to_each_trigger(self):
+        from unittest.mock import patch
+        from src.engine.audio.audio_peak_detector import AudioPeakDetector
+        from src.engine.shot_track_v2226 import _install_audio_telemetry_patch
+        _install_audio_telemetry_patch();detector=AudioPeakDetector();detector.min_abs_peak=.1
+        samples=np.zeros(256,dtype=np.int16);samples[128]=30000
+        with patch('src.engine.shot_track_v2226.time.time',return_value=100.0):detector._process_chunk(samples.tobytes())
+        first=detector.get_latest_event();frozen=copy.deepcopy(first.diagnostics)
+        with patch('src.engine.shot_track_v2226.time.time',return_value=100.10066):detector._process_chunk(samples.tobytes())
+        second=detector.get_latest_event()
+        self.assertEqual(len(detector._events),2)
+        self.assertAlmostEqual(second.timestamp-first.timestamp,.10066)
+        self.assertEqual(first.diagnostics,frozen)
+        self.assertAlmostEqual(second.diagnostics['previous_peak_ts'],first.timestamp)
+        self.assertEqual(second.diagnostics['cooldown_s'],.08)
+
+    def test_helper_prepare_restore_preserves_unrelated_settings(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import automation.physical_test as helper
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);settings=root/'content/ai/settings.json';settings.parent.mkdir(parents=True)
+            settings.write_text(json.dumps({'mode':'advisory','user_setting':4}))
+            model=RankModelV223('linear',('area',),np.zeros(1),np.ones(1),{'w':np.ones(1),'b':np.zeros(1)})
+            model.save(root/'model');manifest=root/'challenger.json'
+            manifest.write_text(json.dumps({'mode':'SHADOW','status':'OFFLINE_CHALLENGER','model_directory':'model','transform':'identity','hashes':{f:digest(root/'model'/f) for f in ['model.json','model.npz']}}))
+            active=root/'evaluation_runs/active.json'
+            with patch.multiple(helper,ROOT=root,SETTINGS=settings,ACTIVE=active), patch('socket.create_connection',side_effect=OSError):
+                helper.start(SimpleNamespace(challenger=manifest,prepare_only=True))
+                state=json.loads(active.read_text());self.assertTrue(Path(state['root']).is_dir())
+                changed=json.loads(settings.read_text());self.assertEqual(changed['mode'],'advisory')
+                changed['user_setting']=9;settings.write_text(json.dumps(changed))
+                with patch('sys.argv',['physical_test','stop']):helper.main()
+                self.assertEqual(json.loads(settings.read_text()),{'mode':'advisory','user_setting':9})
+
+    def test_decision_snapshot_and_shadow_do_not_mutate_track(self):
+        from types import SimpleNamespace
+        from src.engine.physical_trace import PhysicalTraceRecorder
+        from automation.physical_trace_selftest import TraceTests
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);model=RankModelV223('linear',('area',),np.zeros(1),np.ones(1),{'w':np.ones(1),'b':np.zeros(1)})
+            model.save(p/'model');manifest=p/'challenger.json'
+            manifest.write_text(json.dumps({'mode':'SHADOW','status':'OFFLINE_CHALLENGER','model_directory':'model','transform':'identity','hashes':{f:digest(p/'model'/f) for f in ['model.json','model.npz']}}))
+            scanner=TraceTests().scanner();event=SimpleNamespace(shot_id=1,peak_ts=1,state='matched',emitted=True)
+            track=SimpleNamespace(camera_x=2,camera_y=3,best_score=4,track_id=1)
+            recorder=PhysicalTraceRecorder(p/'traces',enabled=True)
+            recorder.capture_decision(scanner,track,event,{'canonical_challenger_manifest':str(manifest)})
+            track.camera_x=99;recorder.finish(1,scanner,event);recorder.flush()
+            trace=json.loads((p/'traces/shots/shot_00000001/trace.json').read_text())
+            self.assertEqual(trace['decision_input']['deterministic_selection']['camera_x'],2)
+            self.assertEqual(trace['canonical_challenger']['mode'],'SHADOW')
+            self.assertEqual(trace['canonical_challenger']['evaluation_timing'],'post_decision_at_trace_finalization')
+            self.assertEqual(track.camera_x,99)
+
 if __name__=='__main__':unittest.main()

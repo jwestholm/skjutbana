@@ -83,7 +83,12 @@ def evaluate_session(root,output,manifest,mapping=None):
     export(root,output/'evaluation_trace.json');payload=json.loads((output/'evaluation_trace.json').read_text());false=[];real=[]
     for row,shot in zip(result['shots'],payload['shots']):
         if row['physical_state']=='NO_PHYSICAL_SHOT':false.append(row);continue
-        shot['ground_truth']=row['ground_truth'];real.append(shot)
+        gt = row['ground_truth']
+        quality = row['physical_state'] if row['physical_state'] in ('precise','approximate') else 'unknown'
+        if quality == 'approximate' and gt is not None and 'uncertainty_radius_px' not in gt:
+            quality = 'unknown'  # Legacy clicks have no defensible uncertainty radius.
+        shot['ground_truth'] = {**gt, 'quality': quality} if gt else None
+        real.append(shot)
         trace=json.loads((root/'shots'/f"shot_{int(row['shot_id']):08d}"/'trace.json').read_text())
         pool=trace.get('decision_input',{}).get('retained_candidates')
         if pool is None:pool=next((s['candidates'] for s in reversed(trace['stages']) if s.get('candidates')),[])
@@ -117,6 +122,7 @@ def main():
         elif a.command=='classify':
             if not a.shot_id or not a.reason or (a.no_physical_shot==(a.label_shot_id is not None)):raise ValueError('Provide --shot-id, --reason and exactly one of --no-physical-shot or --label-shot-id.')
             if not (root/'shots'/f'shot_{a.shot_id:08d}'/'trace.json').exists():raise ValueError('Unknown event')
+            if a.label_shot_id is not None and not (root/'shots'/f'shot_{a.label_shot_id:08d}'/'ground_truth.json').exists():raise ValueError('Label file does not exist')
             path=root/'physical_assignments.json';m=json.loads(path.read_text()) if path.exists() else {}
             m[str(a.shot_id)]={'label_shot_id':a.label_shot_id,'reason':a.reason}
             if a.no_physical_shot:m[str(a.shot_id)]['state']='NO_PHYSICAL_SHOT'
