@@ -4,7 +4,7 @@ from pathlib import Path
 from src.engine.camera.hit_scanner import HitScanner, AudioShotEvent
 from src.engine.shot_track_v2226 import update_tracks_frame_unique_v2226 as update
 from src.engine.track_audit import capture, record_selection, track_state
-from src.engine.offline.track_replay import current_exact_replay
+from src.engine.offline.track_replay import current_exact_replay, reconstruct_legacy
 
 
 def candidate(x,score=10,**extra):
@@ -31,6 +31,14 @@ class Tests(unittest.TestCase):
                 with self.assertRaises(AssertionError):current_exact_replay(bad)
         self.assertEqual(*snapshots)
 
+    def test_live_winner_outside_score_sorted_debug_eight(self):
+        s=self.scanner();e=s.audio_events[0]
+        update(s,[candidate(20,1)],100.05)
+        update(s,[candidate(100+i*20,100-i) for i in range(20)],100.1)
+        chosen=s._best_track_for_event(e);s._refresh_debug_views()
+        self.assertNotIn(chosen.track_id,[t.track_id for t in s.last_stable_tracks])
+        self.assertEqual(current_exact_replay(capture(s,e,chosen))['track_id'],chosen.track_id)
+
     def test_association_source_history_score_and_coordinate_anchor(self):
         s=self.scanner();update(s,[candidate(20,40,v2225_fast_extract=1),candidate(23,5,detector_v1=1)],100.1)
         update(s,[candidate(24,6,detector_v1=1,v2225_local_confirm=1)],100.6)
@@ -50,6 +58,47 @@ class Tests(unittest.TestCase):
         self.assertEqual(a['tracks'][0]['rejection_reason'],'producer_shot_id_mismatch')
         self.assertEqual(current_exact_replay(a)['camera_x'],60)
 
+    def test_cross_owner_association_preserves_new_event_onset(self):
+        # A nearby newer producer needs its own history even without idle aging.
+        s=self.scanner();old=s.audio_events[0];new=AudioShotEvent(2,101.48,101.48)
+        s.audio_events.append(new)
+        update(s,[candidate(20,30,v2224_producer_shot_id=1)],100.08)
+        s.last_trace_pipeline_shot_id=2
+        update(s,[candidate(24,10,v2224_producer_shot_id=2)],101.56)
+        old_track=s._best_track_for_event(old);new_track=s._best_track_for_event(new)
+        self.assertEqual(len(s._active_tracks),2)
+        self.assertNotEqual(old_track.track_id,new_track.track_id)
+        self.assertEqual(new_track.first_seen_ts,101.56)
+        self.assertEqual(current_exact_replay(capture(s,new,new_track))['camera_x'],24)
+        self.assertFalse(s._track_is_ready(old_track,101.6,old))
+        self.assertFalse(s._track_is_ready(new_track,101.6,new))
+        record=capture(s,new)['associations'][-1]['records'][0]
+        self.assertEqual(record['action'],'CREATED_NEW_TRACK')
+        self.assertEqual(record['reason'],'no_event_owned_track_within_merge_radius')
+        self.assertEqual(record['ownership_exclusions'][0]['producer_shot_id'],1)
+
+    def test_late_old_result_cannot_inherit_future_xy_or_best_score(self):
+        from src.engine.shot_async_v2224 import AsyncDetectorV2224, DetectorJobResultV2224
+        from unittest.mock import patch
+        for sid,boundary in ((6,101.4839297),(14,101.4904709)):
+            s=self.scanner();s.audio_events.clear();old=AudioShotEvent(sid,100,100)
+            new=AudioShotEvent(sid+1,boundary,boundary);s.audio_events.extend([old,new])
+            def deliver(owner,frame,x,score):
+                result=DetectorJobResultV2224(owner,frame,100 if owner==sid else boundary,0,0,0,[candidate(x,score)],{},{},0,0,0)
+                with patch('src.engine.shot_async_v2224._setting_bool',return_value=False):AsyncDetectorV2224.apply_result(s,result)
+                update(s,result.candidates,frame)
+            deliver(sid,100.08,20,10)
+            deliver(sid+1,boundary+.08,24,40)
+            # Earlier camera evidence delivered after the newer observation.
+            deliver(sid,100.20,20,12)
+            old_track=s._best_track_for_event(old)
+            self.assertEqual((old_track.camera_x,old_track.best_score,old_track.hits),(20.,12.,2))
+            self.assertTrue(s._track_is_ready(old_track,boundary+.2,old))
+            self.assertEqual(current_exact_replay(capture(s,old,old_track))['camera_x'],20)
+            new_track=s._best_track_for_event(new)
+            self.assertEqual((new_track.camera_x,new_track.best_score,new_track.hits),(24.,40.,1))
+            self.assertFalse(s._track_is_ready(new_track,boundary+.2,new))
+
     def test_actual_result_transport_rejects_both_false_event_patterns(self):
         from src.engine.shot_async_v2224 import AsyncDetectorV2224, DetectorJobResultV2224
         from unittest.mock import patch
@@ -63,11 +112,13 @@ class Tests(unittest.TestCase):
             self.assertEqual(result.candidates[0]['v2224_producer_shot_id'],sid+1)
             self.assertEqual(s.last_candidates[0]['v2224_producer_shot_id'],sid+1)
             update(s,result.candidates,result.frame_ts)
-            self.assertIsNone(s._best_track_for_event(e))
-            snap=capture(s,e)
-            self.assertEqual(snap['tracks'][0]['rejection_reason'],'producer_shot_id_mismatch')
-            self.assertEqual(snap['tracks'][0]['causal_ownership'],'CROSS_EVENT_OR_FUTURE')
-            self.assertIsNone(current_exact_replay(snap))
+            chosen=s._best_track_for_event(e)
+            self.assertIsNotNone(chosen);self.assertFalse(s._track_is_ready(chosen,boundary+.2,e))
+            snap=capture(s,e,chosen)
+            foreign=next(r for r in snap['tracks'] if r['producer_shot_id']==sid+1)
+            self.assertEqual(foreign['rejection_reason'],'producer_shot_id_mismatch')
+            self.assertEqual(foreign['causal_ownership'],'CROSS_EVENT_OR_FUTURE')
+            self.assertEqual(current_exact_replay(snap)['camera_x'],20)
 
     def test_late_preboundary_worker_result_is_still_eligible(self):
         from src.engine.shot_async_v2224 import AsyncDetectorV2224, DetectorJobResultV2224, tracking_frame_timestamp
@@ -108,6 +159,29 @@ class Tests(unittest.TestCase):
 
     def test_absent_information_fails_loudly(self):
         with self.assertRaises(ValueError):current_exact_replay({'complete':False})
+
+    @unittest.skipUnless(__debug__, 'legacy replay explicitly requires enabled checkpoints')
+    def test_legacy_complete_inputs_verify_exported_checkpoints(self):
+        s=self.scanner();e=s.audio_events[0];s._next_track_id=101
+        cs=[candidate(i*20,30-i,detector_v1=1) for i in range(24)]
+        def checkpoint(ts,confirmation=None):
+            return dict(timestamp=ts,event={'shot_id':1,'state':'pending'},candidate_pool_shot_id=1,
+                tracks=[track_state(t) for t in sorted(s._active_tracks.values(),key=lambda t:-t.best_score)[:8]],
+                window_debug=dict(s.last_window_debug),local_confirmation=confirmation)
+        update(s,cs,100.1);first=checkpoint(100.2)
+        conf=dict(shot_id=1,frame_ts=100.6,candidates=[{**c,'score':c['score']+3,'v2225_local_confirm':1} for c in cs])
+        update(s,conf['candidates'],100.6);second=checkpoint(100.7,conf)
+        winner=s._best_track_for_event(e)
+        trace=dict(shot_id=1,peak_ts=100,context={'scanner_config':{}},stages=[first,second],
+            decision_input=dict(timestamp=100.8,candidate_pool_shot_id=1,retained_candidates=cs,
+                local_confirmation=conf,deterministic_selection=track_state(winner)))
+        reconstructed=reconstruct_legacy(trace)
+        self.assertEqual(len(reconstructed['tracks']),24)
+        self.assertEqual(reconstructed['reconstruction']['checked_track_snapshots'],16)
+        self.assertEqual(reconstructed['reconstruction']['checked_tracking_counters'],10)
+        self.assertEqual(current_exact_replay(reconstructed)['track_id'],winner.track_id)
+        bad=copy.deepcopy(trace);bad['stages'][1]['tracks'][0]['hits']+=1
+        with self.assertRaises(AssertionError):reconstruct_legacy(bad)
 
     def test_eligibility_is_distinct_from_local_confirmation_and_readiness(self):
         s=self.scanner();update(s,[candidate(20,40),candidate(60,5)],100.1)

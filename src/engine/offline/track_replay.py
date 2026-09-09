@@ -5,6 +5,12 @@ import math
 from src.engine.track_audit import eligibility, rank_key
 
 
+def require(condition, message):
+    """Replay verification stays active even under python -O."""
+    if not condition:
+        raise AssertionError(message)
+
+
 def current_exact_replay(snapshot, expected=None):
     if not snapshot.get('complete'): raise ValueError('CURRENT_EXACT_REPLAY: incomplete snapshot')
     event=snapshot['event']; policy=snapshot['policy']; rows=snapshot['tracks']
@@ -12,28 +18,31 @@ def current_exact_replay(snapshot, expected=None):
     ranked=[]
     for r in rows:
         reason=snapshot.get('gate') or eligibility(r,event,snapshot['association_lead_s'],snapshot['association_lag_s'],policy)
-        assert r['rejection_reason']==reason, ('eligibility mismatch',r['track_id'])
-        assert r['eligible']==(reason is None), ('eligible flag mismatch',r['track_id'])
+        require(r['rejection_reason']==reason, ('eligibility mismatch',r['track_id']))
+        require(r['eligible']==(reason is None), ('eligible flag mismatch',r['track_id']))
         key=rank_key(r,event,policy)
-        assert r['rank_key']==key, ('rank metric mismatch',r['track_id'])
+        require(r['rank_key']==key, ('rank metric mismatch',r['track_id']))
         if reason is None: ranked.append(r)
+        else: require(r['final_rank'] is None, ('rejected track has final rank',r['track_id']))
     ranked.sort(key=lambda r:rank_key(r,event,policy))
-    for i,r in enumerate(ranked,1): assert r['final_rank']==i, ('rank mismatch',r['track_id'])
+    for i,r in enumerate(ranked,1): require(r['final_rank']==i, ('rank mismatch',r['track_id']))
     chosen=ranked[0] if ranked else None
     sid=None if chosen is None else chosen['track_id']
-    assert sid==snapshot['selected_track_id'], ('CURRENT_EXACT_REPLAY mismatch',sid,snapshot['selected_track_id'])
-    assert [r['track_id'] for r in rows if r['selected']]==([] if sid is None else [sid]), 'selected flags mismatch'
+    require(sid==snapshot['selected_track_id'], ('CURRENT_EXACT_REPLAY mismatch',sid,snapshot['selected_track_id']))
+    require([r['track_id'] for r in rows if r['selected']]==([] if sid is None else [sid]), 'selected flags mismatch')
     if expected is not None:
-        assert chosen is not None and sid==expected['track_id'], 'emission track mismatch'
-        for k in ('camera_x','camera_y'): assert chosen[k]==expected[k], ('emission XY mismatch',k)
+        require(chosen is not None and sid==expected['track_id'], 'emission track mismatch')
+        for k in ('camera_x','camera_y'): require(chosen[k]==expected[k], ('emission XY mismatch',k))
     return chosen
 
 
 def reconstruct_legacy(trace):
-    """Conditional reconstruction from two captured input batches; verify all
+    """Conditional reconstruction from captured proposal/confirmation batches; verify all
     pre-decision top-eight snapshots. Does not manufacture absent histories.
-    Only supports the global BASE two-frame path present in the post-PRE run.
+    Supports the global BASE path with complete recorded local-confirmation rounds.
     """
+    if not __debug__:
+        raise ValueError("Legacy reconstruction requires enabled assertion checkpoints")
     from src.engine.camera.hit_scanner import HitScanner, AudioShotEvent
     from src.engine.shot_track_v2226 import update_tracks_frame_unique_v2226
     from src.engine.track_audit import capture
@@ -76,12 +85,18 @@ def reconstruct_legacy(trace):
     update_tracks_frame_unique_v2226(scanner,cs,ts)
     keys=('camera_x','camera_y','best_score','first_seen_ts','last_seen_ts','hits','missed_frames','emitted','state')
     checked=0
+    checked_counters=0
     def verify(group):
-        nonlocal checked
+        nonlocal checked, checked_counters
         for s in group:
             # A debug view is refreshed after resolution; emission may change
             # state only. Pending snapshots below are exact pre-emission checks.
             if s.get('event',{}).get('state')!='pending': continue
+            for key in ('raw_candidates','new_tracks','temporal_matches','same_frame_support','max_same_frame_support'):
+                name='v2226_'+key
+                if name in s.get('window_debug',{}):
+                    assert scanner.last_window_debug[name]==s['window_debug'][name], ('counter mismatch',sid,name,scanner.last_window_debug[name],s['window_debug'][name])
+                    checked_counters+=1
             for t in s['tracks']:
                 r=scanner._active_tracks[t['track_id']]
                 for k in keys: assert getattr(r,k)==t[k], ('checkpoint mismatch',sid,t['track_id'],k,getattr(r,k),t[k])
@@ -106,6 +121,6 @@ def reconstruct_legacy(trace):
     # separate exact checkpoint for all state fields before emission.
     expected=dec['deterministic_selection']
     for k in keys: assert getattr(selected,k)==expected[k], ('winner state mismatch',sid,k)
-    snapshot['reconstruction']=dict(status='VERIFIED_INPUT_RECONSTRUCTION',checked_track_snapshots=checked,id_offset=offset,
+    snapshot['reconstruction']=dict(status='VERIFIED_INPUT_RECONSTRUCTION',checked_track_snapshots=checked,checked_tracking_counters=checked_counters,id_offset=offset,
         limitation='Full session empty-frame aging was not recorded; verification covers visible checkpoints and exact winner, not invisible prehistory.')
     return snapshot

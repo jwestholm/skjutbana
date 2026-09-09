@@ -4,7 +4,6 @@ Candidate ids identify consumption attempts (not detector list positions). Sourc
 history includes same-frame support, whose candidate does not replace track XY.
 """
 from __future__ import annotations
-from copy import deepcopy
 import math
 import time
 
@@ -60,11 +59,13 @@ class AssociationBatch:
         return dict(xy=[track.camera_x, track.camera_y], source=source(track.last_candidate),
                     best_score=track.best_score, current_score=track.last_candidate.get('score'))
 
-    def record(self, candidate, track, before, reason, distance=None):
+    def record(self, candidate, track, before, reason, distance=None, *, ownership_exclusions=None):
         oid = f'{self.owner}:{self.seq}:{len(self.rows)}'
         hist = getattr(track, '_audit_source_history', [])
         src = source(candidate)
-        if not hist or hist[-1]['source'] != src:
+        if (not hist or hist[-1]['source'] != src
+                or hist[-1]['dispatch_owner'] != self.owner
+                or hist[-1]['producer_shot_id'] != candidate.get('v2224_producer_shot_id')):
             hist.append(dict(source=src, first_observation_id=oid, frame_ts=self.frame_ts,
                              producer_shot_id=candidate.get('v2224_producer_shot_id'), dispatch_owner=self.owner, count=1))
         else: hist[-1]['count'] += 1
@@ -80,6 +81,8 @@ class AssociationBatch:
             after=dict(xy=[track.camera_x,track.camera_y], source=source(track.last_candidate),
                        best_score=track.best_score, current_score=track.last_candidate.get('score'),
                        observation_id=track._audit_observation_id)))
+        if ownership_exclusions:
+            self.rows[-1]['ownership_exclusions'] = ownership_exclusions
 
     def finish(self):
         self.data['dropped_track_ids'] = sorted((self.before_ids | {r['track_id'] for r in self.rows}) - set(self.scanner._active_tracks))

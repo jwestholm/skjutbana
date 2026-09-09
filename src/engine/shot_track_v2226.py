@@ -187,7 +187,19 @@ def update_tracks_frame_unique_v2226(
 
         best_track = None
         best_dist = float("inf")
+        producer_sid = candidate.get("v2224_producer_shot_id")
+        ownership_exclusions = [] if audit else None
         for track in active.values():
+            # Event ownership applies to the whole track history, not only the
+            # last candidate checked by selection. Otherwise a late old result
+            # can inherit XY/best_score accumulated from a newer audio event.
+            track_sid = (track.last_candidate or {}).get("v2224_producer_shot_id") if producer_sid is not None else None
+            if producer_sid is not None and track_sid is not None and int(producer_sid) != int(track_sid):
+                if audit:
+                    distance = float(np.hypot(_finite(track.camera_x) - cx, _finite(track.camera_y) - cy))
+                    if distance <= float(getattr(scanner, "track_merge_radius_px", 12.0)):
+                        ownership_exclusions.append(dict(track_id=track.track_id,producer_shot_id=track_sid,distance=distance,reason="producer_shot_id_mismatch"))
+                continue
             dist = float(np.hypot(_finite(track.camera_x) - cx, _finite(track.camera_y) - cy))
             if dist <= float(getattr(scanner, "track_merge_radius_px", 12.0)) and dist < best_dist:
                 best_track = track
@@ -219,7 +231,7 @@ def update_tracks_frame_unique_v2226(
             scanner._next_track_id = track.track_id + 1
             observed_this_call.add(track.track_id)
             new_tracks += 1
-            if audit: audit.record(candidate, track, before, "no_track_within_merge_radius")
+            if audit: audit.record(candidate, track, before, "no_event_owned_track_within_merge_radius" if ownership_exclusions else "no_track_within_merge_radius", ownership_exclusions=ownership_exclusions)
             continue
 
         same_physical_frame = abs(_finite(getattr(best_track, "last_seen_ts", 0.0)) - frame_ts) <= cfg.frame_epsilon_s
@@ -228,7 +240,7 @@ def update_tracks_frame_unique_v2226(
             support = int(getattr(best_track, "v2226_same_frame_support", 1) or 1)
             max_support = max(max_support, support)
             same_frame_support += 1
-            if audit: audit.record(candidate, best_track, before, "same_frame_support", best_dist)
+            if audit: audit.record(candidate, best_track, before, "same_frame_support", best_dist, ownership_exclusions=ownership_exclusions)
             observed_this_call.add(best_track.track_id)
             continue
 
@@ -251,7 +263,7 @@ def update_tracks_frame_unique_v2226(
             best_track.state = "stable"
         observed_this_call.add(best_track.track_id)
         temporal_matches += 1
-        if audit: audit.record(candidate, best_track, before, "later_frame_nearest_track", best_dist)
+        if audit: audit.record(candidate, best_track, before, "later_frame_nearest_track", best_dist, ownership_exclusions=ownership_exclusions)
 
     scanner._drop_dead_tracks(frame_ts)
     if audit: audit.finish()
