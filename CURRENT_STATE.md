@@ -273,3 +273,8 @@ also use the currently installed tracking method. Two failing-before/passing-aft
 regressions cover delayed-result association and waiting-frame aging. This changes
 runtime timing semantics, not detector/audio thresholds or AI authority. Physical
 acceptance remains pending; historical traces are not rewritten or claimed fixed.
+
+## Temporal impact evidence — 2026-09-09
+
+- **RESEARCH_ONLY:** temporal forensic extraction over the latest physical frames finds exploratory pairwise AUC about 0.71 for post-impact dark-residual persistence and 0.70 for impact-onset darkening. Before-frame stability alone is weak (about 0.58). The sample is small and not a validation result.
+- **NOT PHYSICALLY VALIDATED:** no temporal ranker or synthetic-model change is frozen or promoted. Some true tracks have weak persistence at their saved representative coordinate, so coordinate drift/reference timing remain unresolved.

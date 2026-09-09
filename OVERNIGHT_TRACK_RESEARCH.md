@@ -491,3 +491,13 @@ Permanent documents updated: this report, `TRACK_SURVIVAL_AUDIT.md`,
 ## Registered impact evidence follow-up — 2026-09-09
 
 The complete-track result remains the governing physical finding: all nine causal candidates reached eligible tracks and seven losses occur at final ranking. New offline image forensics apply the detector's registration and robust ring photometric reference to saved PRE/current frames. Exact local-confirmation values are reproducible. Physical true-vs-false residual features overlap substantially, while synthetic true-vs-false residuals are strongly separated. This synthetic/physical domain gap means a registered residual ranker is not justified without better physical evidence. See [REGISTERED_IMPACT_EVIDENCE.md](REGISTERED_IMPACT_EVIDENCE.md).
+
+## Temporal impact evidence — 2026-09-09
+
+The first temporal pass samples each physical true-track and selected-winner
+location through the recorded PRE history, pre-snapshot and POST sequence. Post
+persistence and event-onset darkening are promising exploratory signals (AUC
+about 0.71 and 0.70 respectively), while PRE stability alone is weak. This is
+not a selector result: the sample is small, one nearest example is outside the
+@42 oracle, and several true tracks are weak at their representative track
+coordinate. See [TEMPORAL_IMPACT_EVIDENCE.md](TEMPORAL_IMPACT_EVIDENCE.md).

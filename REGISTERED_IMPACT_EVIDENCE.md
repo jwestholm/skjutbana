@@ -65,3 +65,11 @@ python3 -m automation.registered_impact_research --root content/ai/physical_trac
 python3 -m automation.registered_synthetic_forensics --root content/ai/physical_traces/session_20260908_194746_b38de674 --runs evaluation_runs/overnight_tracks_20260908/development evaluation_runs/overnight_tracks_20260908/holdout evaluation_runs/overnight_tracks_20260908/stress_development_510 --output evaluation_runs/registered_impact_20260909/synthetic_v1
 python3 -m automation.registered_impact_selftest
 ```
+
+## Temporal follow-up
+
+A temporal forensic pass now records before stability, event onset, post
+persistence and residual peaks. Persistence and onset are more promising than
+single-frame residuals on the small physical sample, but the evidence is not
+strong enough to define a ranker and does not resolve representative-coordinate
+or PRE-reference uncertainty.
