@@ -338,3 +338,13 @@ research authority is installed. Details and before/after measurements are in
 ## Registered-impact evidence update — 2026-09-09
 
 The PRE coordinate bug is fixed and FAST score saturation is gone. Latest physical complete replay shows the remaining loss is final ranking. Offline registration-aware local residual extraction reproduces the recorded confirmation values, but no tested scalar residual feature separates physical true tracks from false winners reliably (best simple AUC approximately 0.61). Synthetic residual features are much more separable, so synthetic success does not establish physical improvement. The supported next direction is better registered, localized, polarity-aware evidence and a larger physical diagnostic set; no live policy change is approved.
+
+## Post-fix score comparability update — 2026-09-09
+
+The PRE-coordinate fix removed FAST score saturation but did not make source
+scores semantically comparable. In the complete latest eligible pool FAST has
+median best score 13.41 versus V1 5.06. Several true V1 tracks are strong
+within V1, while true FAST tracks can still rank low within FAST, proving both
+cross-source scale mismatch and within-source detector-scoring weakness. The
+final selector still uses raw historical best score. Source normalization and
+common-feature rescoring remain offline research only.

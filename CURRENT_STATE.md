@@ -289,3 +289,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   failure, onset is tied and the lower true-track `best_score` loses. Selected
   false-winner coordinates do not recur within 40 px across this ten-shot
   session; no recurrence penalty is justified.
+
+- **Score comparability audit:** post-PRE FAST saturation is gone, but eligible
+  source distributions remain materially different (FAST median 13.41, V1
+  median 5.06). The seven losses are still decided by raw `best_score`; source
+  normalization and common-evidence replays remain research-only.
