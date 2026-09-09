@@ -70,3 +70,7 @@ See [COMMON_IMPACT_RANKING.md](COMMON_IMPACT_RANKING.md).
 Full-pool temporal replay confirms the final raw-score failure is not repaired
 by persistence alone. Causal persistence, onset darkening and peak compactness
 still prefer the false winner in all seven failed events.
+
+The local-motion hypothesis was tested over the complete eligible pool and is
+not supported as the dominant cause: bounded local alignment changes residual
+energy negligibly and does not reverse the failed pairs.

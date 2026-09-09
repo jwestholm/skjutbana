@@ -24,3 +24,8 @@ only a final coordinate and sparse association history. Synthetic coordinate
 stability therefore cannot be compared directly with physical confirmation
 search displacement until the next trace schema records every consumed
 observation and its confirmation-best coordinate.
+
+The latest physical evidence does not support adding a simple event-wide or
+local translated-edge nuisance model: measured local shifts are too small and
+residuals do not collapse after correction. Synthetic motion should not be
+changed on this basis.

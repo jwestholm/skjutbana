@@ -72,3 +72,10 @@ Reproduction:
 ```text
 python3 -m automation.full_pool_temporal_ranking --root content/ai/physical_traces/session_20260908_194746_b38de674 --features evaluation_runs/registered_impact_20260909/physical_v2/physical_features.json --output evaluation_runs/registered_impact_20260909/full_pool_temporal.json
 ```
+
+## Local-motion follow-up
+
+A complete 973-track local phase-correlation audit found negligible residual
+collapse after bounded local alignment. Temporal persistence remains useful
+for top-k diagnostics, but the false winners are not simply translated-edge
+artifacts in this session.

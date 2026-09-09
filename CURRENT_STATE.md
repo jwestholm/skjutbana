@@ -305,3 +305,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   for all 973 eligible tracks, with 4–8 POST frames before each saved live
   decision. Persistence reaches @5=3, @10=5, @20=7, but still selects the
   false winner in all seven failed pairwise events. No temporal ranker is ready.
+
+- **Local-motion audit:** bounded local shifts are tiny for both true and false
+  tracks (false median ~0.047 px), motion-explained residual fraction is near
+  zero, and local alignment does not reverse the seven failures. Edge-shift
+  residual is not supported as the dominant cause.

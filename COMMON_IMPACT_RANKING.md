@@ -67,3 +67,7 @@ Causal temporal features are now available across all 973 eligible tracks. A
 persistence-count rank improves top-k recovery over raw score, but remains
 false in all seven failed pairwise events. Temporal evidence is therefore
 necessary diagnostic information but not sufficient final authority.
+
+Local-motion diagnostics do not explain why static/temporal common features
+still lose the seven pairwise cases. The measured motion-explained fraction is
+near zero for both true and false tracks.
