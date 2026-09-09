@@ -65,3 +65,11 @@ camera XY, causal cutoff, source-independent patch features, and provenance.
 Evaluate it offline first; promote only after leave-session-out physical
 validation. The next engineering investment should be richer physical patch
 labels and causal verifier tracing, not another detector-score formula.
+
+## Implemented research infrastructure
+
+`src/engine/offline/common_verifier.py` now provides a disabled-by-default
+common verifier interface, shared causal patch context and four reusable patch
+representations. `automation/rich_patch_experiments.py` runs strict
+leave-one-shot-out information tests without source or detector-score inputs.
+The richer tests do not yet justify a frozen verifier.

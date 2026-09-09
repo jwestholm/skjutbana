@@ -321,3 +321,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   temporal, motion and permanence replays do not provide a safe replacement;
   the highest-value next change is a research-only common verifier interface
   with richer physical patch hard negatives.
+
+- **Common verifier implementation:** research-only `CommonFrameContext`,
+  shared causal patch extraction and four rich source-independent information
+  tests are implemented. Best texture-statistic replay reaches @10=3/@20=5;
+  no verifier is physically validated or promoted. Current decision is that
+  the architecture is sound but the physical training set is insufficient.
