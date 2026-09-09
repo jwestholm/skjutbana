@@ -9,7 +9,8 @@ def build(sessions,shots):
  for s in range(1,sessions+1):
   for i in range(shots):
    cat=DEFAULT_CATEGORIES[(n)%len(DEFAULT_CATEGORIES)];n+=1
-   rows.append(dict(session=f'S{ s:02d}',intended_shot=i+1,category=cat,notes='label immediately after trace finalization',actual_event_id=None,gt_status='UNLABELED',trace_health=None))
- return dict(status='PLANNED_ONLY',categories=DEFAULT_CATEGORIES,sessions=sessions,shots_per_session=shots,rows=rows)
+   cls='VALIDATION_UNTOUCHED' if s==sessions else 'DEVELOPMENT'
+   rows.append(dict(session=f'S{ s:02d}',planned_physical_shot=i+1,category=cat,session_class=cls,notes='label immediately after trace finalization',actual_event_id=None,gt_status='UNLABELED',trace_health=None))
+ return dict(status='PLANNED_ONLY',semantics='10 physical shots PLUS separately labelled no-impact audio events',categories=DEFAULT_CATEGORIES,sessions=sessions,shots_per_session=shots,rows=rows)
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--sessions',type=int,default=3);p.add_argument('--shots-per-session',type=int,default=10);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.write_text(json.dumps(build(a.sessions,a.shots_per_session),indent=2)+'\n');print(a.output)

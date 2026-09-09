@@ -338,3 +338,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   clearest session shift. New tooling generates balanced manifests, scores
   trace quality, and rebuilds the research dataset. Recommended future data is
   3 independent sessions × 10 shots, with the third held out untouched.
+
+- **Capture workflow hardened:** plan/session binding, validation-training guard,
+  trace-quality scoring, finalization checks, and a practical operator runbook
+  are implemented. Session C is explicitly `VALIDATION_UNTOUCHED`; no-impact
+  events are separate from the ten physical shots.

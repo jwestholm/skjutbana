@@ -26,3 +26,7 @@ sessions have real PRE/POST arrays and camera GT, so they are
 Use `automation.physical_trace_quality` for PASS/WARN/FAIL quality scoring and
 `automation.rebuild_physical_research` to regenerate inventory, quality and the
 unified patch dataset without touching traces or live settings.
+
+Future sessions should be finalized only through the capture binding and
+quality gates; incomplete or ambiguous sessions remain explicitly excluded
+from verifier training.

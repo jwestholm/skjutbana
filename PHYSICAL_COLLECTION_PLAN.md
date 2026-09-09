@@ -57,3 +57,9 @@ python3 -m automation.rebuild_physical_research --output evaluation_runs/physica
 
 Freeze any verifier on development sessions only, then evaluate Session C once
 as untouched physical validation. Do not recycle Session C into training.
+
+## Workflow safeguards
+
+Use `physical_collection start` to bind a session manifest and
+`physical_trace_quality` before finalization. The validation guard refuses
+training/tuning on S03. See [PHYSICAL_CAPTURE_RUNBOOK.md](PHYSICAL_CAPTURE_RUNBOOK.md).
