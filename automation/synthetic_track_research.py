@@ -69,7 +69,8 @@ def prepare():
     cleanup._screen_rect_and_homographies=lambda:((0,0,640,480),np.eye(3),np.eye(3))
 
 
-def execute(pre,post,sid,executor,crop=True,tracing=True,scanner=None,delivery_delay=.15):
+def execute(pre,post,sid,executor,crop=True,tracing=True,scanner=None,delivery_delay=.15,confirmation_pre=None):
+    confirmation_pre=pre if confirmation_pre is None else confirmation_pre
     s=scanner or HitScanner();s.physical_trace_capture_enabled=tracing
     peak=1000+sid*4.;event=AudioShotEvent(sid,peak,peak);s.audio_events.append(event)
     s.last_audio_event_ts=peak;s._diag_shot_id=sid;s._diag_frame_count=0
@@ -93,13 +94,13 @@ def execute(pre,post,sid,executor,crop=True,tracing=True,scanner=None,delivery_d
     assert evidence_ts==peak+.08
     update_tracks_frame_unique_v2226(s,proposal,evidence_ts)
     confirm_ts=peak+max(.6,delivery_delay+.02)
-    confirmed,diag=local_confirm_candidates_v2225(pre,post,proposal,frame_ts=confirm_ts)
+    confirmed,diag=local_confirm_candidates_v2225(confirmation_pre,post,proposal,frame_ts=confirm_ts)
     update_tracks_frame_unique_v2226(s,confirmed,confirm_ts)
     selected=s._best_track_for_event(event)
     decision_ts=confirm_ts
     ready=selected is not None and s._track_is_ready(selected,decision_ts,event)
     if not ready and confirmed:
-        confirmed,diag=local_confirm_candidates_v2225(pre,post,confirmed,frame_ts=confirm_ts+.05)
+        confirmed,diag=local_confirm_candidates_v2225(confirmation_pre,post,confirmed,frame_ts=confirm_ts+.05)
         update_tracks_frame_unique_v2226(s,confirmed,confirm_ts+.05)
         selected=s._best_track_for_event(event)
         decision_ts=confirm_ts+.05

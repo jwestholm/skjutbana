@@ -47,6 +47,10 @@
   impacts. Keep the existing ranking. The next offline hypothesis should
   examine registered, polarity-aware localized novelty/confirmation; no
   research ranking is ready for a physical promotion trial.
+- **Latest offline evidence:** registered PRE→POST residual features reproduce
+  saved confirmation values, but physical true tracks and false winners remain
+  weakly separable; synthetic separability is much stronger and therefore has
+  a clear domain gap. No registered-impact ranker is frozen or promoted.
 
 See [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) and
 [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md). Checkpoints below are

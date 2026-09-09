@@ -334,3 +334,7 @@ and best_score despite carrying the old producer tag. This fixes event ownership
 not the seven latest event-local ranking losses; no score normalization or new
 research authority is installed. Details and before/after measurements are in
 `OVERNIGHT_TRACK_RESEARCH.md`.
+
+## Registered-impact evidence update — 2026-09-09
+
+The PRE coordinate bug is fixed and FAST score saturation is gone. Latest physical complete replay shows the remaining loss is final ranking. Offline registration-aware local residual extraction reproduces the recorded confirmation values, but no tested scalar residual feature separates physical true tracks from false winners reliably (best simple AUC approximately 0.61). Synthetic residual features are much more separable, so synthetic success does not establish physical improvement. The supported next direction is better registered, localized, polarity-aware evidence and a larger physical diagnostic set; no live policy change is approved.

@@ -99,3 +99,7 @@ false events 7 and 15 gives physical-only FAST 0/15, non-FAST 1/5; independent
 CURRENT accuracy remains 1/20 unchanged. See [TRACK_SURVIVAL_AUDIT.md](TRACK_SURVIVAL_AUDIT.md)
 and [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) for exact fates,
 corrected median definitions, complete-pool metrics and synthetic evidence.
+
+## Registered-impact follow-up — 2026-09-09
+
+Offline registered PRE→POST feature extraction reproduces all saved local-confirmation values. On the latest physical set, registered compactness, darkening and concentration provide only weak separation between true tracks and selected false winners; the strongest simple AUC is about 0.61. Synthetic examples separate far more strongly, exposing a domain gap. Registration shifts in the physical examples are below 0.35 px, so registration alone is not established as the cause of the seven ranking losses. No FAST ban or new ranker is promoted.

@@ -487,3 +487,7 @@ trace, generated evaluation output or `content/ai/settings.json` staging occurre
 Permanent documents updated: this report, `TRACK_SURVIVAL_AUDIT.md`,
 `FAST_SELECTION_AUDIT.md`, `SCORE_ROOT_CAUSE.md`, `CAUSAL_CANDIDATE_AUDIT.md`,
 `CURRENT_STATE.md` and `ARCHITECTURE.md`. README is unchanged.
+
+## Registered impact evidence follow-up — 2026-09-09
+
+The complete-track result remains the governing physical finding: all nine causal candidates reached eligible tracks and seven losses occur at final ranking. New offline image forensics apply the detector's registration and robust ring photometric reference to saved PRE/current frames. Exact local-confirmation values are reproducible. Physical true-vs-false residual features overlap substantially, while synthetic true-vs-false residuals are strongly separated. This synthetic/physical domain gap means a registered residual ranker is not justified without better physical evidence. See [REGISTERED_IMPACT_EVIDENCE.md](REGISTERED_IMPACT_EVIDENCE.md).
