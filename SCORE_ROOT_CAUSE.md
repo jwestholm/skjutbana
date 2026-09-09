@@ -295,3 +295,42 @@ the dominant selection hypothesis. PRE mapping is fixed and corrected FAST
 scores are not saturated (retained median 9.91, maximum 16.03), so saturation
 is a separate historical defect. See `FAST_SELECTION_AUDIT.md`; no live policy
 was changed.
+
+## Verified track-survival evidence — 2026-09-09
+
+**PROVEN:** complete recorded-input reconstruction now resolves the post-PRE
+physical selection funnel: 9/10 causal @42 candidates → 9 tracked → 9 locally
+confirmed/eligible → 2 correctly selected. All seven failures occur at ranking,
+with good tracks at ranks 53, 59, 9, 55, 33, 23 and 24. All ten actual winners,
+136 saved track checkpoints and 85 tracking counters reproduce exactly.
+
+There is no track-slot cap. FAST duplicates are associated within 12 px rather
+than consuming bounded track slots. One V1 true proposal supports a FAST track
+(shot 3), losing fine localization but not @42 eligibility. Although best_score
+is a historical maximum by design, none of the 973 final tracks has best_score
+above its current candidate score. History poisoning is not the latest session's
+loss mechanism. Source-score/physical-evidence discrimination remains unresolved;
+complete-pool FAST exclusion still achieves only 2/10.
+
+**RESEARCH_ONLY:** fixed local darkening-minus-ring ranking yields 0/10 on
+physical development, improves the synthetic development @42 count 81→85/90,
+and ties synthetic holdout 141/150 while worsening mean error. No ranking is
+promoted. These synthetic results are not physical validation.
+
+**PROVEN/FIXED correctness follow-up:** the actual async result list now carries
+producer event identity, completing the earlier diagnostic-copy-only transport.
+Both pending false-event timing patterns reject newer producer evidence; delayed
+older pre-boundary results still work. This fix requires a fresh physical capture.
+
+The same ranking loss predates the PRE fix: 12/12 causal-positive tracks survive
+in the previous 20-shot physical run (1 selected correctly), and 9/9 in the earlier
+ten-shot run (1 selected correctly). The historical independent results remain
+unchanged. Full report: [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md).
+
+A separate adversarial delayed-delivery regression now isolates cross-event
+history: observations from known different producers cannot associate into one
+track. Before that guard a later old result could inherit the newer event's XY
+and best_score despite carrying the old producer tag. This fixes event ownership,
+not the seven latest event-local ranking losses; no score normalization or new
+research authority is installed. Details and before/after measurements are in
+`OVERNIGHT_TRACK_RESEARCH.md`.

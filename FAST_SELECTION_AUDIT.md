@@ -73,3 +73,29 @@ bug.
 Keep FAST as proposal/recovery evidence and run a source-aware, research-only
 selector replay with complete candidate pools. Require a new physical series
 before any promotion. Do not use ground-truth coordinates or tune weights.
+
+## Complete-pool follow-up — 2026-09-09
+
+The export-only limitation above is now resolved for the three most recent
+physical sessions by reconstructing the real tracker from full recorded proposal
+and local-confirmation inputs. The latest run verifies all ten live winners,
+136 track snapshots and 85 tracker counters. All nine near-GT candidates survive
+tracking and local confirmation; the seven failures rank 9–59. The top eight
+were a display/export limit, not a runtime slot limit.
+
+There are 973 active tracks across the ten events; 312 are FAST, while FAST
+occupies 68/80 exported debug positions. There is no final best_score-over-current
+score excess on any of these tracks. Shot 3's true V1 proposal is absorbed as
+same-frame support by a FAST representative but remains an @42-positive track.
+This is not a sufficient explanation for the seven selection failures.
+
+Complete-pool exclusion and non-FAST fallback each remain 2/10 @42, mean
+145.04 px; they repair none of the seven failures. The single fixed local-contrast
+research ranking scores 0/10 on physical development and has no @42 improvement
+on synthetic holdout. Neither source exclusion nor that ranking is approved.
+
+The earlier dart source rate quoted above counted all 22 audio events. Excluding
+false events 7 and 15 gives physical-only FAST 0/15, non-FAST 1/5; independent
+CURRENT accuracy remains 1/20 unchanged. See [TRACK_SURVIVAL_AUDIT.md](TRACK_SURVIVAL_AUDIT.md)
+and [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) for exact fates,
+corrected median definitions, complete-pool metrics and synthetic evidence.

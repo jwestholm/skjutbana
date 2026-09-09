@@ -10,7 +10,8 @@
   9 tracked -> 9 locally confirmed -> 9 eligible -> 2 correctly selected.
   All seven losses occur at final ranking, at ranks 9–59, outside the debug
   top eight. Complete input replay matches all ten winners and 136 saved
-  track checkpoints. It is recorded-input reconstruction, not regenerated
+  track checkpoints plus 85 tracking counters. This is recorded-input
+  reconstruction, not regenerated
   physical detection or a new physical validation.
 - **PROVEN instrumentation:** complete active pools, eligibility/rejection
   reasons, association ledgers and compact source histories are captured.
@@ -20,6 +21,8 @@
   confirmation boundaries and producer rejection gates are implemented.
   The additional producer-transport gap is fixed: the actual worker result
   list consumed by tracking/confirmation now carries the event tag too.
+  Tracks also reject association with a known different producer, preventing
+  cross-event XY/hit/best-score history from surviving a later tag change.
   Pending-event regressions cover both 6→7 and 14→15 patterns and delayed
   valid pre-boundary delivery. Fresh physical validation is still required.
 - **PROVEN bottleneck:** surviving correct tracks lose final ranking. FAST
@@ -30,13 +33,20 @@
 - Previous 20-shot independent validation remains 1/20 @42 for CURRENT and
   both shadows. Audio events 7 and 15 remain NO_PHYSICAL_SHOT. Its causal
   oracle remains 12/20 @42. Historical results and inputs are preserved.
-- **RESEARCH_ONLY:** one signed local-contrast ranking is tested offline.
+- **RESEARCH_ONLY, rejected for promotion:** fixed local-contrast ranking is
+  0/10 on physical development. Synthetic development is 85/90 vs CURRENT
+  81/90 @42; protected holdout ties at 141/150 and worsens mean error. The
+  510-event development stress run has 450 impacts plus 60 no-impact events.
+  CURRENT is 406/450 @42, with 30/60 forced no-impact events becoming ready.
   No AI, canonical challenger, or frozen CONFIRMATION_SELECTION_SHADOW is
   promoted or changed. Frozen confirmation hash:
   `123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f`.
-- **Next engineering step:** complete synthetic holdout/stress reporting and select the next
-  evidence-driven physical diagnostic test. No ranking policy is authorized
-  for promotion on these development data.
+- **Next step:** collect 20 deliberate physical diagnostic shots with the
+  complete tracing and corrected producer transport/association; verify exact replay and
+  capture latency first. Include light/dark, low-contrast and nearby repeated
+  impacts. Keep the existing ranking. The next offline hypothesis should
+  examine registered, polarity-aware localized novelty/confirmation; no
+  research ranking is ready for a physical promotion trial.
 
 See [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) and
 [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md). Checkpoints below are

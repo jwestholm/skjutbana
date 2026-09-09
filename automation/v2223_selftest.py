@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import tempfile
 import time
+from unittest.mock import patch
 
 from src.engine.input.object_hit_v2223 import ObjectHitRegistryV2223, viewport_center_prior
 from src.engine.shot_critical_v2223 import ShotCriticalControllerV2223, select_recent_pre_frame_v2223
@@ -38,7 +39,14 @@ def main() -> None:
 
     reg = ObjectHitRegistryV2223()
     reg.register_rect("target", (100, 100, 200, 100), metadata={"kind": "enemy"})
-    snap = reg.snapshot(7, 123.4)
+    # Snapshot and evaluation must use the same explicit test coordinate plane.
+    # A machine's saved homography otherwise prefilters these identity-space
+    # candidates before the camera_to_screen callback below is reached.
+    identity = lambda x, y: (x, y)
+    with patch.object(reg, "_load_viewport_xywh", return_value=(0, 0, 1000, 1000)), patch.object(
+        reg, "_camera_transformers", return_value=("test_identity", identity, identity)
+    ):
+        snap = reg.snapshot(7, 123.4)
     check("object hit regions are frozen per shot", len(snap.regions) == 1 and snap.regions[0].object_id == "target")
 
     candidates = [

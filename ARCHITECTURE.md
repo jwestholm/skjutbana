@@ -1,4 +1,4 @@
-# ARCHITECTURE.md fixture
+# Architecture
 
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 — Game Hit Context
@@ -185,13 +185,47 @@ their named snapshot meaning. New captures preserve the first terminal outcome.
 
 The V2.22.1 working-space contract applies to **every image read by a detector**,
 including PRE frame history, not only current/reference masks and output XY.
-The 2026-09-08 audit proves an uncorrected V2 PRE-history violation of that contract.
-It also reproduces a missing next-event evidence boundary for still-pending local
-confirmation/shared tracks. See `CAUSAL_CANDIDATE_AUDIT.md`; neither runtime
-correction is implied by the measurement changes.
+The 2026-09-08 audit found a V2 PRE-history violation of that contract, fixed
+separately in `c7854ab`. Pending-event boundary and track-ownership corrections
+were also implemented separately from the original measurement work. See
+`CAUSAL_CANDIDATE_AUDIT.md` for the preserved evidence.
 
 The accepted pending-event ownership correction (`5d45527`) makes the next
 audio peak an event boundary for local confirmation while preserving delayed
 worker results captured before that boundary. The V2 PRE mapping correction in
-the working tree translates crop-local detector regions into full-camera
+`c7854ab` translates crop-local detector regions into full-camera
 frame-history coordinates exactly once for normal and fallback references.
+
+## Complete decision tracing and replay
+
+With physical tracing enabled, V2.22.6 emits a per-consumption association ledger
+and selectors snapshot all active tracks with exact rejection predicates/rank
+tuples. `last_stable_tracks` remains the legacy score-sorted top-eight debug view;
+it is never the authoritative full pool. A local-confirmed candidate, stable
+track, rank-eligible track, ready track and emitted `state=confirmed` differ.
+Readiness is checked on the ranked winner after selection.
+
+The recorder freezes `decision_input.complete_track_audit` before emission and
+preserves the first decision. Terminal non-emission snapshots use a separately
+named field. Compact source/owner history includes support observations, while
+current representative ownership identifies the observation supplying XY.
+Completed immutable ledger rows are shared until trace serialization to avoid
+repeated critical-path copies. The completed event's scanner ledger is released;
+pending overlapping owners remain.
+
+`CURRENT_EXACT_REPLAY` reconstructs selector predicates and ordering, including
+stable tie order, and raises on mismatched track ids/coordinates. Export only
+claims exact verification for a complete snapshot; older traces remain explicitly
+unavailable unless a separate recorded-input reconstruction verifies them.
+
+Producer ownership must travel on the **consumed** worker result list. Tagging
+only `scanner.last_candidates` is insufficient because both tracking and local
+confirmation seed from `result.candidates`. The latter is now tagged on delivery.
+This is transport metadata enforcing existing authority boundaries, not a new
+source-ranking policy.
+
+Association also respects known producer identity: a candidate cannot update a
+track produced by another audio event. This protects accumulated XY, frame hits
+and best_score even if an older frame arrives after newer event activity.
+Same-event spatial association and untagged legacy inputs preserve their existing
+rules. The trace records nearby tracks excluded by the producer predicate.

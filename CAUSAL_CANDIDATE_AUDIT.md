@@ -537,3 +537,40 @@ tests and documentation remain reviewable in the working tree on
 `codex/score-root-cause`. The pre-existing `content/ai/settings.json` modification
 was left alone. Generated reports and images stay in ignored `evaluation_runs/`;
 no physical trace, settings or generated evaluation artifact was staged.
+
+## Overnight follow-up — 2026-09-09
+
+The above independent validation is preserved unchanged. The later post-PRE
+independent validation (`session_20260908_194746_b38de674`, evaluation
+`physical_20260908_195522_ab2304cd`) reports 7/10 causal availability @5/@10 and
+9/10 @20/@42, CURRENT 2/10, mean 171.10, median 135.75, p95 464.70 px. The PRE
+mapping and ownership fixes are committed; FAST saturation is absent.
+
+A full recorded-input track reconstruction now resolves the latest nine-shot
+oracle-positive funnel as **9 generated/consumed → 9 tracked → 9 locally
+confirmed → 9 eligible → 2 selected**. Earlier claims of missing track fate were
+limited to direct inspection of the top-eight export. Full proposal and local
+confirmation lists allow independent verification of every winner, 136 saved
+track states and 85 tracking counters. Original traces and metrics were not edited.
+
+The same method verifies 22/22 prior dart audio winners and all ten earlier
+physical winners. The prior physical-only causal @42 oracle remains 12/20; all
+12 survive into eligible locally confirmed tracks. Events 7/15 remain false.
+
+Complete future captures now include association ledgers and the active decision
+pool with eligibility, current/best scores, ownership, source history and rank.
+Exact replay fails on mismatches. A newly isolated transport defect was fixed:
+producer identity is now added to `result.candidates`, the list actually consumed
+by tracking, rather than only the diagnostic copy. Pending-event rejection and
+valid late pre-boundary delivery have passing integration regressions.
+
+The new ranking experiment remains RESEARCH_ONLY, fails the physical development
+set and provides no synthetic holdout @42 improvement. No AI/frozen confirmation
+selector is promoted. See [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md).
+
+The final ownership regression additionally proved that last-candidate tagging
+alone cannot protect track history under late older-frame delivery after a newer
+producer observation. V2.22.6 now prevents association across known different
+producer events. This is a component-level correctness correction, not an
+explanation of the latest seven physical ranking losses or a new physical
+validation. See the measured before/after episode in `OVERNIGHT_TRACK_RESEARCH.md`.
