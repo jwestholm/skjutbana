@@ -55,3 +55,8 @@ unique coordinate. Recomputing temporal features at those available
 observation coordinates does not materially change the exploratory persistence
 result. Confirmation-search best XY is not preserved for most tracks, so a
 complete confirmation-coordinate comparison remains an observability gap.
+
+The final-ranking audit confirms temporal/confirmation values are not ranking
+terms after eligibility. The live comparator uses onset distance followed by
+historical `track.best_score`; this explains why promising temporal evidence
+cannot affect current authority without a separate research replay.

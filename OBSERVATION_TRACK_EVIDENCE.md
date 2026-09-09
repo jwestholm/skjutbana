@@ -46,3 +46,8 @@ Reproduction:
 ```text
 python3 -m automation.temporal_impact_research --root content/ai/physical_traces/session_20260908_194746_b38de674 --features evaluation_runs/registered_impact_20260909/physical_v2/physical_features.json --output evaluation_runs/registered_impact_20260909/temporal_v2
 ```
+
+The exact final comparator is now documented in
+[FINAL_RANKING_AUDIT.md](FINAL_RANKING_AUDIT.md): onset distance first, then
+negative historical `best_score`. Confirmation and source are eligibility and
+provenance inputs, not final ordering terms.

@@ -283,3 +283,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   limited measurable drift (about 8–10 px in three examples); most physical
   tracks expose one coordinate. Confirmation-search best XY is not preserved
   for most rows, so observation-level temporal ranking remains unvalidated.
+
+- **Final-ranking audit:** live eligible ordering is exactly
+  `(onset_distance_to_peak, -track.best_score)`. For every seven @42-positive
+  failure, onset is tied and the lower true-track `best_score` loses. Selected
+  false-winner coordinates do not recur within 40 px across this ten-shot
+  session; no recurrence penalty is justified.
