@@ -428,10 +428,15 @@ class AsyncDetectorV2224:
 
     @staticmethod
     def apply_result(scanner: Any, result: DetectorJobResultV2224) -> None:
-        scanner.last_candidates = [
+        # The returned result list feeds tracking and LocalConfirmManager.
+        # Tag that consumed list, not only the last_candidates diagnostic copy.
+        # This transports the existing event-ownership contract without changing
+        # candidate generation, scores, association or selector ordering.
+        result.candidates = [
             {**dict(c), "v2224_producer_shot_id": int(result.shot_id)}
             for c in result.candidates
         ]
+        scanner.last_candidates = [dict(c) for c in result.candidates]
         if getattr(scanner, "physical_trace_capture_enabled", False):
             scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
             scanner.last_trace_pipeline_shot_id = int(result.shot_id)

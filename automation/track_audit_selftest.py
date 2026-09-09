@@ -50,26 +50,37 @@ class Tests(unittest.TestCase):
         self.assertEqual(a['tracks'][0]['rejection_reason'],'producer_shot_id_mismatch')
         self.assertEqual(current_exact_replay(a)['camera_x'],60)
 
-    def test_characterize_actual_result_ownership_transport_gap(self):
-        # This is a BUG CHARACTERIZATION, not an acceptance test for safe ownership.
-        # apply_result tags last_candidates, but production tracking receives
-        # result.candidates. Keep the distinction visible until a separate fix.
+    def test_actual_result_transport_rejects_both_false_event_patterns(self):
         from src.engine.shot_async_v2224 import AsyncDetectorV2224, DetectorJobResultV2224
         from unittest.mock import patch
-        s=self.scanner();s.audio_events.append(AudioShotEvent(2,101.48,101.48))
-        update(s,[candidate(20,10)],100.1)
-        result=DetectorJobResultV2224(2,101.55,101.48,0,0,0,[candidate(20,30)],{},{},0,0,0)
-        with patch('src.engine.shot_async_v2224._setting_bool',return_value=False):
-            AsyncDetectorV2224.apply_result(s,result)
-        self.assertEqual(s.last_candidates[0]['v2224_producer_shot_id'],2)
-        self.assertNotIn('v2224_producer_shot_id',result.candidates[0])
-        update(s,result.candidates,result.frame_ts)
-        chosen=s._best_track_for_event(s.audio_events[0])
-        self.assertIsNotNone(chosen)  # proven remaining correctness gap
-        self.assertTrue(s._track_is_ready(chosen,101.6,s.audio_events[0]))
-        snap=capture(s,s.audio_events[0],chosen)
-        self.assertEqual(snap['tracks'][0]['causal_ownership'],'CROSS_EVENT_OR_FUTURE')
-        current_exact_replay(snap)  # exact runtime replay must not conceal the bug
+        for sid,boundary in ((6,101.4839297),(14,101.4904709)):
+            s=self.scanner();s.audio_events.clear();s.last_trace_pipeline_shot_id=sid
+            e=AudioShotEvent(sid,100,100);s.audio_events.extend([e,AudioShotEvent(sid+1,boundary,boundary)])
+            update(s,[candidate(20,10,v2224_producer_shot_id=sid)],100.1)
+            result=DetectorJobResultV2224(sid+1,boundary+.07,boundary,0,0,0,[candidate(20,30)],{},{},0,0,0)
+            with patch('src.engine.shot_async_v2224._setting_bool',return_value=False):
+                AsyncDetectorV2224.apply_result(s,result)
+            self.assertEqual(result.candidates[0]['v2224_producer_shot_id'],sid+1)
+            self.assertEqual(s.last_candidates[0]['v2224_producer_shot_id'],sid+1)
+            update(s,result.candidates,result.frame_ts)
+            self.assertIsNone(s._best_track_for_event(e))
+            snap=capture(s,e)
+            self.assertEqual(snap['tracks'][0]['rejection_reason'],'producer_shot_id_mismatch')
+            self.assertEqual(snap['tracks'][0]['causal_ownership'],'CROSS_EVENT_OR_FUTURE')
+            self.assertIsNone(current_exact_replay(snap))
+
+    def test_late_preboundary_worker_result_is_still_eligible(self):
+        from src.engine.shot_async_v2224 import AsyncDetectorV2224, DetectorJobResultV2224, tracking_frame_timestamp
+        from unittest.mock import patch
+        s=self.scanner();e=s.audio_events[0];s.audio_events.append(AudioShotEvent(2,101.48,101.48))
+        update(s,[candidate(20,10,v2224_producer_shot_id=1)],100.1)
+        result=DetectorJobResultV2224(1,100.2,100,0,0,0,[candidate(20,12)],{},{},0,0,0)
+        with patch('src.engine.shot_async_v2224._setting_bool',return_value=False):AsyncDetectorV2224.apply_result(s,result)
+        ts=tracking_frame_timestamp(s,result.candidates,101.9)
+        update(s,result.candidates,ts)
+        chosen=s._best_track_for_event(e)
+        self.assertIsNotNone(chosen);self.assertEqual(chosen.last_seen_ts,100.2)
+        self.assertEqual(current_exact_replay(capture(s,e,chosen))['camera_x'],20)
 
     def test_snapshot_immutable_after_new_observation(self):
         s=self.scanner();update(s,[candidate(20)],100.1);t=s._best_track_for_event(s.audio_events[0]);a=capture(s,s.audio_events[0],t);before=copy.deepcopy(a)

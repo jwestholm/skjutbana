@@ -18,8 +18,10 @@
 - **PROVEN prior fixes:** PRE camera-plane mapping is fixed; its historical
   residual median was 192.385 -> 1.538. FAST saturation disappeared. Pending
   confirmation boundaries and producer rejection gates are implemented.
-  **A remaining producer-transport gap is now reproduced:** actual worker
-  result candidates lack the producer tag added to the diagnostic copy.
+  The additional producer-transport gap is fixed: the actual worker result
+  list consumed by tracking/confirmation now carries the event tag too.
+  Pending-event regressions cover both 6→7 and 14→15 patterns and delayed
+  valid pre-boundary delivery. Fresh physical validation is still required.
 - **PROVEN bottleneck:** surviving correct tracks lose final ranking. FAST
   wins all seven oracle-positive failures, but complete-pool FAST exclusion
   still gives 2/10. No slot cap or historic-best-over-current score advantage
@@ -32,8 +34,7 @@
   No AI, canonical challenger, or frozen CONFIRMATION_SELECTION_SHADOW is
   promoted or changed. Frozen confirmation hash:
   `123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f`.
-- **Next engineering step:** close the actual result producer-transport gap,
-  then complete synthetic holdout/stress reporting and select the next
+- **Next engineering step:** complete synthetic holdout/stress reporting and select the next
   evidence-driven physical diagnostic test. No ranking policy is authorized
   for promotion on these development data.
 
