@@ -100,3 +100,13 @@ session was fully flushed.
   path rather than overwrite it.
 - For a crash or missing artifact, keep the session incomplete and start a new
   binding after repairing the capture environment.
+
+## S01 recovery (2026-09-09 stale-root incident)
+
+The recovered trace is at `content/ai/physical_traces/session_20260909_S01_recovered_20260909` and contains 11 runtime events. It has no labels; do not infer the extra event. Use the binding/quality tools against this exact root, then label all 11 events and mark the confirmed extra event `NO_PHYSICAL` before finalization.
+
+Future starts must use `physical_collection start`; it creates and records a unique trace root and settings backup. Run preflight with `--binding` before launching `main.py`. Restore settings after capture with:
+
+```bash
+python3 -m automation.physical_collection restore --binding evaluation_runs/S01_binding.json
+```

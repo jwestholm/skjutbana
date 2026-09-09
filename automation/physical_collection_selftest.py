@@ -1,7 +1,7 @@
 import unittest,tempfile,json
 from pathlib import Path
 from automation.physical_capture_plan import build
-from automation.physical_collection import bind,guard_training,preflight
+from automation.physical_collection import bind,guard_training,preflight,_set_trace
 from automation.physical_finalize import validate
 
 class CollectionTests(unittest.TestCase):
@@ -27,5 +27,21 @@ class CollectionTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);(p/'l.json').write_text(json.dumps({'labels':[{'event_id':1,'status':'UNLABELED'}]}));(p/'q.json').write_text(json.dumps({'frame_completeness':True}))
    with self.assertRaises(ValueError):validate(self.plan,'S01',p/'l.json',p/'q.json')
+ def test_start_repoints_stale_root_and_preflight_checks_it(self):
+  import subprocess,sys
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d); plan=p/'plan.json'; plan.write_text(json.dumps(self.plan)); settings=p/'settings.json'; settings.write_text(json.dumps({'physical_trace_capture_enabled':True,'physical_trace_root':'content/ai/physical_traces/session_20260907_biathlon5'})); out=p/'binding.json'
+   cp=subprocess.run([sys.executable,'-m','automation.physical_collection','start','--plan',str(plan),'--session','S01','--settings',str(settings),'--trace-root',str(p/'traces'),'--output',str(out)],capture_output=True,text=True);self.assertEqual(cp.returncode,0,cp.stderr)
+   b=json.loads(out.read_text()); self.assertNotIn('session_20260907_biathlon5',b['trace_root']); self.assertEqual(json.loads(settings.read_text())['physical_trace_root'],b['trace_root'])
+   cp=subprocess.run([sys.executable,'-m','automation.physical_collection','preflight','--plan',str(plan),'--session','S01','--trace-root',str(p/'traces'),'--binding',str(out),'--settings',str(settings)],capture_output=True,text=True);self.assertEqual(cp.returncode,0,cp.stdout)
+   self.assertEqual(settings.read_bytes(),settings.read_bytes())
+ def test_no_physical_assignment_resolves_label_completeness(self):
+  from automation.physical_trace_quality import inspect
+  with tempfile.TemporaryDirectory() as d:
+   s=Path(d)/'session_test'; (s/'shots/shot_00000001').mkdir(parents=True); (s/'shots/shot_00000002').mkdir()
+   base={'frames':[{'kind':'pre_snapshot'},{'kind':'post'}],'decision_input':{},'selectors':{},'completeness':{'trace_complete':True}}
+   for i in (1,2): (s/f'shots/shot_{i:08d}/trace.json').write_text(json.dumps(base))
+   (s/'shots/shot_00000001/ground_truth.json').write_text('{}'); (s/'physical_assignments.json').write_text(json.dumps({'2':{'state':'NO_PHYSICAL_SHOT'}}))
+   self.assertEqual(inspect(s.parent)[0]['label_completeness'],'PASS')
 
 if __name__=='__main__':unittest.main()

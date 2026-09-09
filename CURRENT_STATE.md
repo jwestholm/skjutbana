@@ -349,3 +349,7 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   guarded postflight entry point. Session metadata includes a deterministic
   plan identity, and validation tuning guards cover train/tune/fit/config
   selection operations.
+
+## Physical S01 recovery
+
+The 2026-09-09 S01 run was written into the historical biathlon5 root because the old settings trace root remained active. A separate recovered copy was created at `content/ai/physical_traces/session_20260909_S01_recovered_20260909`; it contains 11 timestamped runtime events, complete PRE/POST frame references, and no retained ground-truth labels. The contaminated historical directory is preserved and must not be used as a clean session. `physical_collection start` now reserves a unique root, configures the runtime settings, records a byte-for-byte settings backup, and preflight verifies the actual configured root.
