@@ -46,3 +46,12 @@ python3 -m automation.temporal_impact_selftest
 
 No classifier or ranker is frozen. A larger physical diagnostic set remains
 necessary before temporal evidence can be promoted.
+
+## Observation-coordinate follow-up
+
+The observation-level audit found only limited measurable drift in the saved
+export: approximately 8–10 px in three examples, with most tracks exposing one
+unique coordinate. Recomputing temporal features at those available
+observation coordinates does not materially change the exploratory persistence
+result. Confirmation-search best XY is not preserved for most tracks, so a
+complete confirmation-coordinate comparison remains an observability gap.

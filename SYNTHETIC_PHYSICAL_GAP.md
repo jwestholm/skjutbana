@@ -17,3 +17,10 @@ No synthetic generator parameters were changed in this pass. This is
 intentional: the physical positive library is too small to justify estimating
 a new impact model, and no holdout-preserving intervention has yet been
 defined. Existing development/holdout metrics remain historical and unchanged.
+
+The physical track export also shows a trace-domain gap: synthetic replay has
+complete observation identity by construction, while most physical rows expose
+only a final coordinate and sparse association history. Synthetic coordinate
+stability therefore cannot be compared directly with physical confirmation
+search displacement until the next trace schema records every consumed
+observation and its confirmation-best coordinate.

@@ -278,3 +278,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
 
 - **RESEARCH_ONLY:** temporal forensic extraction over the latest physical frames finds exploratory pairwise AUC about 0.71 for post-impact dark-residual persistence and 0.70 for impact-onset darkening. Before-frame stability alone is weak (about 0.58). The sample is small and not a validation result.
 - **NOT PHYSICALLY VALIDATED:** no temporal ranker or synthetic-model change is frozen or promoted. Some true tracks have weak persistence at their saved representative coordinate, so coordinate drift/reference timing remain unresolved.
+
+- **Observation-coordinate audit:** available association histories show only
+  limited measurable drift (about 8–10 px in three examples); most physical
+  tracks expose one coordinate. Confirmation-search best XY is not preserved
+  for most rows, so observation-level temporal ranking remains unvalidated.

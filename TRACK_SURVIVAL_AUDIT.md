@@ -166,3 +166,12 @@ known different producers no longer share XY/hits/best_score. The original
 physical inputs still replay exactly; the seven event-local ranking losses
 remain unchanged. This correctness fix is separate from the rejected ranking
 hypothesis and requires fresh physical validation.
+
+## Observation-coordinate temporal audit — 2026-09-09
+
+The latest offline audit evaluates temporal residuals at exported supporting
+observation coordinates where available. Most tracks have one coordinate; only
+a few show 8–10 px drift. The current export does not preserve confirmation
+best-search XY for most tracks, so no representative-free ranker is justified.
+Future tracing should retain each consumed observation and confirmation search
+coordinate explicitly.

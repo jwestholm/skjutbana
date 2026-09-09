@@ -22,8 +22,37 @@ def run(root: Path, features_path: Path, output: Path):
         frames=sorted(trace['frames'],key=lambda f:f['timestamp'])
         preframe=next(f for f in frames if f['kind']=='pre_snapshot')
         pre=np.load(tp.parent/preframe['path'],mmap_mode='r')
-        targets={role:e['track'] for role,e in examples[sid].items()}
-        for role,tr in targets.items():
+        targets={role:e for role,e in examples[sid].items()}
+        for role,example in targets.items():
+            tr=example['track']
+            coords=[('final_track',(float(tr['camera_x']),float(tr['camera_y'])))]
+            for i,a in enumerate(example.get('association_history',[])):
+                c=a.get('candidate',{}); x=c.get('camera_x'); y=c.get('camera_y')
+                if x is not None and y is not None: coords.append((f'observation_{i}',(float(x),float(y))))
+            lc=tr.get('last_candidate',{})
+            if lc.get('camera_x') is not None: coords.append(('confirmation_candidate',(float(lc['camera_x']),float(lc['camera_y']))))
+            # De-duplicate coordinates while preserving provenance.
+            uniq=[]; seen=set()
+            for label,c in coords:
+                key=(round(c[0],3),round(c[1],3))
+                if key not in seen: seen.add(key); uniq.append((label,c))
+            coord_rows=[]
+            for coord_label,xy in uniq:
+                samples=[]
+                for f in frames:
+                    image=np.load(tp.parent/f['path'],mmap_mode='r')
+                    pp=sample(pre,xy,(0,0),radius=16); qq=sample(image,xy,(0,0),radius=16)
+                    pair=prepare_pair(pp,qq,translation=(0,0)); vals=extract(pair,(16,16))
+                    samples.append(dict(kind=f['kind'],timestamp=f['timestamp'],dt=f['timestamp']-trace['peak_ts'],**{k:vals[k] for k in ('ring_affine_center_dark','ring_affine_center_bright','ring_affine_compact','ring_affine_signed_contrast','ring_affine_concentration','ring_affine_entropy','ring_affine_component_area','ring_affine_peak')}))
+                before=[s for s in samples if s['dt']<-.05]; after=[s for s in samples if s['dt']>=.05]
+                bd=[s['ring_affine_center_dark'] for s in before]; ad=[s['ring_affine_center_dark'] for s in after]
+                base=float(np.median(bd)) if bd else 0.; peak=max(ad,default=0.)
+                coord_rows.append(dict(coord_label=coord_label,xy=xy,before_stability_dark=float(np.std(bd)),impact_onset_dark=float(peak-base),after_persistence_dark=float(sum(v>base+2 for v in ad)),after_dark_peak=peak,after_dark_median=float(np.median(ad)) if ad else 0.))
+            best=max(coord_rows,key=lambda r:(r['after_persistence_dark'],r['impact_onset_dark']))
+            row=dict(shot=sid,role=role,gt_distance=example.get('gt_distance'),xy=list(coords[0][1]),coordinate_rows=coord_rows,best_temporal_coordinate=best['coord_label'],**{k:best[k] for k in ('before_stability_dark','impact_onset_dark','after_persistence_dark','after_dark_peak','after_dark_median')})
+            rows.append(row)
+            continue
+            # Legacy single-coordinate path retained below for readable history.
             xy=(float(tr['camera_x']),float(tr['camera_y']))
             samples=[]
             for f in frames:
@@ -60,7 +89,7 @@ def run(root: Path, features_path: Path, output: Path):
     summary={}
     for role in ('nearest_eligible','current_winner'):
         rr=[r for r in rows if r['role']==role]
-        summary[role]={k:{'median':float(np.median([x[k] for x in rr])),'q25':float(np.percentile([x[k] for x in rr],25)),'q75':float(np.percentile([x[k] for x in rr],75))} for k in ('before_stability_dark','impact_onset_dark','after_persistence_dark','after_dark_peak','after_dark_median','after_compact_peak')}
+        summary[role]={k:{'median':float(np.median([x[k] for x in rr])),'q25':float(np.percentile([x[k] for x in rr],25)),'q75':float(np.percentile([x[k] for x in rr],75))} for k in ('before_stability_dark','impact_onset_dark','after_persistence_dark','after_dark_peak','after_dark_median')}
     (output/'temporal_summary.json').write_text(json.dumps(summary,indent=2)+'\n')
     print(json.dumps(dict(examples=len(rows),summary=summary)))
 
