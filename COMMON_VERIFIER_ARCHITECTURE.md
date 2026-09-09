@@ -1,5 +1,39 @@
 # Research common-verifier architecture
 
+## Latest measured implementation — 2026-09-09
+
+The implemented causal research path is now
+`src/engine/offline/accuracy_verifier.py`, with explicit session extraction,
+supervised logistic/forest experiments, pairwise ranking and visual no-impact
+gates under `automation/accuracy_*`. It combines registered PRE/POST change,
+onset, persistence, polarity, multiscale morphology, local normalization and
+jitter stability. Every feature has a timestamp/coordinate/normalization/live
+availability contract. Source identity, source scores, GT and absolute XY are
+excluded from feature inputs. The 0/1 output can abstain.
+
+Whole-session exclusions yield common-logistic primary @42 11/49 versus CURRENT
+7/49. The earlier-reference variant selects 5/9 S01 and 3/10 S02 at all four
+thresholds; S01 uses a held-out fit, while the S02 fit trains on all primary
+sessions. Two hashed offline references are frozen, with S02 explicitly
+development-used. They are not integrated with CURRENT or the canonical shadow.
+
+Proposal expansion reaches S02 9/10 @42 oracle but only 3/10 selection. Visual
+no-impact rejection trades false emissions for unacceptable physical rejection.
+Classifier inference is inexpensive; the current Python evidence extraction is
+too slow for demonstrated live parity. This is captured-time, single-decision
+research, not full asynchronous emission replay. Further data needs concern
+physical onset/newness and defensible negatives, not just more oracle candidates.
+
+`physical_event_truth.py` uses an impact array and explicit SINGLE_IMPACT,
+NO_PHYSICAL_SHOT, AMBIGUOUS, UNKNOWN and future MULTI_IMPACT states. Unconfirmed
+S02 event-1 ambiguity is a caveat plus exclusion sensitivity, not a label edit.
+The single-output evaluator excludes unresolved/multiple-impact truth explicitly.
+
+The 100% target, 95% minimum, all positive/negative experiments, feature contract,
+per-session measurements and frozen hashes are in
+[ACCURACY_95_100_RESEARCH.md](ACCURACY_95_100_RESEARCH.md). S03 remains untouched.
+The material below records the earlier research foundation.
+
 The research interface is implemented in
 `src/engine/offline/common_verifier.py`. It is disabled by default and is not
 called by the live selector. `CommonFrameContext` carries shared PRE/POST
@@ -52,3 +86,37 @@ positive examples. Legacy sessions lack complete selector snapshots but are
 valuable for patch classification. Unified session-held-out experiments show
 texture representations are strongest yet unstable across backgrounds; richer
 real data is still required before freezing a verifier.
+
+## S01/S02 development evidence — 2026-09-09
+
+S02 has ten physical shots and three human-confirmed nonphysical events, all
+with complete causal decisions. The verified funnel is 5/10 @42 causal
+candidates, all five tracked/locally confirmed/eligible, but only 1/10 correctly
+selected. Four V1 truths lose to FAST at tied onset distance; all three
+nonphysical events emit false hits. Both frozen shadows score 0/10 @42.
+The verifier needs an explicit physical rejection capability in addition to
+ordering eligible tracks. A ranking-only verifier cannot recover the five
+events without @42 candidates in the existing pool.
+
+Using the existing interface with each recorded decision cutoff produces ten
+S02 positive patch examples, nine wrong-emission negatives and three no-impact
+negatives. S01 adds nine causal positives and seven negatives, including one
+no-impact example. S01's tenth physical label has usable images but no complete
+terminal cutoff, so it is excluded from causal verifier examples. These counts
+verify extraction compatibility; they do not measure learned separability or
+generalization. The generic historical patch builder uses later frames and
+must not be mistaken for this causal path.
+
+The next experiment should score the complete eligible pool through shared
+causal image evidence, with historical/S01 training and whole-session S02
+development assessment. Include physical hard negatives and no-impact events;
+keep source labels and GT out of verifier inputs. Report candidate availability,
+conditional ranking, readiness/emissions and no-impact acceptance separately.
+The existing interface does not by itself implement registration or an
+abstention policy; those research choices must be explicit and frozen before
+final evaluation. Do not tune proposal generation in the same experiment.
+
+S03 remains untouched final validation data. No common verifier, canonical
+challenger or frozen confirmation selector is promoted; CURRENT live authority
+is unchanged. Exact results and reproduction are in
+[S02_PHYSICAL_FINDINGS.md](S02_PHYSICAL_FINDINGS.md).

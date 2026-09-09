@@ -1,112 +1,190 @@
 # Physical capture runbook
 
-The plan means **10 real physical shots per session, plus any deliberate
-no-impact audio events recorded separately**. No-impact events are never
-silently counted as physical shots.
+The existing S01/S02 plan requests **10 physical discharges per session**.
+Count discharges, audio-triggered events and visible physical changes separately;
+they are not necessarily one-to-one. Keep runtime event IDs; never shift labels
+to hide extra triggers or silently invent a single impact for an ambiguous event.
+Store generated reports and large data under `/data/skjutbana`.
+`content/ai/physical_traces` is intentionally a symlink to
+`/data/skjutbana/physical_traces`; preserve it.
+
+The accuracy target is **100% correct selected/emitted physical results**, with
+95% the minimum acceptable level. Preserve @5/@10/@20/@42 comparisons. A high
+candidate oracle is not success. CURRENT remains live authority; the common
+verifier experiments in [ACCURACY_95_100_RESEARCH.md](ACCURACY_95_100_RESEARCH.md)
+are frozen offline references only. S03 must remain entirely untouched.
+
+## Ambiguous physical events and current research state
+
+S02 event 1 has an unconfirmed possible second visible change. Preserve its
+native label and report the caveat plus exclusion sensitivity. An audio event
+can have no discharge; a discharge can have no new visible hole; tape/paper can
+change or a previous hole can reopen. Do not infer truth from timing, appearance
+or one-to-one shot numbering alone. Rapid genuine shots remain valid.
+
+The minimum research truth contract uses `impacts: [...]` and explicit
+SINGLE_IMPACT, NO_PHYSICAL_SHOT, UNKNOWN/AMBIGUOUS states. Multiple impacts can be
+represented later without changing that array. The current single-output
+evaluator excludes unresolved/multiple-impact truth explicitly. The existing
+label GUI's S key still means unresolved; it does not classify physical truth.
+Legacy finalization deliberately refuses unresolved assignments. Keep uncertain
+cases pending with a reason rather than forcing a label to make finalization pass.
+
+After this research pass, the next useful capture is a separate small diagnostic
+session with six discharges and six known no-impact controls, continuous
+PRE/onset/POST evidence and an independent event log. Identify newly visible
+changes immediately, including nearby/repeated cases. This addresses information
+missing from old traces, not independent 95% validation. See the research report
+for the exact purpose; do not reuse or inspect S03 for it.
+
+Physical trace capture now retains upstream contour/filter evidence and cleanup
+boundaries, with camera versus crop coordinate provenance. Missing full hybrid
+RAW evidence remains UNAVAILABLE. A trace/frame PASS establishes artifact
+integrity; it does not establish perfect physical truth, all missing source
+proposals, or the live timing of an offline verifier.
 
 ## Before shooting
 
-```bash
-python3 -m automation.physical_capture_plan --sessions 3 --shots-per-session 10 --output evaluation_runs/physical_capture_plan.json
-python3 -m automation.physical_collection start --plan evaluation_runs/physical_capture_plan.json --session S01 --output evaluation_runs/S01_binding.json
-python3 -m automation.physical_test start --prepare-only
-```
-
-Confirm the displayed session class and intended category sequence. The
-detector never receives intended coordinates.
-
-## Session A / B
-
-Start the application using the existing project command, fire the displayed
-10-shot sequence, and run a non-destructive health check after 3–5 shots:
+Choose a fresh report directory. Close the application before binding a session:
 
 ```bash
-python3 -m automation.physical_test check
+mkdir -p /data/skjutbana/evaluation_runs
+CAPTURE_RUN=$(mktemp -d /data/skjutbana/evaluation_runs/capture_XXXXXXXX)
+python3 -m automation.physical_capture_plan --sessions 3 --shots-per-session 10 --output "$CAPTURE_RUN/plan.json"
+python3 -m automation.physical_collection start --plan "$CAPTURE_RUN/plan.json" --session S01 --output "$CAPTURE_RUN/S01_binding.json"
+python3 -m automation.physical_collection preflight --plan "$CAPTURE_RUN/plan.json" --session S01 --binding "$CAPTURE_RUN/S01_binding.json"
+python3 main.py
 ```
 
-Close the application normally so traces flush. Then run the quality report:
+Keep the same plan for S02/S03 and use a separate binding for each session.
+`physical_collection start` reserves the trace root, enables capture and saves
+a byte-for-byte settings backup. **Do not then run `physical_test start`: that
+separate lifecycle creates another root and overrides the collection binding.**
+The intended category sequence is collection guidance, never detector truth.
+
+After 3–5 shots, check the exact binding from another terminal:
 
 ```bash
-python3 -m automation.physical_trace_quality --output evaluation_runs/S01_quality.json
+python3 -m automation.physical_test check --binding "$CAPTURE_RUN/S01_binding.json"
 ```
 
-Label each event with the existing `physical_test label` workflow. Mark false
-audio events `NO_PHYSICAL`, and use `AMBIGUOUS` or `SKIP` rather than guessing.
-Finalize only when every event is resolved.
+Wait at least five seconds after the final event before closing the application
+normally. Check again after shutdown to confirm that all evidence flushed.
 
-## Session C — untouched validation
-
-Bind `S03` explicitly. Do not train, tune, fit, select a configuration, or
-inspect it while developing. Only run postflight, label consistency and the
-final frozen evaluation path.
+## Labeling and extra audio events
 
 ```bash
-python3 -m automation.physical_collection start --plan evaluation_runs/physical_capture_plan.json --session S03 --output evaluation_runs/S03_binding.json
+python3 -m automation.physical_test label --binding "$CAPTURE_RUN/S01_binding.json"
 ```
 
-## Rebuild and final validation
+Click the physical hole, then Enter/P for precise or A for approximate. **S saves
+an unresolved skip; it does not mean `NO_PHYSICAL_SHOT`.** Use S when the event
+cannot yet be assigned, then explicitly classify any human-confirmed false event:
 
 ```bash
-python3 -m automation.rebuild_physical_research --output evaluation_runs/physical_research_rebuild_<id>
+python3 -m automation.physical_test classify --binding "$CAPTURE_RUN/S01_binding.json" \
+  --shot-id 4 --no-physical-shot --reason "Human confirmed extra audio event, no physical impact"
 ```
 
-The quality report must be PASS/WARN with no missing frame artifacts before
-the dataset is used. Validation data is evaluation-only; the guard refuses
-training and tuning operations.
+Classification writes only `physical_assignments.json`. For an immutable review,
+put the same assignments in a new external JSON instead and pass `--mapping`
+to quality/evaluate. Example:
 
-## Recovery
+```json
+{"4": {"state": "NO_PHYSICAL_SHOT", "label_shot_id": null, "reason": "Human-confirmed extra audio event"}}
+```
 
-- False audio event: record it explicitly as `NO_PHYSICAL`; do not renumber
-  later runtime events.
-- Wrong label: leave the trace immutable, correct the label manifest, and rerun
-  consistency checks.
-- Crash/incomplete session: keep it marked incomplete; do not claim ten shots.
-- Reused session id: bind a fresh unique trace root and refuse overwrite.
-- Missing artifact: stop and repair capture workflow before continuing.
+Missing labels or S markers alone must never imply a nonphysical event.
 
-## Hardened one-command flow
+## Reset labels safely
 
-Before each session, run the preflight (it refuses reused bindings and reports
-NOT READY with reasons):
+Close the application and labeler. Preview the bound session:
 
 ```bash
-python3 -m automation.physical_collection preflight --plan evaluation_runs/physical_capture_plan.json --session S01
+python3 -m automation.physical_collection reset-labels --binding "$CAPTURE_RUN/S01_binding.json" --session S01
 ```
 
-Bind/start with the existing prepare-only capture lifecycle. After labeling and
-quality output, finalize through the guarded wrapper:
+The preview lists the exact files and changes nothing. To perform the reset,
+repeat with `--apply`, then relabel through the same binding:
 
 ```bash
-python3 -m automation.physical_collection finalize \
-  --plan evaluation_runs/physical_capture_plan.json \
-  --session S01 \
-  --labels evaluation_runs/S01_labels.json \
-  --quality evaluation_runs/S01_quality.json \
-  --output evaluation_runs/S01_finalized.json
+python3 -m automation.physical_collection reset-labels --binding "$CAPTURE_RUN/S01_binding.json" --session S01 --apply
+python3 -m automation.physical_test label --binding "$CAPTURE_RUN/S01_binding.json"
 ```
 
-An interrupted or crashed session remains incomplete and must not be silently
-resumed. Bind a new session unless the trace health report proves the original
-session was fully flushed.
+The allowlist is **only** `shots/shot_XXXXXXXX/ground_truth.json`,
+`shots/shot_XXXXXXXX/ground_truth_status.json`, and session-level
+`physical_assignments.json`. Each existing file is copied and hash-verified in
+a fresh `/data/skjutbana/label_resets/` directory before removal; the terminal
+prints that backup path. `--backup-root` can select another directory outside
+the session. Repeating the reset on an unlabeled session is a no-op.
 
-## Adversarial recovery notes
+PRE/POST frames, candidate evidence, selectors, trace metadata, runtime logs,
+settings, bindings and external reports remain unchanged. Existing evaluation
+and finalization reports still describe the old labels; generate fresh reports
+after relabeling. Reset refuses incomplete/pending captures, an active automation
+port, wrong binding/session identity, symlinks inside the label/shot paths and
+untouched validation bindings. The storage-root symlink is supported.
+Legacy captured sessions can use an explicit `--root` instead of `--binding`.
 
-- `AMBIGUOUS` blocks finalization; resolve it before rerunning `finalize`.
-- If a false event occurs, preserve its runtime event ID and classify
-  `NO_PHYSICAL`; never shift later planned shot numbers.
-- If a plan mismatch is reported, use the original plan file; do not relabel
-  against a replacement plan.
-- If finalization output already exists, preserve it and choose a new report
-  path rather than overwrite it.
-- For a crash or missing artifact, keep the session incomplete and start a new
-  binding after repairing the capture environment.
+## Quality, evaluation and finalization
 
-## S01 recovery (2026-09-09 stale-root incident)
-
-The recovered trace is at `content/ai/physical_traces/session_20260909_S01_recovered_20260909` and contains 11 runtime events. It has no labels; do not infer the extra event. Use the binding/quality tools against this exact root, then label all 11 events and mark the confirmed extra event `NO_PHYSICAL` before finalization.
-
-Future starts must use `physical_collection start`; it creates and records a unique trace root and settings backup. Run preflight with `--binding` before launching `main.py`. Restore settings after capture with:
+Resolve the bound root once; do not use latest-session discovery or scan the
+whole trace storage during development:
 
 ```bash
-python3 -m automation.physical_collection restore --binding evaluation_runs/S01_binding.json
+SESSION_ROOT=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["trace_root"])' "$CAPTURE_RUN/S01_binding.json")
+python3 -m automation.physical_trace_quality --session-root "$SESSION_ROOT" --output "$CAPTURE_RUN/S01_quality.json"
+python3 -m automation.physical_test evaluate --binding "$CAPTURE_RUN/S01_binding.json" --output "$CAPTURE_RUN/S01_evaluation"
 ```
+
+For external assignments, add `--mapping /path/to/assignments.json` to both
+commands. Quality opens frame/map artifacts and checks label identity, bounds,
+timing and assignment consistency. Replay readiness is structural; evaluation
+must additionally report `CURRENT_EXACT_REPLAY` MATCH before claiming exact
+recorded-input replay. This is not regenerated detector replay.
+
+Create a separate labels manifest with `collection_plan_id`,
+`planned_session_id`, `trace_root`, and `labels`. Each row must have `event_id`,
+`status` (`PHYSICAL` or `NO_PHYSICAL_SHOT`) and `planned_physical_shot`
+(1–10 exactly once for physical shots; null for nonphysical events). Preserve
+the native coordinate labels. Finalize with fresh output paths:
+
+```bash
+python3 -m automation.physical_collection finalize --plan "$CAPTURE_RUN/plan.json" \
+  --session S01 --labels "$CAPTURE_RUN/S01_labels.json" \
+  --quality "$CAPTURE_RUN/S01_quality.json" --output "$CAPTURE_RUN/S01_finalized.json"
+```
+
+Finalization requires explicit trace/frame/label PASS and complete event/shot
+mapping. A string `FAIL`, an unresolved label, or another session's quality
+report cannot pass. Candidate/oracle recall and actual selected/emitted accuracy
+must remain separate. Report unavailable terminal evidence separately from a
+measured miss or timeout.
+
+After capture, optionally restore the binding's original settings:
+
+```bash
+python3 -m automation.physical_collection restore --binding "$CAPTURE_RUN/S01_binding.json"
+```
+
+## Protected validation and recovery
+
+S03 remains `VALIDATION_UNTOUCHED`. Do not inspect it for development, reset its
+labels, or include it in inventory/dataset rebuilds while fitting or choosing a
+configuration. Use explicit development roots only. The current generic patch
+builder uses post-decision frames and does not enforce the validation split;
+its output is unsuitable for live-equivalent verifier claims without a causal
+cutoff and an explicit development-session allowlist.
+
+Keep incomplete/crashed sessions and every original result. Repair capture
+before collecting a fresh uniquely bound session; never delete a trace to fix
+labels. Missing frame artifacts block use. S01's recovered data is preserved at
+`session_20260909_S01_recovered_20260909`: labels are complete, event 4 is
+nonphysical, and event 11 has usable images/GT but incomplete terminal evidence.
+
+S02's completed 2026-09-09 capture uses **`evaluation_runs/S02_retry_binding.json`**,
+not the earlier S02 binding. Physical events are 1,3,4,5,6,7,9,11,12,13;
+events 2,8,10 are human-confirmed nonphysical events. Their original S markers
+remain untouched; the finalized external mapping and checks are documented in
+[S02_PHYSICAL_FINDINGS.md](S02_PHYSICAL_FINDINGS.md).

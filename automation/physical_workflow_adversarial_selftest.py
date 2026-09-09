@@ -11,15 +11,15 @@ class AdversarialWorkflowTests(unittest.TestCase):
   return {'collection_plan_id':self.plan['collection_plan_id'],'labels':[{'planned_physical_shot':i+1,'event_id':i+1,'status:':status,'status':status} for i in range(n)]}
  def test_duplicate_mapping_refused(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);l=self.labels();l['labels'][1]['event_id']=1;(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True}))
+   p=Path(d);l=self.labels();l['labels'][1]['event_id']=1;(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True,'trace_completeness':True,'label_completeness':True}))
    with self.assertRaises(ValueError):validate(self.plan,'S01',p/'l',p/'q')
  def test_ambiguous_refused(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);l=self.labels();l['labels'][2]['status']='AMBIGUOUS';(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True}))
+   p=Path(d);l=self.labels();l['labels'][2]['status']='AMBIGUOUS';(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True,'trace_completeness':True,'label_completeness':True}))
    with self.assertRaises(ValueError):validate(self.plan,'S01',p/'l',p/'q')
  def test_wrong_plan_refused(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);l=self.labels();l['collection_plan_id']='wrong';(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True}))
+   p=Path(d);l=self.labels();l['collection_plan_id']='wrong';(p/'l').write_text(json.dumps(l));(p/'q').write_text(json.dumps({'frame_completeness':True,'trace_completeness':True,'label_completeness':True}))
    with self.assertRaises(ValueError):validate(self.plan,'S01',p/'l',p/'q')
  def test_validation_matrix(self):
   for op in ('train','tune','fit','select_config','model_select'):

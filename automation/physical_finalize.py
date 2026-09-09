@@ -1,18 +1,78 @@
 """Postflight/label consistency gate for a planned research session."""
 from __future__ import annotations
-import argparse,json
+
+import argparse
+import json
 from pathlib import Path
-def validate(plan,session,labels,quality):
- rows=[r for r in plan['rows'] if r['session']==session]; ls=json.loads(Path(labels).read_text()); qs=json.loads(Path(quality).read_text())
- if isinstance(qs,list): qs=next((q for q in qs if q.get('session')==session or q.get('session','').endswith(session)),qs[0] if qs else {})
- if ls.get('collection_plan_id') and ls['collection_plan_id']!=plan.get('collection_plan_id'):raise ValueError(f'collection plan mismatch: labels={ls["collection_plan_id"]} plan={plan.get("collection_plan_id")}; data is safe, use the original plan')
- if len({r.get('planned_physical_shot') for r in rows})!=len(rows):raise ValueError('duplicate planned shots')
- labels_list=ls.get('labels',[]);ids=[x.get('event_id') for x in labels_list];
- if len(ids)!=len(set(ids)):raise ValueError('duplicate label assignment')
- if any(x.get('status') in (None,'UNLABELED','AMBIGUOUS') for x in labels_list):raise ValueError('unresolved or AMBIGUOUS labels remain; correct labels before finalization')
- planned=[x.get('planned_physical_shot') for x in labels_list if x.get('status')=='PHYSICAL']
- if len(planned)!=len(set(planned)):raise ValueError('duplicate planned physical shot mapping; event ids must map one-to-one')
- if not qs.get('frame_completeness',qs.get('status')=='PASS'):raise ValueError('trace quality not complete')
- return dict(status='FINALIZED',session=session,labels=len(ls.get('labels',[])),physical_shots=sum(1 for x in labels_list if x.get('status')=='PHYSICAL'),non_physical_events=sum(1 for x in labels_list if x.get('status')=='NO_PHYSICAL_SHOT'),session_class=rows[0]['session_class'],trace_root=ls.get('trace_root'),recovered=bool(ls.get('recovered')),mapping=[{'planned_physical_shot':x.get('planned_physical_shot'),'event_id':x.get('event_id'),'status':x.get('status')} for x in labels_list])
-if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('--plan',type=Path,required=True);p.add_argument('--session',required=True);p.add_argument('--labels',type=Path,required=True);p.add_argument('--quality',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();res=validate(json.loads(a.plan.read_text()),a.session,a.labels,a.quality);a.output.write_text(json.dumps(res,indent=2)+'\n');print(res)
+
+
+def validate(plan, session, labels, quality):
+    rows = [r for r in plan['rows'] if r['session'] == session]
+    if not rows:
+        raise ValueError('unknown planned session')
+    ls = json.loads(Path(labels).read_text())
+    qs = json.loads(Path(quality).read_text())
+    if isinstance(qs, list):
+        def matches(q):
+            if ls.get('trace_root') and q.get('trace_root'):
+                return Path(ls['trace_root']).resolve() == Path(q['trace_root']).resolve()
+            return q.get('session') == session
+        found = [q for q in qs if matches(q)]
+        if len(found) != 1:
+            raise ValueError('quality must identify exactly the labeled session; no fallback to another report')
+        qs = found[0]
+    if ls.get('collection_plan_id') != plan.get('collection_plan_id'):
+        raise ValueError('collection plan mismatch; data is safe, use the original plan')
+    if ls.get('planned_session_id', session) != session:
+        raise ValueError('label manifest identifies another planned session')
+    if ls.get('trace_root') and qs.get('trace_root') and Path(ls['trace_root']).resolve() != Path(qs['trace_root']).resolve():
+        raise ValueError('quality trace root differs from labels')
+    expected = [r['planned_physical_shot'] for r in rows]
+    if len(set(expected)) != len(expected):
+        raise ValueError('duplicate planned shots')
+    labels_list = ls.get('labels', [])
+    ids = [x.get('event_id') for x in labels_list]
+    if any(type(i) is not int or i < 1 for i in ids) or len(set(ids)) != len(ids):
+        raise ValueError('invalid or duplicate label assignment')
+    if any(x.get('status') not in ('PHYSICAL', 'NO_PHYSICAL_SHOT') for x in labels_list):
+        raise ValueError('unresolved, unknown or AMBIGUOUS labels remain')
+    planned = [x.get('planned_physical_shot') for x in labels_list if x['status'] == 'PHYSICAL']
+    if len(set(planned)) != len(planned) or set(planned) != set(expected):
+        raise ValueError('physical mapping must cover every planned shot exactly once')
+    if any(x.get('planned_physical_shot') is not None for x in labels_list if x['status'] == 'NO_PHYSICAL_SHOT'):
+        raise ValueError('nonphysical events must not consume planned physical shots')
+    if 'event_ids' in qs and set(ids) != set(qs['event_ids']):
+        raise ValueError('label mapping does not cover the captured event ids exactly')
+    if qs.get('events', len(ids)) != len(ids):
+        raise ValueError('label count differs from captured event count')
+    # Strings such as FAIL are truthy in Python: accept only explicit pass values.
+    for name in ('frame_completeness', 'trace_completeness', 'label_completeness'):
+        value = qs.get(name)
+        if not (value is True or value == 'PASS'):
+            raise ValueError(f'trace quality not complete: {name}={value!r}')
+    return dict(status='FINALIZED', session=session, labels=len(labels_list),
+                physical_shots=len(planned), non_physical_events=len(ids) - len(planned),
+                session_class=rows[0]['session_class'], trace_root=ls.get('trace_root'),
+                recovered=bool(ls.get('recovered')),
+                mapping=[{k: x.get(k) for k in ('planned_physical_shot', 'event_id', 'status')} for x in labels_list])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--plan', type=Path, required=True)
+    parser.add_argument('--session', required=True)
+    parser.add_argument('--labels', type=Path, required=True)
+    parser.add_argument('--quality', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    if args.output.exists():
+        parser.error('Output exists; preserve the baseline and choose a new path.')
+    result = validate(json.loads(args.plan.read_text()), args.session, args.labels, args.quality)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open('x') as stream:
+        stream.write(json.dumps(result, indent=2) + '\n')
+    print(result)
+
+
+if __name__ == '__main__':
+    main()

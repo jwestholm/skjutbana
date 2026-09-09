@@ -2,6 +2,82 @@
 
 ## CURRENT FACTS — 2026-09-09
 
+- **Accuracy objective:** 100% correct physical output; 95% is only the minimum
+  acceptable level. No practical success or live promotion has been achieved.
+- **Completed common-verifier research:** 65 causal decision contexts from five
+  explicitly allowed development sessions (59 physical, six no-physical), with
+  whole-session training exclusions and frozen baselines. Registered multiscale
+  patch logistic selection reaches **5/5/5/5 of 9 on held-out S01** and
+  **3/3/3/3 of 10 on S02 development**, at @5/10/20/42. These are different fitted
+  models under the same method. Primary held-out @42 improves 7/49 → 11/49;
+  including development-used S02, 8/59 → 14/59. This is offline selection at
+  recorded cutoffs, not new live-compatible end-to-end physical validation.
+- **Separate failures remain:** bounded earlier-reference proposals raise S02's
+  oracle to 3/3/5/9 but union selection stays 3/3/3/3. A spatial null averages
+  7.082/10 @42, so broad coverage is not proof of physical proposal quality.
+  Common logistic falsely selects all six known no-physical events. A visual
+  gate rejecting all three S02 false events also rejects five physical shots.
+  Broad-negative, forest, guarded-PRE, pairwise and contour-rescue trials are
+  measured and documented; none is a promotion candidate.
+- **Truth caveat:** S02 event 1 may have produced two visible changes, unconfirmed.
+  Its native label is unchanged. Exclusion sensitivity is reported. A minimal
+  evaluation contract supports NO_PHYSICAL_SHOT, single-impact, UNKNOWN/AMBIGUOUS
+  and an extensible impact array; no generalized live event engine was added.
+- **Trace integrity fix:** cleanup now preserves copied upstream contour/filter
+  evidence and input/after-novelty/after-ridge/retained boundaries with coordinate
+  provenance. Previously overwritten per-coordinate rejection evidence cannot
+  be recovered retrospectively. Candidate scores, ordering and live authority
+  remain unchanged. S03 has not been opened, inspected, evaluated or modified.
+- **Frozen offline references and results:**
+  `/data/skjutbana/evaluation_runs/accuracy_95_100_20260909_174137/`.
+  See [ACCURACY_95_100_RESEARCH.md](ACCURACY_95_100_RESEARCH.md) for exact metrics,
+  per-shot S02 proposal forensics, hashes, limits, tests and reproduction.
+- **Latest completed collection: S02** at
+  `session_20260909_162957_S02_b900192c`, bound by
+  `evaluation_runs/S02_retry_binding.json`. Ten precise physical labels map to
+  events 1,3,4,5,6,7,9,11,12,13; human-confirmed nonphysical events are 2,8,10.
+  Their S/unresolved files remain untouched; the external mapping, label
+  manifest, quality and finalization reports are in
+  `/data/skjutbana/evaluation_runs/S02_finalization_20260909_170523/`.
+- **Measured S02:** causal candidate recall is **3/10 @5/@10/@20, 5/10 @42**.
+  CURRENT selected/emitted accuracy is **1/10 at all four radii**; mean
+  187.926471, median 163.723005, P95 426.563857 px. All ten physical events
+  emitted, and **3/3 nonphysical events also emitted false hits**. Both frozen
+  shadows are 0/10 @42. This is DEVELOPMENT physical evidence; provenance does
+  not establish independent validation of a new selector.
+- **Verified S02 funnel:** 10 physical → 5 causal @42 → 5 tracked → 5 locally
+  confirmed → 5 eligible → 1 selected. The four correct losing tracks rank
+  71,101,110,46; V1 loses to FAST at tied onset distance. The other five events
+  lack causal @42 proposals, so a verifier alone has a 5/10 ceiling on the
+  existing coordinates. Existing FAST-exclusion replay stays 1/10; no tuning.
+- **Quality:** S02 trace/frame/label/replay-readiness/patch/temporal PASS; exact
+  recorded-input replay matches all 13 selected tracks and recorded emissions.
+  All 1,664 S02 files and the locally modified settings file are preserved.
+  This is not regenerated detector replay. No S03 data was opened.
+- **S01 comparison:** ten physical labels and nonphysical event 4; nine physical
+  decisions are complete, with causal oracle 9/9 @42 and CURRENT 3/9. Event 11
+  has images/GT but incomplete terminal persistence, so its accuracy is
+  unavailable. The previous finalization is preserved. S01 remains useful for
+  research; do not describe its tenth outcome as a measured timeout or miss.
+- **Workflow:** `physical_collection reset-labels --binding ...` previews an
+  exact allowlist; `--apply` verifies an external label backup before removing
+  only ground-truth/status/assignment files. Tests exercise evidence preservation
+  and refusals. `physical_test check/label/classify/evaluate --binding ...` now
+  targets the same captured session. Postflight checks actual artifacts and
+  explicit PASS values, rejects incomplete mapping, and scopes single-session
+  inspection without reading sibling sessions.
+- **Next evidence:** a small diagnostic capture identifying each newly visible
+  change and its physical onset, plus explicit no-impact controls; details and
+  reasons are in the accuracy report. Existing traces cannot recover overwritten
+  rejection ledgers or resolve unconfirmed physical ambiguity. The completed
+  offline experiments are frozen for comparison. S03 stays reserved; CURRENT,
+  canonical SHADOW challenger and confirmation hash remain unchanged.
+
+Full metrics, evidence limits, hashes and reproduction:
+[S02_PHYSICAL_FINDINGS.md](S02_PHYSICAL_FINDINGS.md).
+
+## Previous post-fix comparator and research foundations (historical)
+
 - **PROVEN physical validation:** post-PRE session
   `session_20260908_194746_b38de674` has 10 physical shots, 10 audio events,
   zero false events. Causal oracle is 7/10 @5/@10 and 9/10 @20/@42.
@@ -352,4 +428,4 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
 
 ## Physical S01 recovery
 
-The 2026-09-09 S01 run was written into the historical biathlon5 root because the old settings trace root remained active. A separate recovered copy was created at `content/ai/physical_traces/session_20260909_S01_recovered_20260909`; it contains 11 timestamped runtime events, complete PRE/POST frame references, and no retained ground-truth labels. The contaminated historical directory is preserved and must not be used as a clean session. `physical_collection start` now reserves a unique root, configures the runtime settings, records a byte-for-byte settings backup, and preflight verifies the actual configured root.
+The 2026-09-09 S01 run was written into the historical biathlon5 root because the old settings trace root remained active. A separate recovered copy was created at `content/ai/physical_traces/session_20260909_S01_recovered_20260909`; it contains 11 timestamped runtime events and complete PRE/POST frame references. It has since been manually labeled: ten physical shots and nonphysical event 4. Event 11 has incomplete terminal persistence, so only nine physical decisions support final-selection metrics. The contaminated historical directory is preserved and must not be used as a clean session. `physical_collection start` reserves a unique root, configures runtime settings, records a byte-for-byte settings backup, and preflight verifies the actual configured root.

@@ -202,14 +202,21 @@ def evaluate_session(root,output,manifest,mapping=None):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['start','check','label','classify','evaluate','stop'])
-    p.add_argument('--root',type=Path);p.add_argument('--output',type=Path);p.add_argument('--mapping',type=Path)
+    location=p.add_mutually_exclusive_group()
+    location.add_argument('--root',type=Path);location.add_argument('--binding',type=Path,help='Use this collection binding for check/label/classify/evaluate')
+    p.add_argument('--output',type=Path);p.add_argument('--mapping',type=Path)
     p.add_argument('--challenger',type=Path,default=DEFAULT_CHALLENGER);p.add_argument('--prepare-only',action='store_true')
     p.add_argument('--shot-id',type=int);p.add_argument('--label-shot-id',type=int);p.add_argument('--no-physical-shot',action='store_true');p.add_argument('--reason')
     a=p.parse_args()
     try:
-        if a.command=='start':start(a);return
-        state=json.loads(ACTIVE.read_text()) if ACTIVE.exists() else {}
-        root=a.root or (Path(state['root']) if state else None)
+        if a.command=='start':
+            if a.binding:raise ValueError('A collection binding is already prepared; launch main.py instead of physical_test start.')
+            start(a);return
+        state=json.loads(ACTIVE.read_text()) if not a.binding and ACTIVE.exists() else {}
+        if a.binding:
+            from automation.physical_label_reset import resolve_session
+            root,_=resolve_session(binding=a.binding)
+        else:root=a.root or (Path(state['root']) if state else None)
         if root is None:raise ValueError('No active session; specify --root.')
         if a.command=='check':
             h=health(root);print(json.dumps(h,indent=2));sys.exit(0 if h['healthy'] else 1)

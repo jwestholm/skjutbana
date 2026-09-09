@@ -1,5 +1,42 @@
 # Detector score root-cause audit
 
+## Latest physical accuracy research — 2026-09-09
+
+The target is 100% correct physical output; 95% is the minimum acceptable level.
+Baseline reproduction again gives S01 CURRENT 2/2/3/3 of nine observable shots,
+post-fix comparator 2/2/2/2 of ten, and S02 1/1/1/1 of ten at @5/10/20/42.
+S02 exact recorded-input replay matches 13/13, including three false emissions.
+CURRENT and both frozen shadow authorities are unchanged.
+
+Common source-independent registered patch evidence now improves offline
+selection: primary session-held-out @42 7/49 → 11/49, S02 development 1/10 →
+3/10. The earlier-reference variant reaches held-out S01 5/9 at all radii.
+This is a captured-time single-decision experiment, not full live emission
+validation. Two hashed logistic research references are frozen for reproduction.
+
+The three bottlenecks remain distinct. S02's existing oracle is 3/3/3/5; a
+bounded proposal expansion raises it to 3/3/5/9, but selection remains 3/10.
+The remaining original positive tracks rank 98 and 56. Count-matched random
+spatial coverage already averages 7.082/10 @42, so expansion's 9/10 is not
+sufficient evidence of physical specificity. No-impact gates either continue
+false emissions or reject too many physical shots. Forest, broader negatives,
+pairwise/hard-negative ranking, guarded PRE noise and contour rescue were tested;
+none warrants promotion.
+
+Five-shot raw-mask forensics exclude ROI/crop loss and large registration shifts.
+Events 4/6/7 have no nondegenerate nearby contour under the broad geometric test;
+events 5/13 have nearby raw contours that vanish before retention. Exact later
+causes cannot be recovered from aggregate rejection counts. The cleanup wrapper
+overwrote the upstream ledger; its observational capture now preserves that
+evidence with coordinate provenance and filter boundaries, without policy changes.
+
+S02 is development-used. Event 1 has an unconfirmed possible multiple-change
+caveat; labels are unchanged and exclusion sensitivity is reported. S03 has not
+been opened, inspected, evaluated, tuned against or modified. Full results,
+negative hypotheses, constraints, timings and commands are in
+[ACCURACY_95_100_RESEARCH.md](ACCURACY_95_100_RESEARCH.md). Earlier sections below
+remain historical evidence rather than the latest experiment plan.
+
 ## Executive summary
 
 The 10-shot physical development trace shows a repeatable score-scale and
@@ -359,3 +396,33 @@ motion and permanence experiments improve diagnostics but do not safely replace
 final ranking. A source-independent verifier after eligibility is the concrete
 next design, pending richer physical labelled patches and leave-session-out
 validation.
+
+## S02 physical evidence — 2026-09-09
+
+The freshly labeled S02 development session repeats the ranking mechanism but
+also limits its scope: **5/10 causal @42 proposals → 5 tracked → 5 locally
+confirmed → 5 eligible → 1 correctly selected/emitted**. At @5/@10/@20 the
+candidate oracle is 3/10; CURRENT is 1/10 at all radii. Mean CURRENT error is
+187.926471 px. Runtime events 2,8,10 are human-confirmed nonphysical and all
+three emitted false hits. All 13 decisions match exact recorded-input replay.
+
+The four oracle-positive failures have V1 truths at ranks 71,101,110,46, with
+FAST winners and identical onset-distance keys. Physical eligible-pool median
+best score is FAST 17.75 versus V1 7.186860; FAST maximum is 31.628668, and no
+historical best score exceeds current candidate score. This is continued
+cross-source/within-source evidence discrimination failure, not recurrence of
+the old PRE-plane saturation defect. Existing complete-pool FAST exclusion
+still gives 1/10; the old local-contrast replay gives 0/10. Neither is promoted.
+
+The other five S02 events have no causal candidate within 42 px (nearest
+distances 47.883879,76.150322,52.636643,51.421461,42.273624). A final verifier
+cannot recover these missing coordinates by ranking alone. Keep proposal recall
+and conditional selection as separate measurements and separate hypotheses.
+
+S01 is 9/9 oracle and 3/9 CURRENT on its nine complete physical decisions; its
+tenth physical outcome is unavailable due to incomplete persistence. The prior
+post-fix comparator remains 9/10 oracle and 2/10 CURRENT. This is a descriptive
+cross-session comparison, not an accuracy improvement. The S02 labels and
+frames remain unchanged, both shadows remain frozen, and S03 is untouched.
+See [S02_PHYSICAL_FINDINGS.md](S02_PHYSICAL_FINDINGS.md) for exact metrics,
+provenance, false-event mapping and reproducible report commands.

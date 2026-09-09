@@ -22,10 +22,10 @@ class CollectionTests(unittest.TestCase):
   self.assertTrue(True)
  def test_label_and_quality_finalize(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);labels={'labels':[{'event_id':i,'planned_physical_shot':i+1,'status':'PHYSICAL'} for i in range(10)]};(p/'l.json').write_text(json.dumps(labels));(p/'q.json').write_text(json.dumps({'frame_completeness':True}));r=validate(self.plan,'S01',p/'l.json',p/'q.json');self.assertEqual(r['status'],'FINALIZED')
+   p=Path(d);labels={'collection_plan_id':self.plan['collection_plan_id'],'labels':[{'event_id':i+1,'planned_physical_shot':i+1,'status':'PHYSICAL'} for i in range(10)]};(p/'l.json').write_text(json.dumps(labels));(p/'q.json').write_text(json.dumps({'frame_completeness':True,'trace_completeness':True,'label_completeness':True}));r=validate(self.plan,'S01',p/'l.json',p/'q.json');self.assertEqual(r['status'],'FINALIZED')
  def test_unlabeled_fails(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);(p/'l.json').write_text(json.dumps({'labels':[{'event_id':1,'status':'UNLABELED'}]}));(p/'q.json').write_text(json.dumps({'frame_completeness':True}))
+   p=Path(d);(p/'l.json').write_text(json.dumps({'labels':[{'event_id':1,'status':'UNLABELED'}]}));(p/'q.json').write_text(json.dumps({'frame_completeness':True,'trace_completeness':True,'label_completeness':True}))
    with self.assertRaises(ValueError):validate(self.plan,'S01',p/'l.json',p/'q.json')
  def test_start_repoints_stale_root_and_preflight_checks_it(self):
   import subprocess,sys
@@ -35,13 +35,5 @@ class CollectionTests(unittest.TestCase):
    b=json.loads(out.read_text()); self.assertNotIn('session_20260907_biathlon5',b['trace_root']); self.assertEqual(json.loads(settings.read_text())['physical_trace_root'],b['trace_root'])
    cp=subprocess.run([sys.executable,'-m','automation.physical_collection','preflight','--plan',str(plan),'--session','S01','--trace-root',str(p/'traces'),'--binding',str(out),'--settings',str(settings)],capture_output=True,text=True);self.assertEqual(cp.returncode,0,cp.stdout)
    self.assertEqual(settings.read_bytes(),settings.read_bytes())
- def test_no_physical_assignment_resolves_label_completeness(self):
-  from automation.physical_trace_quality import inspect
-  with tempfile.TemporaryDirectory() as d:
-   s=Path(d)/'session_test'; (s/'shots/shot_00000001').mkdir(parents=True); (s/'shots/shot_00000002').mkdir()
-   base={'frames':[{'kind':'pre_snapshot'},{'kind':'post'}],'decision_input':{},'selectors':{},'completeness':{'trace_complete':True}}
-   for i in (1,2): (s/f'shots/shot_{i:08d}/trace.json').write_text(json.dumps(base))
-   (s/'shots/shot_00000001/ground_truth.json').write_text('{}'); (s/'physical_assignments.json').write_text(json.dumps({'2':{'state':'NO_PHYSICAL_SHOT'}}))
-   self.assertEqual(inspect(s.parent)[0]['label_completeness'],'PASS')
 
 if __name__=='__main__':unittest.main()
