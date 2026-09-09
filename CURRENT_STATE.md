@@ -343,3 +343,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   trace-quality scoring, finalization checks, and a practical operator runbook
   are implemented. Session C is explicitly `VALIDATION_UNTOUCHED`; no-impact
   events are separate from the ten physical shots.
+
+- **Adversarial workflow hardening:** preflight now refuses reused bindings and
+  reports actionable readiness; `physical_collection finalize` provides the
+  guarded postflight entry point. Session metadata includes a deterministic
+  plan identity, and validation tuning guards cover train/tune/fit/config
+  selection operations.

@@ -63,3 +63,28 @@ training and tuning operations.
 - Crash/incomplete session: keep it marked incomplete; do not claim ten shots.
 - Reused session id: bind a fresh unique trace root and refuse overwrite.
 - Missing artifact: stop and repair capture workflow before continuing.
+
+## Hardened one-command flow
+
+Before each session, run the preflight (it refuses reused bindings and reports
+NOT READY with reasons):
+
+```bash
+python3 -m automation.physical_collection preflight --plan evaluation_runs/physical_capture_plan.json --session S01
+```
+
+Bind/start with the existing prepare-only capture lifecycle. After labeling and
+quality output, finalize through the guarded wrapper:
+
+```bash
+python3 -m automation.physical_collection finalize \
+  --plan evaluation_runs/physical_capture_plan.json \
+  --session S01 \
+  --labels evaluation_runs/S01_labels.json \
+  --quality evaluation_runs/S01_quality.json \
+  --output evaluation_runs/S01_finalized.json
+```
+
+An interrupted or crashed session remains incomplete and must not be silently
+resumed. Bind a new session unless the trace health report proves the original
+session was fully flushed.
