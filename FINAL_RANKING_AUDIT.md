@@ -59,3 +59,10 @@ look better than physically correct tracks.
 
 **RESEARCH_ONLY:** prior-event recurrence remains a diagnostic idea only. No
 recurrence penalty or ranker is frozen or promoted.
+
+## Common-evidence follow-up
+
+Static common compactness improves several true-track ranks without using
+source-specific detector scores, but the false winner remains top-ranked in
+all seven failed events. It is therefore insufficient as final authority.
+See [COMMON_IMPACT_RANKING.md](COMMON_IMPACT_RANKING.md).

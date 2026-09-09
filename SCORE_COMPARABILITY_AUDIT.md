@@ -83,3 +83,11 @@ generation followed by common, source-independent impact evidence.
 
 **RESEARCH_ONLY:** source normalization and common-feature rescoring. No live
 change is frozen.
+
+## Common-evidence follow-up
+
+A source-independent registered compactness measurement is available across
+all 973 eligible tracks. It improves true-track recovery at @10/@20 but does
+not win any of the seven previously failed pairwise events. This supports the
+source-specific-proposal/common-impact-confirmation architecture as a
+hypothesis, not as a validated selector.

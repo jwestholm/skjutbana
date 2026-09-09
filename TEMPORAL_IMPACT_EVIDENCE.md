@@ -60,3 +60,8 @@ The final-ranking audit confirms temporal/confirmation values are not ranking
 terms after eligibility. The live comparator uses onset distance followed by
 historical `track.best_score`; this explains why promising temporal evidence
 cannot affect current authority without a separate research replay.
+
+The complete-pool common-feature replay confirms that static compactness is
+available broadly, while temporal persistence is currently only available for
+labelled true/winner pairs. A fair temporal final rank over all eligible tracks
+requires richer causal frame/confirmation tracing.

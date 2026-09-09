@@ -294,3 +294,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   source distributions remain materially different (FAST median 13.41, V1
   median 5.06). The seven losses are still decided by raw `best_score`; source
   normalization and common-evidence replays remain research-only.
+
+- **Common-evidence research:** registered compactness is available for all
+  973 eligible tracks and moves several truths upward (@10: 5/10, @20: 7/10),
+  but no static common feature selects the seven failed events correctly.
+  Temporal common evidence is only reconstructed for labelled pairs, so no
+  common final ranker is ready to freeze.
