@@ -310,3 +310,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   tracks (false median ~0.047 px), motion-explained residual fraction is near
   zero, and local alignment does not reverse the seven failures. Edge-shift
   residual is not supported as the dominant cause.
+
+- **Long-horizon diagnostic:** post-decision frames extend to ~2.4 s for most
+  events and next-event PRE exists for 9/10, but permanence does not separate
+  the seven failures. Next-PRE center-dark ranks give only @5=3/@10=3; no
+  wait-for-settle policy is justified.

@@ -71,3 +71,7 @@ necessary diagnostic information but not sufficient final authority.
 Local-motion diagnostics do not explain why static/temporal common features
 still lose the seven pairwise cases. The measured motion-explained fraction is
 near zero for both true and false tracks.
+
+Stable-state/next-event PRE diagnostics do not resolve the common-ranking gap:
+future-aware center-dark ranks reach only @5=3 and @10=3 across the ten true
+tracks. No stable-state final scorer is justified.

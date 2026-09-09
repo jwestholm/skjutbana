@@ -79,3 +79,10 @@ A complete 973-track local phase-correlation audit found negligible residual
 collapse after bounded local alignment. Temporal persistence remains useful
 for top-k diagnostics, but the false winners are not simply translated-edge
 artifacts in this session.
+
+## Long-horizon follow-up
+
+Future-aware next-event PRE and later post frames were evaluated separately.
+Persistence beyond the causal window does not reliably favor physical tracks;
+selected nuisance winners can remain persistent. No longer-delay policy is
+supported.

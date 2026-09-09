@@ -29,3 +29,7 @@ The latest physical evidence does not support adding a simple event-wide or
 local translated-edge nuisance model: measured local shifts are too small and
 residuals do not collapse after correction. Synthetic motion should not be
 changed on this basis.
+
+Long-horizon physical evidence does not support changing synthetic persistence
+semantics yet. Persistent nuisance structures are present in real traces, so a
+synthetic model that treats persistence as sufficient would remain unrealistic.

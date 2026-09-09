@@ -70,3 +70,7 @@ The full-pool causal replay removes the previous coverage gap: every eligible
 track has 4–8 post frames before the saved decision. Persistence improves @3–@10
 recovery but still chooses the false winner in all seven failed events. This
 rules out simple persistence as the missing final semantic.
+
+Long-horizon follow-up shows that short-window persistence is not merely too
+short: nuisance winners can remain persistent into the next event's PRE
+snapshot. Persistence therefore does not establish new-impact identity.
