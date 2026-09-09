@@ -60,3 +60,10 @@ Reproduction:
 ```text
 python3 -m automation.common_impact_ranking --input evaluation_runs/registered_impact_20260909/physical_v2/physical_features.json --output evaluation_runs/registered_impact_20260909/common_ranks.json
 ```
+
+## Full-pool temporal update
+
+Causal temporal features are now available across all 973 eligible tracks. A
+persistence-count rank improves top-k recovery over raw score, but remains
+false in all seven failed pairwise events. Temporal evidence is therefore
+necessary diagnostic information but not sufficient final authority.

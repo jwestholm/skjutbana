@@ -66,3 +66,7 @@ Static common compactness improves several true-track ranks without using
 source-specific detector scores, but the false winner remains top-ranked in
 all seven failed events. It is therefore insufficient as final authority.
 See [COMMON_IMPACT_RANKING.md](COMMON_IMPACT_RANKING.md).
+
+Full-pool temporal replay confirms the final raw-score failure is not repaired
+by persistence alone. Causal persistence, onset darkening and peak compactness
+still prefer the false winner in all seven failed events.

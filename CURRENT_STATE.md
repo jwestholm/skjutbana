@@ -300,3 +300,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   but no static common feature selects the seven failed events correctly.
   Temporal common evidence is only reconstructed for labelled pairs, so no
   common final ranker is ready to freeze.
+
+- **Full-pool temporal replay:** causal temporal features are reconstructable
+  for all 973 eligible tracks, with 4–8 POST frames before each saved live
+  decision. Persistence reaches @5=3, @10=5, @20=7, but still selects the
+  false winner in all seven failed pairwise events. No temporal ranker is ready.
