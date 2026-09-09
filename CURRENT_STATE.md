@@ -315,3 +315,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   events and next-event PRE exists for 9/10, but permanence does not separate
   the seven failures. Next-PRE center-dark ranks give only @5=3/@10=3; no
   wait-for-settle policy is justified.
+
+- **Architecture review:** proposal scores are currently allowed to decide the
+  final hit, although they are source-specific discovery scores. Static,
+  temporal, motion and permanence replays do not provide a safe replacement;
+  the highest-value next change is a research-only common verifier interface
+  with richer physical patch hard negatives.

@@ -348,3 +348,14 @@ within V1, while true FAST tracks can still rank low within FAST, proving both
 cross-source scale mismatch and within-source detector-scoring weakness. The
 final selector still uses raw historical best score. Source normalization and
 common-feature rescoring remain offline research only.
+
+## Architectural review update — 2026-09-09
+
+The detector has evolved as high-recall V1/V2/FAST proposal paths, vault/bank
+carry, tracking and confirmation gates followed by a final selector that uses
+`max(track.best_score)`. The score is not a calibrated new-hole probability.
+This is the central architectural mismatch. Offline compactness, persistence,
+motion and permanence experiments improve diagnostics but do not safely replace
+final ranking. A source-independent verifier after eligibility is the concrete
+next design, pending richer physical labelled patches and leave-session-out
+validation.
