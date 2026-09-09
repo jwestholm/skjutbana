@@ -81,3 +81,9 @@ set, but not to validate a final verifier. The next concrete engineering step
 is to preserve this dataset schema and add complete eligible-pool/confirmation
 metadata to future sessions, then train/evaluate a verifier with
 leave-session-out splits.
+
+## Data collection prerequisite
+
+Before freezing a verifier, collect three independent ten-shot sessions with
+controlled low-contrast, line/edge, dark, texture, old-hole proximity and
+nearby-grouping coverage. Keep one session untouched for physical validation.

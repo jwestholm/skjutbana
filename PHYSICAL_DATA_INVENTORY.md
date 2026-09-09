@@ -20,3 +20,9 @@ newer sessions support complete eligible-pool final-rank replay.
 All traces use `physical-shot-trace-1` but not identical semantics. The legacy
 sessions have real PRE/POST arrays and camera GT, so they are
 `PATCH_DATASET_COMPATIBLE`; they are not silently upgraded to full replay.
+
+## Automated rebuild
+
+Use `automation.physical_trace_quality` for PASS/WARN/FAIL quality scoring and
+`automation.rebuild_physical_research` to regenerate inventory, quality and the
+unified patch dataset without touching traces or live settings.

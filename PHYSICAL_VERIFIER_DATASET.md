@@ -29,3 +29,8 @@ reliable verifier alone.
 Future collection should target 30–50 additional labelled shots over at least
 three sessions, balanced across low/high contrast, lines, dark regions,
 old-hole proximity, nearby grouping and no-impact audio events.
+
+The recommended future split is development on two sessions and one untouched
+validation session. The current historical set is not sufficient to designate
+an untouched validation session because only two sessions have complete
+full-pool semantics and their visual domains differ.

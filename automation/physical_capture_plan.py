@@ -1,0 +1,15 @@
+"""Generate a deliberately balanced future physical-capture manifest."""
+from __future__ import annotations
+import argparse,json
+from pathlib import Path
+
+DEFAULT_CATEGORIES=('light_flat','dark_flat','low_contrast','printed_line','edge_or_boundary','old_hole_nearby','texture','repeat_grouping')
+def build(sessions,shots):
+ rows=[]; n=0
+ for s in range(1,sessions+1):
+  for i in range(shots):
+   cat=DEFAULT_CATEGORIES[(n)%len(DEFAULT_CATEGORIES)];n+=1
+   rows.append(dict(session=f'S{ s:02d}',intended_shot=i+1,category=cat,notes='label immediately after trace finalization',actual_event_id=None,gt_status='UNLABELED',trace_health=None))
+ return dict(status='PLANNED_ONLY',categories=DEFAULT_CATEGORIES,sessions=sessions,shots_per_session=shots,rows=rows)
+if __name__=='__main__':
+ p=argparse.ArgumentParser();p.add_argument('--sessions',type=int,default=3);p.add_argument('--shots-per-session',type=int,default=10);p.add_argument('--output',type=Path,required=True);a=p.parse_args();a.output.write_text(json.dumps(build(a.sessions,a.shots_per_session),indent=2)+'\n');print(a.output)

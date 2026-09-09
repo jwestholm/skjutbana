@@ -333,3 +333,8 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   conservative selected-false negatives across 86 examples. Only the two
   post-fix sessions support complete final-rank replay. Session-held-out rich
   patch tests show domain shift; no verifier is ready to freeze.
+
+- **Capture engineering:** domain audit identifies edge/gradient density as the
+  clearest session shift. New tooling generates balanced manifests, scores
+  trace quality, and rebuilds the research dataset. Recommended future data is
+  3 independent sessions × 10 shots, with the third held out untouched.
