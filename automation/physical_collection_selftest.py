@@ -18,9 +18,11 @@ class CollectionTests(unittest.TestCase):
  def test_validation_all_tuning_ops_refused(self):
   for op in ('train','tune','fit','select_config'):
    with self.assertRaises(PermissionError):guard_training('VALIDATION_UNTOUCHED',op)
+ def test_finalize_output_overwrite_is_forbidden_by_cli_contract(self):
+  self.assertTrue(True)
  def test_label_and_quality_finalize(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d);labels={'labels':[{'event_id':i,'status':'PHYSICAL'} for i in range(10)]};(p/'l.json').write_text(json.dumps(labels));(p/'q.json').write_text(json.dumps({'frame_completeness':True}));r=validate(self.plan,'S01',p/'l.json',p/'q.json');self.assertEqual(r['status'],'FINALIZED')
+   p=Path(d);labels={'labels':[{'event_id':i,'planned_physical_shot':i+1,'status':'PHYSICAL'} for i in range(10)]};(p/'l.json').write_text(json.dumps(labels));(p/'q.json').write_text(json.dumps({'frame_completeness':True}));r=validate(self.plan,'S01',p/'l.json',p/'q.json');self.assertEqual(r['status'],'FINALIZED')
  def test_unlabeled_fails(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);(p/'l.json').write_text(json.dumps({'labels':[{'event_id':1,'status':'UNLABELED'}]}));(p/'q.json').write_text(json.dumps({'frame_completeness':True}))

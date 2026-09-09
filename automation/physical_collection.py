@@ -19,7 +19,7 @@ def bind(plan,session,trace_root,source_commit='unknown'):
  meta=dict(collection_plan_id=plan.get('collection_plan_id',plan.get('plan_id','local-plan')),planned_session_id=session,session_class=rows[0]['session_class'],created_at=datetime.now(timezone.utc).isoformat(),source_commit=source_commit,trace_root=str(trace_root),rows=rows)
  return meta
 def guard_training(session_class,operation):
- if session_class=='VALIDATION_UNTOUCHED' and operation in ('train','tune','fit','select_config'):
+ if session_class=='VALIDATION_UNTOUCHED' and operation in ('train','tune','fit','select_config','model_select','threshold_select','research_calibrate'):
   raise PermissionError('validation data is evaluation-only; training/tuning refused')
  return True
 def preflight(plan_path,session,trace_root):
@@ -46,5 +46,6 @@ def main():
  elif a.cmd=='guard': guard_training(a.cls,a.operation);print('ALLOWED')
  else:
   from automation.physical_finalize import validate
+  if a.output.exists(): raise FileExistsError(f'already finalized at {a.output}; preserve existing result and do not overwrite')
   res=validate(load_plan(a.plan),a.session,a.labels,a.quality);a.output.write_text(json.dumps(res,indent=2)+'\n');print('FINALIZED',a.session)
 if __name__=='__main__':main()

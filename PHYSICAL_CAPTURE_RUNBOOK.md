@@ -88,3 +88,15 @@ python3 -m automation.physical_collection finalize \
 An interrupted or crashed session remains incomplete and must not be silently
 resumed. Bind a new session unless the trace health report proves the original
 session was fully flushed.
+
+## Adversarial recovery notes
+
+- `AMBIGUOUS` blocks finalization; resolve it before rerunning `finalize`.
+- If a false event occurs, preserve its runtime event ID and classify
+  `NO_PHYSICAL`; never shift later planned shot numbers.
+- If a plan mismatch is reported, use the original plan file; do not relabel
+  against a replacement plan.
+- If finalization output already exists, preserve it and choose a new report
+  path rather than overwrite it.
+- For a crash or missing artifact, keep the session incomplete and start a new
+  binding after repairing the capture environment.
