@@ -1,60 +1,45 @@
-# CURRENT_STATE.md fixture
+# Current project state
 
-## CURRENT FACTS — physical causal audit, 2026-09-08
+## CURRENT FACTS — 2026-09-09
 
-- Post-fix independent validation: causal availability 7/10 at 5/10 px and
-  9/10 at 20/42 px; CURRENT 2/10 @42, mean 171.10 px. All seven
-  oracle-positive failures selected FAST; both successes selected V1. FAST
-  final authority/order is the leading hypothesis.
-- PRE coordinate mapping and pending-event ownership are fixed and committed;
-  FAST score saturation remains absent after correction. No selector or AI is
-  promoted. Next step is complete-pool, source-aware research replay followed
-  by a fresh physical validation.
-- Latest funnel: 9 causal candidates -> 2 demonstrably tracked in the exported
-  top-eight view -> 2 confirmed -> 2 eligible -> 2 selected. Seven candidate
-  fates remain unknown until complete eligible track pools are traced.
-
-- Latest independent physical validation: **1/20 @42 (5%) for CURRENT,
-  CONFIRMATION_SELECTION_SHADOW and CANONICAL_AI_SHADOW**. Original status,
-  labels and results remain unchanged; no promotion.
-- Session `session_20260908_163626_9b47fac6`: 20 deliberate dart shots in order,
-  22 audio events; 7 and 15 are `NO_PHYSICAL_SHOT`. All events/files analyzed.
-- Causal candidate oracle: **10/20 @5/@10/@20; 12/20 @42**. Apparent last-observed
-  @42 oracle 14/20 includes two later-event candidates. Original selector metrics
-  already used decision pools and reported 12/20.
-- Dominant proven input defect: V2 crops current but slices full-camera PRE
-  history with crop-local indices. All 681 physical FAST proposal residuals
-  reproduce exactly; correct-plane median residual is 1.538 vs recorded 192.385.
-  This does not establish corrected detector accuracy. Eight shots have no causal
-  proposal @42; eleven causal-positive shots lose selection.
-- FAST score-scale issue remains real: decision FAST median 35 versus vault
-  1.929. Fifteen of 19 wrong winners are FAST; all 19 pass local confirmation.
-- Future-event contamination in this session affects **diagnostics**, with no
-  effect on already-completed live decisions. Separately, a source characterization
-  test proves a **runtime bug for still-pending events**: later-event frames can
-  confirm an older track. That runtime defect is not fixed by this audit.
-- New causal evaluator/export fields and colored label overlays distinguish
-  causal/post-decision/cross-event evidence. New captures preserve the first
-  terminal outcome and snapshot confirmation/pool ownership. Originals untouched.
-- Frozen confirmation remains PHYSICAL_REPLAY_CHALLENGER / shadow-only, hash
+- **PROVEN physical validation:** post-PRE session
+  `session_20260908_194746_b38de674` has 10 physical shots, 10 audio events,
+  zero false events. Causal oracle is 7/10 @5/@10 and 9/10 @20/@42.
+  CURRENT remains **2/10**, mean 171.10, median 135.75, p95 464.70 px.
+- **PROVEN reconstructed funnel:** 10 physical -> 9 causal proposals @42 ->
+  9 tracked -> 9 locally confirmed -> 9 eligible -> 2 correctly selected.
+  All seven losses occur at final ranking, at ranks 9–59, outside the debug
+  top eight. Complete input replay matches all ten winners and 136 saved
+  track checkpoints. It is recorded-input reconstruction, not regenerated
+  physical detection or a new physical validation.
+- **PROVEN instrumentation:** complete active pools, eligibility/rejection
+  reasons, association ledgers and compact source histories are captured.
+  CURRENT_EXACT_REPLAY raises on mismatched track ids, coordinates or ranks.
+- **PROVEN prior fixes:** PRE camera-plane mapping is fixed; its historical
+  residual median was 192.385 -> 1.538. FAST saturation disappeared. Pending
+  confirmation boundaries and producer rejection gates are implemented.
+  **A remaining producer-transport gap is now reproduced:** actual worker
+  result candidates lack the producer tag added to the diagnostic copy.
+- **PROVEN bottleneck:** surviving correct tracks lose final ranking. FAST
+  wins all seven oracle-positive failures, but complete-pool FAST exclusion
+  still gives 2/10. No slot cap or historic-best-over-current score advantage
+  explains these seven losses. Appearance/confirmation discrimination remains
+  the selection problem to isolate.
+- Previous 20-shot independent validation remains 1/20 @42 for CURRENT and
+  both shadows. Audio events 7 and 15 remain NO_PHYSICAL_SHOT. Its causal
+  oracle remains 12/20 @42. Historical results and inputs are preserved.
+- **RESEARCH_ONLY:** one signed local-contrast ranking is tested offline.
+  No AI, canonical challenger, or frozen CONFIRMATION_SELECTION_SHADOW is
+  promoted or changed. Frozen confirmation hash:
   `123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f`.
-  Canonical remains SHADOW / OFFLINE_CHALLENGER; explicit model/manifest hashes
-  are documented in CAUSAL_CANDIDATE_AUDIT.md. Neither was modified.
-- Two fixed temporal research rankings each score 1/20. No temporal selector,
-  reference correction or live authority is promoted or physically validated.
-- **Exact next engineering step:** enforce the next-audio evidence boundary for
-  pending-event local confirmation and track consumption while preserving delayed
-  pre-boundary worker delivery. Then separately correct V2 PRE spatial mapping
-  and measure full detector replay before collecting a new frozen physical test.
+- **Next engineering step:** close the actual result producer-transport gap,
+  then complete synthetic holdout/stress reporting and select the next
+  evidence-driven physical diagnostic test. No ranking policy is authorized
+  for promotion on these development data.
 
-Full evidence and reproduction: [CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md).
-Older checkpoints below are historical and do not supersede these facts.
-
-Pending-event ownership is fixed in `5d45527`; physical validation is pending.
-V2 PRE spatial mapping is corrected in the working tree. Offline replay removes
-the recorded FAST saturation (731 proposals, median residual 192.385→1.538,
-zero corrected saturated scores), but does not establish new live accuracy.
-
+See [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) and
+[CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md). Checkpoints below are
+historical and do not supersede CURRENT FACTS.
 
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 checkpoint

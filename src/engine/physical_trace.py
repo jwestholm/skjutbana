@@ -25,7 +25,7 @@ DEFAULT_ROOT = Path("content/ai/physical_traces")
 
 
 def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n"
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False, default=_safe) + "\n"
 
 
 def _safe(value: Any) -> Any:
@@ -444,7 +444,11 @@ class PhysicalTraceRecorder:
         with self._lock:
             active = self._active.get(int(event.shot_id))
             if active is not None:
+                if "decision_input" in active["trace"]:
+                    return
+                from src.engine.track_audit import capture
                 active["trace"]["decision_input"] = {
+                    "complete_track_audit": {**capture(scanner, event, track), "selected_passed_readiness_for_emission": True},
                     "shot_id": int(event.shot_id), "timestamp": time.time(),
                     "deterministic_selection": _safe(track),
                     "retained_candidates": _copy_candidates(getattr(scanner, "last_candidates", [])),
@@ -462,6 +466,16 @@ class PhysicalTraceRecorder:
             if active['finished']:
                 return  # Later scanner activity must not overwrite the terminal event outcome.
             trace = active["trace"]
+            from src.engine.track_audit import capture
+            if "decision_input" not in trace:
+                trace["terminal_track_audit_v1"] = capture(scanner, event)
+            # Each terminal trace owns a frozen ledger. Release scanner copies
+            # after persistence ownership transfers; overlapping pending owners stay.
+            pending_owners = {e.shot_id for e in getattr(scanner, "audio_events", [])
+                              if e.state == "pending" and e.shot_id != int(shot_id)}
+            scanner._audit_batches = [b for b in getattr(scanner, "_audit_batches", [])
+                                      if b.get("dispatch_owner") in pending_owners]
+            getattr(scanner, "_audit_selections", {}).pop(int(shot_id), None)
             debug = _safe(getattr(scanner, "last_event_debug", {}))
             debug_shot = debug.get("shot_id") if isinstance(debug, Mapping) else None
             detector_e2e = (debug.get("detector_e2e_ms")

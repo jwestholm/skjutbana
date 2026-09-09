@@ -155,6 +155,8 @@ def update_tracks_frame_unique_v2226(
     """
     from src.engine.camera.hit_scanner import HoleTrack
 
+    from src.engine.track_audit import begin_batch
+    audit = begin_batch(scanner, candidates, frame_ts)
     cfg = config or _TRACK_CONFIG
     frame_ts = float(frame_ts)
     active = getattr(scanner, "_active_tracks", {})
@@ -191,6 +193,7 @@ def update_tracks_frame_unique_v2226(
                 best_track = track
                 best_dist = dist
 
+        before = audit.before(best_track) if audit else None
         if best_track is None:
             enriched = dict(candidate)
             enriched["v2226_same_frame_support"] = 1.0
@@ -216,6 +219,7 @@ def update_tracks_frame_unique_v2226(
             scanner._next_track_id = track.track_id + 1
             observed_this_call.add(track.track_id)
             new_tracks += 1
+            if audit: audit.record(candidate, track, before, "no_track_within_merge_radius")
             continue
 
         same_physical_frame = abs(_finite(getattr(best_track, "last_seen_ts", 0.0)) - frame_ts) <= cfg.frame_epsilon_s
@@ -224,6 +228,7 @@ def update_tracks_frame_unique_v2226(
             support = int(getattr(best_track, "v2226_same_frame_support", 1) or 1)
             max_support = max(max_support, support)
             same_frame_support += 1
+            if audit: audit.record(candidate, best_track, before, "same_frame_support", best_dist)
             observed_this_call.add(best_track.track_id)
             continue
 
@@ -246,8 +251,10 @@ def update_tracks_frame_unique_v2226(
             best_track.state = "stable"
         observed_this_call.add(best_track.track_id)
         temporal_matches += 1
+        if audit: audit.record(candidate, best_track, before, "later_frame_nearest_track", best_dist)
 
     scanner._drop_dead_tracks(frame_ts)
+    if audit: audit.finish()
 
     diag = {
         "raw_candidates": float(len(ordered)),

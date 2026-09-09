@@ -621,12 +621,18 @@ def _install_authority_selector_patch() -> None:
                 if _log_enabled() and (sid, "wait") not in gate_log:
                     gate_log.add((sid, "wait"))
                     print(f"[V2.25.3 AUTHORITY-WAIT] shot={sid} age={age*1000.0:.0f}ms reason=worker_not_ready")
+                from src.engine.track_audit import record_selection
+                record_selection(self, event, None, "V253", gate="await_registered_authority")
                 return None
             if rescue_router_v2225.request(sid):
                 if _log_enabled():
                     print(f"[V2.25.3 RESCUE-REQUEST] shot={sid} age={age*1000.0:.0f}ms reason=no_shared_registered_frame")
+                from src.engine.track_audit import record_selection
+                record_selection(self, event, None, "V253", gate="await_registered_authority")
                 return None
             if age < 3.5:
+                from src.engine.track_audit import record_selection
+                record_selection(self, event, None, "V253", gate="await_registered_authority")
                 return None
             return base_physical_best(self, event)
 
@@ -651,6 +657,8 @@ def _install_authority_selector_patch() -> None:
                 if _log_enabled() and (sid, "rescue") not in gate_log:
                     gate_log.add((sid, "rescue"))
                     print(f"[V2.25.3 RESCUE-REQUEST] shot={sid} age={age*1000.0:.0f}ms reason=no_novel_confirmed_track")
+            from src.engine.track_audit import record_selection
+            record_selection(self, event, None, "V253")
             return None
 
         best, cand, onset = max(
@@ -678,6 +686,8 @@ def _install_authority_selector_patch() -> None:
                 f"dist={_finite(cand.get('v253_history_distance_px', 9999.0), 9999.0):.1f}px "
                 f"xy=({_finite(cand.get('camera_x')):.1f},{_finite(cand.get('camera_y')):.1f})"
             )
+        from src.engine.track_audit import record_selection
+        record_selection(self, event, best, "V253")
         return best
 
     HitScanner._best_track_for_event = best_track_v253

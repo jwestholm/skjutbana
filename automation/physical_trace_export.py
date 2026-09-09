@@ -69,6 +69,17 @@ def export(root: Path, output: Path) -> None:
         causal = analyze_trace(trace, traces[index + 1]['peak_ts'] if index + 1 < len(traces) else None, gt)
         shots[-1]['causal_candidate_audit_v1'] = {k: v for k, v in causal.items() if k not in ('records', 'observations')}
         shots[-1]['causally_available_candidates_v1'] = [r['candidate'] for r in causal['records'] if r['availability'] == 'CAUSALLY_AVAILABLE']
+        complete = trace.get('decision_input', {}).get('complete_track_audit')
+        if complete and complete.get('complete'):
+            from src.engine.offline.track_replay import current_exact_replay
+            chosen = current_exact_replay(complete, trace['decision_input']['deterministic_selection'])
+            shots[-1]['current_exact_replay_v1'] = {
+                'status': 'MATCH', 'track_id': chosen['track_id'] if chosen else None,
+                'complete_pool_count': len(complete['tracks']),
+                'eligible_count': sum(t['eligible'] for t in complete['tracks']),
+            }
+        else:
+            shots[-1]['current_exact_replay_v1'] = {'status': 'UNAVAILABLE', 'reason': 'complete snapshot absent'}
         shots[-1]['legacy_stage_semantics'] = 'historical last-observed snapshots; may include post-decision evidence; not causal oracle'
     if not shots:
         raise ValueError(f"No traces found in {root}")

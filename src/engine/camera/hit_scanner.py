@@ -498,6 +498,8 @@ class HitScanner:
             if best is None or metric < best_metric:
                 best = track
                 best_metric = metric
+        from src.engine.track_audit import record_selection
+        record_selection(self, event, best)
         return best
 
     def _track_is_ready(self, track: HoleTrack, now_ts: float, event: AudioShotEvent) -> bool:

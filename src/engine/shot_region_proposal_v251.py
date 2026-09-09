@@ -842,6 +842,8 @@ def _install_track_selector_patch() -> None:
             self.last_event_debug["v251_region_evidence"] = _finite(cand.get("v251_region_evidence", 0.0))
         except Exception:
             pass
+        from src.engine.track_audit import record_selection
+        record_selection(self, event, best, "V251")
         return best
 
     HitScanner._best_track_for_event = best_track_v251

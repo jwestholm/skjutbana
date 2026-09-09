@@ -988,6 +988,8 @@ def _install_local_confirmation_patch() -> None:
             if str(getattr(ev, "state", "")) == "pending"
         }
         if result_sid not in pending_ids:
+            from src.engine.track_audit import record_not_consumed
+            record_not_consumed(self, candidates, result_ts, result_sid, "producer_event_not_pending")
             return []
 
         # A completed worker result remains valid after a newer peak only when
@@ -1001,6 +1003,8 @@ def _install_local_confirmation_patch() -> None:
             and str(getattr(ev, "state", "")) in {"pending", "matched", "missed"}
         ]
         if newer_peaks and result_ts >= min(newer_peaks):
+            from src.engine.track_audit import record_not_consumed
+            record_not_consumed(self, candidates, result_ts, result_sid, "evidence_frame_at_or_after_next_audio_peak")
             return []
 
         old_state = local_confirm_manager_v2225.get(result_sid)
