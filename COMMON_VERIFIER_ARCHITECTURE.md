@@ -44,3 +44,11 @@ the common-verifier architecture is right while the physical training set is
 insufficient for a reliable rich verifier. The next physical dataset should
 provide at least 30–50 labelled shots across contrast, lines, old holes,
 nearby impacts and no-impact audio events, with complete causal frame context.
+
+## Historical dataset extension
+
+The compatibility inventory found five patch-compatible sessions and 47 usable
+positive examples. Legacy sessions lack complete selector snapshots but are
+valuable for patch classification. Unified session-held-out experiments show
+texture representations are strongest yet unstable across backgrounds; richer
+real data is still required before freezing a verifier.

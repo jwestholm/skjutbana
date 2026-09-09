@@ -73,3 +73,11 @@ common verifier interface, shared causal patch context and four reusable patch
 representations. `automation/rich_patch_experiments.py` runs strict
 leave-one-shot-out information tests without source or detector-score inputs.
 The richer tests do not yet justify a frozen verifier.
+
+## Historical-data decision
+
+The available real data is sufficient to build a conservative patch research
+set, but not to validate a final verifier. The next concrete engineering step
+is to preserve this dataset schema and add complete eligible-pool/confirmation
+metadata to future sessions, then train/evaluate a verifier with
+leave-session-out splits.

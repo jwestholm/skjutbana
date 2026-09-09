@@ -327,3 +327,9 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
   tests are implemented. Best texture-statistic replay reaches @10=3/@20=5;
   no verifier is physically validated or promoted. Current decision is that
   the architecture is sound but the physical training set is insufficient.
+
+- **Historical physical mining:** 6 sessions / 61 traces were found. Five
+  sessions are patch-compatible, yielding 47 usable positives and 39
+  conservative selected-false negatives across 86 examples. Only the two
+  post-fix sessions support complete final-rank replay. Session-held-out rich
+  patch tests show domain shift; no verifier is ready to freeze.

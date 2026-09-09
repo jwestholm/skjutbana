@@ -15,3 +15,8 @@ The latest saved imagery supports only conservative labels:
 No stronger per-shot visual taxonomy is claimed without direct image-level
 causal labels. Future verifier work should preserve patch provenance and use
 these categories as hard-negative metadata only when visually established.
+
+Historical mining confirms the main limitation is dataset identity: legacy
+traces can supply real PRE/POST patches but not complete final-pool semantics.
+They are safe for patch classification only, not for reconstructing missing
+ranking decisions.
