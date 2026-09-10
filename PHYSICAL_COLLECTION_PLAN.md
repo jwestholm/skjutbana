@@ -1,6 +1,32 @@
 # Future physical collection plan
 
-## Current accuracy objective and next evidence — 2026-09-09
+## D01 completed; next capture requires D01 review
+
+D01 contains exactly six human-labeled physical shots and no intentionally
+collected no-impact events. Its existing finalized report is preserved and the
+new binding-based workflow verifies an identical mapping with all quality PASS.
+The reproducible plan is copied unchanged to
+`research/physical_capture_plans/D01.json`; its original local copy and runtime
+binding are preserved. Testtavla and the existing Bilder menu entry remain intact.
+
+CURRENT is 1/6 @42, with eligible oracle 5/6. Event 5 has useful contours lost
+at the legacy cap; flow/contour rescue can recover proposals, while final
+selection is at best 2/6 and false-event acceptance remains unresolved.
+
+The smallest next proposed D02 is **four physical shots plus four observed
+no-impact controls**: repeat a weak-flat pair and an edge/near-hole pair under
+fixed hand-buffered support/lighting; collect stable-board sound controls and
+no-new-damage board-motion controls, each isolated and after a shot. Save
+capture-time calibration/geometry and an independent observation log. These
+conditions discriminate weak change from structure/motion; they are not a 95%
+validation sample. No D02 session/plan/binding is created in this pass.
+
+Review [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md) before collecting D02.
+Its concrete recommendation supersedes the earlier generic 12-event suggestion
+below. S03 remains completely untouched. The mirror bump before D01 event 1 is
+human context, not an independently captured no-impact example.
+
+## Earlier accuracy objective and capture guidance — 2026-09-09
 
 Target **100% actual correct physical output**, with **95% minimum acceptance**.
 The completed common-verifier pass is documented in

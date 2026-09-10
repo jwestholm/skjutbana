@@ -1,5 +1,26 @@
 # Architecture
 
+## Physical accuracy research architecture — D01
+
+The current work preserves the live detector and evaluates causal physical
+change offline. Binding-based finalization now builds its manifest from saved
+labels/assignments and records fresh quality and hashes in an immutable external
+report. Explicit ordinal mapping prevents event IDs from becoming guessed truth.
+
+`src/engine/offline/clean_physical_change.py` reuses `EvidenceContext` for local
+background correction, temporal persistence, PRE variability and broad motion
+compensation. It has no live imports/callers. Selection and proposal availability
+are evaluated separately, including severe attenuation of real GT evidence.
+The source-independent common verifier remains research-only.
+
+Existing surface references, projector-response masks, hole histories,
+coordinates, audio waveform calibration and GameObjects were inventoried before
+considering new central concepts. See
+[PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md).
+Board-state consolidation, calibrated motion priors and adaptation remain future
+measured steps. Exact physical XY is canonical; game z-order/rules stay downstream.
+The target is 100% physical correctness, with 95% the minimum; S03 is untouched.
+
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 — Game Hit Context
 

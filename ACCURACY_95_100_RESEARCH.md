@@ -1,5 +1,26 @@
 # Physical accuracy research — 2026-09-09
 
+## Subsequent D01 pass
+
+D01 is finalized: six physical events, all quality PASS, 6/6 exact recorded-input
+replay and unchanged hashes. CURRENT @5/10/20/42 is 0/1/1/1; eligible oracle
+1/3/5/5; frozen early common verification 1/1/1/1. Bounded contour rescue reaches
+2/5/6/6 oracle but still selects 1/6. PRE-variability/persistence suppresses
+67.91% of raw change mass with 40.06% GT-local retention; final selection remains
+1/6. Best tested flow/augmented union selects 2/6 at all radii, with strong GT
+attenuation, comparator regressions and unchanged no-impact failure. No promotion.
+
+The original references/results below remain preserved. The extended cohort
+contains 71 causal contexts (65 physical, six existing no-physical); D01 supplies
+no new negative events and is never used to fit the tested models. New results,
+per-event tables, architecture inventory, workflow regression fix, source plan,
+test target and eight-event D02 recommendation are documented in
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+All outputs are under `/data/skjutbana/evaluation_runs/D01_accuracy_20260909_201752/`.
+S03 was not opened, inspected, evaluated, tuned against or modified.
+
+## Preserved earlier S02 research
+
 **100% correct physical output is the target; 95% is the minimum acceptable
 outcome. Neither has been achieved. CURRENT live authority is unchanged.**
 

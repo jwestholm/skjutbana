@@ -1,0 +1,77 @@
+{
+  "semantics": "6 physical shots PLUS separately labelled no-impact audio events",
+  "categories": [
+    "light_flat",
+    "dark_flat",
+    "printed_line",
+    "old_hole_nearby",
+    "low_contrast",
+    "repeat_grouping"
+  ],
+  "sessions": 1,
+  "shots_per_session": 6,
+  "rows": [
+    {
+      "session": "D01",
+      "planned_physical_shot": 1,
+      "category": "light_flat",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    },
+    {
+      "session": "D01",
+      "planned_physical_shot": 2,
+      "category": "dark_flat",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    },
+    {
+      "session": "D01",
+      "planned_physical_shot": 3,
+      "category": "printed_line",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    },
+    {
+      "session": "D01",
+      "planned_physical_shot": 4,
+      "category": "old_hole_nearby",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    },
+    {
+      "session": "D01",
+      "planned_physical_shot": 5,
+      "category": "low_contrast",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    },
+    {
+      "session": "D01",
+      "planned_physical_shot": 6,
+      "category": "repeat_grouping",
+      "session_class": "DEVELOPMENT",
+      "notes": "accuracy research; label immediately",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED",
+      "trace_health": null
+    }
+  ],
+  "collection_plan_id": "D01_accuracy_development_20260909",
+  "status": "PLANNED_ONLY"
+}

@@ -40,7 +40,49 @@ def replay(manifest_path,output):
     return result
 
 
+def evaluate_external(manifest_path, dataset_path, session, output):
+    """Verify the frozen reference first, then score an explicit new development dataset."""
+    if session not in ('S01', 'S02', 'POST_FIX', 'D01'):
+        raise PermissionError('Only explicit physical development sessions are permitted')
+    dataset = json_read(dataset_path/'dataset.json')
+    if any(s not in ('H10', 'H20', 'POST_FIX', 'S01', 'S02', 'D01') for s in dataset['sessions']):
+        raise PermissionError('Unexpected evaluation session')
+    manifest = json_read(manifest_path)
+    original = json_read(Path(manifest['dataset'])/'dataset.json')
+    if dataset['feature_names'] != original['feature_names'] or dataset['reference'] != original['reference']:
+        raise ValueError('Frozen feature/reference schema differs from evaluation dataset')
+    if session not in dataset['sessions']:
+        raise ValueError('Requested session is absent from dataset')
+    output.mkdir(parents=True, exist_ok=False)
+    baseline = replay(manifest_path, output/'frozen_reference_recheck')
+    matrix = np.load(dataset_path/'features.npy', allow_pickle=False)
+    params = np.load(manifest['parameters'], allow_pickle=False)
+    model = dict(family='logistic', **{name: params[name] for name in params.files})
+    scores = predict(model, matrix)
+    results = {}
+    for pool in ('current', 'expanded', 'union'):
+        rows = event_predictions(dataset, scores, [session], pool, manifest['rejection_threshold'])
+        results[pool] = dict(metrics=summarize(rows), rows=rows)
+    result = dict(status='FROZEN_PARAMETERS_OFFLINE_DEVELOPMENT_EVALUATION', session=session,
+                  model=manifest['name'], training_sessions=manifest['training_sessions'],
+                  dataset=str(dataset_path), reference_decisions_sha256=baseline['decisions_sha256'],
+                  dataset_sha256=hashlib.sha256((dataset_path/'dataset.json').read_bytes()).hexdigest(),
+                  features_sha256=hashlib.sha256((dataset_path/'features.npy').read_bytes()).hexdigest(),
+                  results=results, limitations=manifest['limitations'])
+    (output/'evaluation.json').write_text(json.dumps(result, indent=2)+'\n')
+    print(session, {pool: value['metrics']['hits'] for pool, value in results.items()}, flush=True)
+    return result
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
-    args=parser.parse_args();replay(args.manifest,args.output)
+    parser.add_argument('--evaluation-dataset', type=Path, help='Optional new physical dataset; first verifies the original frozen reference')
+    parser.add_argument('--session', choices=('S01','S02','POST_FIX','D01'), help='Required with --evaluation-dataset; no fitting')
+    args=parser.parse_args()
+    if bool(args.evaluation_dataset) != bool(args.session):
+        parser.error('--evaluation-dataset and --session must be supplied together')
+    if args.evaluation_dataset:
+        evaluate_external(args.manifest, args.evaluation_dataset, args.session, args.output)
+    else:
+        replay(args.manifest,args.output)

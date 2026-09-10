@@ -1,6 +1,31 @@
 # Research common-verifier architecture
 
-## Latest measured implementation — 2026-09-09
+## D01 and clean-change evidence
+
+The frozen early-reference common model selects 1/6 D01 at @5/10/20/42, recovering
+event 4 while losing CURRENT's event 2. The frozen snapshot model selects 0/6.
+These failures persist despite five existing @42-positive eligible pools.
+
+An offline clean channel reuses `EvidenceContext`; local background, persistence,
+PRE variance, crop-half motion and broad-flow variants are evaluated separately.
+Fifteen source-independent patch map/noise/edge features are added only in a
+separate logistic research comparison, fitted on historical primary sessions
+with whole-session exclusions. S02/D01 do not enter fitting. No GT point is
+injected into selection. Pure edge features recover no D01 shots; noise features
+alone recover one. Actual camera structure differs from an exact projected edge
+map, which cannot be reconstructed without missing capture calibration.
+
+Best observed D01 selection is flow/augmented union 2/6, with 6/6 @20/@42 oracle.
+It severely attenuates all six GT neighborhoods and regresses POST_FIX/S02 while
+continuing to accept known false events. It is not a frozen promotion candidate.
+The existing canonical challenger and CURRENT authority are unchanged.
+
+Board/reference/hole/audio and coordinate ownership were inventoried before any
+central-class proposal. See [PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md)
+and [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md) for evidence, runtime,
+input hashes, comparator results and the next discriminating capture.
+
+## Previous measured implementation — 2026-09-09
 
 The implemented causal research path is now
 `src/engine/offline/accuracy_verifier.py`, with explicit session extraction,

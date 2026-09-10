@@ -1,6 +1,51 @@
 # Current project state
 
-## CURRENT FACTS — 2026-09-09
+## CURRENT FACTS — D01 completion
+
+- **Target: 100% correct physical output; minimum 95%. Neither is achieved.**
+  CURRENT and the canonical SHADOW challenger remain unchanged.
+- **D01 finalized and verified:** six captured events, six precise physical
+  labels, no collected no-impact events. Binding-based finalization agrees with
+  the preserved manual manifest and prior report. All six quality fields PASS.
+  Exact recorded-input replay matches 6/6 tracks/emissions and repeats identically.
+  All 765 session files and eight original ancillary inputs retain their hashes.
+- **D01 accuracy @5/10/20/42:** CURRENT **0/1/1/1 of 6**; causal proposal oracle
+  **2/4/5/5**; eligible track-XY oracle **1/3/5/5**. Frozen early common verifier
+  **1/1/1/1**, recovering event 4 while losing CURRENT's event 2. Contour rescue
+  raises union oracle to **2/5/6/6** but still selects only **1/6**.
+- **Proven losses:** event 5's useful legacy contours rank 228/276/279 and are
+  lost at the 200-candidate cap. Event 1's 2.892 px proposal becomes same-frame
+  support for a 12.835 px representative. Event 3 loses a 7.328 px legacy retained
+  point before hybrid cleanup; that union's exact loss is not instrumented.
+  Four oracle-positive events lose final ranking.
+- **Clean-change research:** 71 causal contexts, 65 physical plus six existing
+  no-physical. PRE variability/persistence removes 67.91% of D01 raw change mass,
+  retains 40.06% of GT-local mass and improves mean S/B 2.969→3.788. Selection is
+  still 1/6. Flow plus augmented verification reaches the best observed D01
+  **2/2/2/2 of 6**, but severely attenuates all six GT neighborhoods, regresses
+  comparison sessions and accepts known no-impact events. No promotion.
+- **Architecture evidence:** isolated edge features do not recover D01; the
+  motion-only 3×3 ROI proxy ties a majority baseline (3/6). Exact projected-edge,
+  board/seam and Board Space attribution are unavailable because calibration is
+  absent. Existing board/reference/hole/coordinate/audio-waveform foundations
+  were inventoried; no new central live class was added.
+- **Workflow fixed:** `physical_collection finalize --binding ...` builds the
+  aggregate manifest from labels/assignments, checks fresh quality and hashes,
+  and requires explicit ordinal mapping or `--in-capture-order`. Preview,
+  historical `--labels`, recovery and external assignments are supported;
+  existing outputs and ambiguous mappings are refused.
+- **Preserved target/plan:** Testtavla and its Bilder menu entry are unchanged.
+  The unbound plan is copied exactly to `research/physical_capture_plans/D01.json`;
+  runtime bindings/reports stay local.
+- **Next:** review D01, then eight D02 diagnostic events: four physical shots
+  across weak-flat and edge/near-hole pairs, four observed sound/motion controls.
+  Save geometry/calibration and an independent event log. D02 was not created.
+  S03 was not opened, inspected, evaluated, tuned against or modified.
+
+Full results, tests and reproduction: [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+Outputs: `/data/skjutbana/evaluation_runs/D01_accuracy_20260909_201752/`.
+
+## Preserved S02/common-verifier facts — earlier 2026-09-09 pass
 
 - **Accuracy objective:** 100% correct physical output; 95% is only the minimum
   acceptable level. No practical success or live promotion has been achieved.

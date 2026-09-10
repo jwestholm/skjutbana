@@ -1,5 +1,31 @@
 # Roadmap
 
+## Accuracy-first priorities — D01 / 2026-09-09 design map
+
+- **NOW:** complete D01 characterization, immutable label finalization, exact
+  recorded-input replay, proposal-retention forensics and causal clean-change /
+  common-verifier experiments. Measure selected/emitted physical correctness;
+  100% is the target and 95% only the minimum. S03 stays entirely untouched.
+- **NEXT:** review [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md) and collect
+  only its smallest discriminating D02 follow-up. Resolve weak-impact versus
+  structure/motion evidence and collect defensible no-impact controls. Preserve
+  calibration/projected-frame/physical-boundary provenance before claiming
+  board-space or panel-specific results. No D02 capture has been created here.
+- **LATER:** consolidate existing surface/reference/hole/geometry ownership if
+  measurements justify it; test board revisions, stability maps, regional motion
+  priors and confidence-gated recent/long-term adaptation. Reuse existing audio
+  waveform calibration before considering classical physical weapon profiles.
+  Keep Camera ↔ Board ↔ Game transforms canonical and round-trip tested.
+- **FUTURE:** game attention priors, camera-2 aim priors, latency/precision request
+  modes, an inventory-backed GameEngine capability API, generated games and
+  generative video. These are deferred design ideas, not current implementation
+  tasks. Exact physical results remain the foundation; game rules/z-order remain
+  downstream. No game work is part of this pass.
+
+Inventory and ownership constraints:
+[PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md).
+The historical gameplay checkpoints below do not supersede these priorities.
+
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## Game-ready hit-engine path (V2.24+)
 
@@ -126,4 +152,3 @@ of this bridge is the final V2.24 gate before V2.25 reusable game objects.
 ## V2.25.3-r3 – full-file delivery
 
 Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
-

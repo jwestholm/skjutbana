@@ -51,7 +51,8 @@ def main():
  s=sub.add_parser('start');s.add_argument('--plan',type=Path,required=True);s.add_argument('--session',required=True);s.add_argument('--trace-root',type=Path,default=Path('content/ai/physical_traces'));s.add_argument('--source-commit',default='unknown');s.add_argument('--settings',type=Path,default=Path('content/ai/settings.json'));s.add_argument('--output',type=Path,required=True)
  f=sub.add_parser('preflight');f.add_argument('--plan',type=Path,required=True);f.add_argument('--session',required=True);f.add_argument('--trace-root',type=Path,default=Path('content/ai/physical_traces'));f.add_argument('--binding',type=Path);f.add_argument('--settings',type=Path,default=Path('content/ai/settings.json'))
  g=sub.add_parser('guard');g.add_argument('--class',dest='cls',required=True);g.add_argument('--operation',required=True)
- z=sub.add_parser('finalize');z.add_argument('--plan',type=Path,required=True);z.add_argument('--session',required=True);z.add_argument('--labels',type=Path,required=True);z.add_argument('--quality',type=Path,required=True);z.add_argument('--output',type=Path,required=True)
+ from automation.physical_finalize_manifest import add_arguments,finalize
+ add_arguments(sub.add_parser('finalize',help='Finalize saved labels using an exact binding; --preview shows the mapping'))
  r=sub.add_parser('restore');r.add_argument('--binding',type=Path,required=True)
  from automation.physical_label_reset import add_reset_arguments,reset_labels
  add_reset_arguments(sub.add_parser('reset-labels',help='Preview or archive/reset labels; preserve captured evidence'))
@@ -71,10 +72,6 @@ def main():
   shutil.copyfile(backup,target); print(f'RESTORED SETTINGS: {target}')
  elif a.cmd=='guard': guard_training(a.cls,a.operation);print('ALLOWED')
  else:
-  from automation.physical_finalize import validate
-  if a.output.exists(): raise FileExistsError(f'already finalized at {a.output}; preserve existing result and do not overwrite')
-  res=validate(load_plan(a.plan),a.session,a.labels,a.quality)
-  a.output.parent.mkdir(parents=True,exist_ok=True)
-  with a.output.open('x') as stream:stream.write(json.dumps(res,indent=2)+'\n')
-  print('FINALIZED',a.session)
+  try:finalize(a)
+  except (ValueError,OSError,KeyError,TypeError) as exc:p.exit(1,f'FINALIZE REFUSED: {exc}\n')
 if __name__=='__main__':main()

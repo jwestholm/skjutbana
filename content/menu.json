@@ -155,6 +155,20 @@
               0,
               0
             ]
+          },
+          {
+            "id": "img_testtavla",
+            "type": "image",
+            "title": "Testtavla",
+            "description": "D01 Accuracy Development Target",
+            "path": "assets/images/testtavla.png",
+            "preview": "assets/images/testtavla.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           }
         ]
       },

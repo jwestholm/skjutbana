@@ -30,12 +30,10 @@ label GUI's S key still means unresolved; it does not classify physical truth.
 Legacy finalization deliberately refuses unresolved assignments. Keep uncertain
 cases pending with a reason rather than forcing a label to make finalization pass.
 
-After this research pass, the next useful capture is a separate small diagnostic
-session with six discharges and six known no-impact controls, continuous
-PRE/onset/POST evidence and an independent event log. Identify newly visible
-changes immediately, including nearby/repeated cases. This addresses information
-missing from old traces, not independent 95% validation. See the research report
-for the exact purpose; do not reuse or inspect S03 for it.
+The six-shot D01 development capture is complete. It contains no intentionally
+collected no-impact events. See [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md)
+for the results and the smallest proposed D02 follow-up. Do not create D02 before
+the D01 findings are reviewed; do not reuse or inspect S03.
 
 Physical trace capture now retains upstream contour/filter evidence and cleanup
 boundaries, with camera versus crop coordinate provenance. Missing full hybrid
@@ -144,11 +142,47 @@ timing and assignment consistency. Replay readiness is structural; evaluation
 must additionally report `CURRENT_EXACT_REPLAY` MATCH before claiming exact
 recorded-input replay. This is not regenerated detector replay.
 
-Create a separate labels manifest with `collection_plan_id`,
-`planned_session_id`, `trace_root`, and `labels`. Each row must have `event_id`,
-`status` (`PHYSICAL` or `NO_PHYSICAL_SHOT`) and `planned_physical_shot`
-(1–10 exactly once for physical shots; null for nonphysical events). Preserve
-the native coordinate labels. Finalize with fresh output paths:
+**No manually written labels manifest is needed.** After labeling, use the
+binding to read the exact captured root, verify its plan/session/class, and build
+the aggregate manifest from saved ground truth and physical assignments. The
+command always checks current trace/frame/label quality and hashes the session;
+`--quality` optionally cross-checks an existing report.
+
+If physical event IDs are in planned shot order, explicitly confirm that order
+with `--in-capture-order`. This excludes human-classified NO_PHYSICAL_SHOT events.
+It never infers false events from missing labels or silently assumes ordinal
+mapping. Preview first:
+
+```bash
+python3 -m automation.physical_collection finalize --plan "$CAPTURE_RUN/plan.json" \
+  --session S01 --binding "$CAPTURE_RUN/S01_binding.json" \
+  --in-capture-order --preview
+```
+
+When the displayed mapping is correct, use a fresh output path:
+
+```bash
+python3 -m automation.physical_collection finalize --plan "$CAPTURE_RUN/plan.json" \
+  --session S01 --binding "$CAPTURE_RUN/S01_binding.json" \
+  --in-capture-order --output "$CAPTURE_RUN/S01_finalized.json"
+```
+
+For a different order, replace `--in-capture-order` with repeated
+`--shot-map PLANNED=EVENT` arguments, for example `--shot-map 1=1 --shot-map 2=3`.
+Supply every physical ordinal unless already explicitly mapped in binding/plan
+rows or assignments. Existing mappings must agree with the CLI. A coordinate
+`label_shot_id` is a label-file reference, **not** a planned physical ordinal.
+For S02-style external assignments add `--mapping /path/to/assignments.json`.
+Recovered sessions may use their explicit recovery binding; missing/incomplete
+capture evidence still blocks finalization.
+
+The new report includes `label_manifest`, fresh `quality`, the mapping basis and
+input SHA-256 hashes. No labels, settings or session files are changed. Existing
+outputs are refused. UNKNOWN/AMBIGUOUS/unresolved labels, reused coordinate labels,
+duplicate or missing physical mappings, wrong bindings and stale quality claims
+are refused with an actionable error. `--preview` writes nothing.
+
+The historical aggregate-manifest CLI remains supported:
 
 ```bash
 python3 -m automation.physical_collection finalize --plan "$CAPTURE_RUN/plan.json" \
@@ -161,6 +195,13 @@ mapping. A string `FAIL`, an unresolved label, or another session's quality
 report cannot pass. Candidate/oracle recall and actual selected/emitted accuracy
 must remain separate. Report unavailable terminal evidence separately from a
 measured miss or timeout.
+
+For the existing D01 capture, use the preserved plan
+`research/physical_capture_plans/D01.json` (byte-identical to the original local
+`evaluation_runs/physical_capture_plan_D01.json`), session `D01`, and
+`evaluation_runs/D01_binding.json`. Its human-confirmed mapping is event 1–6 to
+planned shot 1–6. An existing `D01_finalized.json` is a preserved baseline;
+choose a new report path for rechecks. Bindings and runtime reports stay local.
 
 After capture, optionally restore the binding's original settings:
 

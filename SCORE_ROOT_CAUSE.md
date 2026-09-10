@@ -1,6 +1,29 @@
 # Detector score root-cause audit
 
-## Latest physical accuracy research — 2026-09-09
+## D01 development — measured proposal, association and ranking losses
+
+D01 contains six physical shots and no collected no-impact events. CURRENT
+@5/10/20/42 is 0/1/1/1; causal proposal oracle 2/4/5/5; eligible-XY oracle
+1/3/5/5. All six selected tracks and recorded emissions replay exactly.
+
+The preserved rejection ledger proves event 5's three useful legacy contours
+rank 228/276/279, beyond the 200-candidate cap. Event 1's 2.892 px contour becomes
+same-frame support for a 12.835 px track representative within the 12 px merge
+radius. Event 3's 7.328 px contour survives legacy retention but is absent at
+hybrid cleanup input; its unique internal union/dedup/cap cause is unavailable.
+The four @42 oracle-positive losses remain final-selection failures.
+
+Frozen early common verification selects 1/6, recovering a different shot than
+CURRENT. Contour rescue yields 6/6 @20/@42 oracle but only 1/6 selection. Clean
+PRE variability removes 67.91% of raw change mass with all GT neighborhoods
+nonzero, yet selects 1/6. Best flow/augmented selection is 2/6, with strong GT
+attenuation, comparator regressions and continued no-impact false acceptance.
+No live ranking, confirmation, proposal threshold or authority changed.
+
+Per-event distances/ranks, source evidence, measured ablations and limitations:
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md). S03 remains untouched.
+
+## Previous physical accuracy research — 2026-09-09
 
 The target is 100% correct physical output; 95% is the minimum acceptable level.
 Baseline reproduction again gives S01 CURRENT 2/2/3/3 of nine observable shots,

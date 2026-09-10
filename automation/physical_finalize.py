@@ -7,11 +7,15 @@ from pathlib import Path
 
 
 def validate(plan, session, labels, quality):
+    return validate_data(plan, session, json.loads(Path(labels).read_text()),
+                         json.loads(Path(quality).read_text()))
+
+
+def validate_data(plan, session, ls, qs):
+    """Validate an in-memory manifest; the historical path-based API is retained."""
     rows = [r for r in plan['rows'] if r['session'] == session]
     if not rows:
         raise ValueError('unknown planned session')
-    ls = json.loads(Path(labels).read_text())
-    qs = json.loads(Path(quality).read_text())
     if isinstance(qs, list):
         def matches(q):
             if ls.get('trace_root') and q.get('trace_root'):
@@ -37,7 +41,7 @@ def validate(plan, session, labels, quality):
     if any(x.get('status') not in ('PHYSICAL', 'NO_PHYSICAL_SHOT') for x in labels_list):
         raise ValueError('unresolved, unknown or AMBIGUOUS labels remain')
     planned = [x.get('planned_physical_shot') for x in labels_list if x['status'] == 'PHYSICAL']
-    if len(set(planned)) != len(planned) or set(planned) != set(expected):
+    if any(type(i) is not int or i < 1 for i in expected + planned) or len(set(planned)) != len(planned) or set(planned) != set(expected):
         raise ValueError('physical mapping must cover every planned shot exactly once')
     if any(x.get('planned_physical_shot') is not None for x in labels_list if x['status'] == 'NO_PHYSICAL_SHOT'):
         raise ValueError('nonphysical events must not consume planned physical shots')
@@ -59,19 +63,13 @@ def validate(plan, session, labels, quality):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--plan', type=Path, required=True)
-    parser.add_argument('--session', required=True)
-    parser.add_argument('--labels', type=Path, required=True)
-    parser.add_argument('--quality', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
+    from automation.physical_finalize_manifest import add_arguments, finalize
+    add_arguments(parser)
     args = parser.parse_args()
-    if args.output.exists():
-        parser.error('Output exists; preserve the baseline and choose a new path.')
-    result = validate(json.loads(args.plan.read_text()), args.session, args.labels, args.quality)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open('x') as stream:
-        stream.write(json.dumps(result, indent=2) + '\n')
-    print(result)
+    try:
+        finalize(args)
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        parser.exit(1, f'FINALIZE REFUSED: {exc}\n')
 
 
 if __name__ == '__main__':

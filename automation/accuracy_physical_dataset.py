@@ -23,7 +23,11 @@ COHORT = {
     'POST_FIX': ('session_20260908_194746_b38de674', ()),
     'S01': ('session_20260909_S01_recovered_20260909', (4,)),
     'S02': ('session_20260909_162957_S02_b900192c', (2, 8, 10)),
+    'D01': ('session_20260909_194947_D01_60806ff2', ()),
 }
+
+# Preserve the historical default experiment and training cohort. D01 is opt-in.
+DEFAULT_SESSIONS = ('H10', 'H20', 'POST_FIX', 'S01', 'S02')
 
 
 def guard_path(path):
@@ -205,7 +209,7 @@ def build(output, sessions, reference='snapshot', budget=256):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--sessions', nargs='+', choices=tuple(COHORT), default=list(COHORT))
+    parser.add_argument('--sessions', nargs='+', choices=tuple(COHORT), default=list(DEFAULT_SESSIONS))
     parser.add_argument('--reference', choices=('snapshot', 'history_early', 'history_guarded'), default='snapshot')
     parser.add_argument('--budget', type=int, default=256)
     args = parser.parse_args()

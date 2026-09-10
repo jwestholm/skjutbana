@@ -180,5 +180,27 @@ class AccuracyResearchTests(unittest.TestCase):
             path.write_bytes(b'changed')
             with self.assertRaises(ValueError):checked(path,digest)
 
+    def test_external_frozen_evaluation_refuses_validation_before_reads(self):
+        from automation.accuracy_frozen_replay import evaluate_external
+        with patch.object(Path, 'read_text', side_effect=AssertionError('Must not read')):
+            with self.assertRaises(PermissionError):
+                evaluate_external(Path('/tmp/manifest'), Path('/tmp/dataset'), 'S03', Path('/tmp/output'))
+
+    def test_external_frozen_evaluation_requires_same_reference_and_features(self):
+        from automation.accuracy_frozen_replay import evaluate_external
+        manifest = dict(dataset='/tmp/original')
+        original = dict(reference='snapshot', feature_names=['a'], sessions=['S01'])
+        for changed in [dict(reference='history_early', feature_names=['a'], sessions=['D01']),
+                        dict(reference='snapshot', feature_names=['other'], sessions=['D01'])]:
+            with patch('automation.accuracy_frozen_replay.json_read', side_effect=[changed, manifest, original]):
+                with self.assertRaisesRegex(ValueError, 'schema differs'):
+                    evaluate_external(Path('/tmp/manifest'), Path('/tmp/dataset'), 'D01', Path('/tmp/output'))
+
+    def test_d01_extraction_is_opt_in(self):
+        from automation.accuracy_physical_dataset import COHORT, DEFAULT_SESSIONS
+        self.assertIn('D01', COHORT)
+        self.assertNotIn('D01', DEFAULT_SESSIONS)
+        self.assertEqual(DEFAULT_SESSIONS, ('H10', 'H20', 'POST_FIX', 'S01', 'S02'))
+
 
 if __name__=='__main__':unittest.main()
