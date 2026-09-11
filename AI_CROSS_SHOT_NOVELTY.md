@@ -18,3 +18,9 @@ When modifying hit detection after V2.25.3, preserve these invariants:
 8. GameObject collision remains downstream of physical HitEvent XY.
 
 V2.25.3 is not a learned model and does not promote V2.23 shadow AI to live authority.
+
+<!-- V2.25.3-r2 SETTINGS_PACKAGING_REPAIR -->
+## V2.25.3-r2 note
+
+R2 changes packaging/installation only. Cross-thread readiness, cross-shot novelty,
+rehit recovery, physical authority and FULL-rescue behavior are unchanged from V2.25.3.

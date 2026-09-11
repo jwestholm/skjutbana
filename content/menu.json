@@ -155,6 +155,20 @@
               0,
               0
             ]
+          },
+          {
+            "id": "img_testtavla",
+            "type": "image",
+            "title": "Testtavla",
+            "description": "D01 Accuracy Development Target",
+            "path": "assets/images/testtavla.png",
+            "preview": "assets/images/testtavla.png",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ]
           }
         ]
       },
@@ -418,6 +432,23 @@
               ]
             }
           },
+          {
+            "id": "can_shootout_20m",
+            "title": "Skjut burkar – 20 m",
+            "type": "game",
+            "description": "Två spelare, fem skott var. Skjut fysiskt korrekt skalade burkar på 20 meters virtuellt avstånd. Poäng, träffsvit, automarkering och träffanimationer.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/can_shootout_game.py",
+            "path": "",
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },          
           {
             "id": "pop_the_balloon",
             "title": "Pop the Balloon",

@@ -1,4 +1,72 @@
-# ARCHITECTURE.md fixture
+# Architecture
+
+## 2026-09-10 inventory and evidence ownership
+
+Before introducing central classes/subsystems, inspect current implementation,
+all relevant Git history, existing plans and responsibilities split across
+classes. Reuse/consolidate those owners first. The complete current/history
+inventory is in [PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md),
+including the locally supplied September 9 design plan, coordinate tests,
+display limitations, surface revisions, audio calibration and game mechanics.
+
+This accuracy pass adds no central class. Existing `track_audit` association
+history supplies bounded alternative coordinates offline. CandidateGeneratorV2's
+existing hybrid merge now has an opt-in observational ledger with input identity,
+geometry operations, merge/quota parameters and retained/output rank. IDs stay
+outside candidate dictionaries; scores, geometry and order are unchanged. It
+closes event 3's diagnostic blind spot, not its physical selection failure.
+`automation/evidence_retention_research.py` and `evidence_channel_research.py`
+hold separate, immutable-output offline hypotheses. None is a live authority.
+
+Camera ↔ Board ↔ Game is the intended public model. Current HitInput H/inverse,
+ArUco calibration, scanport/viewport/content transforms, AnalysisGeometry crop,
+WorkingSpaceMap and frozen GameObject regions already implement most mechanics.
+Expose rather than replace them; add explicit physical Board normalization and
+capture-time revisions where absent. Five tests exercise current round trips,
+orientation and four-corner bounds. Synthetic geometry tests do not establish
+actual D01 calibration. Window desktop position is not physical truth; changes
+to the projected image's physical geometry can require recalibration.
+
+Board consolidation should initially expose existing geometry/reference/hole
+owners with revision metadata. Distinguish GEOMETRY, PHYSICAL BUILD, SURFACE
+STATE and RECENT EVENT STATE. Scan/revision at game start, trusted incremental
+updates while playing, repairs typically between games, rescan next start.
+Known holes, tape, projected edges, seams and noisy regions are context, never
+automatic vetoes. Existing emitted-track hole updates do not establish trusted
+persistent learning. Recent/long-term adaptive models remain research.
+
+Audio waveform settings remain present; there is no missing physical weapon
+profile subsystem to replace. Prefer deterministic signal/profile matching if
+later justified, optional to hit detection. Gameplay ProjectileProfile remains
+separate from measured physical weapon identity.
+
+**ENGINE PROVIDES MECHANICS. INDIVIDUAL GAME PROVIDES RULES.** Reuse GameObject,
+HitEvent, scenes/rendering and lifecycle; games own Dart/Zombie/Cowboy rules.
+Fictional z-order never derives from camera XY. An AI-readable capability SDK,
+game attention priors and camera-2 aim priors are later/future ROADMAP entries,
+not this pass's implementation. Exact physical coordinates remain canonical:
+100% correctness is the target and 95% only the minimum acceptable outcome.
+
+## Physical accuracy research architecture — D01
+
+The current work preserves the live detector and evaluates causal physical
+change offline. Binding-based finalization now builds its manifest from saved
+labels/assignments and records fresh quality and hashes in an immutable external
+report. Explicit ordinal mapping prevents event IDs from becoming guessed truth.
+
+`src/engine/offline/clean_physical_change.py` reuses `EvidenceContext` for local
+background correction, temporal persistence, PRE variability and broad motion
+compensation. It has no live imports/callers. Selection and proposal availability
+are evaluated separately, including severe attenuation of real GT evidence.
+The source-independent common verifier remains research-only.
+
+Existing surface references, projector-response masks, hole histories,
+coordinates, audio waveform calibration and GameObjects were inventoried before
+considering new central concepts. See
+[PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md).
+Board-state consolidation, calibrated motion priors and adaptation remain future
+measured steps. Exact physical XY is canonical; game z-order/rules stay downstream.
+The target is 100% physical correctness, with 95% the minimum; S03 is untouched.
 
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 — Game Hit Context
@@ -162,3 +230,70 @@ that state to a lock-protected process-local bridge keyed by shot id and peak ti
 It also compares confirmed candidate locations across prior shots in canonical camera
 coordinates so persistent hotspots receive a soft recurrence penalty. Re-hits remain
 legal through registered signature-gain recovery. FULL rescue remains global.
+
+## Evaluation foundation (codex/eval-loop)
+
+`src.engine.offline.evaluation` extends the offline measurement layer with a
+versioned observation contract and stage scorecards. `automation.evaluate_pipeline`
+adapts existing V2.23 framepacks or explicit stage traces. It uses existing camera
+pixel metrics and framepack readers; no live detector code is changed. Saved pools
+remain distinct from raw/filtered/retained/confirmed/selected/emitted observations.
+See [EVALUATION.md](EVALUATION.md) for evidence levels, provenance and replay gaps.
+
+## Physical trace causality and authority boundaries
+
+Camera evidence time, worker delivery time, scanner observation time and decision
+time are separate clocks/roles. `decision_input.timestamp` is captured by the
+emission hook and identifies the consumed proposal snapshot; a candidate's frame
+timestamp alone does not prove delivery before selection. Physical trace windows
+can outlive terminal events and overlap later audio events. Shared diagnostic
+pools must carry producer ownership and must not be treated as earlier authority
+inputs. Causal audit/export fields are additive; historical stage metrics retain
+their named snapshot meaning. New captures preserve the first terminal outcome.
+
+The V2.22.1 working-space contract applies to **every image read by a detector**,
+including PRE frame history, not only current/reference masks and output XY.
+The 2026-09-08 audit found a V2 PRE-history violation of that contract, fixed
+separately in `c7854ab`. Pending-event boundary and track-ownership corrections
+were also implemented separately from the original measurement work. See
+`CAUSAL_CANDIDATE_AUDIT.md` for the preserved evidence.
+
+The accepted pending-event ownership correction (`5d45527`) makes the next
+audio peak an event boundary for local confirmation while preserving delayed
+worker results captured before that boundary. The V2 PRE mapping correction in
+`c7854ab` translates crop-local detector regions into full-camera
+frame-history coordinates exactly once for normal and fallback references.
+
+## Complete decision tracing and replay
+
+With physical tracing enabled, V2.22.6 emits a per-consumption association ledger
+and selectors snapshot all active tracks with exact rejection predicates/rank
+tuples. `last_stable_tracks` remains the legacy score-sorted top-eight debug view;
+it is never the authoritative full pool. A local-confirmed candidate, stable
+track, rank-eligible track, ready track and emitted `state=confirmed` differ.
+Readiness is checked on the ranked winner after selection.
+
+The recorder freezes `decision_input.complete_track_audit` before emission and
+preserves the first decision. Terminal non-emission snapshots use a separately
+named field. Compact source/owner history includes support observations, while
+current representative ownership identifies the observation supplying XY.
+Completed immutable ledger rows are shared until trace serialization to avoid
+repeated critical-path copies. The completed event's scanner ledger is released;
+pending overlapping owners remain.
+
+`CURRENT_EXACT_REPLAY` reconstructs selector predicates and ordering, including
+stable tie order, and raises on mismatched track ids/coordinates. Export only
+claims exact verification for a complete snapshot; older traces remain explicitly
+unavailable unless a separate recorded-input reconstruction verifies them.
+
+Producer ownership must travel on the **consumed** worker result list. Tagging
+only `scanner.last_candidates` is insufficient because both tracking and local
+confirmation seed from `result.candidates`. The latter is now tagged on delivery.
+This is transport metadata enforcing existing authority boundaries, not a new
+source-ranking policy.
+
+Association also respects known producer identity: a candidate cannot update a
+track produced by another audio event. This protects accumulated XY, frame hits
+and best_score even if an older frame arrives after newer event activity.
+Same-event spatial association and untagged legacy inputs preserve their existing
+rules. The trace records nearby tracks excluded by the producer predicate.

@@ -598,6 +598,8 @@ def _install_authority_selector_patch() -> None:
                 if _log_enabled() and (sid, "wait") not in gate_log:
                     gate_log.add((sid, "wait"))
                     print(f"[V2.25.2 EARLY-GATE] shot={sid} age={age*1000.0:.0f}ms reason=await_registered_frame")
+                from src.engine.track_audit import record_selection
+                record_selection(self, event, None, "V252", gate="await_registered_authority")
                 return None
             if _log_enabled() and (sid, "failopen") not in gate_log:
                 gate_log.add((sid, "failopen"))
@@ -624,6 +626,8 @@ def _install_authority_selector_patch() -> None:
             # Keep the event pending so V2.22.5 can queue/consume its one global
             # full rescue. Bounded fail-open prevents a pathological deadlock.
             if age < _authority_fail_open_s():
+                from src.engine.track_audit import record_selection
+                record_selection(self, event, None, "V252", gate="await_registered_authority")
                 return None
             if _log_enabled() and (sid, "fresh_failopen") not in gate_log:
                 gate_log.add((sid, "fresh_failopen"))
@@ -653,6 +657,8 @@ def _install_authority_selector_patch() -> None:
                 f"score={_finite(cand.get('v252_confirm_score', cand.get('v252_authority_score', 0.0))):.2f} "
                 f"xy=({_finite(cand.get('camera_x')):.1f},{_finite(cand.get('camera_y')):.1f})"
             )
+        from src.engine.track_audit import record_selection
+        record_selection(self, event, best, "V252")
         return best
 
     HitScanner._best_track_for_event = best_track_v252

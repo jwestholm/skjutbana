@@ -444,7 +444,10 @@ class CandidateGeneratorV2:
                             "shot_id": shot_id,
                         },
                     )
-                pre_frames = [fallback[y0:y1, x0:x1]]
+                geometry = getattr(scanner, "_v2221_active_geometry", None)
+                ox = int(getattr(geometry, "crop_x0", 0) or 0)
+                oy = int(getattr(geometry, "crop_y0", 0) or 0)
+                pre_frames = [fallback[oy + y0:oy + y1, ox + x0:ox + x1]]
 
             reference, temporal_noise, stack_stats = self._build_reference_and_noise(
                 pre_frames,
@@ -837,6 +840,12 @@ class CandidateGeneratorV2:
         cfg: dict[str, Any],
     ) -> list[np.ndarray]:
         x0, y0, x1, y1 = bbox
+        geometry = getattr(scanner, "_v2221_active_geometry", None)
+        # Detection runs in crop-local coordinates while the camera ring is
+        # stored in full-camera coordinates. Translate exactly once here; the
+        # full-frame geometry path has origin (0, 0).
+        origin_x = int(getattr(geometry, "crop_x0", 0) or 0)
+        origin_y = int(getattr(geometry, "crop_y0", 0) or 0)
         max_frames = max(1, _safe_int(cfg.get("pre_stack_frames", 3), 3))
         window = max(0.05, _safe_float(cfg.get("pre_stack_window_s", 0.32), 0.32))
         min_gap = max(0.0, _safe_float(cfg.get("pre_stack_min_gap_s", 0.006), 0.006))
@@ -856,10 +865,12 @@ class CandidateGeneratorV2:
             gray = getattr(frame, "gray", None)
             if not isinstance(gray, np.ndarray):
                 continue
-            if gray.shape[0] < y1 or gray.shape[1] < x1:
+            full_x0, full_x1 = origin_x + x0, origin_x + x1
+            full_y0, full_y1 = origin_y + y0, origin_y + y1
+            if gray.shape[0] < full_y1 or gray.shape[1] < full_x1:
                 continue
 
-            selected.append(gray[y0:y1, x0:x1])
+            selected.append(gray[full_y0:full_y1, full_x0:full_x1])
             if len(selected) >= max_frames:
                 break
 
@@ -2273,8 +2284,51 @@ class CandidateGeneratorV2:
         v2: list[dict[str, float]],
         cfg: dict[str, Any],
     ) -> list[dict[str, float]]:
+        # Observational only. Keep identities outside candidate dictionaries so
+        # tracing cannot change scores, tie order, geometry or bank provenance.
+        tracing = bool(getattr(scanner, "physical_trace_capture_enabled", False))
+        audit_rows = ([dict(input_id=f"{family}:{i}", family=family,
+                            candidate=dict(c), operations=[])
+                       for family, values in (("legacy", legacy), ("v2", v2))
+                       for i, c in enumerate(values)] if tracing else [])
+        lineage = [[i] for i in range(len(legacy))] if tracing else []
+
+        def publish(output, merged, selected_by, parameters):
+            if not tracing:
+                return output
+            ranks = {id(c): i for i, c in enumerate(merged, 1)}
+            output_ranks = {id(c): i for i, c in enumerate(output, 1)}
+            for c, input_ids in zip(unsorted_merged, lineage):
+                for index in input_ids:
+                    row = audit_rows[index]
+                    row.update(output_candidate=dict(c), merged_rank=ranks[id(c)],
+                               output_rank=output_ranks.get(id(c)),
+                               retained=id(c) in output_ranks,
+                               retention_operation=selected_by.get(id(c), "hybrid_capacity_exhausted"))
+            pipeline = getattr(scanner, "last_trace_pipeline", None)
+            if not isinstance(pipeline, dict):
+                scanner.last_trace_pipeline = pipeline = {}
+            pipeline["hybrid_merge"] = dict(
+                schema="hybrid-merge-audit-1", coordinate_space="detector_working",
+                parameters=parameters, input_count=len(audit_rows),
+                merged_count=len(merged), output_count=len(output), records=audit_rows)
+            return output
+
         if not bool(cfg.get("hybrid_with_legacy", True)):
-            return list(v2[: int(getattr(scanner, "candidate_limit", 200))])
+            output = list(v2[: int(getattr(scanner, "candidate_limit", 200))])
+            if tracing:
+                # This branch has no association; record the explicit bypass.
+                pipeline = getattr(scanner, "last_trace_pipeline", None)
+                if not isinstance(pipeline, dict):
+                    scanner.last_trace_pipeline = pipeline = {}
+                for i, row in enumerate(audit_rows):
+                    kept = row["family"] == "v2" and i - len(legacy) < len(output)
+                    row.update(retained=kept, retention_operation=(
+                        "v2_only_retained" if kept else "legacy_disabled" if row["family"] == "legacy" else "v2_only_cap"))
+                pipeline["hybrid_merge"] = dict(schema="hybrid-merge-audit-1",
+                    coordinate_space="detector_working", parameters=dict(hybrid_with_legacy=False),
+                    input_count=len(audit_rows), output_count=len(output), records=audit_rows)
+            return output
 
         merge_radius = max(0.5, _safe_float(cfg.get("merge_radius_px", 5.5), 5.5))
         agreement_bonus = max(0.0, _safe_float(cfg.get("agreement_bonus", 1.5), 1.5))
@@ -2304,7 +2358,7 @@ class CandidateGeneratorV2:
         # provenance and could distort ranking.
         legacy_count = len(merged)
 
-        for v2_candidate in v2:
+        for v2_index, v2_candidate in enumerate(v2):
             best_index = -1
             best_dist = float("inf")
 
@@ -2323,6 +2377,8 @@ class CandidateGeneratorV2:
                 standalone["detector_v2"] = 1.0
                 standalone.setdefault("detector_v1", 0.0)
                 merged.append(standalone)
+                if tracing:
+                    lineage.append([len(legacy) + v2_index])
                 continue
 
             old = merged[best_index]
@@ -2347,10 +2403,22 @@ class CandidateGeneratorV2:
             combined["detector_agreement_distance"] = float(best_dist)
             combined["score"] = max(old_score, new_score) + agreement_bonus
             merged[best_index] = combined
+            if tracing:
+                inputs = lineage[best_index] + [len(legacy) + v2_index]
+                operation = dict(operation="hybrid_spatial_agreement", distance=best_dist,
+                                 threshold=merge_radius, old_score=old_score, new_score=new_score,
+                                 geometry_from="v2" if new_score > old_score else "existing",
+                                 output_xy=[combined["camera_x"], combined["camera_y"]])
+                for index in inputs:
+                    audit_rows[index]["operations"].append(dict(operation))
+                lineage[best_index] = inputs
 
+        unsorted_merged = list(merged) if tracing else []
+        parameters = dict(limit=limit, merge_radius=merge_radius, agreement_bonus=agreement_bonus,
+                          v2_reserved=v2_reserved, legacy_reserved=legacy_reserved)
         merged.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
         if len(merged) <= limit:
-            return merged
+            return publish(merged, merged, {id(c): "below_hybrid_cap" for c in merged} if tracing else {}, parameters)
 
         # The first V2 benchmark showed that some true V2 candidates were found
         # before merge but disappeared from the limited merged list. Reserve
@@ -2369,8 +2437,9 @@ class CandidateGeneratorV2:
 
         selected: list[dict[str, float]] = []
         selected_ids: set[int] = set()
+        selected_by: dict[int, str] = {}
 
-        def add_pool(pool: list[dict[str, float]], count: int) -> None:
+        def add_pool(pool: list[dict[str, float]], count: int, operation: str) -> None:
             added = 0
             for candidate in pool:
                 if added >= count or len(selected) >= limit:
@@ -2380,10 +2449,12 @@ class CandidateGeneratorV2:
                     continue
                 selected.append(candidate)
                 selected_ids.add(ident)
+                if tracing:
+                    selected_by[ident] = operation
                 added += 1
 
-        add_pool(v2_pool, v2_reserved)
-        add_pool(legacy_pool, legacy_reserved)
+        add_pool(v2_pool, v2_reserved, "v2_reserve")
+        add_pool(legacy_pool, legacy_reserved, "legacy_reserve")
 
         for candidate in merged:
             if len(selected) >= limit:
@@ -2393,9 +2464,11 @@ class CandidateGeneratorV2:
                 continue
             selected.append(candidate)
             selected_ids.add(ident)
+            if tracing:
+                selected_by[ident] = "global_fill"
 
         selected.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
-        return selected[:limit]
+        return publish(selected[:limit], merged, selected_by, parameters)
 
 
     # ------------------------------------------------------------------

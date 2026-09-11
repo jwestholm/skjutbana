@@ -18,6 +18,7 @@ changed by this patch.
 """
 from __future__ import annotations
 
+import copy
 import math
 import time
 from typing import Any, Sequence
@@ -227,7 +228,13 @@ def install_v2222_hit_scanner_patch() -> None:
 
     def patched_detect(self, gray: np.ndarray, frame_ts: float):
         cleanup_start = time.perf_counter()
+        tracing = bool(getattr(self, "physical_trace_capture_enabled", False))
+        if tracing:
+            # An early upstream return must not borrow the previous frame's ledger.
+            self.last_trace_pipeline = {}
         candidates = list(original_detect(self, gray, frame_ts) or [])
+        upstream_pipeline = copy.deepcopy(getattr(self, "last_trace_pipeline", {})) if tracing else None
+        cleanup_stages = {"input": copy.deepcopy(candidates)} if tracing else None
         input_count = len(candidates)
         settings = _runtime_settings()
 
@@ -249,6 +256,8 @@ def install_v2222_hit_scanner_patch() -> None:
                 ),
             )
 
+        if tracing:
+            cleanup_stages["after_novelty"] = copy.deepcopy(candidates)
         ridge_stats = {"ridge_removed": 0, "ridge_groups": 0, "ridge_preserved_fresh": 0}
         if bool(settings.get("analysis_horizontal_ridge_filter_v2222_enabled", True)) and candidates:
             screen_rect, H, _H_inv = _screen_rect_and_homographies()
@@ -277,10 +286,36 @@ def install_v2222_hit_scanner_patch() -> None:
                 except Exception:
                     pass
 
+        if tracing:
+            cleanup_stages["after_ridge"] = copy.deepcopy(candidates)
         limit = max(1, _as_int(getattr(self, "candidate_limit", 200), 200))
         candidates.sort(key=lambda c: _finite(c.get("score", 0.0)), reverse=True)
+        pre_limit_candidates = [dict(c) for c in candidates]
         candidates = candidates[:limit]
         self.last_candidates = candidates
+        # Observational snapshot for physical traces; it is never read by the
+        # detector and therefore cannot affect ordering or policy.
+        if tracing:
+            debug = getattr(self, "last_window_debug", {}) or {}
+            cropped = debug.get("v2221_geometry_mode") != "full_frame_fallback"
+            self.last_trace_pipeline = {
+                "raw_candidates": "UNAVAILABLE",
+                "filtered_candidates": pre_limit_candidates,
+                "retained_candidates": [dict(c) for c in candidates],
+                "confirmed_candidates": "UNAVAILABLE",
+                "ranked_candidates": "UNAVAILABLE",
+                "coordinate_space": "camera",
+                "source_frame_ts": float(frame_ts),
+                "cleanup_stages": cleanup_stages,
+                "upstream": {
+                    "pipeline": upstream_pipeline or "UNAVAILABLE",
+                    "semantics": "legacy contour/filter ledger; not the complete hybrid RAW proposal pool",
+                    "coordinate_space": "detector_crop",
+                    "crop_origin_camera": [float(debug.get("v2221_crop_x0", 0)) if cropped else 0.0,
+                                           float(debug.get("v2221_crop_y0", 0)) if cropped else 0.0],
+                    "source_frame_ts": float(frame_ts),
+                },
+            }
 
         stats = dict(getattr(self, "last_window_debug", {}) or {})
         stats.update({

@@ -68,6 +68,21 @@ def _setting_float(name: str, default: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+def tracking_frame_timestamp(scanner: Any, candidates, frame_ts: float) -> float | None:
+    """Consume async observation time once; waiting is not a negative frame.
+
+    Shared by the legacy and frame-unique tracking wrappers so later installers
+    cannot replace the async timing contract accidentally.
+    """
+    if not candidates and bool(getattr(scanner, "_v2224_async_waiting", False)):
+        return None
+    observation_ts = _finite(getattr(scanner, "_v2224_result_frame_ts", 0.0), 0.0)
+    if observation_ts > 0.0:
+        scanner._v2224_result_frame_ts = 0.0
+        return observation_ts
+    return float(frame_ts)
+
+
 @dataclass
 class DetectorJobResultV2224:
     shot_id: int
@@ -84,6 +99,7 @@ class DetectorJobResultV2224:
     vote_threshold: float
     stages_ms: dict[str, float] = field(default_factory=dict)
     error: str = ""
+    trace_pipeline: dict[str, Any] | None = None
 
     @property
     def queue_ms(self) -> float:
@@ -252,6 +268,7 @@ class AsyncDetectorV2224:
         clone.known_holes = [dict(h) for h in list(getattr(scanner, "known_holes", []) or [])]
         clone.debug_frames = {}
         clone.last_candidates = []
+        clone.last_trace_pipeline = None
         clone.last_window_debug = dict(getattr(scanner, "last_window_debug", {}) or {})
         clone.last_stable_tracks = []
         clone._active_tracks = {}
@@ -327,6 +344,8 @@ class AsyncDetectorV2224:
             threshold=_finite(getattr(clone, "last_threshold_value", 0.0)),
             change_threshold=_finite(getattr(clone, "last_change_threshold_value", 0.0)),
             vote_threshold=_finite(getattr(clone, "last_vote_threshold_value", 0.0)),
+            trace_pipeline=(copy.deepcopy(getattr(clone, "last_trace_pipeline", None))
+                            if getattr(clone, "physical_trace_capture_enabled", False) else None),
             stages_ms=dict(stages),
             error=error,
         )
@@ -409,7 +428,18 @@ class AsyncDetectorV2224:
 
     @staticmethod
     def apply_result(scanner: Any, result: DetectorJobResultV2224) -> None:
+        # The returned result list feeds tracking and LocalConfirmManager.
+        # Tag that consumed list, not only the last_candidates diagnostic copy.
+        # This transports the existing event-ownership contract without changing
+        # candidate generation, scores, association or selector ordering.
+        result.candidates = [
+            {**dict(c), "v2224_producer_shot_id": int(result.shot_id)}
+            for c in result.candidates
+        ]
         scanner.last_candidates = [dict(c) for c in result.candidates]
+        if getattr(scanner, "physical_trace_capture_enabled", False):
+            scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
+            scanner.last_trace_pipeline_shot_id = int(result.shot_id)
         if result.debug_frames:
             # Preserve reference/debug entries created elsewhere, update only
             # maps produced by this detector job.
@@ -696,9 +726,10 @@ def _install_async_detector_patch() -> None:
         # main thread rendered, apply older frames directly, then let the normal
         # HitScanner update apply the newest one. This preserves ordinary track
         # confirmation semantics without blocking the game loop.
+        self._v2224_async_waiting = False
         for result in ready[:-1]:
             async_detector_v2224.apply_result(self, result)
-            original_update_tracks(self, result.candidates, result.frame_ts)
+            self._update_tracks(result.candidates, result.frame_ts)
 
         result = ready[-1]
         async_detector_v2224.apply_result(self, result)
@@ -706,15 +737,10 @@ def _install_async_detector_patch() -> None:
         return result.candidates
 
     def patched_update_tracks(self, candidates, frame_ts: float):
-        if not candidates and bool(getattr(self, "_v2224_async_waiting", False)):
-            # No detector verdict yet is not a negative camera frame. Do not age
-            # real tracks merely because the worker is busy.
+        observation_ts = tracking_frame_timestamp(self, candidates, frame_ts)
+        if observation_ts is None:
             return None
-        override_ts = _finite(getattr(self, "_v2224_result_frame_ts", 0.0), 0.0)
-        if override_ts > 0.0 and candidates:
-            self._v2224_result_frame_ts = 0.0
-            return original_update_tracks(self, candidates, override_ts)
-        return original_update_tracks(self, candidates, frame_ts)
+        return original_update_tracks(self, candidates, observation_ts)
 
     def patched_disable(self):
         # Wait only on explicit disable/scene transition, never in the normal

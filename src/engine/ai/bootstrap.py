@@ -93,6 +93,14 @@ def _patch_hit_scanner() -> None:
     original_update = HitScanner.update
     original_emit = HitScanner._emit_track_result
     def wrapped_update(self: HitScanner, dt: float):
+        try:
+            from src.engine.physical_trace import get_physical_trace_recorder
+            from src.engine.ai.runtime import get_ai_runtime
+            trace = get_physical_trace_recorder()
+            trace.configure(get_ai_runtime().settings)
+            self.physical_trace_capture_enabled = bool(trace.enabled)
+        except Exception:
+            self.physical_trace_capture_enabled = False
         result = original_update(self, dt)
         try:
             from src.engine.ai.runtime import get_ai_runtime
@@ -100,6 +108,9 @@ def _patch_hit_scanner() -> None:
             runtime = get_ai_runtime()
             runtime.observe_scanner(self)
             self.candidate_limit = runtime.candidate_limit
+            from src.engine.physical_trace import get_physical_trace_recorder
+            trace = get_physical_trace_recorder()
+            trace.observe_scanner(self, settings=runtime.settings)
         except Exception:
             # AI remains fail-open: a diagnostics/runtime problem must never stop
             # the ordinary detector from updating.
@@ -119,6 +130,11 @@ def _patch_hit_scanner() -> None:
             from src.engine.ai.runtime import get_ai_runtime
 
             runtime = get_ai_runtime()
+            try:
+                from src.engine.physical_trace import get_physical_trace_recorder
+                get_physical_trace_recorder().capture_decision(self, track, event, runtime.settings)
+            except Exception:
+                pass
             runtime.observe_scanner(self, event=event)
             chosen = runtime.choose_for_emission(
                 track.camera_x,
@@ -152,6 +168,11 @@ def _patch_hit_scanner() -> None:
                 )
             except Exception:
                 pass
+        try:
+            from src.engine.physical_trace import get_physical_trace_recorder
+            get_physical_trace_recorder().observe_scanner(self, event)
+        except Exception:
+            pass
         return result
 
     HitScanner.update = wrapped_update

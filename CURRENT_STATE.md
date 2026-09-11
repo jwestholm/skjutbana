@@ -1,4 +1,237 @@
-# CURRENT_STATE.md fixture
+# Current project state
+
+## CURRENT FACTS — 2026-09-10 evidence preservation continuation
+
+- **100% correct physical output is the target; 95% is the minimum. Neither is
+  achieved.** The D01 oracle/selection gap remains open. CURRENT, canonical
+  SHADOW model/hash, live quotas, association and ranking are unchanged.
+- **Exact event-3 cause identified:** legacy rank-171 contour at 7.328 px has
+  merged rank 307 / legacy-pool rank 174. V2 reserve 50 plus 150 additional legacy
+  selections fill the hybrid 200 cap. It is removed by `hybrid_capacity_exhausted`,
+  with no spatial merge/replacement. Opt-in tracing now records input identity,
+  geometry operations, quota outcome and output rank without changing candidates.
+- **Event 1 evidence preserved offline:** reusing existing association history
+  adds bounded alternative XY. Research-pool oracle becomes 2/4/5/5 from 1/3/5/5;
+  the 2.892 px observation is available at rank 12, but selection still fails.
+  The fixed 150+50 spatial/size retention trial and 32-contour rescue do not
+  recover event 5. No cap increase or unproven live retention rule was installed.
+- **Protected event 2 remains a veto on promotion:** CURRENT 9.146 px becomes
+  197.077 px under the common verifier. Observation alternatives select the
+  same coordinates as that verifier on D01/S01/S02/POST_FIX. D01 selected tuples
+  remain CURRENT 0/1/1/1 versus research 1/1/1/1; common ranking also loses
+  S01:3 and POST_FIX:4 despite aggregate gains. Earlier best flow remains 2/6
+  and remains rejected. All per-event regressions and tails are reported.
+- **Independent evidence trials rejected:** centered PRE retains 55.84% GT mass
+  versus 40.06%, but no D01 selection changes and S01 regresses 3/9→2/9. Simple
+  compact/darkening confirmation rankings both select 0/6 D01. Motion-only 3×3
+  crop classification scores 0/6 D01, below majority 3/6; no cross-session motion
+  prior is supported. Missing capture calibration prevents physical Board/seam
+  claims. Broad flow remains research-only.
+- **NO_IMPACT remains unsolved:** S01:4 and S02:2/8/10 are accepted by all tested
+  methods, including with explicit local confirmation. No timing rejection,
+  synthetic negatives, relabeling, persistent self-training or gameplay priors.
+- **Inventory complete for this pass:** current/history mapping, surface/hole
+  state, audio visualization and GameObjects are documented. The audio waveform
+  calibration scene still exists; no removed physical weapon-profile system
+  was found to revive. Reuse it for deterministic profiling if later justified.
+  The smallest Board consolidation is a view/revision contract over existing
+  owners. No new central class, fullscreen mode or AI game SDK was created.
+- **Verification:** exact recorded-input CURRENT replay matches all 39 complete
+  decisions; repeated offline results are identical. Five new coordinate tests
+  cover existing homographies, crop/scale, explicit Board fixtures, content rect,
+  orientation and four-corner bounds. All 36 suites pass: 214 unittest cases plus
+  168 explicit checks. 200 additional merge differential comparisons match HEAD.
+  Finalization again agrees with all six D01 labels. All 4,954 input hashes match;
+  no inspected-session additions; settings/symlink preserved. One event-6 upstream
+  reconstruction is only 199/200 XY/score exact, and is labeled partial.
+- **Next capture recommendation revised to six diagnostic events:** two physical
+  controls (low contrast, printed-line/near-hole), two sound-only (isolated/after
+  shot), two observed no-damage panel-motion controls. Existing D01 positives
+  reduce the need for duplicate positive pilot shots; no claim of adequate
+  statistical validation. First save actual calibration/bounds/seam provenance.
+  D02 was not created or captured. S03 was not opened, inspected or modified.
+
+Full event/rank/accuracy/runtime tables and reproduction:
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+Inventory: [PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md).
+Outputs: `/data/skjutbana/evaluation_runs/D01_evidence_20260910_081143/`.
+
+## Preserved D01 completion facts — 2026-09-09
+
+- **Target: 100% correct physical output; minimum 95%. Neither is achieved.**
+  CURRENT and the canonical SHADOW challenger remain unchanged.
+- **D01 finalized and verified:** six captured events, six precise physical
+  labels, no collected no-impact events. Binding-based finalization agrees with
+  the preserved manual manifest and prior report. All six quality fields PASS.
+  Exact recorded-input replay matches 6/6 tracks/emissions and repeats identically.
+  All 765 session files and eight original ancillary inputs retain their hashes.
+- **D01 accuracy @5/10/20/42:** CURRENT **0/1/1/1 of 6**; causal proposal oracle
+  **2/4/5/5**; eligible track-XY oracle **1/3/5/5**. Frozen early common verifier
+  **1/1/1/1**, recovering event 4 while losing CURRENT's event 2. Contour rescue
+  raises union oracle to **2/5/6/6** but still selects only **1/6**.
+- **Proven losses:** event 5's useful legacy contours rank 228/276/279 and are
+  lost at the 200-candidate cap. Event 1's 2.892 px proposal becomes same-frame
+  support for a 12.835 px representative. Event 3 loses a 7.328 px legacy retained
+  point before hybrid cleanup; that union's exact loss is not instrumented.
+  Four oracle-positive events lose final ranking.
+- **Clean-change research:** 71 causal contexts, 65 physical plus six existing
+  no-physical. PRE variability/persistence removes 67.91% of D01 raw change mass,
+  retains 40.06% of GT-local mass and improves mean S/B 2.969→3.788. Selection is
+  still 1/6. Flow plus augmented verification reaches the best observed D01
+  **2/2/2/2 of 6**, but severely attenuates all six GT neighborhoods, regresses
+  comparison sessions and accepts known no-impact events. No promotion.
+- **Architecture evidence:** isolated edge features do not recover D01; the
+  motion-only 3×3 ROI proxy ties a majority baseline (3/6). Exact projected-edge,
+  board/seam and Board Space attribution are unavailable because calibration is
+  absent. Existing board/reference/hole/coordinate/audio-waveform foundations
+  were inventoried; no new central live class was added.
+- **Workflow fixed:** `physical_collection finalize --binding ...` builds the
+  aggregate manifest from labels/assignments, checks fresh quality and hashes,
+  and requires explicit ordinal mapping or `--in-capture-order`. Preview,
+  historical `--labels`, recovery and external assignments are supported;
+  existing outputs and ambiguous mappings are refused.
+- **Preserved target/plan:** Testtavla and its Bilder menu entry are unchanged.
+  The unbound plan is copied exactly to `research/physical_capture_plans/D01.json`;
+  runtime bindings/reports stay local.
+- **Next:** review D01, then eight D02 diagnostic events: four physical shots
+  across weak-flat and edge/near-hole pairs, four observed sound/motion controls.
+  Save geometry/calibration and an independent event log. D02 was not created.
+  S03 was not opened, inspected, evaluated, tuned against or modified.
+
+Full results, tests and reproduction: [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+Outputs: `/data/skjutbana/evaluation_runs/D01_accuracy_20260909_201752/`.
+
+## Preserved S02/common-verifier facts — earlier 2026-09-09 pass
+
+- **Accuracy objective:** 100% correct physical output; 95% is only the minimum
+  acceptable level. No practical success or live promotion has been achieved.
+- **Completed common-verifier research:** 65 causal decision contexts from five
+  explicitly allowed development sessions (59 physical, six no-physical), with
+  whole-session training exclusions and frozen baselines. Registered multiscale
+  patch logistic selection reaches **5/5/5/5 of 9 on held-out S01** and
+  **3/3/3/3 of 10 on S02 development**, at @5/10/20/42. These are different fitted
+  models under the same method. Primary held-out @42 improves 7/49 → 11/49;
+  including development-used S02, 8/59 → 14/59. This is offline selection at
+  recorded cutoffs, not new live-compatible end-to-end physical validation.
+- **Separate failures remain:** bounded earlier-reference proposals raise S02's
+  oracle to 3/3/5/9 but union selection stays 3/3/3/3. A spatial null averages
+  7.082/10 @42, so broad coverage is not proof of physical proposal quality.
+  Common logistic falsely selects all six known no-physical events. A visual
+  gate rejecting all three S02 false events also rejects five physical shots.
+  Broad-negative, forest, guarded-PRE, pairwise and contour-rescue trials are
+  measured and documented; none is a promotion candidate.
+- **Truth caveat:** S02 event 1 may have produced two visible changes, unconfirmed.
+  Its native label is unchanged. Exclusion sensitivity is reported. A minimal
+  evaluation contract supports NO_PHYSICAL_SHOT, single-impact, UNKNOWN/AMBIGUOUS
+  and an extensible impact array; no generalized live event engine was added.
+- **Trace integrity fix:** cleanup now preserves copied upstream contour/filter
+  evidence and input/after-novelty/after-ridge/retained boundaries with coordinate
+  provenance. Previously overwritten per-coordinate rejection evidence cannot
+  be recovered retrospectively. Candidate scores, ordering and live authority
+  remain unchanged. S03 has not been opened, inspected, evaluated or modified.
+- **Frozen offline references and results:**
+  `/data/skjutbana/evaluation_runs/accuracy_95_100_20260909_174137/`.
+  See [ACCURACY_95_100_RESEARCH.md](ACCURACY_95_100_RESEARCH.md) for exact metrics,
+  per-shot S02 proposal forensics, hashes, limits, tests and reproduction.
+- **Latest completed collection: S02** at
+  `session_20260909_162957_S02_b900192c`, bound by
+  `evaluation_runs/S02_retry_binding.json`. Ten precise physical labels map to
+  events 1,3,4,5,6,7,9,11,12,13; human-confirmed nonphysical events are 2,8,10.
+  Their S/unresolved files remain untouched; the external mapping, label
+  manifest, quality and finalization reports are in
+  `/data/skjutbana/evaluation_runs/S02_finalization_20260909_170523/`.
+- **Measured S02:** causal candidate recall is **3/10 @5/@10/@20, 5/10 @42**.
+  CURRENT selected/emitted accuracy is **1/10 at all four radii**; mean
+  187.926471, median 163.723005, P95 426.563857 px. All ten physical events
+  emitted, and **3/3 nonphysical events also emitted false hits**. Both frozen
+  shadows are 0/10 @42. This is DEVELOPMENT physical evidence; provenance does
+  not establish independent validation of a new selector.
+- **Verified S02 funnel:** 10 physical → 5 causal @42 → 5 tracked → 5 locally
+  confirmed → 5 eligible → 1 selected. The four correct losing tracks rank
+  71,101,110,46; V1 loses to FAST at tied onset distance. The other five events
+  lack causal @42 proposals, so a verifier alone has a 5/10 ceiling on the
+  existing coordinates. Existing FAST-exclusion replay stays 1/10; no tuning.
+- **Quality:** S02 trace/frame/label/replay-readiness/patch/temporal PASS; exact
+  recorded-input replay matches all 13 selected tracks and recorded emissions.
+  All 1,664 S02 files and the locally modified settings file are preserved.
+  This is not regenerated detector replay. No S03 data was opened.
+- **S01 comparison:** ten physical labels and nonphysical event 4; nine physical
+  decisions are complete, with causal oracle 9/9 @42 and CURRENT 3/9. Event 11
+  has images/GT but incomplete terminal persistence, so its accuracy is
+  unavailable. The previous finalization is preserved. S01 remains useful for
+  research; do not describe its tenth outcome as a measured timeout or miss.
+- **Workflow:** `physical_collection reset-labels --binding ...` previews an
+  exact allowlist; `--apply` verifies an external label backup before removing
+  only ground-truth/status/assignment files. Tests exercise evidence preservation
+  and refusals. `physical_test check/label/classify/evaluate --binding ...` now
+  targets the same captured session. Postflight checks actual artifacts and
+  explicit PASS values, rejects incomplete mapping, and scopes single-session
+  inspection without reading sibling sessions.
+- **Next evidence:** a small diagnostic capture identifying each newly visible
+  change and its physical onset, plus explicit no-impact controls; details and
+  reasons are in the accuracy report. Existing traces cannot recover overwritten
+  rejection ledgers or resolve unconfirmed physical ambiguity. The completed
+  offline experiments are frozen for comparison. S03 stays reserved; CURRENT,
+  canonical SHADOW challenger and confirmation hash remain unchanged.
+
+Full metrics, evidence limits, hashes and reproduction:
+[S02_PHYSICAL_FINDINGS.md](S02_PHYSICAL_FINDINGS.md).
+
+## Previous post-fix comparator and research foundations (historical)
+
+- **PROVEN physical validation:** post-PRE session
+  `session_20260908_194746_b38de674` has 10 physical shots, 10 audio events,
+  zero false events. Causal oracle is 7/10 @5/@10 and 9/10 @20/@42.
+  CURRENT remains **2/10**, mean 171.10, median 135.75, p95 464.70 px.
+- **PROVEN reconstructed funnel:** 10 physical -> 9 causal proposals @42 ->
+  9 tracked -> 9 locally confirmed -> 9 eligible -> 2 correctly selected.
+  All seven losses occur at final ranking, at ranks 9–59, outside the debug
+  top eight. Complete input replay matches all ten winners and 136 saved
+  track checkpoints plus 85 tracking counters. This is recorded-input
+  reconstruction, not regenerated
+  physical detection or a new physical validation.
+- **PROVEN instrumentation:** complete active pools, eligibility/rejection
+  reasons, association ledgers and compact source histories are captured.
+  CURRENT_EXACT_REPLAY raises on mismatched track ids, coordinates or ranks.
+- **PROVEN prior fixes:** PRE camera-plane mapping is fixed; its historical
+  residual median was 192.385 -> 1.538. FAST saturation disappeared. Pending
+  confirmation boundaries and producer rejection gates are implemented.
+  The additional producer-transport gap is fixed: the actual worker result
+  list consumed by tracking/confirmation now carries the event tag too.
+  Tracks also reject association with a known different producer, preventing
+  cross-event XY/hit/best-score history from surviving a later tag change.
+  Pending-event regressions cover both 6→7 and 14→15 patterns and delayed
+  valid pre-boundary delivery. Fresh physical validation is still required.
+- **PROVEN bottleneck:** surviving correct tracks lose final ranking. FAST
+  wins all seven oracle-positive failures, but complete-pool FAST exclusion
+  still gives 2/10. No slot cap or historic-best-over-current score advantage
+  explains these seven losses. Appearance/confirmation discrimination remains
+  the selection problem to isolate.
+- Previous 20-shot independent validation remains 1/20 @42 for CURRENT and
+  both shadows. Audio events 7 and 15 remain NO_PHYSICAL_SHOT. Its causal
+  oracle remains 12/20 @42. Historical results and inputs are preserved.
+- **RESEARCH_ONLY, rejected for promotion:** fixed local-contrast ranking is
+  0/10 on physical development. Synthetic development is 85/90 vs CURRENT
+  81/90 @42; protected holdout ties at 141/150 and worsens mean error. The
+  510-event development stress run has 450 impacts plus 60 no-impact events.
+  CURRENT is 406/450 @42, with 30/60 forced no-impact events becoming ready.
+  No AI, canonical challenger, or frozen CONFIRMATION_SELECTION_SHADOW is
+  promoted or changed. Frozen confirmation hash:
+  `123a2e510f545895adbee1def7c1a29e17e860af8bad050cfad28cfee94c1d9f`.
+- **Next step:** collect 20 deliberate physical diagnostic shots with the
+  complete tracing and corrected producer transport/association; verify exact replay and
+  capture latency first. Include light/dark, low-contrast and nearby repeated
+  impacts. Keep the existing ranking. The next offline hypothesis should
+  examine registered, polarity-aware localized novelty/confirmation; no
+  research ranking is ready for a physical promotion trial.
+- **Latest offline evidence:** registered PRE→POST residual features reproduce
+  saved confirmation values, but physical true tracks and false winners remain
+  weakly separable; synthetic separability is much stronger and therefore has
+  a clear domain gap. No registered-impact ranker is frozen or promoted.
+
+See [OVERNIGHT_TRACK_RESEARCH.md](OVERNIGHT_TRACK_RESEARCH.md) and
+[CAUSAL_CANDIDATE_AUDIT.md](CAUSAL_CANDIDATE_AUDIT.md). Checkpoints below are
+historical and do not supersede CURRENT FACTS.
 
 <!-- V2.24.0 GAME_HIT_CONTEXT -->
 ## V2.24.0 checkpoint
@@ -132,3 +365,168 @@ at the authority layer; five-shot physical acceptance is pending.
 
 Packaging-only correction after the V2.25.3 runtime work. Future delivery for this development line uses complete replacement files only: no prepare/apply scripts and no menu/settings mutation helpers. `content/menu.json` is shipped as a complete schema version 1 file with the diagnostic games already present. Central configuration files are not replaced unless the version actually requires a source change.
 
+
+## Evaluation foundation — measurement only
+
+A versioned stage-observation scorecard, JSON/terminal CLI, provenance manifests,
+and measurement selftests are available; see [EVALUATION.md](EVALUATION.md).
+Historical V2.23 framepacks can measure saved candidate-pool recall at separately
+reported 5/10/20/42 camera-pixel tolerances. They do not record complete stage
+boundaries, effective producer settings/models/calibration, or final emissions.
+Unavailable stages remain explicit. No detector behavior, parameters, models or
+ranking changed. Full live-path replay and V2.25.3 physical acceptance remain
+pending; projected F2 data is not physical validation.
+
+The initial existing-data run covered 101 projected captures (100 F2, one single
+projected): saved-pool recall was 1/101 @5 px, 2/101 @10 px, 6/101 @20 px and
+26/101 @42 px. POST coverage was 93 with one frame, six with two and two with
+three. These are historical snapshot measurements, not V2.25.3 detector results.
+
+## Offline ten-iteration ranker research
+
+Completed ten isolated native-F2 ranking trials on chronological 100-shot TRAIN,
+100-shot DEVELOPMENT and 100-shot protected final holdout sessions. No live code,
+settings, model registry or detector thresholds changed. Iteration 10 (geometry-only
+linear ranker) won only the development MRR20 tie-break: Top1@20 stayed 0/100.
+Holdout Top1/Top3/Top10@20 all remained 0/100; MRR20 improved, while Top1@42 regressed
+1/100 to 0/100. No primary accuracy improvement or promotion is justified. Candidate
+coverage remains the dominant limitation (6/100 holdout @20). See
+[OFFLINE_10ITER.md](OFFLINE_10ITER.md); models and full JSON results are isolated under
+`evaluation_runs/offline_10iter_20260907/`. V2.25.3 physical acceptance remains pending.
+
+Iteration 10 is NOT approved for live use. All experiment data is projected F2
+data and does not establish physical/live performance.
+
+## Overnight physical audit and isolated challenger — 2026-09-07
+
+On `codex/overnight-ai`, the biathlon audit assigns five holes to event groups
+`{1,2},3,4,5,6`; event 2 is the likely redundant trigger 100.66 ms after event 1.
+Original labels and traces remain untouched; ordinal-to-event mapping is external.
+The first pair cannot be acoustically disambiguated without missing audio logs.
+The second physical shot (event 3) has explicit local-confirmation evidence near
+human GT but loses selection to the first hole. Legacy `state=confirmed` means
+emitted; the saved top-eight track view is not a complete confirmation pool.
+
+A frozen, SHADOW-only adapter consolidates the existing V2.23 linear listwise model.
+Six historical conditional-ranking trials used chronological whole sessions;
+stronger regularization gives only a small development MRR20 tie-break gain,
+with Top1@20 unchanged (1/19 oracle-positive). Reused holdout Top1@20 remains 0/6.
+No model/config is promoted to live authority. See `OVERNIGHT_AI_REPORT.md`
+for the completed session report and caveats when available.
+
+Measurement improvements transport worker pipeline snapshots, capture the actual
+local-confirmation output and deterministic emission-boundary selection, and attach
+per-event audio thresholds/cooldown evidence. Canonical scoring runs only when
+finalizing the trace, with explicit retained-pool and post-decision semantics.
+`automation.physical_test` supplies start/check/label/classify/evaluate/stop helpers.
+All generated evaluations remain under ignored `evaluation_runs/`.
+
+### Frozen confirmation selection shadow
+
+The accepted development replay formula is now frozen in
+`src/engine/ai/confirmation_selection_shadow.py` as
+`CONFIRMATION_SELECTION_SHADOW` with status `PHYSICAL_REPLAY_CHALLENGER` and a
+configuration hash. Physical traces record it beside `CURRENT_DETERMINISTIC` and
+`CANONICAL_AI_SHADOW`; it cannot alter emitted coordinates. The physical-test
+evaluator reports overall and conditional selector metrics plus retained-pool oracle
+availability. The 10-shot replay remains development evidence; the next labelled
+session is the independent validation dataset.
+
+### Detector score root-cause audit
+
+`automation.physical_score_audit` now decomposes the V2 score formula and reports
+candidate-source distributions, per-shot selector comparisons, and track-score
+evidence without changing runtime behavior. The 10-shot development trace shows
+FAST V2.22.5 candidates saturated near 35–38 while genuine V2.6 vault candidates
+are commonly below 3; the next research question is source-balanced ordering.
+The frozen confirmation selector remains unchanged and shadow-only.
+
+### Async track timestamp correction
+
+A reproduced installer-composition regression let V2.22.6 overwrite V2.22.4's
+camera-frame timestamp handoff and its “worker waiting is not a negative frame”
+rule. The wrappers now share one timestamp-consumption helper; older ready results
+also use the currently installed tracking method. Two failing-before/passing-after
+regressions cover delayed-result association and waiting-frame aging. This changes
+runtime timing semantics, not detector/audio thresholds or AI authority. Physical
+acceptance remains pending; historical traces are not rewritten or claimed fixed.
+
+## Temporal impact evidence — 2026-09-09
+
+- **RESEARCH_ONLY:** temporal forensic extraction over the latest physical frames finds exploratory pairwise AUC about 0.71 for post-impact dark-residual persistence and 0.70 for impact-onset darkening. Before-frame stability alone is weak (about 0.58). The sample is small and not a validation result.
+- **NOT PHYSICALLY VALIDATED:** no temporal ranker or synthetic-model change is frozen or promoted. Some true tracks have weak persistence at their saved representative coordinate, so coordinate drift/reference timing remain unresolved.
+
+- **Observation-coordinate audit:** available association histories show only
+  limited measurable drift (about 8–10 px in three examples); most physical
+  tracks expose one coordinate. Confirmation-search best XY is not preserved
+  for most rows, so observation-level temporal ranking remains unvalidated.
+
+- **Final-ranking audit:** live eligible ordering is exactly
+  `(onset_distance_to_peak, -track.best_score)`. For every seven @42-positive
+  failure, onset is tied and the lower true-track `best_score` loses. Selected
+  false-winner coordinates do not recur within 40 px across this ten-shot
+  session; no recurrence penalty is justified.
+
+- **Score comparability audit:** post-PRE FAST saturation is gone, but eligible
+  source distributions remain materially different (FAST median 13.41, V1
+  median 5.06). The seven losses are still decided by raw `best_score`; source
+  normalization and common-evidence replays remain research-only.
+
+- **Common-evidence research:** registered compactness is available for all
+  973 eligible tracks and moves several truths upward (@10: 5/10, @20: 7/10),
+  but no static common feature selects the seven failed events correctly.
+  Temporal common evidence is only reconstructed for labelled pairs, so no
+  common final ranker is ready to freeze.
+
+- **Full-pool temporal replay:** causal temporal features are reconstructable
+  for all 973 eligible tracks, with 4–8 POST frames before each saved live
+  decision. Persistence reaches @5=3, @10=5, @20=7, but still selects the
+  false winner in all seven failed pairwise events. No temporal ranker is ready.
+
+- **Local-motion audit:** bounded local shifts are tiny for both true and false
+  tracks (false median ~0.047 px), motion-explained residual fraction is near
+  zero, and local alignment does not reverse the seven failures. Edge-shift
+  residual is not supported as the dominant cause.
+
+- **Long-horizon diagnostic:** post-decision frames extend to ~2.4 s for most
+  events and next-event PRE exists for 9/10, but permanence does not separate
+  the seven failures. Next-PRE center-dark ranks give only @5=3/@10=3; no
+  wait-for-settle policy is justified.
+
+- **Architecture review:** proposal scores are currently allowed to decide the
+  final hit, although they are source-specific discovery scores. Static,
+  temporal, motion and permanence replays do not provide a safe replacement;
+  the highest-value next change is a research-only common verifier interface
+  with richer physical patch hard negatives.
+
+- **Common verifier implementation:** research-only `CommonFrameContext`,
+  shared causal patch extraction and four rich source-independent information
+  tests are implemented. Best texture-statistic replay reaches @10=3/@20=5;
+  no verifier is physically validated or promoted. Current decision is that
+  the architecture is sound but the physical training set is insufficient.
+
+- **Historical physical mining:** 6 sessions / 61 traces were found. Five
+  sessions are patch-compatible, yielding 47 usable positives and 39
+  conservative selected-false negatives across 86 examples. Only the two
+  post-fix sessions support complete final-rank replay. Session-held-out rich
+  patch tests show domain shift; no verifier is ready to freeze.
+
+- **Capture engineering:** domain audit identifies edge/gradient density as the
+  clearest session shift. New tooling generates balanced manifests, scores
+  trace quality, and rebuilds the research dataset. Recommended future data is
+  3 independent sessions × 10 shots, with the third held out untouched.
+
+- **Capture workflow hardened:** plan/session binding, validation-training guard,
+  trace-quality scoring, finalization checks, and a practical operator runbook
+  are implemented. Session C is explicitly `VALIDATION_UNTOUCHED`; no-impact
+  events are separate from the ten physical shots.
+
+- **Adversarial workflow hardening:** preflight now refuses reused bindings and
+  reports actionable readiness; `physical_collection finalize` provides the
+  guarded postflight entry point. Session metadata includes a deterministic
+  plan identity, and validation tuning guards cover train/tune/fit/config
+  selection operations.
+
+## Physical S01 recovery
+
+The 2026-09-09 S01 run was written into the historical biathlon5 root because the old settings trace root remained active. A separate recovered copy was created at `content/ai/physical_traces/session_20260909_S01_recovered_20260909`; it contains 11 timestamped runtime events and complete PRE/POST frame references. It has since been manually labeled: ten physical shots and nonphysical event 4. Event 11 has incomplete terminal persistence, so only nine physical decisions support final-selection metrics. The contaminated historical directory is preserved and must not be used as a clean session. `physical_collection start` reserves a unique root, configures runtime settings, records a byte-for-byte settings backup, and preflight verifies the actual configured root.
