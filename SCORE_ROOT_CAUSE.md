@@ -2,6 +2,27 @@
 
 ## D01 development — measured proposal, association and ranking losses
 
+**2026-09-10:** the intervening event-3 loss is now exact. `legacy:170` at
+7.327634 px remains geometrically unchanged, merged rank 307 / legacy-pool rank
+174. V2 reserve 50 then 150 additional legacy candidates fill the 200 cap;
+`hybrid_capacity_exhausted` removes it. Opt-in input/operation/quota tracing fixes
+the diagnostic blind spot without changing live scores, order or retention.
+Reconstruction matches all ordered 200 XY/scores for D01 events 1–5; event 6 is
+199/200 and remains explicitly partial.
+
+Event 1's useful coordinate remains in existing association history; a bounded
+offline extraction restores it at 2.892 px and rank 12, but does not fix selection.
+Events 4/6 retain explicit local proof, while source-score ranking still prefers
+other coordinates. Simply ranking confirmation compactness or darkening selects
+0/6 D01. All new selectors lose event 2's protected 9.146 px success. Fixed
+150+50 spatial/size retention does not recover event 5. Centered PRE retains more
+GT signal but regresses S01. No live detector hypothesis qualifies for promotion.
+Details, per-event regressions, four-session metrics and reproducible outputs:
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+
+The following paragraph records the earlier diagnostic boundary; the exact
+hybrid quota finding above supersedes its event-3 uncertainty.
+
 D01 contains six physical shots and no collected no-impact events. CURRENT
 @5/10/20/42 is 0/1/1/1; causal proposal oracle 2/4/5/5; eligible-XY oracle
 1/3/5/5. All six selected tracks and recorded emissions replay exactly.

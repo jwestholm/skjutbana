@@ -1,6 +1,62 @@
 # Current project state
 
-## CURRENT FACTS — D01 completion
+## CURRENT FACTS — 2026-09-10 evidence preservation continuation
+
+- **100% correct physical output is the target; 95% is the minimum. Neither is
+  achieved.** The D01 oracle/selection gap remains open. CURRENT, canonical
+  SHADOW model/hash, live quotas, association and ranking are unchanged.
+- **Exact event-3 cause identified:** legacy rank-171 contour at 7.328 px has
+  merged rank 307 / legacy-pool rank 174. V2 reserve 50 plus 150 additional legacy
+  selections fill the hybrid 200 cap. It is removed by `hybrid_capacity_exhausted`,
+  with no spatial merge/replacement. Opt-in tracing now records input identity,
+  geometry operations, quota outcome and output rank without changing candidates.
+- **Event 1 evidence preserved offline:** reusing existing association history
+  adds bounded alternative XY. Research-pool oracle becomes 2/4/5/5 from 1/3/5/5;
+  the 2.892 px observation is available at rank 12, but selection still fails.
+  The fixed 150+50 spatial/size retention trial and 32-contour rescue do not
+  recover event 5. No cap increase or unproven live retention rule was installed.
+- **Protected event 2 remains a veto on promotion:** CURRENT 9.146 px becomes
+  197.077 px under the common verifier. Observation alternatives select the
+  same coordinates as that verifier on D01/S01/S02/POST_FIX. D01 selected tuples
+  remain CURRENT 0/1/1/1 versus research 1/1/1/1; common ranking also loses
+  S01:3 and POST_FIX:4 despite aggregate gains. Earlier best flow remains 2/6
+  and remains rejected. All per-event regressions and tails are reported.
+- **Independent evidence trials rejected:** centered PRE retains 55.84% GT mass
+  versus 40.06%, but no D01 selection changes and S01 regresses 3/9→2/9. Simple
+  compact/darkening confirmation rankings both select 0/6 D01. Motion-only 3×3
+  crop classification scores 0/6 D01, below majority 3/6; no cross-session motion
+  prior is supported. Missing capture calibration prevents physical Board/seam
+  claims. Broad flow remains research-only.
+- **NO_IMPACT remains unsolved:** S01:4 and S02:2/8/10 are accepted by all tested
+  methods, including with explicit local confirmation. No timing rejection,
+  synthetic negatives, relabeling, persistent self-training or gameplay priors.
+- **Inventory complete for this pass:** current/history mapping, surface/hole
+  state, audio visualization and GameObjects are documented. The audio waveform
+  calibration scene still exists; no removed physical weapon-profile system
+  was found to revive. Reuse it for deterministic profiling if later justified.
+  The smallest Board consolidation is a view/revision contract over existing
+  owners. No new central class, fullscreen mode or AI game SDK was created.
+- **Verification:** exact recorded-input CURRENT replay matches all 39 complete
+  decisions; repeated offline results are identical. Five new coordinate tests
+  cover existing homographies, crop/scale, explicit Board fixtures, content rect,
+  orientation and four-corner bounds. All 36 suites pass: 214 unittest cases plus
+  168 explicit checks. 200 additional merge differential comparisons match HEAD.
+  Finalization again agrees with all six D01 labels. All 4,954 input hashes match;
+  no inspected-session additions; settings/symlink preserved. One event-6 upstream
+  reconstruction is only 199/200 XY/score exact, and is labeled partial.
+- **Next capture recommendation revised to six diagnostic events:** two physical
+  controls (low contrast, printed-line/near-hole), two sound-only (isolated/after
+  shot), two observed no-damage panel-motion controls. Existing D01 positives
+  reduce the need for duplicate positive pilot shots; no claim of adequate
+  statistical validation. First save actual calibration/bounds/seam provenance.
+  D02 was not created or captured. S03 was not opened, inspected or modified.
+
+Full event/rank/accuracy/runtime tables and reproduction:
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+Inventory: [PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md).
+Outputs: `/data/skjutbana/evaluation_runs/D01_evidence_20260910_081143/`.
+
+## Preserved D01 completion facts — 2026-09-09
 
 - **Target: 100% correct physical output; minimum 95%. Neither is achieved.**
   CURRENT and the canonical SHADOW challenger remain unchanged.

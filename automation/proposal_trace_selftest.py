@@ -7,6 +7,7 @@ from unittest.mock import patch
 import numpy as np
 
 from src.engine.camera import hit_scanner_v2222 as cleanup
+from src.engine.camera.candidate_generator_v2 import CandidateGeneratorV2
 
 
 class ProposalTraceTests(unittest.TestCase):
@@ -63,6 +64,55 @@ class ProposalTraceTests(unittest.TestCase):
     def test_full_frame_fallback_does_not_reuse_stale_crop_origin(self):
         scanner=self.scanner(True,full_frame=True);self.detect(scanner)
         self.assertEqual(scanner.last_trace_pipeline['upstream']['crop_origin_camera'],[0,0])
+
+
+class HybridTraceTests(unittest.TestCase):
+    def merge(self, legacy, v2, tracing=True, **config):
+        scanner = SimpleNamespace(candidate_limit=3, physical_trace_capture_enabled=tracing,
+                                  last_trace_pipeline={'legacy_marker': True})
+        result = CandidateGeneratorV2.__new__(CandidateGeneratorV2)._merge_hybrid(
+            scanner=scanner, legacy=legacy, v2=v2,
+            cfg=dict(v2_reserved_slots=1, legacy_reserved_slots=2, **config))
+        return result, scanner.last_trace_pipeline
+
+    def test_exact_cap_reason_and_observational_equivalence(self):
+        legacy = [dict(camera_x=i*20., camera_y=0., score=4.-i) for i in range(3)]
+        v2 = [dict(camera_x=100., camera_y=0., score=10.)]
+        before = copy.deepcopy((legacy, v2))
+        on, ledger = self.merge(legacy, v2)
+        off, _ = self.merge(legacy, v2, False)
+        self.assertEqual(on, off)
+        self.assertEqual((legacy, v2), before)
+        row = ledger['hybrid_merge']['records'][2]
+        self.assertEqual(row['input_id'], 'legacy:2')
+        self.assertFalse(row['retained'])
+        self.assertEqual(row['operations'], [])
+        self.assertEqual(row['retention_operation'], 'hybrid_capacity_exhausted')
+        self.assertEqual(row['merged_rank'], 4)
+        on[0]['score'] = -999
+        self.assertEqual(ledger['hybrid_merge']['records'][3]['output_candidate']['score'], 10.)
+
+    def test_geometry_replacement_has_both_input_identities(self):
+        legacy = [dict(camera_x=10., camera_y=20., score=1.)]
+        v2 = [dict(camera_x=11., camera_y=20., score=8.)]
+        on, ledger = self.merge(legacy, v2)
+        self.assertEqual(on, self.merge(legacy, v2, False)[0])
+        for row in ledger['hybrid_merge']['records']:
+            self.assertEqual(row['operations'][0]['geometry_from'], 'v2')
+            self.assertEqual(row['output_candidate']['camera_x'], 11.)
+            self.assertTrue(row['retained'])
+
+    def test_v2_neighbors_do_not_create_false_legacy_agreement(self):
+        v2 = [dict(camera_x=x, camera_y=20., score=8.) for x in (10., 11.)]
+        result, ledger = self.merge([], v2)
+        self.assertEqual(len(result), 2)
+        self.assertTrue(all(not r['operations'] for r in ledger['hybrid_merge']['records']))
+
+    def test_disabled_hybrid_records_explicit_bypass(self):
+        c = dict(camera_x=10., camera_y=20., score=1.)
+        result, ledger = self.merge([c], [c], hybrid_with_legacy=False)
+        self.assertEqual(result, [c])
+        self.assertEqual(ledger['hybrid_merge']['records'][0]['retention_operation'], 'legacy_disabled')
 
 
 if __name__=='__main__':unittest.main()

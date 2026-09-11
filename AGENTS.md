@@ -16,3 +16,10 @@
 - The canonical challenger remains SHADOW-only; model status and hash are explicit.
 - Do not confuse a track's emitted `state=confirmed` with local-confirmation proof.
   Legacy `last_stable_tracks` contains only the top-eight debug view.
+- Before adding a central class/subsystem, inventory current code, Git history,
+  ARCHITECTURE/ROADMAP plans and scattered partial implementations. Prefer reuse
+  and the smallest useful consolidation over parallel architecture.
+- Exact physical coordinates remain canonical: 100% end-to-end physical
+  correctness is the target; 95% is only the minimum. Known holes, repairs and
+  edges are context, never automatic vetoes. Engine provides mechanics; games
+  provide rules. Physical XY cannot determine fictional game z-order.

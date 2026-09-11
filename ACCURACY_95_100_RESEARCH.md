@@ -1,5 +1,27 @@
 # Physical accuracy research — 2026-09-09
 
+## 2026-09-10 continuation
+
+The D01 evidence pass has now traced event 3 to its exact hybrid quota cap and
+added observational diagnostics with regression coverage. Bounded observation
+history restores event 1's 2.892 px coordinate: D01 pool oracle 1/3/5/5→2/4/5/5,
+but selection stays 1/1/1/1 under the frozen common method and loses CURRENT's
+event 2. Current physical outputs remain 0/1/1/1. The earlier flow 2/2/2/2 result
+is still the best observed D01 selection, still rejected for its counterevidence.
+
+Fixed 150+50 retention and 32-contour rescue fail event 5; simple confirmation
+rankings select 0/6. Centered PRE preserves more D01 GT mass with no selection
+gain and an S01 regression. Motion-only crop classification does not generalize.
+NO_IMPACT remains unresolved. Repeated exact CURRENT replay covers all 39
+complete D01/S01/S02/POST_FIX decisions. No algorithm is promoted and no S03 data
+is accessed. The existing model references below are unchanged.
+
+Detailed four-session tables, all per-event failures, current/history inventory,
+36 passing suites and revised **six-event diagnostic D02 recommendation** are in
+[D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md). No D02 was created/captured.
+New immutable outputs: `/data/skjutbana/evaluation_runs/D01_evidence_20260910_081143/`.
+The September 9 eight-event suggestion below is historical and superseded.
+
 ## Subsequent D01 pass
 
 D01 is finalized: six physical events, all quality PASS, 6/6 exact recorded-input

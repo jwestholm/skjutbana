@@ -13,13 +13,21 @@ CURRENT is 1/6 @42, with eligible oracle 5/6. Event 5 has useful contours lost
 at the legacy cap; flow/contour rescue can recover proposals, while final
 selection is at best 2/6 and false-event acceptance remains unresolved.
 
-The smallest next proposed D02 is **four physical shots plus four observed
-no-impact controls**: repeat a weak-flat pair and an edge/near-hole pair under
-fixed hand-buffered support/lighting; collect stable-board sound controls and
-no-new-damage board-motion controls, each isolated and after a shot. Save
-capture-time calibration/geometry and an independent observation log. These
-conditions discriminate weak change from structure/motion; they are not a 95%
-validation sample. No D02 session/plan/binding is created in this pass.
+The 2026-09-10 pass revises the smallest proposed D02 to **six diagnostic events**:
+one low-contrast physical shot, one printed-line/near-hole physical shot, two
+stable-board sound-only controls (isolated and following a real shot), and two
+observed no-new-damage motion controls (left and right/seam regions). Existing
+D01 already supplies positive regression cases; the missing discrimination is
+true weak change versus acoustic/motion false events. Preserve four negative
+controls and defer duplicate positive pilot shots until the mechanism is clearer.
+
+Keep support/lighting fixed and independently log exact actions and damage.
+First verify capture-time calibration, orientation, physical bounds/seam and
+viewport/content/projected-frame provenance are saved. A control without an
+audio trigger needs an explicit observation/capture mechanism; a missing trace
+is not a true negative. This is a diagnostic pilot, not enough data for model
+fitting, an accuracy estimate or 95% validation. No D02 session/plan/binding was
+created or captured in this pass.
 
 Review [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md) before collecting D02.
 Its concrete recommendation supersedes the earlier generic 12-event suggestion

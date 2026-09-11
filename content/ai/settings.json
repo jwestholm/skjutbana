@@ -40,5 +40,7 @@
   "min_blob_area": 6,
   "max_blob_area": 1500,
   "edge_reject_px": 6,
-  "allow_black_background": true
+  "allow_black_background": true,
+  "physical_trace_capture_enabled": true,
+  "physical_trace_root": "content/ai/physical_traces/session_20260909_194947_D01_60806ff2"
 }

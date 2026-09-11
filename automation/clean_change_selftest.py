@@ -7,7 +7,8 @@ import numpy as np
 
 from src.engine.offline.accuracy_verifier import EvidenceContext
 from src.engine.offline.clean_physical_change import (
-    VARIANTS, change_maps, clean_features, map_proposals, map_metrics, motion_compensate)
+    VARIANTS, change_maps, clean_features, map_proposals, map_metrics, motion_compensate,
+    centered_pre_variability)
 
 
 class CleanChangeTests(unittest.TestCase):
@@ -164,6 +165,39 @@ class CleanChangeTests(unittest.TestCase):
         rng = np.random.default_rng(9)
         x, y, test = rng.normal(size=(10, 3)), rng.uniform(size=(10, 2)), rng.normal(size=(4, 3))
         np.testing.assert_array_equal(ridge_predictions(x, y, test), ridge_predictions(x, y, test))
+
+    def test_centered_noise_separates_constant_pre_bias_from_variation(self):
+        stable = self.context()
+        stable.history[:, 40:44, 60:64] -= 6
+        stable.post[:, 40:44, 60:64] -= 4
+        original = [a.copy() for a in (stable.pre, stable.history, stable.post, stable.roi)]
+        magnitude, aux = centered_pre_variability(stable)
+        self.assertAlmostEqual(float(aux['noise'][41, 61]), .75, places=5)
+        self.assertGreater(magnitude[41, 61], 0)
+        for a, saved in zip((stable.pre, stable.history, stable.post, stable.roi), original):
+            np.testing.assert_array_equal(a, saved)
+        stable.history[::2, 40:44, 60:64] += 12
+        varied, varied_aux = centered_pre_variability(stable)
+        self.assertGreater(varied_aux['noise'][41, 61], aux['noise'][41, 61])
+        self.assertLess(varied[41, 61], magnitude[41, 61])
+
+    def test_centered_channel_is_zero_without_change_and_respects_roi(self):
+        ctx = self.context()
+        magnitude, _ = centered_pre_variability(ctx)
+        self.assertFalse(magnitude.any())
+        ctx.post[:, 40:44, 60:64] -= 3
+        ctx.roi[:, :64] = 0
+        magnitude, _ = centered_pre_variability(ctx)
+        self.assertFalse(magnitude[:, :64].any())
+        self.assertTrue(np.isfinite(magnitude).all())
+
+    def test_motion_centroids_are_deterministic_and_ignore_label_values_at_inference(self):
+        from automation.evidence_channel_research import centroid_predictions
+        x = np.array([[0., 0.], [.1, 0.], [9., 9.], [9.1, 9.]])
+        y = np.array([0, 0, 8, 8])
+        query = np.array([[.05, 0.], [9., 9.]])
+        np.testing.assert_array_equal(centroid_predictions(x, y, query), [0, 8])
+        np.testing.assert_array_equal(centroid_predictions(x, y, query), centroid_predictions(x, y, query))
 
 
 if __name__ == '__main__':

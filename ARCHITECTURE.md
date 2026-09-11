@@ -1,5 +1,52 @@
 # Architecture
 
+## 2026-09-10 inventory and evidence ownership
+
+Before introducing central classes/subsystems, inspect current implementation,
+all relevant Git history, existing plans and responsibilities split across
+classes. Reuse/consolidate those owners first. The complete current/history
+inventory is in [PHYSICAL_BOARD_STATE_ARCHITECTURE.md](PHYSICAL_BOARD_STATE_ARCHITECTURE.md),
+including the locally supplied September 9 design plan, coordinate tests,
+display limitations, surface revisions, audio calibration and game mechanics.
+
+This accuracy pass adds no central class. Existing `track_audit` association
+history supplies bounded alternative coordinates offline. CandidateGeneratorV2's
+existing hybrid merge now has an opt-in observational ledger with input identity,
+geometry operations, merge/quota parameters and retained/output rank. IDs stay
+outside candidate dictionaries; scores, geometry and order are unchanged. It
+closes event 3's diagnostic blind spot, not its physical selection failure.
+`automation/evidence_retention_research.py` and `evidence_channel_research.py`
+hold separate, immutable-output offline hypotheses. None is a live authority.
+
+Camera ↔ Board ↔ Game is the intended public model. Current HitInput H/inverse,
+ArUco calibration, scanport/viewport/content transforms, AnalysisGeometry crop,
+WorkingSpaceMap and frozen GameObject regions already implement most mechanics.
+Expose rather than replace them; add explicit physical Board normalization and
+capture-time revisions where absent. Five tests exercise current round trips,
+orientation and four-corner bounds. Synthetic geometry tests do not establish
+actual D01 calibration. Window desktop position is not physical truth; changes
+to the projected image's physical geometry can require recalibration.
+
+Board consolidation should initially expose existing geometry/reference/hole
+owners with revision metadata. Distinguish GEOMETRY, PHYSICAL BUILD, SURFACE
+STATE and RECENT EVENT STATE. Scan/revision at game start, trusted incremental
+updates while playing, repairs typically between games, rescan next start.
+Known holes, tape, projected edges, seams and noisy regions are context, never
+automatic vetoes. Existing emitted-track hole updates do not establish trusted
+persistent learning. Recent/long-term adaptive models remain research.
+
+Audio waveform settings remain present; there is no missing physical weapon
+profile subsystem to replace. Prefer deterministic signal/profile matching if
+later justified, optional to hit detection. Gameplay ProjectileProfile remains
+separate from measured physical weapon identity.
+
+**ENGINE PROVIDES MECHANICS. INDIVIDUAL GAME PROVIDES RULES.** Reuse GameObject,
+HitEvent, scenes/rendering and lifecycle; games own Dart/Zombie/Cowboy rules.
+Fictional z-order never derives from camera XY. An AI-readable capability SDK,
+game attention priors and camera-2 aim priors are later/future ROADMAP entries,
+not this pass's implementation. Exact physical coordinates remain canonical:
+100% correctness is the target and 95% only the minimum acceptable outcome.
+
 ## Physical accuracy research architecture — D01
 
 The current work preserves the live detector and evaluates causal physical

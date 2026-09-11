@@ -36,8 +36,14 @@ for the results and the smallest proposed D02 follow-up. Do not create D02 befor
 the D01 findings are reviewed; do not reuse or inspect S03.
 
 Physical trace capture now retains upstream contour/filter evidence and cleanup
-boundaries, with camera versus crop coordinate provenance. Missing full hybrid
-RAW evidence remains UNAVAILABLE. A trace/frame PASS establishes artifact
+boundaries, with camera versus crop coordinate provenance. When hybrid merge
+runs with physical trace capture enabled, the new ledger records each input's
+identity, spatial geometry changes, quota/cap outcome and retained/output rank.
+It is observational and adds capture payload/cost; it does not change detector
+authority. Earlier traces lack that ledger. The D01 reconstruction matches one
+recorded stage exactly for events 1–5, but only 199/200 points for event 6; this
+is not complete asynchronous replay. Missing RAW evidence remains UNAVAILABLE.
+A trace/frame PASS establishes artifact
 integrity; it does not establish perfect physical truth, all missing source
 proposals, or the live timing of an offline verifier.
 

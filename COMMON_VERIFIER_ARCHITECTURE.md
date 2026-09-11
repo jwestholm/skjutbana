@@ -1,5 +1,32 @@
 # Research common-verifier architecture
 
+## 2026-09-10 evidence-preservation results
+
+Existing track audit already retains actual associated observations. The bounded
+OBSERVATIONS32 experiment preserves each eligible representative and adds at
+most three observed alternatives per parent, 32 per event, with producer/cutoff
+checks and separately recomputed offline readiness. It changes coordinates only
+in an offline pool, never a live track or the meaning of local confirmation.
+This restores D01 event 1's 2.892 px evidence, but common ranking puts it 12th.
+Event 2's protected CURRENT hit is lost by all tested common variants. Event 4
+can be recovered, while event 6 still loses. No new Track/BoardState class is
+needed to study these alternatives.
+
+Source-independent compact/darkening confirmation rankings both select 0/6 D01.
+Centered PRE variability increases D01 GT retention from 40.06% to 55.84% but
+changes none of its selected coordinates and regresses S01. All four existing
+S01/S02 no-physical events are still accepted, including by explicit local
+confirmation. Physical ranking needs joint causal evidence and a defensible
+event-level NO_IMPACT alternative; a large local scalar is insufficient proof.
+
+The new drivers are `automation/evidence_retention_research.py` and
+`automation/evidence_channel_research.py`, using immutable output directories,
+source hashes, existing primary fits and whole-session exclusions. D01/S02 never
+enter fitting. They are offline experiments at recorded cutoffs, not new physical
+validation or new canonical SHADOW models. Current authority/model status/hash
+remain unchanged. Full errors/counts/runtime, exact hybrid-loss ledger and
+comparator regressions: [D01_PHYSICAL_FINDINGS.md](D01_PHYSICAL_FINDINGS.md).
+
 ## D01 and clean-change evidence
 
 The frozen early-reference common model selects 1/6 D01 at @5/10/20/42, recovering

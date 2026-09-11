@@ -102,6 +102,26 @@ def response_map(magnitude):
     return np.max(channels, axis=0)
 
 
+def centered_pre_variability(context):
+    """Isolated offline ablation: temporal variation versus PRE-reference bias.
+
+    The existing RMS channel includes persistent disagreement with the snapshot.
+    Centering PRE residuals measures variation around their own temporal median.
+    It is not known to improve accuracy; the baseline function stays unchanged.
+    """
+    local = local_residual(context.pre, context.post)
+    persistent = np.abs(np.median(local, axis=0))
+    history = np.stack([align_to_reference(context.pre, im)[0] for im in context.history])
+    before = local_residual(context.pre, history)
+    centered = before-np.median(before, axis=0)
+    noise = .75 + cv2.GaussianBlur(np.sqrt(np.mean(centered**2, axis=0)), (0, 0), 1)
+    magnitude = persistent*persistent/(persistent+noise)
+    magnitude *= context.roi > 0
+    edge = np.hypot(cv2.Sobel(context.pre, cv2.CV_32F, 1, 0, ksize=3),
+                    cv2.Sobel(context.pre, cv2.CV_32F, 0, 1, ksize=3))/8
+    return magnitude, dict(noise=noise, edge=edge)
+
+
 def map_proposals(context, magnitude, budget=256):
     if type(budget) is not int or budget < 1:
         raise ValueError('Positive integer proposal budget required')
