@@ -290,6 +290,12 @@ def train_stage(
     return history
 
 
+def hard_negative_indices(scores, distances, *, per_shot, radius=PATCH_NEGATIVE_RADIUS_PX):
+    """Shared stable mining order; labels are training-only, never features."""
+    neg = np.flatnonzero(np.asarray(distances) > radius)
+    return neg[np.argsort(-np.asarray(scores)[neg], kind="stable")[:min(int(per_shot), len(neg))]]
+
+
 def mine_hard_negatives(
     model: EvidenceModelV2235,
     refs: Sequence[EvidenceShotRefV2235],
@@ -304,8 +310,7 @@ def mine_hard_negatives(
     for idx, ref in enumerate(refs, start=1):
         shot = load_evidence_shot(ref)
         scores = model.score_patches(shot.patches)
-        neg = np.flatnonzero(shot.dense.distances > PATCH_NEGATIVE_RADIUS_PX)
-        hard = neg[np.argsort(-scores[neg], kind="stable")[: min(int(per_shot), len(neg))]] if len(neg) else np.zeros(0, np.int64)
+        hard = hard_negative_indices(scores, shot.dense.distances, per_shot=per_shot)
         mined[(ref.session_id, ref.sequence)] = hard.astype(np.int64)
         if shot.dense.oracle20:
             oracle20 += 1

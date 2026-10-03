@@ -1,5 +1,52 @@
 # Architecture
 
+## Offline physical AI lab: two learned roles — 2026-10-03
+
+`automation.physical_ai_dataset` adapts the existing exact EvidenceBundle witness
+journals into an immutable bounded candidate cache. It does not regenerate or
+move coordinates, replace common_verifier, or create another temporal owner.
+The scalar feature schema contains allowlisted raw evidence plus explicit missing
+indicators; labels, camera XY, session identity and retrospective POST checks are
+not model features. Raw exact-XY/frame/version/source/availability provenance is
+kept separately. Correlated measurements remain one evidence family, not votes.
+
+Two complementary learned roles reuse `training_v223`:
+
+- **Vision AI:** existing V2.23.5 registered physical image maps and V2.23.6 spatial
+  convolution can generate full-map peaks independently of retained detector
+  candidates. The physical adapter uses a fixed chronological frame policy and
+  canonical camera origin, without snapping to dense candidates or game targets.
+  Its first/last history representation and control training are research limits.
+- **Evidence Fusion NN:** existing RankModelV223 MLP representation/serialization
+  and V2.23.5 gradients/mining support a labelled event-balanced training adapter.
+  It learns candidate-local nonlinear evidence scores, preserving observed XY.
+  A research threshold can withhold UNKNOWN; it never establishes NO_IMPACT truth.
+
+`automation.physical_ai_lab` is an offline runner, not a runtime verifier. The F2
+TCP automation remains for projected synthetic sessions; it is not invoked to
+construct physical benchmark truth. Completed trial JSON is the recovery journal
+of record. Adam/RNG/epoch checkpoints are atomic, completed fold models are hash
+bound, and leaderboard/failure-wall summaries are rebuildable. Champion history
+is append-preserved and lives only under /data; no runtime registry is written.
+Per-trial publication avoids reloading every full historical report each trial.
+
+The split unit is the whole physical session. Each recorded outer fold has three
+training sessions, one development-reporting session and one unseen-by-weights
+scoring session. Repeated outer scoring drives research model selection, so its
+aggregate is DEVELOPMENT evidence, not an independent held-out validation claim.
+S03 names/paths/aliases are refused before source reads and never join the cache.
+
+**Upstream leakage rule:** a Vision feature used for any downstream event must
+come from a model that excluded that event's entire physical session and the
+outer held/development sessions. Training-fold Vision features need nested
+cross-fitting, not predictions from a Vision model fitted on the same events.
+The contract checker refuses such leakage, but model-produced nested prediction
+artifacts are not implemented yet. Vision-derived fusion inputs stay disabled.
+
+Physical evidence remains authoritative; neither learned role invents GT,
+changes gameplay coordinates, vetoes old holes/edges, nor auto-promotes live hit
+authority. Current exact-witness semantics and timing limitations are unchanged.
+
 ## Shared exact physical evidence contract, offline only — 2026-09-28
 
 `offline.common_verifier.query_physical_witness` now returns candidate-local

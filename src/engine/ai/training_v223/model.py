@@ -249,6 +249,96 @@ def train_rank_model(
     return model, {"loss_history": history, "usable_training_shots": len(usable)}
 
 
+def train_fusion_model(samples, *, feature_names, hidden=24, epochs=24,
+                       learning_rate=0.003, l2=0.001, seed=1, hard_negative_count=4,
+                       checkpoint=None, checkpoint_identity=None, stop=None):
+    """Offline physical evidence adapter using the existing MLP and gradients.
+
+    Samples contain matrix + supervised distances, never synthesized coordinates.
+    <=5px is positive, >42px negative, the intermediate band is ignored. Controls
+    have infinite distances; UNKNOWN truth is excluded by the guarded caller.
+    No usable candidate still counts as a miss in evaluation. One event has one
+    unit of loss weight. Adam/RNG/epoch checkpoints allow exact interrupted resume.
+    """
+    import os
+    from .evidence_model_v2235 import EvidenceModelV2235, _grads, hard_negative_indices
+
+    names = tuple(feature_names)
+    usable = [(np.asarray(x, np.float32), np.asarray(d, float)) for x, d in samples if len(x)]
+    if not usable:
+        raise ValueError('No labelled training candidates')
+    joined = np.concatenate([x for x, _ in usable])
+    if joined.shape[1] != len(names) or not np.isfinite(joined).all():
+        raise ValueError('Invalid training features')
+    mean, scale = joined.mean(axis=0), joined.std(axis=0)
+    scale[scale < 1e-6] = 1
+    rng = np.random.default_rng(seed); d = len(names)
+    arrays = dict(w1=rng.normal(0, np.sqrt(2/max(1,d))*.45, (d,hidden)).astype(np.float32),
+                  b1=np.zeros(hidden,np.float32), w2=rng.normal(0,.1,(hidden,1)).astype(np.float32), b2=np.zeros(1,np.float32))
+    opt_m = {k:np.zeros_like(v) for k,v in arrays.items()}; opt_v = {k:np.zeros_like(v) for k,v in arrays.items()}
+    config = dict(hidden=hidden, epochs=epochs, learning_rate=learning_rate, l2=l2, seed=seed,
+                  hard_negative_count=hard_negative_count, feature_names=list(names), identity=checkpoint_identity)
+    start = step = 0; history = []; mined_history = []
+    checkpoint = Path(checkpoint) if checkpoint else None
+    if checkpoint and checkpoint.exists():
+        with np.load(checkpoint,allow_pickle=False) as old:
+            meta = json.loads(str(old['metadata']))
+            if meta['config'] != config:
+                raise ValueError('Checkpoint/config/data identity mismatch')
+            if not np.array_equal(old['mean'],mean) or not np.array_equal(old['scale'],scale):
+                raise ValueError('Checkpoint training data/scaler mismatch')
+            for k in arrays:
+                arrays[k]=old['p_'+k].copy(); opt_m[k]=old['m_'+k].copy(); opt_v[k]=old['v_'+k].copy()
+            rng.bit_generator.state=meta['rng']; start=meta['epoch']; step=meta['step']
+            history=meta['history']; mined_history=meta['mined']
+    model = EvidenceModelV2235('mlp', arrays)
+    for epoch in range(start, epochs):
+        if stop and stop():
+            raise InterruptedError('Time budget or signal; last epoch checkpoint preserved')
+        losses=[]; mined_total=0
+        for i in rng.permutation(len(usable)):
+            raw, distances=usable[int(i)]; x=(raw-mean)/scale
+            scores=model._forward_features(x)
+            pos=distances <= 5; neg=distances > 42; valid=pos|neg
+            if not valid.any(): continue
+            labels=pos.astype(np.float32)
+            weights=np.zeros(len(x),np.float32)
+            for mask in (pos,neg):
+                if mask.any(): weights[mask]=1/float(mask.sum())
+            # Reuse V2.23.5's model-scored training-negative order, after warmup.
+            if epoch >= max(1, epochs//3) and hard_negative_count:
+                hard=hard_negative_indices(scores,distances,per_shot=hard_negative_count)
+                weights[hard]*=2; mined_total+=len(hard)
+            weights/=weights.sum()
+            prob=1/(1+np.exp(-np.clip(scores,-40,40)))
+            ds=(prob-labels)*weights
+            losses.append(float(np.sum(weights*(np.logaddexp(0,scores)-labels*scores))))
+            grads=_grads(model,x,ds,l2=l2); step+=1
+            for k,g in grads.items():
+                g=np.clip(g,-5,5).astype(np.float32)
+                opt_m[k]=.9*opt_m[k]+.1*g; opt_v[k]=.999*opt_v[k]+.001*g*g
+                arrays[k]-=learning_rate*(opt_m[k]/(1-.9**step))/(np.sqrt(opt_v[k]/(1-.999**step))+1e-7)
+        if not losses: raise ValueError('No unambiguous labels in training fold')
+        history.append(float(np.mean(losses))); mined_history.append(mined_total)
+        if not np.isfinite(history[-1]): raise ValueError('Nonfinite training loss')
+        if checkpoint:
+            checkpoint.parent.mkdir(parents=True,exist_ok=True)
+            meta=dict(config=config, epoch=epoch+1, step=step, rng=rng.bit_generator.state,
+                      history=history,mined=mined_history)
+            tmp=checkpoint.with_suffix('.tmp')
+            with tmp.open('wb') as f:
+                np.savez(f,metadata=json.dumps(meta),mean=mean,scale=scale,
+                         **{'p_'+k:v for k,v in arrays.items()},
+                         **{'m_'+k:v for k,v in opt_m.items()}, **{'v_'+k:v for k,v in opt_v.items()})
+                f.flush(); os.fsync(f.fileno())
+            os.replace(tmp,checkpoint)
+    result=RankModelV223('mlp',names,mean,scale,arrays,
+                         dict(config,live_authority=False,role='EVIDENCE_FUSION',
+                              label_contract='positive<=5; negative>42; neutral ignored; UNKNOWN truth excluded',
+                              final_loss=history[-1],training_events=len(usable)))
+    return result,dict(loss_history=history,mined_negatives_per_epoch=mined_history)
+
+
 def evaluate_model(model: RankModelV223, records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
     shots = 0
     oracle20 = oracle42 = 0
@@ -371,4 +461,3 @@ def evaluate_baseline(records: Sequence[ShotTrainingRecord]) -> dict[str, Any]:
         "mrr42": float(np.mean([1.0 / r for r in ranks42])) if ranks42 else 0.0,
         "reference_policy": "explicit_baseline_rank_else_baseline_score_desc",
     }
-

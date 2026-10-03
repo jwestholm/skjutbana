@@ -1,5 +1,80 @@
 # Current project state
 
+## Autonomous offline physical AI lab foundation — 2026-10-03
+
+The immediate priority is now reusable unattended DEVELOPMENT experiments, not
+proposal preprocessing. `automation.physical_ai_lab` builds a fixed cached
+benchmark and trains the existing V2.23 NumPy MLP through a physical-evidence
+adapter. This does not modify CURRENT, the frozen canonical challenger, settings,
+proposal generation, exact witness retention, thresholds or runtime authority.
+
+The fixed cache has **45 events / 1,056 exact retained coordinates** from KOMP
+(6), D02 (6), S01 (10), S02 (13), POST_FIX (10): 37 labelled impacts and eight
+operator-supported controls. No GT coordinates generate candidates or enter
+features. Native labels, source hashes, missing measurements, raw witness
+provenance and cutoff uncertainty are preserved. D01 pixels and S01:11's complete
+cutoff remain unavailable. KOMP clocks remain unknown. The cache is a last-PRE
+**offline reconstruction**, not exact live replay or physical validation.
+
+Five fixed folds reserve one entire session for scoring, one for development
+reporting and three for weight/scaler fitting. Repeated outer-session scores are
+used for research model selection and therefore are NOT an untouched validation
+estimate. S03 remains forbidden and unopened. Feature transforms/scalers never
+fit the held or development sessions. Vision features are disabled: upstream
+lineage checks exist, but nested OOF model generation/verification is incomplete.
+
+The runner supports deterministic random configurations, epoch-level Adam/RNG
+checkpoints, interruption/resume, exclusive ownership, immutable completed trials,
+research champion history, model/source/dataset hashes, per-event predictions,
+leaderboards, failure-wall summaries and queued full-retraining family ablations.
+It reuses V2.23.5's stable hard-negative ordering on training sessions only.
+No automatic model activation exists. Protected @42 regressions, new catastrophic
+>100px errors and increased control emissions block research champion replacement.
+Successive halving/evolution are deferred; this is bounded random search first.
+
+Short Evidence NN smoke trials completed across all five folds. None displaced
+the frozen exact-witness baseline: initial trials either lost Selected@5 or
+introduced control emissions; new catastrophic errors also blocked acceptance.
+These are plumbing checks, not accuracy gains.
+The frozen baseline remains KOMP **4/6 @5/10/20/42**, D02 real **2/2 @5**, controls
+**0/4 final support**, shot 6 **2.450390 px**, and later revocation of D02:4.
+CURRENT KOMP remains 1/6. The full frozen cache selects 20/21/22/23 of 37 impacts,
+with eight controls UNKNOWN (not validated no-impact rejections).
+The fixed retained-bank oracle is **25/37 @5**: selector search alone cannot
+reach 95% on this representation. Failure-wall reporting must distinguish absent
+coordinates from ranking mistakes before spending more compute.
+
+`automation.physical_ai_vision` adapts existing V2.23.5 registered evidence maps
+and V2.23.6 spatial convolution to physical chronological history. Full-map peaks
+are its own coordinates; no dense/target snapping is used. A seven-event map-cache
+and two-epoch smoke exercised this path. Its first-three/last-three history
+representation is not qualified clean PRE, its existing pair loss does not train
+control abstention, and it is not a full benchmark Vision result. Raw-patch failure
+history remains preserved; this adapter does not reuse raw-patch capacity alone.
+Synthetic V3 qualification remains unchanged; no donor synthesis/training ran.
+
+Commands (fresh experiment names; all data/models under `/data/skjutbana/`):
+
+```bash
+OPENBLAS_NUM_THREADS=1 python3 -m automation.physical_ai_lab run --experiment physical_ai_v1_12h --dataset /data/skjutbana/physical_ai_lab/datasets/witness_v1_20261003 --hours 12
+OPENBLAS_NUM_THREADS=1 python3 -m automation.physical_ai_lab resume --experiment physical_ai_v1_12h
+python3 -m automation.physical_ai_lab status --experiment physical_ai_v1_12h
+python3 -m automation.physical_ai_lab queue-ablations --experiment physical_ai_v1_12h
+```
+
+No long job was launched. An interrupted epoch resumes exactly; a hard kill
+conservatively charges time since its last durable heartbeat, including downtime.
+`resume --hours N` explicitly adds budget. Mixed-code/data resume is refused.
+Ablation queuing requires an actual learned research champion; inference-time
+feature zeroing is not reported as contribution evidence.
+
+NEXT: one local unattended Evidence NN development run, then inspect champion
+rejections and common failure walls before adding model complexity. Proposal
+reference-preprocessing reuse remains a later runtime optimization. Report:
+`/data/skjutbana/evaluation_runs/physical_ai_lab_foundation_20261003_01/REPORT.md`.
+Local HEAD was clean dev at bccf437; creating the requested branch was blocked by
+read-only `.git`. Changes remain uncommitted; no dev/main commit was modified.
+
 ## Shared temporal batching measured, no authority change — 2026-09-28
 
 The existing shared witness query now has a bounded batch form. It validates a

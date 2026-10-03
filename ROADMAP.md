@@ -1,5 +1,36 @@
 # Roadmap
 
+## NOW: autonomous physical AI lab foundation — 2026-10-03
+
+This supersedes the immediate NEXT priorities in the historical entries below.
+
+- IMPLEMENTED: fixed 45-event development witness cache/scoreboard, explicit
+  HIT/NO_IMPACT/UNKNOWN truth, selected-vs-oracle separation, S03 refusal,
+  session-atomic train/dev/held folds and source/schema hashes.
+- IMPLEMENTED: reusable V2.23 Evidence Fusion MLP adapter, deterministic random
+  trials, optimizer/RNG checkpoint/resume, immutable research champions, protected
+  regression/catastrophe/control guards, failure-wall history, queued retraining
+  ablations and actual training-negative mining. No live model replacement.
+- SMOKE ONLY: short real Evidence NN runs and registered-map Vision convolution.
+  No champion displaced the physical exact-witness baseline. Repeated development
+  CV is model selection, never untouched physical validation.
+- PARTIAL: Vision own-localization adapter is runnable, but clean temporal visual
+  representation/control loss are not qualified. Nested OOF Vision-to-Evidence
+  generation is not implemented; that feature remains disabled, with exclusion
+  contracts tested. No raw-patch rerun, Synthetic V3 expansion or long training.
+- NEXT: run one unattended Evidence NN experiment locally (12h command in
+  CURRENT_STATE), inspect fixed-scoreboard champions/rejection reasons and shared
+  failure walls. Treat the small development set as a finite evidence resource;
+  more trials do not manufacture independent validation.
+  The retained-bank oracle is 25/37 @5; no selector can recover the other twelve
+  impacts without different physical candidate/evidence coverage.
+- LATER RUNTIME: preserve reference high-pass/mask/resize preprocessing reuse in
+  the existing registration calls, exact proposal/order gates and bounded shadow
+  scheduling. It is deliberately not this task's optimization target.
+- LATER EVIDENCE: add only families that address measured failure walls; complete
+  nested upstream cross-fitting before fusion; validate qualified visual temporal
+  inputs and eventual live shadow behavior. S03 and CURRENT remain untouched.
+
 ## Shared temporal batching complete; proposal preparation next — 2026-09-28
 
 - Completed one reuse path: bounded batched shared query and local reductions,
