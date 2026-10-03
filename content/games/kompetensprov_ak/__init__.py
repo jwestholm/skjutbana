@@ -1,0 +1,1 @@
+"""Kompetensprov AK game package."""

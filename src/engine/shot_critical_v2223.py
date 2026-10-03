@@ -129,6 +129,11 @@ class ShotCriticalControllerV2223:
         if peak_ts <= self.last_seen_peak_ts + 1e-9:
             return None
         self.last_seen_peak_ts = peak_ts
+        # update() drains oldest-first. Preparing the next shot ID with the
+        # latest peak misbinds its PRE/cutoff when several events are queued.
+        pending = detector.pending_events_snapshot() if hasattr(detector, 'pending_events_snapshot') else ()
+        if pending:
+            peak_ts = float(pending[0].timestamp)
         now = time.time()
         self._ack_ts_by_peak[peak_ts] = now
         delay_ms = max(0.0, (now - peak_ts) * 1000.0)
@@ -173,6 +178,8 @@ class ShotCriticalControllerV2223:
             snap = object_hit_registry_v2223.snapshot_for_shot(sid)
             if snap is None:
                 snap = object_hit_registry_v2223.snapshot(sid, peak_ts, scene=scene)
+            from src.engine.camera.camera_manager import camera_manager
+            object_hit_registry_v2223.begin_object_query(sid, scanner, camera_manager)
             ack_ts = float(self._ack_ts_by_peak.pop(peak_ts, now))
             self.timings[sid] = ShotTimingV2223(
                 shot_id=sid,
@@ -257,6 +264,7 @@ class ShotCriticalControllerV2223:
         except Exception:
             return
         by_id = {int(getattr(ev, "shot_id", 0) or 0): ev for ev in events}
+        object_hit_registry_v2223.publish_object_comparisons(scanner)
         now = time.time()
         for sid, timing in list(self.timings.items()):
             if timing.hit_state != "pending":
@@ -278,7 +286,10 @@ class ShotCriticalControllerV2223:
             )
             self._restore_wait_cursor()
 
-    def mark_visible_after_flip(self) -> None:
+    def mark_visible_after_flip(self, scene=None) -> None:
+        presented = getattr(scene, 'on_frame_presented', None)
+        if callable(presented):
+            presented(time.time())
         if not self._just_finished:
             return
         now = time.time()
@@ -331,6 +342,8 @@ def _install_camera_manager_fast_update() -> None:
         with self._lock:
             if self._ring:
                 self.latest_frame = self._ring[-1]
+                if self.latest_frame.acquisition is not None:
+                    self.latest_frame.acquisition.setdefault('first_main_pickup_monotonic', time.monotonic())
             self.last_error = None
 
     def refresh_capabilities_v2223(self, *, force: bool = False) -> None:
@@ -530,6 +543,8 @@ def install_v2223_runtime(AppClass: Any) -> None:
             camera_manager.update()
             camera_ms = (time.perf_counter() - t) * 1000.0
 
+            object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
+
             # 3) Service the scanner before automation, scene update or render.
             # With the CameraManager pickup-cursor fix, HitScanner now owns its
             # new-frame cursor and can actually consume the timestamped ring.
@@ -583,7 +598,7 @@ def install_v2223_runtime(AppClass: Any) -> None:
             self._update_window_caption()
             self.scene.render(self.screen)
             pygame.display.flip()
-            controller.mark_visible_after_flip()
+            controller.mark_visible_after_flip(self.scene)
 
             # Deliberately NO automatic camera-capability probe here. Even a
             # five-second throttled probe could begin just before a shot and

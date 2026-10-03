@@ -903,6 +903,9 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 camera_manager.update()
                 camera_ms = (time.perf_counter() - t0) * 1000.0
 
+                from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+                object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
+
                 # HitScanner.update is now cheap on the main thread: frame
                 # bookkeeping + result integration. _detect_frame_candidates()
                 # submits/harvests the real CV work asynchronously.
@@ -949,7 +952,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 self._update_window_caption()
                 self.scene.render(self.screen)
                 pygame.display.flip()
-                controller.mark_visible_after_flip()
+                controller.mark_visible_after_flip(self.scene)
 
         finally:
             _shutdown_workers()

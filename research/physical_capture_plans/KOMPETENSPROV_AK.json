@@ -1,0 +1,73 @@
+{
+  "collection_plan_id": "KOMPETENSPROV_AK_six_physical_development_20260926",
+  "status": "PLANNED_ONLY_NOT_CAPTURED",
+  "sessions": 1,
+  "shots_per_session": 6,
+  "rows": [
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 1,
+      "category": "clear_inside_upper",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    },
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 2,
+      "category": "clear_inside_lower",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    },
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 3,
+      "category": "near_zone_boundary_first_side",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    },
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 4,
+      "category": "near_zone_boundary_other_side",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    },
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 5,
+      "category": "physical_miss_left",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    },
+    {
+      "session": "KOMPETENSPROV_AK",
+      "session_class": "DEVELOPMENT",
+      "planned_physical_shot": 6,
+      "category": "physical_miss_right",
+      "actual_event_id": null,
+      "gt_status": "UNLABELED"
+    }
+  ],
+  "protocol": [
+    "BAS Hv default, choose position before start; figure region from game geometry, never GT.",
+    "ENTER starts silent static test; wait at least 5 seconds for settled PRE. No automatic 45 s stop in diagnostic mode.",
+    "Six deliberate physical impacts: two interior, two near an internal scoring boundary, two outside the silhouette but within the observed board.",
+    "Space events at least 6 seconds; keep projection/hardware unchanged. Note actual runtime IDs and independent physical hole locations, not intended positions or AUTO output.",
+    "Record every extra audio event separately. Lack of emitted hit is not lack of physical shot. Never seed manual truth from AUTO.",
+    "Wait at least 5 seconds after the last action, then ENTER to end, preserve AUTO separately and close normally.",
+    "Use explicit binding for health and independent camera labeling. Do not finalize expected categories as observed truth."
+  ],
+  "measures": [
+    "selected_camera_error_5_10_20_42",
+    "actual_inside_outside",
+    "zone_if_physical_xy_correct",
+    "false_target_attraction",
+    "FULL_rescue_requested_consumed_selected",
+    "NO_PHYSICAL_SHOT_extra_events"
+  ]
+}

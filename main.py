@@ -2,6 +2,24 @@ import atexit
 import os
 import sys
 
+# An explicitly requested capture must be ready before camera/audio/game imports.
+# This process-only binding does not replace the user's saved detector settings.
+if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+    try:
+        import faulthandler
+        import json
+        # Native faults bypass finally/atexit. Keep their Python stack in the
+        # existing runtime stderr log; completed windows persist independently.
+        faulthandler.enable()
+        from automation.physical_collection import verify_capture_launch
+        _capture_binding=verify_capture_launch(os.environ['SKJUTBANA_PHYSICAL_CAPTURE_BINDING'],claim=True)
+        os.environ['SKJUTBANA_PHYSICAL_TRACE_ROOT']=_capture_binding['trace_root']
+        os.environ['SKJUTBANA_PHYSICAL_CAPTURE_HISTORY']=json.dumps(_capture_binding.get('capture_history'))
+        if _capture_binding['planned_session_id']=='KOMPETENSPROV_AK':
+            os.environ['SKJUTBANA_KOMPETENSPROV_TEST']='1'
+    except (ValueError,OSError,KeyError) as exc:
+        raise SystemExit(f'CAPTURE PREFLIGHT REFUSED BEFORE GAME START: {exc}')
+
 
 def _restore_terminal() -> None:
     """Restore terminal to sane state. Called on any exit."""
@@ -92,4 +110,10 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
     finally:
+        # Explicitly finish capture while Python is still operational. Completed
+        # extended windows already checkpoint; this also saves partial windows.
+        _trace_module = sys.modules.get('src.engine.physical_trace')
+        _trace_recorder = getattr(_trace_module, '_RECORDER', None)
+        if _trace_recorder is not None and _trace_recorder.enabled:
+            print('[PHYSICAL-TRACE] SHUTDOWN', _trace_recorder.shutdown(), flush=True)
         _restore_terminal()

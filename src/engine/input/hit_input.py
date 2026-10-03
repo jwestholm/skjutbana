@@ -217,6 +217,26 @@ class HitInput:
     def _camera_to_screen_via_homography(self, camera_x: float, camera_y: float):
         return self._transform(self.homography, camera_x, camera_y)
 
+    def frozen_camera_to_screen(self, method: str):
+        """Freeze existing H/scanport geometry for an asynchronous scoped query.
+
+        Does not reload or change canonical mapping, and never guesses identity.
+        Desktop window position remains outside these physical transforms.
+        """
+        if method.startswith('homography') and self.homography is not None:
+            matrix = self.homography.copy()
+            return lambda x, y: self._transform(matrix, x, y)
+        if method == 'scanport':
+            scanport, viewport = load_scanport_rect(), load_viewport_rect()
+            if scanport is not None and viewport is not None and scanport.w > 0 and scanport.h > 0:
+                # Same affine mapping as _camera_to_screen_via_scanport, frozen
+                # as a matrix and evaluated by the existing transform primitive.
+                sx, sy = viewport.w/scanport.w, viewport.h/scanport.h
+                matrix = np.array([[sx,0,viewport.x-scanport.x*sx],
+                    [0,sy,viewport.y-scanport.y*sy],[0,0,1]],dtype=np.float64)
+                return lambda x, y: self._transform(matrix, x, y)
+        return None
+
     def _screen_to_camera_via_scanport(self, screen_x: float, screen_y: float):
         viewport_info = self._screen_to_viewport_norm(screen_x, screen_y)
         scanport = load_scanport_rect()

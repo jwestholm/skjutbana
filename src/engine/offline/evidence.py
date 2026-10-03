@@ -105,10 +105,18 @@ class EvidenceOverlay:
 
 @dataclass
 class EvidenceBundle:
-    reference: np.ndarray
+    # Candidate-only queries need no fabricated fused image/map.
+    reference: np.ndarray | None
     overlays: dict[str, EvidenceOverlay]
-    fused: EvidenceOverlay
+    fused: EvidenceOverlay | None
     metadata: dict[str, Any] = field(default_factory=dict)
+    witnesses: tuple[dict[str, Any], ...] = ()
+
+
+PHYSICAL_EVIDENCE_FAMILIES = (
+    'TEMPORAL_NEWNESS', 'LOCAL_PHYSICAL_CHANGE', 'SPATIAL_SUPPORT',
+    'SURFACE_CONTEXT', 'MOTION_CONTEXT', 'STRUCTURE_CONTEXT',
+)
 
 
 def _odd(value: int, minimum: int = 1) -> int:

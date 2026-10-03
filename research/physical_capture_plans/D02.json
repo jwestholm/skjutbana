@@ -1,0 +1,20 @@
+{
+  "collection_plan_id": "D02_six_event_diagnostic_20260914",
+  "status": "PLANNED_ONLY_NOT_CAPTURED",
+  "semantics": "Two physical shots plus four explicitly observed no-impact controls; protocol intent is never truth",
+  "sessions": 1,
+  "shots_per_session": 2,
+  "rows": [
+    {"session": "D02", "session_class": "DEVELOPMENT", "planned_physical_shot": 1, "category": "low_contrast", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "D02", "session_class": "DEVELOPMENT", "planned_physical_shot": 2, "category": "printed_line_near_hole", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null}
+  ],
+  "execution_order": [3, 1, 2, 4, 5, 6],
+  "protocol_events": [
+    {"protocol_id": 1, "kind": "physical", "planned_physical_shot": 1, "category": "low_contrast", "hypothesis": "Does weak localized permanent change survive bounded raw coverage and track XY hypotheses?"},
+    {"protocol_id": 2, "kind": "physical", "planned_physical_shot": 2, "category": "printed_line_near_hole", "hypothesis": "Can physical evidence on structure survive quotas and beat the wrong final winner?"},
+    {"protocol_id": 3, "kind": "control", "category": "sound_only_isolated", "hypothesis": "Does sound alone on a settled board produce a falsely confirmed candidate?"},
+    {"protocol_id": 4, "kind": "control", "category": "sound_only_after_shot", "hypothesis": "Does residual shot motion/change contaminate the next sound-only event? Record actual delay; timing is not a rejection rule."},
+    {"protocol_id": 5, "kind": "control", "category": "panel_motion_no_damage", "hypothesis": "Can localized panel movement mimic persistent compact change?"},
+    {"protocol_id": 6, "kind": "control", "category": "seam_alternate_motion_no_damage", "hypothesis": "Does alternate-panel/seam movement produce a different false-change pattern?"}
+  ]
+}

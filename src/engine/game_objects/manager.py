@@ -204,7 +204,38 @@ class ObjectManager:
     # ------------------------------------------------------------------
     # Hit resolution
     # ------------------------------------------------------------------
-    def resolve_hit(self, hit: Any, projectile: ProjectileProfile | None = None) -> ShotResolution:
+    def resolve_object_query(self, result: Mapping[str, Any], projectile=None):
+        """Resolve one of <=3 observed OBJECT coordinates against frozen shapes.
+
+        No HitEvent is emitted, no search margin enters collision, and only one
+        coordinate can apply damage. Existing projectile rules govern penetration.
+        Duplicate delivery is idempotent, including misses.
+        """
+        from types import SimpleNamespace
+        sid = int(result.get('shot_id', 0) or 0)
+        if sid <= 0 or result.get('mode') != 'OBJECT' or result.get('status') != 'PHYSICAL_HIT':
+            return None, None
+        cache = getattr(self, '_object_query_resolutions', None)
+        if cache is None:
+            cache = self._object_query_resolutions = {}
+        if sid in cache:
+            return None, None
+        cache[sid] = True
+        for old in sorted(cache)[:-32]:
+            cache.pop(old, None)
+        for hypothesis in result.get('hypotheses', ())[:3]:
+            xy = hypothesis.get('game_xy')
+            if not hypothesis.get('confirmed') or xy is None:
+                continue
+            snapshot, hits = self._frozen_hits(sid, *xy)
+            if snapshot is None or not hits:
+                continue
+            resolution = self.resolve_hit(SimpleNamespace(shot_id=sid,game_x=xy[0],game_y=xy[1]),projectile, active_only=True)
+            if resolution.interactions:
+                return resolution, hypothesis
+        return None, None
+
+    def resolve_hit(self, hit: Any, projectile: ProjectileProfile | None = None, *, active_only=False) -> ShotResolution:
         projectile = projectile or DEFAULT_PROJECTILE
         state = projectile.start()
         x = float(getattr(hit, "game_x"))
@@ -247,6 +278,10 @@ class ObjectManager:
                 ))
                 continue
 
+            if active_only and not obj.hittable:
+                # Another frozen OBJECT shot may already have destroyed it.
+                # Keep frozen geometry, but never award the dead object again.
+                continue
             body = self._body_from_snapshot(object_snapshot, obj.ballistic_body)
             damage_requested = max(0.0, float(projectile.damage) * max(0.0, float(body.damage_multiplier)))
             damage_report = None

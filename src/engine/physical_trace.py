@@ -1,14 +1,15 @@
 """Asynchronous, fail-open physical-shot trace capture.
 
-Detector hooks only copy/enqueue observations.  Artifact references are added
-to a trace after the writer has successfully persisted the artifact; shutdown
-finalization writes the JSON snapshot after the queue drains.
+Detector hooks only copy/enqueue observations. Artifact references are added
+after persistence. Completed bounded captures checkpoint on the existing writer;
+shutdown also flushes unfinished captures, with explicit incomplete coverage.
 """
 from __future__ import annotations
 
 import atexit
 import hashlib
 import json
+import math
 import os
 import platform
 import queue
@@ -22,6 +23,23 @@ import numpy as np
 
 TRACE_SCHEMA = "physical-shot-trace-1"
 DEFAULT_ROOT = Path("content/ai/physical_traces")
+
+
+def validate_capture_history(value):
+    """Explicit capture-only bounds; None preserves the legacy 24/64 policy."""
+    if value is None:
+        return None
+    limits = {"pre_seconds": 10., "post_seconds": 10., "pre_max_frames": 360,
+              "post_max_frames": 600, "max_events": 32}
+    if not isinstance(value, dict) or set(value) != set(limits):
+        raise ValueError("Invalid capture history configuration")
+    for key, maximum in limits.items():
+        n = value[key]
+        if type(n) not in (int, float) or not math.isfinite(n) or not 0 < n <= maximum:
+            raise ValueError(f"Capture history {key} must be positive and <= {maximum}")
+        if key not in ("pre_seconds", "post_seconds") and type(n) is not int:
+            raise ValueError(f"Capture history {key} must be an integer")
+    return dict(value)
 
 
 def _json(value: Any) -> str:
@@ -140,15 +158,23 @@ class PhysicalTraceRecorder:
 
     def __init__(self, root: Path | str = DEFAULT_ROOT, *, repo_root: Path | None = None, enabled: bool = False,
                  queue_maxsize: int = 128, max_queued_bytes: int = 1024 * 1024 * 1024,
-                 writer_delay_s: float = 0.0, writer_workers: int = 8) -> None:
+                 writer_delay_s: float = 0.0, writer_workers: int = 8,
+                 capture_history: dict | None = None) -> None:
         self.root = Path(root)
         self.repo_root = Path(repo_root or Path.cwd())
         self.enabled = bool(enabled)
+        self.capture_history = validate_capture_history(capture_history)
+        self._history_environment = None
+        self._capture_event_limit_reached = False
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=max(1, int(queue_maxsize)))
         self._active: dict[int, dict[str, Any]] = {}
         self._seen_events: set[int] = set()
+        self._refused_events: set[int] = set()
+        self._owned_capture_roots: set[Path] = set()
+        self._refused_capture_roots: set[Path] = set()
         self._lock = threading.RLock()
         self._error_count = 0
+        self._metadata_failures = 0
         self._queue_drops = 0
         self._persisted_items = 0
         self._high_water = 0
@@ -185,6 +211,15 @@ class PhysicalTraceRecorder:
         self.enabled = bool(values.get("physical_trace_capture_enabled", False))
         if values.get("physical_trace_root"):
             self.root = Path(str(values["physical_trace_root"]))
+        if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+            # main.py verified/claimed the new binding before hardware imports.
+            root=os.environ.get('SKJUTBANA_PHYSICAL_TRACE_ROOT')
+            if not root:raise ValueError('capture binding has not passed startup preflight')
+            self.root=Path(root);self.enabled=True
+            encoded = os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_HISTORY', 'null')
+            if encoded != self._history_environment:
+                self.capture_history = validate_capture_history(json.loads(encoded))
+                self._history_environment = encoded
 
     def _record_error(self, shot_id: int | None, *, kind: str, path: Path | None = None,
                       exc: BaseException | None = None, queue_drop: bool = False) -> None:
@@ -212,7 +247,11 @@ class PhysicalTraceRecorder:
                     time.sleep(self._writer_delay_s)
                 path = Path(job["path"])
                 path.parent.mkdir(parents=True, exist_ok=True)
-                if job["kind"] == "array":
+                if job["kind"] == "finalize":
+                    active = self._active[job['shot_id']]
+                    active['checkpoint_saved'] = self._finalize_safely(job['shot_id'], active, timed_out=False)
+                    continue
+                elif job["kind"] == "array":
                     temporary = path.with_name(path.name + ".tmp")
                     with temporary.open("wb") as stream:
                         np.save(stream, np.asarray(job["value"]), allow_pickle=False)
@@ -230,6 +269,10 @@ class PhysicalTraceRecorder:
                 with self._lock:
                     self._persisted_items += 1 if job.get("persisted") else 0
                     self._queued_bytes = max(0, self._queued_bytes - int(job.get("nbytes", 0)))
+                    active = self._active.get(job.get('shot_id'))
+                    if job['kind'] == 'array' and active is not None:
+                        active['pending_arrays'] -= 1
+                        self._request_checkpoint(job['shot_id'], active)
                 self._queue.task_done()
 
     def _artifact_persisted(self, job: dict[str, Any]) -> None:
@@ -250,6 +293,25 @@ class PhysicalTraceRecorder:
                 stage = active["stages_by_id"][meta["stage_id"]]
                 stage["evidence_maps"][meta["name"]] = {k: meta[k] for k in ("path", "shape", "dtype")}
                 active["persisted_counts"]["evidence"] += 1
+            elif meta['artifact']=='object_crop':
+                active['trace'].setdefault('object_evidence_crops',[]).append(meta)
+
+    def _request_checkpoint(self, shot_id, active):
+        """One metadata job after a bounded event closes and its arrays settle.
+
+        Called under the recorder lock by both observation and persistence, so
+        closure before/after the final array write is equivalent. No live flush.
+        Failed array writes still produce an explicitly incomplete trace.
+        """
+        if (not active['finished'] or not active.get('post_window_closed')
+                or active.get('checkpoint_requested')):
+            return
+        # Writer failures may prevent expected == persisted. Wait for all array
+        # jobs for this event, rather than falsely certifying missing artifacts.
+        if active.get('pending_arrays', 0):
+            return
+        job = dict(kind='finalize', path=active['directory']/'trace.json', shot_id=shot_id)
+        active['checkpoint_requested'] = self._enqueue(job)
 
     def _enqueue(self, job: dict[str, Any]) -> bool:
         if not self.enabled:
@@ -260,6 +322,9 @@ class PhysicalTraceRecorder:
                     self._record_error(job.get("shot_id"), kind="queue_byte_limit", path=Path(job["path"]), queue_drop=True)
                     return False
                 self._queue.put_nowait(job)
+                if job.get('kind') == 'array' and job.get('shot_id') in self._active:
+                    active = self._active[job['shot_id']]
+                    active['pending_arrays'] = active.get('pending_arrays', 0) + 1
                 self._queued_bytes += int(job.get("nbytes", 0))
                 self._high_water = max(self._high_water, self._queue.qsize())
                 self._high_water_bytes = max(self._high_water_bytes, self._queued_bytes)
@@ -276,6 +341,9 @@ class PhysicalTraceRecorder:
         base.setdefault("model_identifiers", {})
         artifacts = dict(base.get("model_identifiers", {}))
         return {**base, "effective_detector_settings": settings_copy,
+                'capture_root_override':str(self.root) if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING') else None,
+                'capture_binding':os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'),
+                'capture_history_requested': self.capture_history,
                 "settings_sha256": hashlib.sha256(_json(settings_copy).encode()).hexdigest(),
                 "capture_started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "model_identifiers": artifacts,
@@ -285,18 +353,71 @@ class PhysicalTraceRecorder:
     def _shot_dir(self, shot_id: int) -> Path:
         return self.root / "shots" / f"shot_{int(shot_id):08d}"
 
+    def capture_object_crop(self, shot_id, kind, timestamp, bbox, pixels):
+        """Actual scoped query inputs, separate from global replay frame arrays."""
+        if not self.enabled:return
+        with self._lock:
+            active=self._active.get(shot_id)
+            if active is None:
+                self._record_error(shot_id,kind='object_crop_without_active_trace')
+                return
+            seq=active.get('object_crop_seq',0);active['object_crop_seq']=seq+1
+            frozen=np.asarray(pixels,dtype=np.uint8).copy()
+            path=active['directory']/'object_inputs'/f'{seq:04d}_{kind}.npy'
+            meta=dict(artifact='object_crop',kind=kind,timestamp=float(timestamp),camera_bbox=list(bbox),
+                shape=list(frozen.shape),dtype=str(frozen.dtype),seq=seq,
+                sha256=hashlib.sha256(frozen.tobytes()).hexdigest(),semantics='OBJECT input only; not global replay frame')
+            from src.engine.camera.camera_manager import camera_manager
+            meta['acquisition'] = camera_manager.provenance_for_timestamp(timestamp)
+        self._enqueue(dict(kind='array',path=path,value=frozen,nbytes=frozen.nbytes,shot_id=shot_id,meta=meta))
+
     def start_from_scanner(self, scanner: Any, event: Any, settings: Mapping[str, Any] | None = None) -> None:
         if not self.enabled:
             return
         try:
             shot_id = int(getattr(event, "shot_id"))
             with self._lock:
-                if shot_id in self._active:
+                if shot_id in self._active or shot_id in self._refused_events:
+                    return
+                if self.capture_history and len(self._active) >= self.capture_history['max_events']:
+                    if not self._capture_event_limit_reached:
+                        self._capture_event_limit_reached = True
+                        self._record_error(None, kind='capture_event_limit')
+                        print(f'[PHYSICAL-TRACE] CAPTURE REFUSED: event limit reached at shot {shot_id}')
                     return
                 directory = self._shot_dir(shot_id)
+                capture_root = directory.parent.absolute()
+                if capture_root in self._refused_capture_roots:
+                    self._refused_events.add(shot_id)
+                    self._seen_events.add(shot_id)
+                    return
+                if capture_root not in self._owned_capture_roots:
+                    if directory.parent.exists() and any(directory.parent.iterdir()):
+                        self._refused_capture_roots.add(capture_root)
+                        self._refused_events.add(shot_id)
+                        self._seen_events.add(shot_id)
+                        self._record_error(shot_id, kind="existing_capture_root", path=directory.parent)
+                        print(f"[PHYSICAL-TRACE] CAPTURE REFUSED: {directory.parent} contains prior events; bind a fresh session")
+                        return
+                    self._owned_capture_roots.add(capture_root)
+                # A restarted runtime reuses shot IDs. Claim the directory before
+                # enqueueing anything; an old session must never become a mixture
+                # of new frames and old labels. Atomic mkdir also arbitrates two
+                # recorder instances. Capture refusal does not alter detection.
+                directory.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    directory.mkdir(exist_ok=False)
+                except FileExistsError as exc:
+                    self._refused_capture_roots.add(capture_root)
+                    self._refused_events.add(shot_id)
+                    self._seen_events.add(shot_id)
+                    self._record_error(shot_id, kind="existing_shot_directory", path=directory, exc=exc)
+                    print(f"[PHYSICAL-TRACE] CAPTURE REFUSED: {directory} already exists; bind a fresh session")
+                    return
                 trace = {"schema_version": TRACE_SCHEMA, "shot_id": shot_id,
                     "audio_trigger": _safe(getattr(event, "audio_trigger", None)),
-                    "session_id": str(settings.get("physical_trace_session_id", "runtime") if isinstance(settings, Mapping) else "runtime"),
+                    "session_id": (self.root.name if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING') else
+                        str(settings.get("physical_trace_session_id", "runtime") if isinstance(settings, Mapping) else "runtime")),
                     "peak_ts": float(getattr(event, "peak_ts", 0.0)), "created_at": time.time(),
                     "coordinate_space": "camera", "provenance": self._provenance(settings),
                     "context": {"frame_shape": None, "camera_id": _safe(getattr(scanner, "camera_id", "UNAVAILABLE")),
@@ -308,12 +429,39 @@ class PhysicalTraceRecorder:
                         "scanner_config": {"candidate_limit": getattr(scanner, "candidate_limit", None), "event_timeout_s": getattr(scanner, "event_timeout_s", None), "track_confirm_frames": getattr(scanner, "track_confirm_frames", None), "track_confirm_span_s": getattr(scanner, "track_confirm_span_s", None), "diff_mode": getattr(scanner, "diff_mode", None)}},
                     "frames": [], "stages": [], "outcome": {"status": "pending", "emitted": False, "ground_truth": None},
                     "writer_errors": 0, "capture_control": {"enabled": True, "writer": "asynchronous_bounded_queue"}}
+                from src.engine.camera.aruco_calibrator import geometry_context
+                trace['context']['runtime_geometry'] = geometry_context()
+                # Reuse the authoritative PANG snapshot, not scanner debug fields.
+                # Copy once so later registry retirement cannot change this capture.
+                from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+                shot_context = object_hit_registry_v2223.game_context(shot_id)
+                trace['context']['shot_game_context'] = (_safe(shot_context)
+                    if shot_context is not None and shot_context.get('peak_ts') == trace['peak_ts'] else None)
                 active = {"trace": trace, "directory": directory, "frame_ts": set(), "settings": dict(settings or {}),
                           "map_seq": 0, "map_keys": set(), "stages_by_id": {}, "finished": False,
                           "artifact_order": 0,
                           "writer_errors": 0, "queue_drops": 0, "errors": [], "expected_counts": {"pre": 0, "post": 0, "evidence": 0},
                           "persisted_counts": {"pre": 0, "post": 0, "evidence": 0}, "post_limit_drops": 0}
                 self._active[shot_id] = active
+                if self.capture_history:
+                    peak = trace['peak_ts']
+                    active['history_config'] = dict(self.capture_history)
+                    active['post_seen_until'] = peak
+                    active['coverage_last_acquisition'] = {}
+                    active['post_window_closed'] = False
+                    trace['capture_history'] = {
+                        'requested': dict(self.capture_history),
+                        'timestamp_semantics': 'CAMERA_READ_RECEIPT_NOT_EXPOSURE',
+                        'source': 'existing_scanner_native_cadence_history_no_resampling',
+                        'post_semantics': 'observation only; frames after decision/next event are not earlier authority inputs',
+                        'available_identity_limit_per_window': 1024,
+                        'coverage': {kind: dict(requested_start_ts=start, requested_end_ts=end,
+                            available_frames=0, attempted_frames=0, frame_limit_drops=0,
+                            first_available_ts=None, last_available_ts=None, maximum_available_gap_s=0.,
+                            camera_sequence_gaps=0, sequence_discontinuities=0, unknown_acquisition_frames=0,
+                            available_identities=[], available_identity_limit_drops=0)
+                            for kind,start,end in [('pre_history',peak-self.capture_history['pre_seconds'],peak),
+                                                  ('post',peak,peak+self.capture_history['post_seconds'])]}}
                 self._seen_events.add(shot_id)
                 for previous_id, previous in self._active.items():
                     if previous_id != shot_id and previous['trace']['peak_ts'] < trace['peak_ts']:
@@ -327,10 +475,76 @@ class PhysicalTraceRecorder:
                     trace["context"]["frame_shape"] = list(pre_snapshot.shape)
             eligible = [(float(getattr(frame, "timestamp", 0.0)), getattr(frame, "gray", None)) for frame in history]
             eligible = [(ts, gray) for ts, gray in eligible if ts <= float(getattr(event, "peak_ts", 0.0)) and isinstance(gray, np.ndarray)]
-            for ts, gray in eligible[-24:]:
+            if self.capture_history:
+                coverage = trace['capture_history']['coverage']['pre_history']
+                coverage['left_boundary_observed'] = bool(eligible and min(ts for ts,_ in eligible) <= coverage['requested_start_ts'])
+                eligible = sorted({ts: gray for ts,gray in eligible if ts >= coverage['requested_start_ts']}.items())
+                for ts,gray in eligible:
+                    self._history_available(active, 'pre_history', ts)
+                cap = active['history_config']['pre_max_frames']
+                coverage['frame_limit_drops'] = max(0,len(eligible)-cap)
+                eligible = eligible[-cap:]
+                coverage['attempted_frames'] = len(eligible)
+            else:
+                eligible = eligible[-24:]
+            for ts, gray in eligible:
                 self._save_frame(shot_id, "pre_history", ts, gray)
         except Exception as exc:
             self._record_error(None, kind="capture_exception", exc=exc)
+
+    def _history_available(self, active, kind, timestamp):
+        """Bounded counters over frames actually seen, never an assumed FPS."""
+        from src.engine.camera.camera_manager import camera_manager
+        coverage = active['trace']['capture_history']['coverage'][kind]
+        previous = coverage['last_available_ts']
+        if previous is None:
+            coverage['first_available_ts'] = timestamp
+        else:
+            coverage['maximum_available_gap_s'] = max(coverage['maximum_available_gap_s'],timestamp-previous)
+        coverage['last_available_ts'] = timestamp
+        coverage['available_frames'] += 1
+        meta = camera_manager.provenance_for_timestamp(timestamp) or {}
+        identity = (meta.get('stream_id'),meta.get('sequence'))
+        if len(coverage['available_identities']) < 1024:
+            coverage['available_identities'].append(dict(timestamp=timestamp,stream_id=identity[0],sequence=identity[1]))
+        else:
+            coverage['available_identity_limit_drops'] += 1
+        prior = active['coverage_last_acquisition'].get(kind)
+        if None in identity:
+            coverage['unknown_acquisition_frames'] += 1
+        elif prior is not None and None not in prior:
+            if identity[0] == prior[0] and identity[1] > prior[1]:
+                coverage['camera_sequence_gaps'] += max(0,identity[1]-prior[1]-1)
+            else:
+                coverage['sequence_discontinuities'] += 1
+        active['coverage_last_acquisition'][kind] = identity
+
+    def _capture_extended_post(self, sid, active, history):
+        if active['post_window_closed']:
+            return False
+        coverage = active['trace']['capture_history']['coverage']['post']
+        end = coverage['requested_end_ts']
+        new_post = False
+        for frame in sorted(history, key=lambda f: float(getattr(f,'timestamp',0.))):
+            ts = float(getattr(frame,'timestamp',0.))
+            gray = getattr(frame,'gray',None)
+            if not isinstance(gray,np.ndarray):
+                continue
+            if active['post_seen_until'] < ts <= end:
+                active['post_seen_until'] = ts
+                self._history_available(active,'post',ts)
+                if coverage['attempted_frames'] < active['history_config']['post_max_frames']:
+                    coverage['attempted_frames'] += 1
+                    active['frame_ts'].add(ts)
+                    self._save_frame(sid,'post',ts,gray)
+                    new_post = True
+                else:
+                    coverage['frame_limit_drops'] += 1
+                    active['post_limit_drops'] += 1
+            if ts >= end:
+                coverage['right_boundary_observed'] = True
+                active['post_window_closed'] = True
+        return new_post
 
     def _save_frame(self, shot_id: int, kind: str, timestamp: float, frame: np.ndarray) -> None:
         started = time.perf_counter()
@@ -345,6 +559,8 @@ class PhysicalTraceRecorder:
             active["expected_counts"][category] += 1
             order = active["artifact_order"]; active["artifact_order"] += 1
             meta = {"artifact": "frame", "kind": kind, "timestamp": float(timestamp), "shape": list(frame.shape), "dtype": str(frame.dtype), "seq": seq, "order": order}
+            from src.engine.camera.camera_manager import camera_manager
+            meta['acquisition'] = camera_manager.provenance_for_timestamp(timestamp)
             directory = active["directory"]
             frozen = np.asarray(frame).copy()
         copy_finished = time.perf_counter()
@@ -375,7 +591,12 @@ class PhysicalTraceRecorder:
                         continue
                     trace, directory = active["trace"], active["directory"]
                     new_post = False
-                    for frame in list(getattr(scanner, "frame_history", []) or []):
+                    history = list(getattr(scanner, 'frame_history', []) or [])
+                    if 'history_config' in active:
+                        new_post = self._capture_extended_post(sid,active,history)
+                        if active['finished']:
+                            continue  # Extended pixels never extend the decision/track ledger.
+                    for frame in ([] if 'history_config' in active else history):
                         ts = float(getattr(frame, "timestamp", 0.0))
                         if ts in active["frame_ts"] or ts <= float(trace["peak_ts"]):
                             continue
@@ -433,6 +654,15 @@ class PhysicalTraceRecorder:
                                                               "queued": int(bool(queued))})
                     if str(getattr(item, "state", "pending")) != "pending":
                         self.finish(sid, scanner, item)
+            # Terminal events may already have left scanner.audio_events. Their
+            # bounded capture window still observes pixels, without retaining or
+            # changing the event, scanner history, candidates or detector timing.
+            with self._lock:
+                history = list(getattr(scanner,'frame_history',[]) or [])
+                for sid,active in self._active.items():
+                    if 'history_config' in active:
+                        self._capture_extended_post(sid,active,history)
+                        self._request_checkpoint(sid, active)
         except Exception as exc:
             self._record_error(None, kind="capture_exception", exc=exc)
 
@@ -497,7 +727,32 @@ class PhysicalTraceRecorder:
             expected, persisted = dict(active["expected_counts"]), dict(active["persisted_counts"])
             complete = (not timed_out and not active["errors"] and active["post_limit_drops"] == 0 and expected == persisted and active["finished"])
             trace = active["trace"]
+            if 'capture_history' in trace:
+                for kind,coverage in trace['capture_history']['coverage'].items():
+                    saved = sorted(f['timestamp'] for f in trace['frames'] if f['kind']==kind)
+                    coverage.update(saved_frames=len(saved), first_saved_ts=saved[0] if saved else None,
+                        last_saved_ts=saved[-1] if saved else None,
+                        saved_span_s=saved[-1]-saved[0] if saved else None,
+                        maximum_saved_gap_s=max((b-a for a,b in zip(saved,saved[1:])),default=None),
+                        persistence_losses=coverage['attempted_frames']-len(saved),
+                        continuity_claim='NOT_CERTIFIED; inspect boundaries, sequence gaps, unavailable metadata and writer losses')
+                    coverage.setdefault('right_boundary_observed' if kind=='post' else 'left_boundary_observed',False)
+                trace['capture_history']['post_window_closed'] = active['post_window_closed']
+                coverage = trace['capture_history']['coverage']
+                observed = (coverage['pre_history']['left_boundary_observed']
+                            and coverage['post']['right_boundary_observed']
+                            and all(c['available_frames'] > 0 for c in coverage.values())
+                            and not any(c['frame_limit_drops'] for c in coverage.values()))
+                trace['capture_history']['requested_boundaries_observed_without_frame_cap_loss'] = bool(observed)
+                complete = complete and observed
             manifest = active["settings"].get("canonical_challenger_manifest")
+            # Diagnostic sidecar only: never changes decision_input, selectors,
+            # ground truth, candidate pools or persistent physical state.
+            from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+            object_snapshot = object_hit_registry_v2223.snapshot_for_shot(shot_id)
+            if object_snapshot is not None and object_snapshot.object_query is not None:
+                trace['object_query_diagnostic'] = _safe(object_snapshot.object_query.result)
+                trace['object_gameplay_diagnostic'] = _safe(object_snapshot.object_gameplay)
             from src.engine.offline.causal_candidates import classify
             for stage in trace['stages']:
                 stage['causal_observation_class'] = classify(
@@ -526,11 +781,28 @@ class PhysicalTraceRecorder:
             trace["writer_errors"] = active["writer_errors"]
             trace["completeness"] = {"pre_frames_expected": expected["pre"], "pre_frames_persisted": persisted["pre"], "post_frames_expected": expected["post"], "post_frames_persisted": persisted["post"], "evidence_artifacts_expected": expected["evidence"], "evidence_artifacts_persisted": persisted["evidence"], "writer_errors": active["writer_errors"], "queue_drops": active["queue_drops"], "post_frame_limit_drops": active["post_limit_drops"], "trace_complete": complete, "completion_reason": "complete" if complete else ("flush_timeout" if timed_out else "incomplete_persistence"), "errors": list(active["errors"])}
             path = active["directory"] / "trace.json"; path.parent.mkdir(parents=True, exist_ok=True); temporary = path.with_name(path.name + ".tmp")
+            temporary.write_text(_json(trace), encoding="utf-8"); os.replace(temporary, path); return True
+
+    def _finalize_safely(self, shot_id, active, *, timed_out):
+        try:
+            return self._finalize_trace(shot_id, active, timed_out=timed_out)
+        except Exception as exc:
+            error = dict(kind='trace_finalize_exception', shot_id=shot_id,
+                         exception_type=type(exc).__name__, message=str(exc), recorded_at=time.time())
+            with self._lock:
+                self._metadata_failures += 1
+                active['errors'].append(error)
+            print(f'[PHYSICAL-TRACE] FINALIZATION FAILED shot={shot_id}: {type(exc).__name__}: {exc}', flush=True)
+            # This is an error sidecar, never a substitute trace or fabricated
+            # frame ledger. Preserve any earlier successful trace checkpoint.
             try:
-                temporary.write_text(_json(trace), encoding="utf-8"); os.replace(temporary, path); return True
-            except Exception as exc:
-                active["errors"].append({"kind": "trace_finalize_exception", "path": str(path), "exception_type": type(exc).__name__, "message": str(exc)})
-                return False
+                path = active['directory']/'trace_error.json'
+                temporary = path.with_name(path.name+'.tmp')
+                temporary.write_text(_json(error), encoding='utf-8')
+                os.replace(temporary, path)
+            except Exception as write_exc:
+                print(f'[PHYSICAL-TRACE] error sidecar failed: {write_exc}', flush=True)
+            return False
 
     def flush(self, timeout: float = 5.0) -> bool:
         deadline = time.time() + timeout
@@ -539,14 +811,19 @@ class PhysicalTraceRecorder:
         drained = self._queue.unfinished_tasks == 0
         with self._lock:
             items = list(self._active.items())
+        finalized = True
         for sid, active in items:
-            self._finalize_trace(sid, active, timed_out=not drained)
-        return drained
+            finalized = self._finalize_safely(sid, active, timed_out=not drained) and finalized
+        return drained and finalized
 
     def stats(self) -> dict[str, int | bool]:
         with self._lock:
             return {"queued_items": self._queue.qsize(), "persisted_items": self._persisted_items,
                     "writer_errors": self._error_count, "queue_drops": self._queue_drops,
+                    "metadata_failures": self._metadata_failures,
+                    "refused_existing_shots": len(self._refused_events),
+                    "refused_capture_roots": len(self._refused_capture_roots),
+                    "capture_event_limit_reached": self._capture_event_limit_reached,
                     "queue_high_water": self._high_water, "queue_high_water_bytes": self._high_water_bytes,
                     "queue_maxsize": self._queue.maxsize, "max_queued_bytes": self._max_queued_bytes,
                     "flush_pending": bool(self._queue.unfinished_tasks)}
@@ -557,12 +834,15 @@ class PhysicalTraceRecorder:
 
     def shutdown(self, timeout: float = 5.0) -> dict[str, int | bool]:
         """Bounded final flush for application shutdown; never waits forever."""
-        drained = self.flush(timeout)
+        finalized = self.flush(timeout)
         report = self.stats()
-        report["drained"] = drained
+        report["drained"] = not bool(self._queue.unfinished_tasks)
+        report["finalized"] = finalized
         return report
 
     def attach_ground_truth(self, shot_id: int, camera_xy: tuple[float, float], *, label_source: str = "manual_verified") -> Path:
+        if int(shot_id) in self._refused_events:
+            raise ValueError("Capture was refused: cannot attach a new label to an existing shot")
         path = self._shot_dir(shot_id) / "ground_truth.json"
         payload = {"schema_version": TRACE_SCHEMA, "shot_id": int(shot_id), "space": "camera", "camera_x": float(camera_xy[0]), "camera_y": float(camera_xy[1]), "label_source": str(label_source), "attached_at": time.time()}
         path.parent.mkdir(parents=True, exist_ok=True); path.write_text(_json(payload), encoding="utf-8"); return path

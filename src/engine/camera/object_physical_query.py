@@ -1,0 +1,443 @@
+"""Bounded, shot-local OBJECT query; never a global coordinate/learning authority.
+
+Owned by ObjectShotSnapshotV2223, delivered on the existing EventBus. Reuses
+V2.24 region merging/working maps, V2.22 analysis crops, V2 registration and
+V2.25 coordinate-local disc/ring measurements. Thresholds are engineering
+defaults, not calibrated physical probabilities or an accuracy claim.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import asdict
+import math
+import time
+from types import SimpleNamespace
+
+import cv2
+import numpy as np
+
+from src.engine.camera.analysis_geometry_v2221 import AnalysisGeometryV2221
+from src.engine.camera.candidate_generator_v2 import CandidateGeneratorV2
+from src.engine.camera.demo_object_zone_extension import _regions_in_work_space
+from src.engine.game_objects.geometry import shape_contains
+from src.engine.shot_object_local_v241 import merge_camera_regions_v241
+from src.engine.shot_region_freshness_v252 import _disc_ring_metrics
+
+MAX_REGIONS = 64
+MAX_PIXELS = 1_000_000
+MAX_FRAMES = 8
+MAX_COMPONENTS = 24
+PER_OBJECT_HYPOTHESES = 3
+PER_OBJECT_COMPONENTS = 2
+DEADLINE_S = .35
+CONTEXT_PX = 8
+
+
+def _gray(frame):
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame.copy()
+
+
+class ObjectPhysicalQuery:
+    """One bounded query, stored in the existing registry's shot snapshot.
+
+    Coordinates are actual POST pixels, including when PRE is registered into
+    POST. Persistence is remeasured at this SAME XY in the previous causal POST;
+    no representative, region confidence or old-hole confirmation is inherited.
+    """
+
+    def __init__(self, snapshot, pre_frames, *, camera_to_game=None,
+                 known_holes=(), top_k=3, margin_px=36., capture_crop=None):
+        self.shot_id = snapshot.shot_id
+        self.peak_ts = snapshot.peak_ts
+        self.regions = deepcopy(tuple(snapshot.camera_regions))
+        self.game_regions = deepcopy(tuple(snapshot.game_regions))
+        self.camera_to_game = camera_to_game
+        self.capture_crop=capture_crop
+        if int(top_k)<1: raise ValueError('OBJECT top_k must be positive')
+        self.top_k = min(3, int(top_k))
+        self.margin = max(0., min(128., float(margin_px)))
+        self.known_holes = tuple(deepcopy(known_holes))[:512]
+        self.tiles = []
+        self.frames = 0
+        self.first_post_ts = None
+        self.first_hypothesis_ts = None
+        self.last_frame_ts = -math.inf
+        self.final = False
+        self.published = False
+        self.saw_change = False
+        self.pre_activity = False
+        self.processing_ms = []
+        self.roi_prepare_ms = self.pre_prepare_ms = 0.
+        self.post_analysis_ms = []
+        self.merge_dedupe_ms = []
+        self.candidate_count = 0
+        self.examined_candidate_count = 0
+        self.result = None
+        self.pre_times = [float(f.timestamp) for f in pre_frames]
+        self.search_pixels = self.read_pixels = self.frame_pixels = 0
+        self.hypotheses = []
+        self.per_object = []
+        self.candidate_ledger = []
+        started = time.perf_counter()
+        if not self.regions or not snapshot.transform_available:
+            self.finish('UNCERTAIN', 'missing_frozen_camera_regions_or_transform')
+        elif len(self.regions) > MAX_REGIONS:
+            self.finish('UNCERTAIN', 'region_budget_exceeded')
+        elif not pre_frames or any(t >= self.peak_ts for t in self.pre_times):
+            self.finish('UNCERTAIN', 'no_causal_recent_surface')
+        elif self.peak_ts - max(self.pre_times) > .5:
+            self.finish('UNCERTAIN', 'recent_surface_too_old')
+        else:
+            self._prepare(pre_frames[-3:])
+        self.prepare_ms = (time.perf_counter() - started) * 1000
+
+    def _prepare(self, pre_frames):
+        roi_started=time.perf_counter()
+        h, w = pre_frames[-1].frame_bgr.shape[:2]
+        if any(f.frame_bgr.shape[:2] != (h,w) for f in pre_frames):
+            self.finish('UNCERTAIN','pre_camera_geometry_changed')
+            return
+        self.frame_shape = (h, w)
+        self.frame_pixels = h*w
+        windows = list(merge_camera_regions_v241(self.regions,
+            margin_px=self.margin+CONTEXT_PX, max_regions=MAX_REGIONS))
+        # A union's AABB can overlap another group's AABB even when the original
+        # rectangles did not. Merge to a fixed point so no crop is scanned twice.
+        changed = True
+        while changed:
+            changed = False
+            for i in range(len(windows)):
+                for j in range(i+1, len(windows)):
+                    if windows[i].overlaps(windows[j]):
+                        windows[i] = windows[i].union(windows.pop(j))
+                        changed = True
+                        break
+                if changed:
+                    break
+        bounds = [(max(0, math.floor(q.x0)), max(0, math.floor(q.y0)),
+                   min(w, math.ceil(q.x1)), min(h, math.ceil(q.y1))) for q in windows]
+        self.read_pixels = sum(max(0,x1-x0)*max(0,y1-y0) for x0,y0,x1,y1 in bounds)
+        if self.read_pixels > MAX_PIXELS:
+            self.finish('UNCERTAIN', 'pixel_budget_exceeded')
+            return
+        self.roi_prepare_ms += (time.perf_counter()-roi_started)*1000.
+        for window, (x0,y0,x1,y1) in zip(windows,bounds):
+            roi_started=time.perf_counter()
+            if x1-x0 < 9 or y1-y0 < 9:
+                continue
+            shape = (y1-y0,x1-x0)
+            geometry = AnalysisGeometryV2221(h,w,x0,y0,x1,y1,
+                np.empty((0,2)),np.empty((0,2)),np.ones(shape,np.uint8),
+                'object_query',0.,CONTEXT_PX)
+            scanner = SimpleNamespace(_v2221_active_geometry=geometry)
+            work_regions = _regions_in_work_space(self.regions, scanner, shape)
+            mask = np.zeros(shape,np.uint8)
+            for region in work_regions:
+                a,b = max(0,math.floor(region.x-self.margin)),max(0,math.floor(region.y-self.margin))
+                c,d = min(shape[1],math.ceil(region.x+region.width+self.margin)),min(shape[0],math.ceil(region.y+region.height+self.margin))
+                if c>a and d>b:
+                    mask[b:d,a:c] = 255
+            mask[:CONTEXT_PX,:] = mask[-CONTEXT_PX:,:] = 0
+            mask[:,:CONTEXT_PX] = mask[:,-CONTEXT_PX:] = 0
+            if not np.any(mask):
+                continue
+            self.roi_prepare_ms += (time.perf_counter()-roi_started)*1000.
+            pre_started=time.perf_counter()
+            # Slice before conversion: no grayscale/difference scan of the board.
+            stack = np.stack([_gray(geometry.crop_array(f.frame_bgr)) for f in pre_frames]).astype(np.float32)
+            if self.capture_crop:
+                for f,pixels in zip(pre_frames,stack):
+                    self.capture_crop(self.shot_id,'pre',f.timestamp,(x0,y0,x1,y1),pixels)
+            reference = stack[-1].copy()  # latest current surface; not a clean-board median
+            noise = np.median(np.abs(stack-reference),axis=0)
+            self.pre_activity |= np.count_nonzero((noise>3.)&(mask>0))>=2
+            valid_pixels=int(np.count_nonzero(mask))
+            self.tiles.append(dict(geometry=geometry,mask=mask,valid_pixels=valid_pixels,pre=reference,
+                noise=noise,previous=None,previous_ts=None,object_ids=window.object_ids))
+            self.search_pixels += valid_pixels
+            self.pre_prepare_ms += (time.perf_counter()-pre_started)*1000.
+        if not self.tiles:
+            self.finish('UNCERTAIN','no_observable_search_pixels')
+
+    @staticmethod
+    def _evidence(absolute, noise, signed, x, y):
+        # PRE variability scales evidence gently; it is never a validity veto.
+        x0,y0=max(0,x-8),max(0,y-8)
+        a=absolute[y0:y+9,x0:x+9]
+        n=noise[y0:y+9,x0:x+9]
+        d=signed[y0:y+9,x0:x+9]
+        z = a / np.maximum(1., np.minimum(n,4.))
+        m = _disc_ring_metrics(a,z,np.maximum(-d,0),n,x-x0,y-y0)
+        if m is None:
+            return None,False,0.
+        localized = m.center_abs >= 1.6 and m.compact_abs >= .30 and m.center_z >= 1.3
+        score = max(0.,m.compact_abs) * min(1.,m.center_abs/6.)
+        return m,localized,score
+
+    def _component_reserve(self, labels, sizes, means, geometry):
+        """Keep the existing crop budget, reserving two components per object.
+
+        Only label IDs are inspected here; crops are still processed once. For
+        unusually many merged objects the explicit bound is 2*regions (<=128).
+        No score, threshold, confirmation or coordinate is supplied by geometry.
+        """
+        order=np.flatnonzero((sizes>=2)&(np.arange(len(sizes))>0))
+        order=order[np.argsort(-means[order],kind='stable')]
+        pools={}
+        h,w=labels.shape
+        for r in sorted(self.regions,key=lambda r:r.object_id):
+            x,y=geometry.camera_to_local(r.x-self.margin,r.y-self.margin)
+            right,bottom=geometry.camera_to_local(r.right+self.margin,r.bottom+self.margin)
+            a,b=max(0,math.floor(x)),max(0,math.floor(y))
+            c,d=min(w,math.ceil(right)),min(h,math.ceil(bottom))
+            ids=np.unique(labels[b:d,a:c]) if c>a and d>b else np.array([],dtype=int)
+            ids=ids[(ids>0)&(sizes[ids]>=2)]
+            ids=ids[np.argsort(-means[ids],kind='stable')]
+            pools[r.object_id]=ids
+        reserved=set()
+        for ids in pools.values():reserved.update(map(int,ids[:PER_OBJECT_COMPONENTS]))
+        budget=max(MAX_COMPONENTS,len(reserved))
+        selected=set(reserved)
+        for cid in order:
+            if len(selected)>=budget:break
+            selected.add(int(cid))
+        diagnostics={oid:dict(raw_components=len(ids),retained_components=sum(int(i) in selected for i in ids),
+            best_components=[dict(component_id=int(i),mean_change=float(means[i]),
+                reason='per_object_reserve' if int(i) in reserved else
+                    ('crop_budget_retained' if int(i) in selected else 'crop_component_capacity'))
+                for i in ids[:PER_OBJECT_HYPOTHESES]]) for oid,ids in pools.items()}
+        return [int(i) for i in order if int(i) in selected],diagnostics
+
+    @staticmethod
+    def _physical_order(c):
+        return (not c['confirmed'],-c['evidence_score'],c['camera_xy'])
+
+    def _select_hypotheses(self,candidates,production):
+        """Evaluate each frozen shape BEFORE truncating the public top-k.
+
+        Scores remain physical. Exact collision defines which supported points
+        answer the OBJECT query; it cannot confirm change. Preserve observed XY
+        and all contributors when deduplicating, including across shape edges.
+        """
+        candidates.sort(key=self._physical_order)
+        for i,c in enumerate(candidates):c['global_evidence_rank']=i+1
+        rows=[];pool={}
+        for r in sorted(self.regions,key=lambda r:r.object_id):
+            associated=[c for c in candidates if any(a['object_id']==r.object_id for a in c['regions'])]
+            for i,c in enumerate(associated):
+                a=next(a for a in c['regions'] if a['object_id']==r.object_id)
+                a['local_evidence_rank']=i+1
+            # Preserve one supported exact-shape point, then physical-score
+            # alternatives. Nearby high-amplitude change cannot erase that point.
+            exact=[c for c in associated if c['confirmed'] and any(
+                a['object_id']==r.object_id and a['inside_exact_shape'] is True for a in c['regions'])]
+            retained=[]
+            for c in exact[:1]+associated:
+                if any(c is old for old in retained):continue
+                retained.append(c)
+                if len(retained)>=PER_OBJECT_HYPOTHESES:break
+            for c in retained:pool[tuple(c['camera_xy'])]=c
+            rows.append(dict(object_id=r.object_id,observed_count=len(associated),
+                production=production.get(r.object_id,{}),
+                decision='supported_exact_shape' if exact else
+                    ('near_or_unconfirmed_only' if associated else 'no_observed_candidate'),
+                candidates=retained))
+        # Collisions here are pure frozen geometry checks, with no game damage.
+        def exact_supported(c):
+            return c['confirmed'] and any(a['inside_exact_shape'] is True for a in c['regions'])
+        ordered=sorted(pool.values(),key=lambda c:(not exact_supported(c),*self._physical_order(c)))
+        chosen=[];reasons={}
+        for c in ordered:
+            inside={a['object_id'] for a in c['regions'] if a['inside_exact_shape'] is True}
+            duplicate=next((old for old in chosen if math.dist(c['camera_xy'],old['camera_xy'])<4.
+                and inside=={a['object_id'] for a in old['regions'] if a['inside_exact_shape'] is True}),None)
+            key=tuple(c['camera_xy'])
+            if duplicate is not None:reasons[key]='spatial_duplicate_same_exact_membership'
+            elif len(chosen)>=self.top_k:reasons[key]='public_top_k_after_object_evaluation'
+            else:chosen.append(c);reasons[key]='returned'
+        for row in rows:
+            selected_ids={id(c) for c in row['candidates']}
+            row['candidates']=[dict(c,retention_reason=reasons[tuple(c['camera_xy'])]) for c in row['candidates']]
+            row['dropped_by_object_capacity']=row['observed_count']-len(selected_ids)
+        self.per_object=rows
+        self.candidate_ledger.append(dict(frame_ts=self.last_frame_ts,objects=deepcopy(rows)))
+        return chosen
+
+    def observe(self, frame, *, delivered_ts=None):
+        if self.final:
+            return self.result
+        ts = float(frame.timestamp)
+        now = time.time() if delivered_ts is None else float(delivered_ts)
+        if now >= self.peak_ts+DEADLINE_S:
+            return self.finish_deadline(now)
+        if ts > now or ts < self.peak_ts or ts <= self.last_frame_ts:
+            return self.result
+        if ts > self.peak_ts+DEADLINE_S:
+            return self.finish_deadline(now)
+        if frame.frame_bgr.shape[:2] != self.frame_shape:
+            return self.finish('UNCERTAIN','camera_geometry_changed')
+        started = time.perf_counter()
+        stop_after=started+self.peak_ts+DEADLINE_S-now
+        self.first_post_ts = ts if self.first_post_ts is None else self.first_post_ts
+        self.last_frame_ts = ts
+        self.frames += 1
+        candidates = []
+        production = {}
+        def over_budget():
+            elapsed=time.perf_counter()-started
+            if time.perf_counter()<stop_after: return False
+            self.processing_ms.append(elapsed*1000.)
+            self.hypotheses=[]
+            self.finish('UNCERTAIN','processing_deadline_exceeded',now+elapsed)
+            return True
+        for tile in self.tiles:
+            if over_budget(): return self.result
+            geometry,mask = tile['geometry'],tile['mask']
+            post = _gray(geometry.crop_array(frame.frame_bgr)).astype(np.float32)
+            if self.capture_crop:
+                self.capture_crop(self.shot_id,'post',ts,
+                    (*geometry.local_to_camera(0,0),*geometry.local_to_camera(post.shape[1],post.shape[0])),post)
+            # Move PRE into the observed POST plane, never move a hypothesis to
+            # an object or emit a coordinate interpolated between observations.
+            pre, registration = CandidateGeneratorV2._register_current(None,post,tile['pre'],
+                roi=mask,cfg={'registration_max_dimension':256})
+            current, _ = CandidateGeneratorV2._normalise_photometry(pre,post,roi=mask)
+            signed = current-pre
+            absolute = np.abs(signed).astype(np.float32)
+            values = absolute[mask>0]
+            median = float(np.median(values))
+            threshold = max(3.,median+3.*1.4826*float(np.median(np.abs(values-median))))
+            binary = ((absolute>=threshold)&(mask>0)).astype(np.uint8)
+            count,labels,stats,_ = cv2.connectedComponentsWithStats(binary,8)
+            self.saw_change |= count>1
+            smooth = cv2.boxFilter(absolute,-1,(3,3))
+            ranked = []
+            sizes=stats[:,cv2.CC_STAT_AREA]
+            means=np.bincount(labels.ravel(),weights=absolute.ravel(),minlength=count)/np.maximum(1,sizes)
+            components,component_diagnostics=self._component_reserve(labels,sizes,means,geometry)
+            raw_ids={c['component_id'] for d in component_diagnostics.values() for c in d['best_components']}
+            raw_positions={}
+            for component in raw_ids:
+                x,y,width,height,area=stats[component]
+                support=np.where(labels[y:y+height,x:x+width]==component,smooth[y:y+height,x:x+width],-1.)
+                py,px=np.unravel_index(np.argmax(support),support.shape)
+                cx,cy=geometry.local_to_camera(x+px,y+py)
+                raw_positions[component]=[cx,cy]
+            for oid,diag in component_diagnostics.items():
+                for raw in diag['best_components']:
+                    raw['camera_xy']=raw_positions[raw['component_id']]
+                    raw['nomination_threshold']=threshold
+            for oid,diag in component_diagnostics.items():
+                if diag['raw_components'] or oid not in production:production[oid]=diag
+            for component in components:
+                x,y,width,height,area = stats[component]
+                if area < 2:
+                    continue
+                local = labels[y:y+height,x:x+width] == component
+                support = np.where(local,smooth[y:y+height,x:x+width],-1.)
+                py,px = np.unravel_index(np.argmax(support),support.shape)
+                ranked.append((float(support[py,px]),x+px,y+py,int(area),int(component)))
+            ranked.sort(reverse=True)
+            self.candidate_count += len(ranked)
+            for nomination_score,x,y,area,component in ranked:
+                if over_budget(): return self.result
+                self.examined_candidate_count+=1
+                metric,local_ok,score = self._evidence(absolute,tile['noise'],signed,x,y)
+                if metric is None:
+                    continue
+                previous = tile['previous']
+                old_metric,previous_ok,old_score = (None,False,0.) if previous is None else self._evidence(
+                    previous[0],tile['noise'],previous[1],x,y)
+                # Large coherent changes remain UNCERTAIN, not NO_HIT. This is
+                # per-frame morphology/context, never a permanent edge blacklist.
+                compact_component = area <= max(64,int(tile['valid_pixels']*.1))
+                confirmed = bool(local_ok and previous_ok and compact_component)
+                cx,cy = geometry.local_to_camera(x,y)
+                game_xy = self.camera_to_game(cx,cy) if self.camera_to_game else None
+                associations = []
+                for region in self.regions:
+                    dx=max(region.x-cx,0.,cx-region.right)
+                    dy=max(region.y-cy,0.,cy-region.bottom)
+                    distance=math.hypot(dx,dy)
+                    if distance>self.margin:
+                        continue
+                    exact=None
+                    original=next((r for r in self.game_regions if r.object_id==region.object_id),None)
+                    shape=(original.metadata.get('v250_object_snapshot',{}).get('shape') if original else None)
+                    if game_xy is not None and shape:
+                        exact=shape_contains(shape,*game_xy)
+                    associations.append(dict(object_id=region.object_id,inside_camera_aabb=distance==0.,
+                        camera_aabb_distance_px=distance,inside_exact_shape=exact))
+                if not associations:
+                    continue
+                nearest=min((math.hypot(cx-h['camera_x'],cy-h['camera_y']) for h in self.known_holes
+                    if 'camera_x' in h and 'camera_y' in h),default=None)
+                physical_score=min(score,old_score) if confirmed else score
+                candidates.append(dict(camera_xy=[cx,cy],game_xy=list(game_xy) if game_xy else None,
+                    evidence_score=physical_score,confidence=1.-math.exp(-physical_score/8.),
+                    confidence_semantics='uncalibrated_evidence_strength',confirmed=confirmed,
+                    evidence_decision=('persistent_local_change' if confirmed else
+                        'current_xy_not_localized' if not local_ok else
+                        'component_not_compact' if not compact_component else
+                        'no_previous_same_xy_confirmation'),
+                    producer='OBJECT_LOCAL_CHANGE',frame_ts=ts,previous_frame_ts=tile['previous_ts'],
+                    component_id=component,nomination_score=nomination_score,nomination_threshold=threshold,
+                    tile_camera_bbox=[geometry.crop_x0,geometry.crop_y0,geometry.crop_x1,geometry.crop_y1],
+                    pre_frame_ts=max(self.pre_times),delivered_ts=now,component_pixels=area,
+                    evidence=asdict(metric),previous_same_xy_evidence=asdict(old_metric) if old_metric else None,
+                    registration=registration,regions=associations,nearest_known_hole_px=nearest,
+                    known_hole_semantics='context_only_no_truth_update'))
+            tile['previous']=(absolute,signed)
+            tile['previous_ts']=ts
+        if over_budget(): return self.result
+        merge_started=time.perf_counter()
+        self.post_analysis_ms.append((merge_started-started)*1000.)
+        chosen=self._select_hypotheses(candidates,production)
+        if over_budget():return self.result
+        self.hypotheses=chosen
+        self.merge_dedupe_ms.append((time.perf_counter()-merge_started)*1000.)
+        elapsed=time.perf_counter()-started
+        finished_at=now+elapsed
+        if chosen and self.first_hypothesis_ts is None:
+            self.first_hypothesis_ts=finished_at
+        self.processing_ms.append(elapsed*1000.)
+        confirmed=[c for c in chosen if c['confirmed']]
+        if confirmed:
+            self.hypotheses=confirmed
+            return self.finish('PHYSICAL_HIT','persistent_local_change',finished_at)
+        if self.frames>=MAX_FRAMES or ts-self.peak_ts>=.20:
+            return self.finish_deadline(finished_at)
+        return self.payload('UNCERTAIN','awaiting_persistence',finished_at)
+
+    def finish_deadline(self, now=None):
+        enough=self.frames>=2
+        status='NO_PHYSICAL_HIT' if enough and not self.saw_change and not self.pre_activity else 'UNCERTAIN'
+        return self.finish(status,'no_local_change' if status=='NO_PHYSICAL_HIT' else 'insufficient_or_unresolved_change',now)
+
+    def payload(self,status,reason,now=None):
+        now=time.time() if now is None else float(now)
+        hypotheses=[dict(c,rank=i+1) for i,c in enumerate(self.hypotheses)]
+        return dict(mode='OBJECT',shot_id=self.shot_id,status=status,reason=reason,final=self.final,
+            hypotheses=hypotheses,scope='frozen_object_regions_plus_technical_margin',
+            per_object=deepcopy(self.per_object),candidate_ledger=deepcopy(self.candidate_ledger),
+            global_coordinate_authority=False,truth_or_learning_input=False,
+            frozen_object_count=len(self.regions),top_k=self.top_k,margin_camera_px=self.margin,
+            searched_pixels=self.search_pixels,processed_crop_pixels=self.read_pixels,
+            full_camera_pixels=self.frame_pixels,search_fraction=self.search_pixels/max(1,self.frame_pixels),
+            candidate_count=self.candidate_count,post_frames=self.frames,pre_frame_ts=self.pre_times,
+            examined_candidate_count=self.examined_candidate_count,
+            pre_activity_context=self.pre_activity,
+            peak_ts=self.peak_ts,first_post_ts=self.first_post_ts,decision_ts=now,
+            timing=dict(prepare_ms=getattr(self,'prepare_ms',0.),processing_ms=list(self.processing_ms),
+                roi_prepare_ms=self.roi_prepare_ms,pre_prepare_ms=self.pre_prepare_ms,
+                post_analysis_ms=list(self.post_analysis_ms),merge_dedupe_ms=list(self.merge_dedupe_ms),
+                audio_to_first_frame_ms=None if self.first_post_ts is None else (self.first_post_ts-self.peak_ts)*1000,
+                audio_to_first_hypothesis_ms=None if self.first_hypothesis_ts is None else (self.first_hypothesis_ts-self.peak_ts)*1000,
+                audio_to_decision_ms=(now-self.peak_ts)*1000,
+                first_frame_to_decision_ms=None if self.first_post_ts is None else (now-self.first_post_ts)*1000))
+
+    def finish(self,status,reason,now=None):
+        self.final=True
+        self.result=self.payload(status,reason,now)
+        self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
+        return self.result

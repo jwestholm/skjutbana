@@ -119,11 +119,41 @@ def start(args):
     else:print('Prepared. Start python3 main.py before shooting; capture is not yet verified.')
 
 
+def partial_evidence_inventory(directory):
+    """Read existing artifacts without fabricating a missing producer ledger."""
+    arrays=[]; problems=[]
+    for folder in ('frames','maps','object_inputs'):
+        for p in sorted((directory/folder).glob('*.npy')):
+            row=dict(path=str(p.relative_to(directory)),bytes=p.stat().st_size)
+            try:
+                if not p.resolve().is_relative_to(directory.resolve()):raise ValueError('artifact escapes shot directory')
+                a=np.load(p,mmap_mode='r',allow_pickle=False)
+                row.update(shape=list(a.shape),dtype=str(a.dtype),readable=True)
+            except (OSError,ValueError,TypeError) as exc:
+                row.update(readable=False,error=str(exc));problems.append(str(p)+': '+str(exc))
+            arrays.append(row)
+    frames=[r for r in arrays if r['path'].startswith('frames/')]
+    counts={kind:sum(Path(r['path']).name.startswith(kind+'_') for r in frames)
+            for kind in ('pre_snapshot','pre_history','post')}
+    return dict(status='PARTIAL_METADATA_UNAVAILABLE',arrays=arrays,saved_frames=counts,
+        evidence_maps=sum(r['path'].startswith('maps/') for r in arrays),
+        ground_truth_present=(directory/'ground_truth.json').is_file(),
+        temporary_files=[str(p.relative_to(directory)) for p in sorted(directory.rglob('*.tmp'))],
+        finalization_error_present=(directory/'trace_error.json').is_file(),
+        unavailable=['frame_receipt_timestamps','camera_sequences','requested_vs_available_coverage',
+                     'candidate_ledger','decision_input','writer_loss_counters'],
+        filename_semantics='Writer-local artifact indices, NOT camera sequence IDs or timestamps',problems=problems)
+
+
 def health(root):
     results=[]
     for directory in sorted((root/'shots').glob('shot_*')):
         problems=[];p=directory/'trace.json'
-        if not p.exists():results.append({'shot':directory.name,'problems':['trace.json missing; capture may still be running']});continue
+        if not p.exists():
+            evidence=partial_evidence_inventory(directory)
+            results.append({'shot':directory.name,'labeled':evidence['ground_truth_present'],
+                'evidence':evidence,'problems':['trace.json missing; finalization unavailable; process state UNKNOWN']+evidence['problems']})
+            continue
         try:
             t=json.loads(p.read_text())
             if not t.get('completeness',{}).get('trace_complete'):problems.append('producer reports incomplete trace')

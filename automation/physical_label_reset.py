@@ -15,7 +15,7 @@ DEFAULT_BACKUPS = Path('/data/skjutbana/label_resets')
 SHOT_LABELS = ('ground_truth.json', 'ground_truth_status.json')
 
 
-def resolve_session(*, binding=None, root=None, session=None):
+def resolve_session(*, binding=None, root=None, session=None, require_shots=True):
     """Use an explicit root or binding, never latest-session discovery."""
     if (binding is None) == (root is None):
         raise ValueError('Specify exactly one of --binding or --root.')
@@ -26,7 +26,7 @@ def resolve_session(*, binding=None, root=None, session=None):
         if not root.is_absolute():
             root = REPO / root  # Existing collection bindings are repo-relative.
     root = Path(root).resolve(strict=True)  # The physical_traces symlink is supported.
-    if not root.is_dir() or not (root / 'shots').is_dir():
+    if not root.is_dir() or (require_shots and not (root / 'shots').is_dir()):
         raise ValueError(f'Not a captured session: {root}')
     embedded = root / 'collection_binding.json'
     if embedded.exists():

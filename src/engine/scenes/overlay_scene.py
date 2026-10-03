@@ -21,6 +21,18 @@ class OverlayScene(Scene):
     def wants_camera_preview(self) -> bool:
         return bool(getattr(self.inner, "wants_camera_preview", False))
 
+    @property
+    def shot_critical_updates_required(self):
+        return bool(getattr(self.inner, 'shot_critical_updates_required', False))
+
+    def on_object_shot_frozen(self, snapshot):
+        callback = getattr(self.inner, 'on_object_shot_frozen', None)
+        if callable(callback): callback(snapshot)
+
+    def on_frame_presented(self, timestamp):
+        callback = getattr(self.inner, 'on_frame_presented', None)
+        if callable(callback): callback(timestamp)
+
     def get_hit_regions(self):
         """Proxy optional game hit-context through the normal scene wrapper.
 
@@ -80,6 +92,10 @@ class OverlayScene(Scene):
 
     def render(self, screen):
         self.inner.render(screen)
+        if bool(getattr(self.inner, 'owns_hit_presentation', False)):
+            # OBJECT games freeze their own image. Global marker/debug overlays
+            # would bypass that freeze and become projected camera evidence.
+            return
         hit_visualizer.render(screen)
         scanner_debug_overlay.render(screen)
         scanner_status_overlay.render(screen)

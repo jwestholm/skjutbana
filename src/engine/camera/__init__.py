@@ -38,6 +38,10 @@ try:
     except Exception as exc:
         print(f"[DETECTOR-V2.6] unavailable, V2.5/V2.4 kept: {exc}")
 
+    # Legacy OBJECT_DEMO remains an explicit diagnostic module only. The scoped
+    # OBJECT capability now runs before global CV through the shot registry.
+    # Do not install the old region-score/center-snapping path in normal play.
+
     install_candidate_generator_v2(HitScanner)
 except Exception as exc:
     print(f"[DETECTOR-V2] unavailable, legacy detector kept: {exc}")

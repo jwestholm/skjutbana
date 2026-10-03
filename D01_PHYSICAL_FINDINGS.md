@@ -1,5 +1,634 @@
 # D01 physical accuracy and clean-change findings
 
+## D02 physical follow-up, actual execution — 2026-09-26
+
+D02 DEVELOPMENT run `tonight_D02/capture_20260926_162528` has six complete events,
+bound to `session_20260926_162528_D02_4e1d6abd`. Independent manual camera clicks
+label impacts 1 (right grid) and 3 (left white); explicit corrected assignments
+mark 2/4/5/6 NO_PHYSICAL_SHOT. Events 4/5, 1.511203 s apart, belong to the SAME
+right-edge cough/knock action with unknown attribution; 6 is a left-edge control.
+The execution differs from the planned order/control isolation. Four negatives
+are three independent actions. Source notes are blank templates; operator context
+is preserved separately in the forensic package, not invented from plan rows.
+
+CURRENT emits all six. Selected physical errors: **409.053384 and 391.139985 px**;
+@5/@10/@20/@42 **0/0/0/0 of 2**, negative rejection **0/4**, overall **0/6**.
+All six exact CURRENT/readiness checks reproduce. This is physical development
+measurement, not general validation. No challenger selection was run.
+
+Event 1 pre-limit oracle is 0/1/1/1; a 9.670498 px candidate at position 223
+misses the legacy 200 cap. A 10.170018 px FAST input then loses hybrid capacity.
+Retained/eligible oracle is 0/0/1/1: (2622,1241), 11.866871 px, survives all later
+stages, locally confirms, is ready and ranks 33. Its score 13.458910 loses to
+24.265185 on tied observation time. None of 89 final coordinates has supported
+local onset, although the separate labeled-hole diagnostic does. A nominal @20
+candidate can miss an r4 damage core; oracle tolerance is not evidence centering.
+
+Event 3's (1733,1222.5), 2.104643 px, gives oracle 1/1/1/1 through every stage.
+After hybrid, `pre_shot_change=0` causes novelty factor 0.1: 12.068460→1.206846.
+It remains locally confirmed/ready, gains 5 points, and ranks 76 at 6.206846 versus
+winner 20.436718. Removing that penalty alone would still lose. Its representative
+coordinate survives unchanged; the failure is evidence scoring/final selection.
+
+Frozen local onset at event 1's diagnostic GT is bracketed -1570.535..-1492.938 ms
+relative to recorded audio, and at event 3's accurate candidate/GT is
+-1499.133..-1420.373 ms. Old PRE is -372.465/-383.334 ms and visibly contains the
+new holes. These are read-receipt/sample-estimate clocks, not exposure/impact time.
+Event 3 causal support is 21.889923 versus old support zero. It is the only
+ONSET_FOUND among 553 final tracks. Both separate GT probes show persistent
+darkening, but all four false events remain ambiguous/unsupported at every track.
+No unsupported onset is turned into NO_PHYSICAL_HIT, and GT probes never select.
+
+False controls confirm 82/83, 95/95, 100/101 and 110/116 retained candidates.
+All winners pass the existing two-hit/event-age fallback. Event 4's confirmation
+compactness and absolute response exceed the true event-3 candidate's; polarity,
+simple confirmation strength, global/half-crop motion and registration do not
+provide a separating rule. Event 5's producer/hybrid ledger is unavailable.
+Vault streak-one and engine-known holes are not independent physical proof.
+
+Capture saved all 50 PRE-history and 62–63 POST frames per event with no recorded
+sequence/cap/writer loss. Only 5–13 POST frames precede decision. Events 4/5 share
+93 SHA-identical frames. The original last-24 PRE subset already contains both
+onsets: 26 extra frames create no additional supported witness, although baseline
+and overlap provenance improve. Post-terminal persistence is diagnostic only;
+scene invariance is unverified. `marker_frame` means first post-completion display
+flip, not proof of a projected marker change. Geometry identity/crop are recorded;
+surface revision/independent setup verification are absent, and saved/runtime SDL
+window positions differ. No mapping/calibration correction was attempted.
+
+Next hypothesis is limited to an offline audit of existing pre-retention
+coordinates using the frozen causal method, to distinguish lost supported
+witnesses from inadequate coordinate representation. It was not run here. No
+threshold/ranking/model/live authority change, new shooting or S03 access.
+Complete measured evidence, exact source/input hashes, 679 checked frame records,
+555 exact scalar/batch probe checks and limitations:
+`/data/skjutbana/evaluation_runs/D02_forensics_20260926_01/REPORT.md`.
+
+## Causal PRE follow-up — 2026-09-25
+
+Original D01 raw pixels are still unavailable; overwritten D01 source paths were
+not opened. No new D01 PRE, onset, evidence or accuracy measurement is claimed.
+Frozen CURRENT replay still matches all six D01 decisions and all 39 complete
+cohort decisions. The previous 35-impact selector failure remains preserved.
+
+One fixed candidate-local onset/PRE experiment on S01/S02/POST_FIX finds 11 clear
+onsets at nearest eligible physical coordinates, all before their recorded PRE
+snapshots. Eight strengthen versus the prior selector's earlier-reference
+median. Six prior @42 selection losses become winners: S01:7/8, S02:3/9 and
+POST_FIX:6/7. Matched selected @5/@10/@20/@42 changes **5/5/6/6→11/11/11/11
+out of 29**, with 17 real impacts withheld and protected S01:3 regressed. The
+conditional P95 reduction 463.951→232.160 px has substantially lower coverage;
+S02:5 remains wrong. All four known negatives are UNCERTAIN, not validated
+NO_PHYSICAL_HIT. No 35-event challenger accuracy is inferred from missing D01.
+
+The historical Can experiment reproduces all three exact results, but used a
+frozen OBJECT-context search domain. The new camera-local primitive uses no
+object membership/GT and finds two, leaving Can:1 ambiguous. No fixed audio-camera
+offset or sensor-exposure claim is supported. Local inference averages 292 ms
+after input extraction and lacks original deadline/delivery feasibility.
+
+Keep CURRENT and canonical SHADOW unchanged. Preserve both the local signal
+improvement and failed promotion; stop without fitting or threshold adjustment.
+Detailed timing ownership, old/early/causal evidence, every event, source hashes,
+one bounded selector, a separately proved camera-pickup telemetry omission/fix,
+and 133 unittest cases plus 60 checks are recorded at:
+`/data/skjutbana/evaluation_runs/causal_pre_onset_20260925_01/REPORT.md`.
+S03/settings/physical traces were not changed; no physical capture or Git
+commit/push/merge occurred. New independently observed controls and immutable
+continuous history are prerequisites for the next physical-evidence decision.
+
+## Focused general selector comparison — 2026-09-25
+
+Original frozen D01 cache only; overwritten source trace paths were not accessed.
+Current working-tree BASE selector/readiness and complete rank replay repeat all
+six decisions. CURRENT remains **0/1/1/1 of 6** at @5/10/20/42 camera px; causal
+oracle 2/4/5/5, eligible oracle 1/3/5/5. Four useful eligible coordinates lose
+selection at @42. Nearest eligible ranks are 50, 90, 49 and 77 for events 1/3/4/6;
+these differ from the first candidate within a broad tolerance. No calibration
+residual is applied to either observed XY or camera-space labels.
+
+The strongest earlier frozen common-logistic control repeats 1/1/1/1: gain
+D01:4 (4.781 px), regression D01:2 (9.146→197.077 px). Mean/median/P95 becomes
+323.027/238.489/693.308 px versus CURRENT 247.858/200.223/466.489 px. Its pooled
+four-session result is 12/35, with additional S01:3 and POST_FIX:4 regressions.
+
+Two new fixed same-scale conjunctions of local change/localization and temporal
+consistency, without/with soft PRE variability, both select **0/6 D01**. Their
+P95 is 892.487 px. The fixed competitor-dominance abstention variant returns
+UNCERTAIN on all six. Across all four sessions the three variants score 9/35,
+4/35 and 0/35 @42; none is promoted. The ungated variants accept all four known
+S01/S02 negatives; abstention also withholds all 35 measured real impacts.
+No no-hit threshold is calibrated, no live bug was found/fixed, and no proposals
+or coordinates were changed. The bounded search stopped after these variants.
+
+The consolidated ledger, all event/radius comparisons, rank distributions,
+per-candidate reasons, frozen configuration, latency and 104 passing tests are
+under `/data/skjutbana/evaluation_runs/physical_selection_20260925_001/` (`final/`
+is authoritative). See `REPORT.md` for exact reproduction and the smallest
+future diagnostic; no D02, Can capture or operator action occurred. CURRENT and
+canonical SHADOW authority remain unchanged; S03/settings/physical traces untouched.
+
+## 2026-09-14 long offline ranking-family pass
+
+**No physical selector or NO_IMPACT gate is promoted, and no experimental live
+candidate is prepared.** The target remains 100% exact physical correctness;
+95% is the minimum. This pass reaches stop conditions B/C: the justified ranking
+structures and their general refinements fail, and further new D01 image evidence
+would require original pixels that are unavailable in the contaminated directory.
+
+### Scope and provenance
+
+Only the September 10 original-D01 feature/snapshot cache and its S01/S02/POST_FIX
+comparators are used: 35 complete physical events and four known negatives.
+Main feature hashes match the accepted model protocol; all cached snapshot hashes
+match the accepted follow-up manifest. No physical trace directory is opened.
+Research drivers install a guard that rejects source-capture access and writes to
+baseline research inputs before file operations. Source IDs, original trace/label
+hashes, commands, working-tree snapshot, method constants and input/output hashes
+are recorded in the new run.
+
+The accepted derived step cache reproduces all 39 frozen step-model CURRENT-pool
+decisions. Its original array did not have a separately recorded historical hash;
+this consistency check and its newly recorded hash are distinguished from the
+original main-cache hash proof. No overwritten D01 pixels are read to regenerate it.
+All cached frame timestamps are at/before cutoff. Camera-time causality does not
+prove worker-delivery parity; POST_FIX reconstructed delivery remains unreliable,
+so no new history feature is used as causal authority.
+
+### Failure atlas: what actually beats CURRENT's good coordinates
+
+At @42, the 35 complete physical events separate as follows:
+
+- Seven CURRENT successes.
+- **21 failures with a correct eligible coordinate:** its onset time ties with
+  the winning track, and the producer `best_score` component decides all 21.
+  This is the exact CURRENT rank-key explanation, not an attribution from a
+  different learned model.
+- Three failures with a plausible ready observed coordinate outside eligible
+  representatives: D01:5, S02:5 and S02:13.
+- Four events without a ready plausible observed coordinate within 42 px:
+  S02:4/6/7 and POST_FIX:5. Unfiltered raw-mask points are a distinct stage and
+  must not silently expand this evaluated universe.
+
+The atlas retains the full earlier stage ledger, every tolerance's nearest/best
+frozen-scored correct point, provenance, current rank keys and uniform evidence.
+Tighter-radius failures remain important: D01:1 loses 2.892 px through representative
+collapse; D01:3 loses 7.328 px through hybrid allocation. These coexist with @42
+ranking failures. Model attributions are explicitly separate from CURRENT's formula.
+
+### Evidence families and dependence
+
+A source-code audit groups the 140 columns by measurement origin: new change,
+temporal, PRE/context, morphology, localization, registered residual and history.
+Producer identity, producer scores, absolute camera location and GT are absent
+from ranking columns. History is audited but excluded from the new rankers because
+its reconstructed delivery provenance is unreliable. Hole/projected-edge/physical
+seam identity remains unavailable rather than replaced by image texture.
+
+Equal-event/equal-session correlation summaries cover all data, every session,
+and all four training-session complements. There are **27 exact duplicate pairs
+in every session**, including repeated PRE edge and noise maps. The global
+absolute-Spearman >=0.95 count is 158. Effective ranks (trace-squared/eigenvalue-
+square-sum) are 1.50 for 36 registered-residual columns and 2.20 for 36 PRE/context
+columns. These are descriptive redundancy measures, not independent sensors.
+
+For wrong PAIR_CLEAN winners with a plausible @42 target, the largest opposing
+family is PRE/context in ten comparisons, registered residual in seven, temporal
+in three and localization in one. Five pair score gaps would reverse if the
+largest opposing family were removed. That motivates robust structures but does
+not establish a safe global ablation. Complete held-session contribution summaries
+and score-tie counts are recorded. Ties are infrequent and do not explain the
+protected failures; deterministic array-order fallback remains explicit.
+
+### Fixed ranking structures and one justified refinement
+
+The same three pools are reused unchanged: CURRENT, accepted OBS32, accepted
+COVERAGE48. There is no new retention policy, game geometry prior or GT injection.
+
+The initial structures test training-only family scale normalization, clipped
+family contributions, mean/median percentile ranks, top-quartile consensus,
+Pareto deprioritization, two-stage physical support priority and a six-family
+pairwise model. The two-stage/Pareto trials retain the full candidate list.
+Temporal shape and relative crop-half residual survival each get one bounded
+context vote. Fixed constants are recorded; there is no parameter sweep.
+
+One refinement collapses exact duplicates or complete-link |rho|>=0.95 groups
+within each family **before** pairwise fitting on the other whole sessions.
+This reduces 132 inputs to 117 unique or 90–95 grouped dimensions, but fails the
+same protected events. A direct, unfitted four-family control checks that failure
+is not solely inherited model coefficients. Its one temporal refinement replaces
+signed spatial averaging with existing per-pixel temporal consistency.
+
+Selected @5/@10/@20/@42 on CURRENT pool:
+
+| Method | D01 | S01 | S02 | POST_FIX | >1000 px |
+|---|---|---|---|---|---|
+| CURRENT | 0/1/1/1 | 2/2/3/3 | 1/1/1/1 | 2/2/2/2 | 0 |
+| FROZEN_PAIR_CLEAN | 1/1/1/1 | 4/4/4/5 | 2/2/2/2 | 2/2/2/2 | 1 |
+| FAMILY_NORMALIZED | 0/0/0/0 | 3/3/3/3 | 2/2/2/2 | 1/1/1/1 | 0 |
+| FAMILY_CAPPED | 0/0/0/0 | 1/1/1/1 | 0/0/0/0 | 0/0/0/0 | 0 |
+| RANK_MEAN | 0/0/0/0 | 2/2/2/2 | 1/1/1/1 | 1/1/1/1 | 1 |
+| RANK_MEDIAN | 0/0/0/0 | 2/2/2/2 | 1/1/1/1 | 2/2/2/2 | 0 |
+| CONSENSUS | 0/0/0/0 | 3/3/3/3 | 1/1/1/1 | 1/1/1/1 | 0 |
+| PARETO | 0/0/0/0 | 2/2/2/2 | 1/1/1/1 | 1/1/1/1 | 1 |
+| TWO_STAGE | 0/0/0/0 | 4/4/4/4 | 1/1/1/1 | 2/2/2/2 | 1 |
+| PAIR_FAMILY | 0/0/0/0 | 3/3/3/3 | 1/1/1/1 | 2/2/2/2 | 1 |
+| TEMPORAL_SHAPE | 0/0/0/0 | 1/1/1/1 | 0/0/0/0 | 1/1/1/1 | 0 |
+| MOTION_RESIDUAL | 0/0/0/0 | 3/3/3/4 | 1/1/1/1 | 0/0/0/0 | 1 |
+| PAIR_UNIQUE | 1/1/1/1 | 4/4/4/5 | 2/2/2/2 | 2/2/2/2 | 1 |
+| PAIR_GROUPED | 1/1/1/1 | 4/4/4/5 | 2/2/2/2 | 2/2/2/2 | 1 |
+| DIRECT_FOUR | 0/0/0/0 | 3/3/4/5 | 0/0/0/1 | 3/3/3/3 | 0 |
+| DIRECT_PIXEL_PERSISTENCE | 0/0/0/0 | 3/3/4/5 | 0/0/0/0 | 3/3/3/3 | 0 |
+
+All new methods are rejected. The two refits tie the old 10/35 @42 result, with
+D01:2, S01:1/3 and POST_FIX:4 regressions and the 1,047 px S01 miss. The direct
+four-family control gets 9/35 with no >1,000 px tail, but loses D01:2, S01:1,
+S02:1 and POST_FIX:4. No method preserves all protected cases across pools.
+
+Six grouped-family ablations produce 6–9/35 @42 and fail protection. Training-
+session jackknife is also unstable: omitting any one of the other three training
+sessions reduces D01 from 1/6 to 0/6; S01 varies 2–4/9, S02 0–1/10 and POST_FIX
+1–2/10. This is descriptive sensitivity, not independent validation. The report
+also includes S02 sensitivity excluding its pre-existing event-1 ambiguity.
+
+### Accuracy, burden and runtime
+
+Full selected/oracle tuples, mean/median/P95, >100/>1000 counts, ready/available
+candidate counts, timing components and every lost CURRENT radius are in
+`review/all_metrics.csv` and `review/all_results.json`: 208 summary rows and
+2,028 event rows. The existing P95 nearest-rank convention is retained.
+
+CURRENT-pool oracle remains D01 1/3/5/5, S01 6/6/7/9, S02 3/3/3/5, POST_FIX
+6/6/9/9. Available mean/max counts are 97.83/109, 68.30/100, 130.77/146 and
+97.30/107; uniform-ready mean/max counts are 97.33/109, 58.00/93, 128.31/145 and
+86.70/105. Existing expanded pools remain <=200 (maximum 193 for coverage).
+No extra candidates are created by the new ranking structures.
+
+The grouped refit has mean/median/P95 errors D01 249.308/250.150/475.420,
+S01 246.542/37.248/1047.219, S02 184.068/148.431/386.396 and POST_FIX
+283.822/293.274/548.595. Its >100 counts are 5/4/8/8; >1000 counts 0/1/0/0.
+The direct four-family control has 442.439/431.474/644.338,
+119.880/37.248/393.771, 255.232/278.549/474.269 and
+164.216/134.026/472.558; >100 counts 6/4/7/6 and no >1000 tail.
+
+Measured ordering/aggregation components are bounded but omit original image
+extraction and some whole-cache transforms. For example grouped-model prediction/
+ordering averages 0.10–0.17 ms; direct family construction/order 1.58–2.96 ms.
+These are offline component timings, not live end-to-end latency claims.
+
+### Coordinate evidence and temporal context
+
+D01:5's recovered 11.657 px observation has normalized r4 late absolute change
+**0.474**, center/ring ratio **0.460** and contrast persistence **0**. The cached
+GT-only probe has **3.025**, **2.874** and **0.8**. Its local step SNR is 1.767
+versus 0.377 at the observed point. This is a concrete discrepancy between
+@20 coordinate proximity and evidence centered on the actual damage. The probe
+is never selectable, trained as a candidate, or counted as an accuracy result.
+
+Physical temporal evidence can also survive where signed region averages weaken:
+D01:2's GT-local r4 patch has late absolute change 3.086 but signed contrast -0.873
+and thresholded contrast persistence zero. This supports inspecting per-pixel
+temporal change, not requiring a single signed darkening step. The one cached
+per-pixel refinement still fails selected accuracy.
+
+D01:1/4/6 good observations show stronger step evidence than CURRENT's wrong
+points. S01:3 has step SNR ~7.32, explained fraction ~0.98 and onset ~273 ms
+**before audio**. No after-audio onset rule, minimum shot interval or PRE veto
+is justified. Raw temporal profiles are reused, not recomputed from contaminated
+frames. New signed-step voting selects only 2/35 @42.
+
+### Board motion as noise and event-level NO_IMPACT
+
+Relative survival after crop-half compensation favors the good coordinate in
+only 14/25 nonidentical good-versus-CURRENT comparisons. The motion context ranker
+selects 5/35 @42 with protected losses. Missing actual board/seam calibration
+prevents physical panel attribution; image halves remain an image-space proxy.
+No motion-only locator, broad flow or edge/old-hole blacklist is retried.
+
+The four negatives have a median of ten supported spatial components versus
+four for physical events; smaller-count descriptive AUC is 0.782. Their median
+crop-half disagreement is 0.234 px versus 0.162 px, with smaller-disagreement
+descriptive AUC 0.836. These are correlated, session-dependent observations,
+not independent proof of NO_IMPACT. A training-negative-bound probe using
+component counts accepts S01:4 when S01 is held out, or rejects all ten S02
+positives when S02 is held out. Motion bounds likewise reject real events.
+No production gate or calibrated threshold is fitted from these four negatives.
+
+### Implementation, capture readiness and verification
+
+New code is confined to offline automation analysis/tests and small D02 preflight
+extensions. A measurement inconsistency was fixed: context classification initially
+included a broader raw-mask population than the atlas; a regression now enforces
+the same plausible universe. `context_complete/` is authoritative. Old outputs
+are preserved with their supersession reason.
+
+The D02 tool now compares the exact plan/bound rows/hash, offers read-only saved
+configuration inspection, and exports actual recorded camera/crop metadata after
+capture without modifying traces. Missing geometry remains UNAVAILABLE. The fresh
+six-event package contains blank human notes and saved configuration only: no
+binding, physical capture or fabricated result. See PHYSICAL_CAPTURE_RUNBOOK for
+the exact commands and execution order. No experimental selector is offered.
+
+All intentional can-game/menu/camera-export changes, the existing demo coordinate
+fix and capture collision protection are preserved. No new engine subsystem,
+gameplay functionality, live physical algorithm or persistent learning is added.
+
+Verification: 41 suites, **274 unittest cases plus 168 explicit checks**, pass.
+Changed Python compiles; whitespace checks pass. No staging/commit/push/merge.
+S03 and all physical source captures remain unopened by this pass.
+
+New run: `/data/skjutbana/evaluation_runs/ranking_families_20260914_112457/`.
+Human reader: `review/failure_atlas.html`. Full values: `review/all_metrics.csv`.
+Reproduction drivers: `automation/physical_ranking_families.py`,
+`physical_family_rank_research.py`, `physical_family_refinement.py` and
+`physical_ranking_context.py`; each records its exact command/config/input hashes.
+The next scientifically useful step is the six-event D02 with CURRENT, exact
+physical labels and the recorded geometry, followed by these same protected
+comparisons. Do not repeat these rejected score families without new evidence.
+
+
+## 2026-09-14 follow-up: exact event-5 queue loss, bounded hypotheses, capture integrity
+
+**100% end-to-end physical correctness remains the target; 95% is the minimum.
+No physical algorithm is promoted.** All measurements below use the original
+September 9 D01 input version preserved by the September 10 counterfactual
+feature/snapshot cache, plus that cache's S01/S02/POST_FIX. The cache hashes match
+its original model protocol. No changed D01 pixels are combined with old features.
+
+### Provenance investigation and implemented capture repair
+
+The prior audit's 590 changed paths are 584 `.npy` files plus all six `trace.json`
+files in `session_20260909_194947_D01_60806ff2`. New trace peaks are September 11
+20:17:58–20:21:21 local time; old cached peaks are September 9 19:54:01–19:55:14.
+New provenance explicitly records the old D01 root, runtime session identity and
+commit `4cd6376`. Original labels retain their hashes. This is a mixture of newer
+runtime capture and old labels, not a valid new D01 evaluation version. The exact
+launch command is unknown; recorder code demonstrates the overwrite mechanism:
+reused shot directories plus `os.replace` of matching frame/map/trace filenames.
+
+The recorder now refuses a populated capture root and atomically claims new shot
+directories. Refusal applies to later shot IDs too and does not change detection.
+Collection start refuses existing binding/backup paths. No current/original trace
+is restored, deleted, relabeled or rewritten. Final hashing of the exact 4,954-file
+allowlist finds **zero additional changes** relative to the prior final audit;
+settings and the trace symlink are unchanged. The old cache is retained intact.
+
+### Smallest reusable observed-coordinate representation
+
+The new pure offline helper scans existing association history, retaining current,
+first alternative, best explicitly locally confirmed alternative and latest
+alternative. Every alternative is an observed XY, with at most three witnesses
+retaining observation ID, producer, dispatch owner, frame/delivery time and own
+confirmation. Working storage is at most four XY slots/twelve witnesses per track;
+output has at most 32 alternatives across eligible identities. No averaged XY,
+parent-confirmation inheritance or new Track class.
+
+The offline readiness probe is separate from explicit local proof. Available
+hypothesis mean/max counts are D01 115.50/134, S01 75.10/110, S02 161.77/178,
+POST_FIX 97.30/107. Ready-coordinate mean/max pools are 114.33/134, 62.60/106,
+159.00/177 and 86.70/105. POST_FIX's 2,252 old reconstructed association records
+have delivery timestamps after the decision cutoff, so the strict helper excludes
+those alternatives. This is a provenance limitation, not evidence that the live
+track never observed them.
+
+### Event 5: exact bounded retention explanation
+
+The actual `(2248.0,1448.5)` coordinate is **11.657034 px** from physical GT,
+legacy pre-cap rank **276**, area 4.0, radius 2.062 px. It is absent after the
+legacy 200 cap and previously appeared at rescue rank 171. The previous reserve
+driver's cache index is 3249; it is selectable and passes the same-XY offline
+readiness probe. Full deterministic queues and per-operation decisions are saved.
+
+| Previous 48-slot reserve | This coordinate's queue rank | Queue items consumed at stop | Exact outcome |
+|---|---|---|---|
+| Physical priority / spatial cells | 201 | 51 | Budget exhausted before candidate examined |
+| Weak/mid/strong strata | 65 in weak queue | 17 / 16 / 18 | Budget exhausted before weak rank 65 |
+| Persistence / centered PRE / piecewise | 221 / 232 / 222 | 26 / 29 / 29 | Budget exhausted before any occurrence |
+
+There is **no 8 px suppression operation for this coordinate**: it never reaches
+deduplication. Coarse-cell score ordering does not provide enough spatial coverage
+for this weak candidate. One fixed GT-free counterfactual tests maximum uncovered
+distance among actual plausible raw contours, normalized by crop dimensions.
+It preserves CURRENT, adds at most 48, and stays below 200 total. It retains the
+exact coordinate as **reserve entry 3**. A translation-invariance test caught a
+floating-point tie-ordering issue; numerical ties now use stable ordering. The
+initial output is preserved, with `final/` authoritative and matching `validated/`
+on all selections, oracles and ranks.
+
+| Session | Coverage oracle @5/@10/@20/@42 | Mean/max candidates | Mean reserve time |
+|---|---|---|---|
+| D01 | 1/3/**6/6** | 145.83/157 | 2.52 ms |
+| S01 | 6/6/8/9 | 115.20/148 | 1.63 ms |
+| S02 | 3/3/3/7 | 171.38/193 | 2.37 ms |
+| POST_FIX | 6/6/9/9 | 140.50/155 | 1.44 ms |
+
+Coverage does not restore D01 event 1 at @5 or event 3 at @10. Event 5 then ranks
+**135/145**, and the selected error becomes 357.476 px. Uniform coverage can fill
+a missing proposal, but does not establish which change is physical. No combined
+retention/hypothesis policy is promoted or hidden behind the oracle result.
+
+### Joint track and coordinate selection
+
+Frozen, whole-session-excluded PAIR_CORE/CLEAN models are reused; no expensive
+feature extraction or new fitting occurs. Track max, mean and normalized
+logmeanexp aggregate each track's bounded hypotheses; coordinate choice then
+selects an actual hypothesis within the winning identity. A separate control
+holds CURRENT identity fixed. NO_IMPACT acceptance is a separate question.
+
+| Session | Method | Selected @5/@10/@20/@42 | Pool oracle | Mean/median/P95 px | >100 / >1000 |
+|---|---|---|---|---|---|
+| D01 | CURRENT | 0/1/1/1 | 1/3/5/5 | 247.858/200.223/466.489 | 5/0 |
+| D01 | CURRENT identity, best XY | 0/1/1/1 | 2/4/5/5 | 247.099/201.946/459.661 | 5/0 |
+| D01 | Joint clean mean | 1/1/1/1 | 2/4/5/5 | 244.032/250.150/475.420 | 5/0 |
+| D01 | Coverage + clean | 0/0/0/0 | 1/3/6/6 | 322.674/321.038/475.420 | 6/0 |
+| S01 | CURRENT | 2/2/3/3 | 6/6/7/9 | 204.109/205.897/463.951 | 5/0 |
+| S01 | CURRENT identity, best XY | 2/2/3/3 | 6/6/7/9 | 204.109/205.897/463.951 | 5/0 |
+| S01 | Joint clean mean | 4/4/4/5 | 6/6/7/9 | 246.542/37.248/1047.219 | 4/1 |
+| S01 | Coverage + clean | 3/3/3/3 | 6/6/8/9 | 420.340/441.046/1047.219 | 6/1 |
+| S02 | CURRENT | 1/1/1/1 | 3/3/3/5 | 187.926/163.723/426.564 | 7/0 |
+| S02 | CURRENT identity, best XY | 1/1/1/1 | 3/3/3/5 | 187.123/159.705/426.564 | 7/0 |
+| S02 | Joint clean mean | 2/2/2/2 | 3/3/3/5 | 185.727/148.431/386.396 | 8/0 |
+| S02 | Coverage + clean | 2/2/2/2 | 3/3/3/7 | 185.727/148.431/386.396 | 8/0 |
+| POST_FIX | CURRENT | 2/2/2/2 | 6/6/9/9 | 171.099/135.749/464.701 | 8/0 |
+| POST_FIX | CURRENT identity, best XY | 2/2/2/2 | 6/6/9/9 | 171.099/135.749/464.701 | 8/0 |
+| POST_FIX | Joint clean mean | 2/2/2/2 | 6/6/9/9 | 283.822/293.274/548.595 | 8/0 |
+| POST_FIX | Coverage + clean | 2/2/2/2 | 6/6/9/9 | 283.822/293.274/548.595 | 8/0 |
+
+Mean/logmeanexp grouping retains the earlier 10/35 @42 result, with the same
+promotion-blocking D01:2, S01:1/3 and POST_FIX:4 regressions. Max grouping falls
+to 9/35; core-only mean is 6/35. Holding CURRENT identity preserves protected
+successes but improves no selected count. No candidate meets promotion criteria.
+
+Per-event joint clean mean: D01 event 1 retains 2.892 px, good track ranks 16 and
+loses to 279.900 px; event 2's nearest good track ranks 89 and selection is
+220.400 px; event 3 remains 15.383 px in pool and selects 475.420 px; event 4
+ranks first and selects 4.781 px; event 5 lacks a @42 track hypothesis (coverage
+is a separate trial); event 6's 5.968 px track improves to rank 5 but selects
+302.982 px. All 35 physical events have uniform feature-pair tables in `review.json`.
+
+| D01 event | Exact evidence loss / remaining failure | CURRENT selected px | Joint clean mean selected px | Good hypothesis coordinate rank |
+|---|---|---|---|---|
+| 1 | 2.892 px history observation collapses to 12.835 px representative; helper restores observation, wrong identity still wins | 466.489 | 279.900 | 19 (track rank 16) |
+| 2 | Protected 9.146 px CURRENT success is lost by joint ranking | 9.146 | 220.400 | 97 (nearest 8.340 px, track rank 89) |
+| 3 | 7.328 px contour lost by `hybrid_capacity_exhausted`; helper's nearest is 15.383 px | 201.816 | 475.420 | 61 |
+| 4 | 4.781 px confirmed evidence survives; joint ranking recovers it | 427.863 | 4.781 | 1 |
+| 5 | 11.657 px raw point lost by legacy cap then unexamined reserve queues; no @42 helper hypothesis | 183.203 | 180.707 | None @42; separate coverage trial rank 135 |
+| 6 | 5.968 px confirmed evidence survives but another identity wins | 198.629 | 302.982 | 5 |
+
+Track ranks and flattened coordinate ranks differ when an earlier track contains
+multiple hypotheses. The accepted counterfactual `forensics/survival.json` remains
+the complete 35-event stage ledger; unavailable historical stages stay unavailable.
+
+The frozen model's additive pair contributions explain its ordering, not physical
+causation. For D01:1, morphology mass (+0.642), onset (+0.343) and persistence
+(+0.200) favor the good point, but PRE standard deviation (-0.824) and small-scale
+texture (-0.581) help the wrong winner; total good-minus-winner logit is -1.649.
+For protected D01:2, large-scale PRE texture alone contributes -1.770 of the
+-2.978 gap. D01:6 gains from centered/persistent inner-ring evidence (+0.165/
++0.164), but PRE standard deviation (-0.939) outweighs it; total gap is -0.259.
+S01:1 similarly loses despite piecewise inner-ring support (+0.370), and S01:3
+is penalized by texture/onset terms despite the known pre-audio physical change.
+POST_FIX:4 loses by -4.167 with contributions spread across onset, PRE peak and
+persistence scales. Removing all texture was already tested and failed; these
+attributions justify better temporal/context interpretation, not a new veto.
+
+Hypothesis construction averages 2.41/1.37/3.24/0.49 ms per session event
+(D01/S01/S02/POST_FIX); grouped clean mean adds 0.81/0.51/1.07/0.70 ms.
+These exclude cached image-feature extraction and are not live latency claims.
+
+### NO_IMPACT, game diagnostics, D02 and verification
+
+Conditional winner-track margins overlap: physical range 0.018–6.071, negative
+range 0.295–1.730; medians 0.776 versus 0.518. Every selected winning track has one
+ready XY, so winner-coordinate logit spread is zero in both groups. All four
+known negatives would still receive a conditional coordinate. No event gate is
+fitted or promoted. Margin AUC is 0.543 (35 physical, four negative events), close
+to chance. New original D01 pixels are needed for additional image-feature comparisons;
+PRE/pre-audio variation remains context, not a veto.
+
+The intentional can game currently has region-first OBJECT_DEMO rules, newer
+than the former emitted-first shadow assist. Its rules and menu/exports are
+preserved. A real demo mapping bug was reproduced and fixed: frozen full-camera
+regions were used directly against crop-local maps. Existing V2.24.4 camera/work
+mapping now handles crop offsets and scale. Four tests cover the failing crop,
+downsampling, full-camera identity and unchanged returned canonical candidates/
+arrays. Existing ObjectManager frozen-shape tests pass. AABBs and terminal demo
+confidence remain gameplay observations, never physical labels; exact historical
+shape-distance claims require capture-time geometry that D01 does not contain.
+
+D02 is prepared with two physical rows and four separately described controls,
+executed 3→1→2→4→5→6. The small provenance tool requires independent physical
+bounds/seam/display notes, snapshots relevant saved settings/source identity, and
+refuses reused bindings/roots or changed geometry. No binding or D02 physical
+result is created. Full commands and hypotheses are in PHYSICAL_CAPTURE_RUNBOOK.
+Any later can-game capture must use a separate fresh session.
+
+**Tests:** 40 suites, 252 unittest cases and 168 explicit checks pass, including
+capture/finalization, coordinate mapping, deterministic replay, candidate quotas,
+the new observation/coverage helpers, demo mapping and D02 provenance. Changed
+Python files compile; whitespace checks pass. No push/merge/commit. Working game
+code/menu/exports are preserved; only the demonstrated demo mapping defect is
+changed in the pre-existing extension.
+
+Run: `/data/skjutbana/evaluation_runs/D01_hypotheses_20260914_061840/`.
+Authoritative results: `final/results.json`, `final/hypotheses.json`,
+`final/retention_ledger.json`, `review.json`, `input_integrity.json`, `tests/`.
+Reproduce the cache-only comparison into a fresh output with
+`python3 -m automation.physical_hypothesis_research --base /data/skjutbana/evaluation_runs/D01_counterfactual_20260910_152433 --output NEW_OUTPUT`.
+
+## 2026-09-14 offline track/retention/ranking continuation
+
+This pass uses only D01, S01, S02 and POST_FIX. All fitting excludes the evaluated
+session as a whole. S03 is explicitly rejected by the dataset guard. Ground truth
+labels diagnostics and training examples but is never a selectable coordinate or
+feature. No live detector, canonical SHADOW model or authority changes.
+
+### Track representation
+
+Current/medoid/confirmed/physical representatives all preserve CURRENT selection
+counts. Medoid and confirmed observations improve D01 eligible oracle from
+1/3/5/5 to **2/4/5/5**; medoid also improves POST_FIX from 6/6/9/9 to 7/7/9/9.
+D01 event 1's 2.892 px observation is retained, while the selected wrong track
+remains 459.661 px away under medoid representation. Thus coordinate collapse is
+real, but correcting the coordinate of one track cannot fix track-level ranking.
+
+### Bounded retention
+
+Late reserves preserve the current pool and add at most 48 candidates, with 8 px
+deduplication and spatial coverage. Mean/max counts are D01 145.83/157, S01
+114.60/148, S02 174.62/193 and POST_FIX 141.80/155. Physical/weak reserve runtime
+is 3.9–7.2 ms/session-event mean; clean-family retention is 8.3–12.5 ms.
+
+| Policy | D01 oracle @5/@10/@20/@42 | Event 3 | Event 5 |
+|---|---:|---:|---:|
+| CURRENT | 1/3/5/5 | 15.383 px | 63.134 px |
+| CLEAN_FAMILIES +48 | **2/5/5/5** | **7.328 px** | 63.134 px |
+| PHYSICAL +48 | 1/4/5/**6** | **7.328 px** | 23.718 px |
+| WEAK_STRATA +48 | 1/4/5/**6** | **7.328 px** | 35.283 px |
+
+The policies recover event 3 and sometimes event 5 at @42, but none retains the
+known 11.657 px event-5 rescue candidate. The remaining problem is family ordering
+inside a strict budget, followed by ranking; a larger unbounded pool is not the
+answer.
+
+### Held-session ranking and errors
+
+| Session | CURRENT selected / oracle | PAIR_CLEAN selected / oracle | PAIR_CLEAN mean/median/P95, >100 |
+|---|---|---|---|
+| D01 (6) | 0/1/1/1 / 1/3/5/5 | 1/1/1/1 / 1/3/5/5 | 244.0/250.1/475.4, 5 |
+| S01 (9) | 2/2/3/3 / 6/6/7/9 | 4/4/4/5 / 6/6/7/9 | 246.5/37.2/1047.2, 4 |
+| S02 (10) | 1/1/1/1 / 3/3/3/5 | 2/2/2/2 / 3/3/3/5 | 185.7/148.4/386.4, 8 |
+| POST_FIX (10) | 2/2/2/2 / 6/6/9/9 | 2/2/2/2 / 6/6/9/9 | 283.8/293.3/548.6, 8 |
+
+PAIR_CLEAN is the best newly fitted aggregate ranking result, 10/35 physical hits
+at @42, but it loses D01 event 2 and produces severe comparator outliers. The
+previous frozen COMMON_FIXED remains 12/35 @42 across these sessions, also with
+known protected/comparator regressions. PAIR_HISTORY has identical hit counts.
+Change-only falls to 9/35; adding a simple pre/post change-point feature falls to
+5/35. All are rejected for live promotion.
+
+Counterfactual evidence explains key D01 failures. Event 1's good coordinate has
+stronger r2/r4 change, onset gain, persistence, center/ring and piecewise-clean
+support than CURRENT's winner. Event 4's good 4.781 px candidate has stronger r2
+change, onset, lower PRE variability and stronger centered-clean evidence. Event
+6's 5.968 px candidate likewise wins on onset, persistence, center/ring and
+piecewise-clean support. Protected event 2 exposes the conflict: its correct
+candidate has stronger absolute change/onset/persistence, while the wrong common
+winner has stronger center/ring and static PRE texture. S01 event 3 begins changing
+before the recorded audio boundary, so PRE variability is context, never a veto.
+
+### Survival and NO_IMPACT
+
+`forensics/survival.json` records all 35 complete physical events through raw-mask
+geometry, retained proposal, track history, representative, eligible/common pool
+and final selection. It identifies the first observed loss at each tolerance and
+uses UNAVAILABLE where older traces lack a stage. D01 causes are now explicit:
+event 1 track-coordinate representation; event 2 correct final selection at @10;
+event 3 hybrid quota exhaustion; event 4 final ranking; event 5 legacy 200 cap;
+event 6 final ranking.
+
+The four negatives remain S01:4 and S02:2/8/10. Descriptive history-locality is
+one promising inspected feature (AUC 0.824), but this uses only four negatives
+and overlaps positives. At a fixed 0.5 held-session gate, S01's negative remains
+accepted, two of three S02 negatives remain accepted, and eight physical events
+are rejected. A threshold bounded by training negatives accepts all four held-out
+negatives and still rejects three physical events. NO_IMPACT remains unsolved.
+
+The clean channels help explain individual pairs but do not produce a safe joint
+selector. Broad flow, edge/old-hole blacklists and global threshold increases were
+not revisited. Motion remains contextual only because saved seam/Board calibration
+is absent. D02 remains uncreated; the smallest next capture is still two physical
+controls (low contrast and line/near-hole), two sound-only controls (isolated and
+after a shot), and two observed no-damage panel/seam-motion controls, with capture
+geometry saved first.
+
+Reproduction sources are `automation/physical_counterfactual_research.py`,
+`automation/physical_counterfactual_models.py`,
+`automation/physical_counterfactual_forensics.py`, and
+`automation/physical_change_step_research.py`. Immutable outputs:
+`/data/skjutbana/evaluation_runs/D01_counterfactual_20260910_152433/`.
+The final broad run passes 37 modules, 232 unittest cases and 168 explicit checks.
+
 ## 2026-09-10 continuation: exact losses, bounded alternatives, no promotion
 
 **The oracle/selection gap is not closed. 100% physical correctness remains the

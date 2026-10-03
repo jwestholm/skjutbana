@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable
@@ -21,6 +22,7 @@ class AudioPeakEvent:
     timestamp: float
     peak: float
     rms: float
+    acquisition: dict | None = None
 
 
 class AudioPeakDetector:
@@ -73,6 +75,140 @@ class AudioPeakDetector:
         self._sample_history: deque[float] = deque(maxlen=self.sample_rate * 2)
         self._subscribers: list[Callable[[AudioPeakEvent], None]] = []
         self._lock = threading.Lock()
+        # Observability only: acoustic delay/room response are not calibrated.
+        # A coincident real shot must not be discarded merely because SFX plays.
+        self._engine_playbacks: deque[dict] = deque(maxlen=64)
+        self._playback_audio_events: deque[dict] = deque(maxlen=128)
+        self._pcm_blocks: deque[tuple[dict, bytes]] = deque(maxlen=512)
+        self._reset_acquisition()
+
+    def _reset_acquisition(self) -> None:
+        self._stream_id = uuid.uuid4().hex
+        self._pcm_sequence = 0
+        self._sample_index = 0
+        self._first_receipt = None
+        self._current_acquisition = None
+        self._pcm_blocks.clear()
+
+    def acquisition_blocks_since(self, sequence: int = 0) -> list[tuple[dict, bytes]]:
+        """Bounded PCM diagnostics; receipt-relative estimates are not ADC time."""
+        with self._lock:
+            return [(dict(meta), pcm) for meta, pcm in self._pcm_blocks
+                    if meta['sequence'] > sequence]
+
+    def _read_pcm_block(self, stream) -> tuple[bytes, dict]:
+        # A pipe may return fewer bytes than requested. Preserve partial samples
+        # across reads instead of silently discarding PCM and losing chronology.
+        started = time.monotonic()
+        needed = self.chunk_samples * 2 * self.channels
+        parts = bytearray()
+        reads = 0
+        while len(parts) < needed:
+            piece = stream.read(needed-len(parts))
+            reads += 1
+            if not piece:
+                break
+            parts.extend(piece)
+        received = time.monotonic()
+        return bytes(parts), dict(read_start_monotonic=started,
+            read_complete_monotonic=received, receive_wall_ts=time.time(),
+            read_calls=reads, complete_block=len(parts)==needed)
+
+    def _deliver_pcm_block(self, chunk: bytes, receipt: dict) -> None:
+        n = len(chunk)//(2*self.channels)
+        end = receipt['read_complete_monotonic']
+        if self._first_receipt is None:
+            self._first_receipt = end
+        self._pcm_sequence += 1
+        meta = dict(receipt, stream_id=self._stream_id, sequence=self._pcm_sequence,
+            sample_start_index=self._sample_index, sample_end_index_exclusive=self._sample_index+n,
+            sample_count=n, sample_rate=self.sample_rate, channels=self.channels,
+            backend=self.backend_name, first_sample_receipt_estimate_monotonic=end-(n-1)/self.sample_rate,
+            last_sample_receipt_estimate_monotonic=end,
+            receipt_minus_stream_elapsed_s=end-self._first_receipt-self._sample_index/self.sample_rate,
+            timestamp_semantics='RECEIPT_ANCHORED_ESTIMATE_NOT_DEVICE_ACQUISITION',
+            device_timestamp=None, upstream_buffer_age_s=None)
+        self._sample_index += n
+        with self._lock:
+            self._pcm_blocks.append((meta, chunk))
+        self._current_acquisition = meta
+        try:
+            self._process_chunk(chunk)
+        finally:
+            self._current_acquisition = None
+
+    @staticmethod
+    def _peak_sample_index(samples, trigger_threshold):
+        indices = np.flatnonzero(np.abs(samples) >= trigger_threshold)
+        return int(indices[0]) if indices.size else int(np.argmax(np.abs(samples)))
+
+    def _peak_acquisition(self, samples, trigger_threshold) -> dict | None:
+        if self._current_acquisition is None:
+            return None  # Direct/generated chunks have no device provenance.
+        meta = dict(self._current_acquisition)
+        offset = self._peak_sample_index(samples, trigger_threshold)
+        meta.update(trigger_sample_offset=offset, maximum_sample_offset=int(np.argmax(np.abs(samples))),
+            trigger_sample_index=meta['sample_start_index']+offset,
+            trigger_receipt_estimate_monotonic=meta['last_sample_receipt_estimate_monotonic']
+                -(len(samples)-1-offset)/self.sample_rate,
+            detection_monotonic=time.monotonic())
+        return meta
+
+    def pending_events_snapshot(self) -> tuple[AudioPeakEvent, ...]:
+        with self._lock:
+            return tuple(self._pending_dispatch)
+
+    def play_feedback(self, sound, *, owner: str, shot_id: int, cue: str) -> dict:
+        """Dispatch known output and record its clock; never gate microphone input.
+
+        Start/end are API/nominal sample times, not measured acoustic times.
+        No Sound/Channel reference is retained by the microphone owner.
+        """
+        started = time.time()
+        record = dict(owner=owner, shot_id=int(shot_id), cue=cue,
+            start_ts=started, nominal_end_ts=None, status='UNAVAILABLE',
+            semantics='PLAYBACK_TIMING_NOT_ACOUSTIC_ATTRIBUTION')
+        try:
+            duration = float(sound.get_length())
+            if not np.isfinite(duration) or duration <= 0:
+                raise ValueError('invalid sound duration')
+            record['nominal_end_ts'] = started + duration
+            channel = sound.play()
+            record['status'] = 'DISPATCHED' if channel is not None else 'NO_CHANNEL'
+        except Exception as exc:
+            record['error'] = type(exc).__name__
+        record['dispatch_ms'] = (time.time()-started)*1000.
+        with self._lock:
+            self._engine_playbacks.append(dict(record))
+        return record
+
+    def playback_diagnostics(self, owner: str, shot_id: int) -> dict:
+        with self._lock:
+            outputs = [dict(p) for p in self._engine_playbacks
+                       if p['owner']==owner and p['shot_id']==shot_id]
+            events = [dict(e) for e in self._playback_audio_events
+                      if any(p['owner']==owner and p['shot_id']==shot_id for p in e['playbacks'])]
+        return dict(outputs=outputs, nearby_audio_events=events,
+            suppression='NONE', attribution='UNRESOLVED_REQUIRES_PHYSICAL_MEASUREMENT')
+
+    def _annotate_engine_playback(self, event: AudioPeakEvent) -> None:
+        with self._lock:
+            # Two seconds is a diagnostic look-back, NOT a trigger holdoff.
+            nearby = [dict(p, delta_start_ms=(event.timestamp-p['start_ts'])*1000.,
+                           within_nominal_playback=p['start_ts']<=event.timestamp<=p['nominal_end_ts'])
+                for p in self._engine_playbacks if p['status']=='DISPATCHED'
+                and 0 <= event.timestamp-p['start_ts'] <= 2.]
+            if nearby:
+                self._playback_audio_events.append(dict(timestamp=event.timestamp,
+                    peak=event.peak,rms=event.rms,playbacks=nearby))
+        if nearby:
+            diagnostics = dict(getattr(event, 'diagnostics', {}) or {})
+            diagnostics['engine_playback_context'] = dict(playbacks=nearby,
+                attribution='COINCIDENCE_NOT_PROOF', suppressed=False)
+            event.diagnostics = diagnostics
+            import json
+            print('[AUDIO-PLAYBACK-CONTEXT] '+json.dumps(dict(timestamp=event.timestamp,
+                peak=event.peak,context=diagnostics['engine_playback_context']),separators=(',',':')))
 
     def start(self) -> bool:
         if self.running:
@@ -94,6 +230,7 @@ class AudioPeakDetector:
             self._events.clear()
             self._pending_dispatch.clear()
             self._sample_history.clear()
+            self._reset_acquisition()
 
         self.thread = threading.Thread(target=self._thread_main, daemon=True)
         self.thread.start()
@@ -129,6 +266,9 @@ class AudioPeakDetector:
             subscribers = list(self._subscribers)
 
         for ev in pending_events:
+            if ev.acquisition is not None:
+                ev.acquisition['dispatch_monotonic'] = time.monotonic()
+            self._annotate_engine_playback(ev)
             for callback in subscribers:
                 try:
                     callback(ev)
@@ -265,16 +405,15 @@ class AudioPeakDetector:
                 continue
 
             try:
-                bytes_needed = self.chunk_samples * 2
-                chunk = self.proc.stdout.read(bytes_needed) if self.proc.stdout else b""
+                chunk, receipt = self._read_pcm_block(self.proc.stdout)
             except Exception as exc:
                 self.last_error = f"Kunde inte läsa audio från {backend_name}: {exc}"
                 chunk = b""
 
-            if chunk and len(chunk) >= bytes_needed:
+            if chunk and receipt['complete_block']:
                 self.backend_name = backend_name
                 started = True
-                self._process_chunk(chunk)
+                self._deliver_pcm_block(chunk, receipt)
                 break
 
             try:
@@ -291,17 +430,16 @@ class AudioPeakDetector:
 
         while self.running and self.proc is not None:
             try:
-                bytes_needed = self.chunk_samples * 2
-                chunk = self.proc.stdout.read(bytes_needed) if self.proc.stdout else b""
+                chunk, receipt = self._read_pcm_block(self.proc.stdout)
             except Exception as exc:
                 self.last_error = f"Audio read error: {exc}"
                 break
 
-            if not chunk or len(chunk) < bytes_needed:
-                time.sleep(0.01)
-                continue
+            if not chunk or not receipt['complete_block']:
+                self.last_error = 'Audio EOF/truncated block; device sample chronology ended'
+                break
 
-            self._process_chunk(chunk)
+            self._deliver_pcm_block(chunk, receipt)
 
         self.enabled = False
         self.running = False
@@ -318,12 +456,7 @@ class AudioPeakDetector:
         chunk_end_ts: float,
         trigger_threshold: float,
     ) -> float:
-        abs_samples = np.abs(samples)
-        trigger_indices = np.flatnonzero(abs_samples >= trigger_threshold)
-        if trigger_indices.size > 0:
-            trigger_index = int(trigger_indices[0])
-        else:
-            trigger_index = int(np.argmax(abs_samples))
+        trigger_index = self._peak_sample_index(samples, trigger_threshold)
 
         trailing_samples = max(0, int(samples.size - 1 - trigger_index))
         return float(chunk_end_ts - (trailing_samples / float(self.sample_rate)))
@@ -364,6 +497,8 @@ class AudioPeakDetector:
             )
             self.last_peak_ts = event_ts
             ev = AudioPeakEvent(timestamp=event_ts, peak=peak, rms=rms)
+            ev.acquisition = self._peak_acquisition(data, max(self.min_abs_peak, trigger_threshold * 0.85))
+            ev.diagnostics = {'acquisition': ev.acquisition}
             with self._lock:
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)

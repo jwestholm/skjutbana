@@ -1,0 +1,24 @@
+{
+  "collection_plan_id": "CAN_OBJECT_first_scoped_gameplay_20260914",
+  "status": "PLANNED_ONLY_NOT_CAPTURED",
+  "semantics": "Separate gameplay experiment, never D02 or global accuracy validation. Planned aim and exact object collision are not physical ground truth. A miss near an object is still a physical impact if a projectile struck the board.",
+  "sessions": 1,
+  "shots_per_session": 6,
+  "rows": [
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 1, "category": "clean_can_20m", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 2, "category": "clean_duck_20m", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 3, "category": "physical_miss_near_object_20m", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 4, "category": "another_can_existing_surface_20m", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 5, "category": "near_or_enlarged_old_hole_if_practical", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null},
+    {"session": "CAN_OBJECT", "session_class": "DEVELOPMENT", "planned_physical_shot": 6, "category": "can_25m", "actual_event_id": null, "gt_status": "UNLABELED", "trace_health": null}
+  ],
+  "protocol": [
+    "Start Skjut burkar at 20 m. Wait until the game is live and the board settled before each shot.",
+    "Observe and label the physical hole independently of the intended target, OBJECT result and CURRENT result.",
+    "For event 5, R starts a fresh match without restarting the application; targets return over the current physical surface. Record actual new damage/enlargement or ambiguity, never assume a repeat hit.",
+    "For event 6, + selects 25 m and starts a fresh match. Wait for live play before shooting.",
+    "A skipped action or absent audio event is NOT_CAPTURED. Extra audio events, including possible speaker feedback, need separate human notes; do not shift shot labels.",
+    "Use SKJUTBANA_OBJECT_COMPARE=1 for this comparison: sound is immediate; projected visual feedback waits for CURRENT to finish. Normal play omits the variable.",
+    "Keep this binding separate from D02. Never restart the application into an already populated trace root."
+  ]
+}

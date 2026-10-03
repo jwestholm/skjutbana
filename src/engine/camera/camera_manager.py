@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 
@@ -20,6 +21,7 @@ from src.engine.settings import load_camera_transform_settings
 class CameraFrame:
     frame_bgr: np.ndarray
     timestamp: float
+    acquisition: dict | None = None
 
 
 class CameraManager:
@@ -30,9 +32,9 @@ class CameraManager:
     frame at read time. Frames go into a thread-safe ring buffer.
     Main thread picks up frames via update() / get_latest_frame().
 
-    This solves the camera buffering problem: timestamps reflect when
-    the frame was actually read from the driver, and the ring buffer
-    gives hit_scanner a dense frame history for accurate pre-shot selection.
+    Public timestamps reflect read completion, NOT exposure. A reader thread
+    avoids main-loop backlog but cannot prove device/USB buffering is absent.
+    Optional acquisition provenance makes those limits observable.
     """
 
     # Ring buffer size: ~10 seconds at 30fps
@@ -71,6 +73,44 @@ class CameraManager:
         self._fresh_request = threading.Event()
         self._fresh_frame: CameraFrame | None = None
         self._fresh_ready = threading.Event()
+        self._frame_sequence = 0
+        self._stream_id = uuid.uuid4().hex
+        self.buffer_request = {}
+
+    def _timestamped_frame(self, pixels, started, completed, wall_ts, kind='read'):
+        self._frame_sequence += 1
+        backend = {}
+        for name in ('CAP_PROP_POS_MSEC', 'CAP_PROP_POS_FRAMES', 'CAP_PROP_PTS'):
+            prop = getattr(cv2, name, None)
+            if prop is not None and self.cap is not None:
+                try:
+                    value = float(self.cap.get(prop))
+                    backend[name] = value if np.isfinite(value) else None
+                except Exception:
+                    backend[name] = None
+        metadata = dict(stream_id=self._stream_id, sequence=self._frame_sequence,
+            camera_index=self.camera_index,
+            backend_name=self.capabilities.backend_name if self.capabilities else None,
+            read_start_monotonic=started, read_complete_monotonic=completed,
+            receive_wall_ts=wall_ts, capture_kind=kind, backend_timestamps_raw=backend,
+            backend_timestamp_semantics='UNVERIFIED_BACKEND_UNITS_NOT_EXPOSURE',
+            exposure_monotonic=None, device_buffer_age_s=None,
+            rotation=self.rotation, mirror_horizontal=self.mirror_horizontal,
+            mirror_vertical=self.mirror_vertical, raw_shape=list(pixels.shape),
+            buffer_request=dict(self.buffer_request))
+        transformed = self._apply_frame_transform(pixels)
+        metadata['frame_shape'] = list(transformed.shape)
+        metadata['published_monotonic'] = time.monotonic()
+        return CameraFrame(transformed, wall_ts, metadata)
+
+    def provenance_for_timestamp(self, timestamp):
+        with self._lock:
+            for frame in reversed(self._ring):
+                if frame.timestamp == timestamp:
+                    return dict(frame.acquisition) if frame.acquisition else None
+            if self._fresh_frame is not None and self._fresh_frame.timestamp == timestamp:
+                return dict(self._fresh_frame.acquisition) if self._fresh_frame.acquisition else None
+        return None
 
     def reload_transform_settings(self) -> None:
         settings = load_camera_transform_settings()
@@ -122,9 +162,12 @@ class CameraManager:
         self.running = True
 
         try:
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            accepted = bool(self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1))
+            self.buffer_request = dict(requested=1, accepted=accepted,
+                reported=float(self.cap.get(cv2.CAP_PROP_BUFFERSIZE)),
+                semantics='DRIVER_REPORT_NOT_PROOF_OF_ZERO_BACKLOG')
         except Exception:
-            pass
+            self.buffer_request = dict(requested=1, accepted=False, reported=None)
 
         self.property_apply_result = apply_preferred_camera_settings(
             self.cap,
@@ -139,6 +182,8 @@ class CameraManager:
             self._ring.clear()
             self._read_count = 0
             self._last_pickup_count = 0
+            self._frame_sequence = 0
+            self._stream_id = uuid.uuid4().hex
 
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader_thread.start()
@@ -162,18 +207,19 @@ class CameraManager:
     def _reader_loop(self) -> None:
         """Dedicated thread: reads frames as fast as the camera delivers them."""
         while self.running and self.cap is not None and self.cap.isOpened():
-            # Check for fresh-frame request (main thread wants a guaranteed-current frame)
+            # Best-effort flush; neither grab nor retrieve proves exposure time.
             if self._fresh_request.is_set():
                 self._fresh_request.clear()
                 # Flush buffer: grab a few times, then read
                 try:
+                    started = time.monotonic()
                     for _ in range(3):
                         self.cap.grab()
                     ok, frame_bgr = self.cap.retrieve()
+                    completed = time.monotonic()
                     if ok and frame_bgr is not None:
                         ts = time.time()
-                        frame_bgr = self._apply_frame_transform(frame_bgr)
-                        self._fresh_frame = CameraFrame(frame_bgr=frame_bgr, timestamp=ts)
+                        self._fresh_frame = self._timestamped_frame(frame_bgr, started, completed, ts, 'grab3_retrieve')
                     else:
                         self._fresh_frame = None
                 except Exception:
@@ -182,7 +228,9 @@ class CameraManager:
                 continue
 
             try:
+                started = time.monotonic()
                 ok, frame_bgr = self.cap.read()
+                completed = time.monotonic()
             except Exception:
                 break
 
@@ -191,8 +239,7 @@ class CameraManager:
                 continue
 
             ts = time.time()
-            frame_bgr = self._apply_frame_transform(frame_bgr)
-            cf = CameraFrame(frame_bgr=frame_bgr, timestamp=ts)
+            cf = self._timestamped_frame(frame_bgr, started, completed, ts)
 
             with self._lock:
                 self._ring.append(cf)
@@ -206,11 +253,15 @@ class CameraManager:
         with self._lock:
             if self._ring:
                 self.latest_frame = self._ring[-1]
+                if self.latest_frame.acquisition is not None:
+                    self.latest_frame.acquisition.setdefault('first_main_pickup_monotonic', time.monotonic())
                 self._last_pickup_count = self._read_count
             self.last_error = None
 
-        if self.cap is not None:
-            self.capabilities = probe_camera_capabilities(self.cap)
+        # Camera capabilities are probed in start() before the reader thread
+        # starts. Do not call VideoCapture.get() here while the reader thread
+        # may concurrently be inside VideoCapture.read(); some native backends
+        # are not safe for concurrent access to the same capture object.
 
     def get_new_frames_since_last_pickup(self) -> list[CameraFrame]:
         """Return all frames added to the ring since the last call to this method.
@@ -238,11 +289,11 @@ class CameraManager:
         return self.latest_frame.frame_bgr.copy()
 
     def capture_fresh_frame(self) -> np.ndarray | None:
-        """Request a guaranteed-current frame from the camera.
+        """Request a best-effort buffer flush and camera frame.
 
         Signals the reader thread to flush the camera buffer and capture
         a fresh frame. Blocks until the frame is ready (max 500ms).
-        Use for post-shot capture where you need what the camera sees RIGHT NOW.
+        Exposure age remains unknown; this is not a calibrated timing guarantee.
         """
         if not self.running:
             return None

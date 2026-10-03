@@ -6,21 +6,22 @@ Skjutprylar - physically scaled two-player target game.
 Default virtual distance: 20 m
 Distance controls: + / - in 5 m steps (starts a fresh match).
 
-The game deliberately keeps physical-hit authority honest:
-- Every active target is a V2.25 GameObject.
-- Targets expose HitRegions through ObjectManager.
-- Direct gameplay score first uses the canonical emitted HitEvent.game_x/game_y.
-- If that misses, this game alone may use a bounded same-shot SHADOW candidate
-  that still resolves against the exact frozen target shape (temporary assist).
-- The emitted coordinate is always retained/marked; assisted XY is marked separately.
+Physical hit policy:
+- OBJECT queries frozen regions and returns actual observed physical coordinates.
+- Exact frozen GameObject shapes resolve up to three confirmed hypotheses.
+- No center snapping, SHADOW fallback or synthetic HitInput event.
+- CURRENT is independently logged; OBJECT is not global accuracy validation.
 
 Target dimensions below are the explicit physical game-world dimensions used for
 projection. Standard beverage-can dimensions are representative 33 cl dimensions;
 the humorous objects use intentionally explicit approximate game dimensions.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
+import os
+import json
+import numpy as np
 import random
 import time
 from types import SimpleNamespace
@@ -37,7 +38,11 @@ from src.engine.game_objects import (
     make_breakable_object,
 )
 from src.engine.input.hit_input import HitEvent, hit_input
+from src.engine.input.hit_regions import object_query_regions, hit_context_snapshot_for_shot
 from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+from src.engine.audio.audio_peak_detector import audio_peak_detector
+from src.engine.events import event_bus
+from src.engine.camera.object_physical_query import ObjectPhysicalQuery  # warm before PANG
 from src.engine.range_projection import (
     RangeProjectionGeometry,
     cm_to_viewport_px_x,
@@ -84,25 +89,9 @@ GAME_PROJECTILE = ProjectileProfile(
 )
 
 # ---------------------------------------------------------------------------
-# GAME-LOCAL temporary aim/hit assist
-# ---------------------------------------------------------------------------
-#
-# This is intentionally NOT detector authority and must not be promoted to the
-# engine.  It exists only so this game remains fun while final physical XY
-# selection is still under active research.
-#
-# Flow:
-#   final HitEvent misses -> inspect SAME-SHOT object shadow candidates ->
-#   require a bounded/high candidate -> convert candidate camera XY to game XY ->
-#   resolve again against the exact frozen V2.25 object shape.
-#
-# The original emitted XY is kept and displayed.  Assisted hits are logged and
-# marked separately, so they cannot be confused with real detector accuracy.
-GAMEPLAY_ASSIST_ENABLED = True
-GAMEPLAY_ASSIST_MAX_CANDIDATE_RANK = 25
-GAMEPLAY_ASSIST_MIN_CONFIDENCE = 0.18
-
-
+# Optional stable-projection comparison; normal gameplay reacts immediately.
+OBJECT_COMPARE_HOLD_VISUALS = os.environ.get("SKJUTBANA_OBJECT_COMPARE", "0") == "1"
+CAN_SFX_ENABLED = os.environ.get("SKJUTBANA_CAN_SFX", "1") != "0"
 
 # ---------------------------------------------------------------------------
 # Target definitions
@@ -230,7 +219,55 @@ class Particle:
     kind: str = "spark"
 
 
+def hit_sound_wave(target_id, rate):
+    """Original short synthesized cues; no downloaded/copyrighted assets."""
+    duration = .22 if target_id == 'rubber_duck' else .18
+    t = np.arange(int(rate*duration), dtype=np.float64)/rate
+    rng = np.random.default_rng(250)
+    if target_id == 'rubber_duck':
+        # Falling voiced reed buzz with nasal formants and a short raspy attack.
+        phase = 2*np.pi*(210*t-150*t*t)
+        wave = sum(np.sin(k*phase)*np.exp(-((k*185-1100)/650)**2)/np.sqrt(k)
+                   for k in range(1,18))
+        wave += .10*rng.standard_normal(len(t))*np.exp(-30*t)
+        envelope = np.minimum(1,t/.012)*np.exp(-11*t)*(1+.15*np.sin(2*np.pi*29*t))
+    elif target_id == 'toilet_roll':
+        noise = np.convolve(rng.standard_normal(len(t)),np.ones(15)/15,mode='same')
+        wave = .7*noise + .35*np.sin(2*np.pi*95*t)
+        envelope = np.minimum(1,t/.003)*np.exp(-35*t)
+    else:
+        frequency = dict(mini_can=1450,soda_can=950,gold_can=1250,
+                         beans_xxl=420,sardines=2100).get(target_id,950)
+        wave = sum(np.sin(2*np.pi*frequency*ratio*t)*np.exp(-decay*t)*gain
+                   for ratio,decay,gain in ((1,14,1),(1.47,22,.5),(2.31,32,.3)))
+        wave += .12*rng.standard_normal(len(t))*np.exp(-90*t)
+        envelope = np.minimum(1,t/.002)
+    wave *= envelope*np.minimum(1,(duration-t)/.012)
+    wave *= .24/max(1e-9,float(np.max(np.abs(wave))))
+    return np.asarray(wave*32767,dtype=np.int16)
+
+
+def build_hit_sounds():
+    """Use Pygame's existing mixer; build/cache once on game entry, never per frame."""
+    try:
+        config = pygame.mixer.get_init()
+        if not config or config[1] != -16 or config[2] not in (1,2):
+            return {}
+        rate,_,channels = config
+        sounds = {}
+        for spec in TARGET_SPECS:
+            wave = hit_sound_wave(spec.target_id,rate)
+            if channels == 2:
+                wave = np.repeat(wave[:,None],2,axis=1)
+            sounds[spec.target_id] = pygame.sndarray.make_sound(np.ascontiguousarray(wave))
+        return sounds
+    except (pygame.error,RuntimeError):
+        return {}
+
+
 class ShootStuffGame:
+    owns_hit_presentation = True
+
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
         del game_root
         self.viewport = viewport.copy()
@@ -271,19 +308,36 @@ class ShootStuffGame:
         self._last_resolution_line = ""
         self._last_hit_shot_id = None
         self._background_cache = None
+        self._hit_sounds = {}
+        self._sfx_played = set()
+        self._seen_object_shots = set()
+        self._query_owner = f"can:{id(self)}"
+        self._round_token = 0
+        self._last_render = None
+        self._comparison_frame = None
+        self._comparison_shot = None
+        self._pending_object_shots = {}
+        self._frozen_query_frame = None
+        self._live_presented_ts = None
+        self._last_render_was_live = False
+        self._awaiting_reaction_shots = set()
+        self._last_sfx = None
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     def on_enter(self) -> None:
+        if self._subscribed: return
         self.font_huge = pygame.font.Font(None, 92)
         self.font_big = pygame.font.Font(None, 50)
         self.font_medium = pygame.font.Font(None, 30)
         self.font_small = pygame.font.Font(None, 23)
         self.font_tiny = pygame.font.Font(None, 17)
 
+        self._hit_sounds = build_hit_sounds()
         if not self._subscribed:
+            event_bus.subscribe(self._on_object_event)
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
 
@@ -292,8 +346,14 @@ class ShootStuffGame:
         self._start_match()
 
     def on_exit(self) -> None:
+        self._retire_object_queries('game_exit')
+        for sound in self._hit_sounds.values():
+            try: sound.stop()
+            except (pygame.error,RuntimeError): pass
+        self._hit_sounds.clear()
         if self._subscribed:
             hit_input.unsubscribe(self._on_hit)
+            event_bus.unsubscribe(self._on_object_event)
             self._subscribed = False
 
     # ------------------------------------------------------------------
@@ -404,7 +464,23 @@ class ShootStuffGame:
     # GameObject rack
     # ------------------------------------------------------------------
 
-    def _shape_for_spec(self, spec: TargetSpec) -> HitShapeSpec:
+    def _shape_for_spec(self, spec: TargetSpec, geometry=None) -> HitShapeSpec:
+        if spec.draw_kind == 'duck':
+            # Preserve the existing pixel-art primitives, including their integer
+            # rounding. Express those SAME body/head/beak parts as frozen shapes.
+            g=geometry or ObjectGeometry(0,0,spec.width_cm*10,spec.height_cm*10)
+            r=pygame.Rect(round(g.x),round(g.y),max(2,round(g.width)),max(2,round(g.height)))
+            body=pygame.Rect(r.x,r.y+r.height//3,r.width,r.height*2//3)
+            hd=max(3,int(min(r.width,r.height)*.52))
+            head=pygame.Rect(r.x+int(r.width*.52),r.y,hd,hd)
+            def normalized_ellipse(p):
+                return HitShapeSpec.ellipse(x=(p.x-g.x)/g.width,y=(p.y-g.y)/g.height,
+                    width=p.width/g.width,height=p.height/g.height)
+            beak=((head.right-1,head.centery-2),(head.right+max(2,r.width//5),head.centery),
+                  (head.right-1,head.centery+3))
+            return HitShapeSpec.union(
+                normalized_ellipse(body),normalized_ellipse(head),
+                HitShapeSpec.polygon(((x-g.x)/g.width,(y-g.y)/g.height) for x,y in beak))
         if spec.shape_kind == "ellipse":
             return HitShapeSpec.ellipse(x=0.04, y=0.04, width=0.92, height=0.92)
         if spec.shape_kind == "can":
@@ -447,7 +523,7 @@ class ShootStuffGame:
                 owner=f"player_{self.player}",
                 entity_id=f"rack_p{self.player}",
                 part_id=spec.target_id,
-                shape=self._shape_for_spec(spec),
+                shape=self._shape_for_spec(spec,geometry),
                 tags={
                     "shoot_stuff",
                     f"distance_{int(self.distance_m)}m",
@@ -490,7 +566,52 @@ class ShootStuffGame:
             self._target_geometry[obj.object_id] = geometry.aabb
 
     def get_hit_regions(self):
-        return self.manager.get_hit_regions()
+        regions = self.manager.get_hit_regions()
+        if self.phase != "live":
+            return regions
+        if OBJECT_COMPARE_HOLD_VISUALS and self._last_render is not None:
+            self._comparison_frame = self._last_render.copy()
+        regions = tuple(replace(r, metadata={**r.metadata,
+            'can_query_owner': self._query_owner, 'can_round': self._round_token,
+            'can_player':self.player,'can_distance_m':self.distance_m}) for r in regions)
+        return object_query_regions(regions, top_k=3, owner=self._query_owner,
+            surface_after_ts=self._live_presented_ts, require_presented_surface=True)
+
+    def on_object_shot_frozen(self, snapshot):
+        if self.phase != 'live': return
+        self._pending_object_shots[snapshot.shot_id]=snapshot.peak_ts
+        if self._frozen_query_frame is None and self._last_render is not None:
+            self._frozen_query_frame=self._last_render.copy()
+
+    def _retire_object_queries(self, reason):
+        object_hit_registry_v2223.cancel_object_queries(self._query_owner,reason)
+        for sid in self._awaiting_reaction_shots:
+            snap=hit_context_snapshot_for_shot(sid)
+            if snap is not None:
+                snap.object_gameplay.update(reaction_expected=False,reaction_cancelled=reason)
+        self._awaiting_reaction_shots.clear()
+        self._pending_object_shots.clear()
+        self._frozen_query_frame=None
+        self._comparison_shot=None
+        self._comparison_frame=None
+        self._live_presented_ts=None
+        self._last_render_was_live=False
+
+    def on_frame_presented(self, timestamp):
+        if self._last_render_was_live and self._live_presented_ts is None:
+            self._live_presented_ts=timestamp
+        if self._pending_object_shots or self._comparison_shot is not None: return
+        for sid in tuple(self._awaiting_reaction_shots):
+            snap=hit_context_snapshot_for_shot(sid)
+            if snap is not None:
+                snap.object_gameplay['reaction_presented_ts']=timestamp
+                snap.object_gameplay['audio_to_visual_ms']=(timestamp-snap.peak_ts)*1000.
+                snap.object_current['projection_changed_before_current_finished']=not bool(snap.object_current.get('state'))
+            self._awaiting_reaction_shots.discard(sid)
+
+    @property
+    def shot_critical_updates_required(self):
+        return self.phase == 'result' and not OBJECT_COMPARE_HOLD_VISUALS
 
     # ------------------------------------------------------------------
     # Match flow
@@ -513,6 +634,8 @@ class ShootStuffGame:
         self._start_player(1)
 
     def _start_player(self, player: int) -> None:
+        self._retire_object_queries('game_round_or_distance_changed')
+        self._round_token += 1
         self.player = player
         self._build_rack()
         self.phase = "intro"
@@ -594,179 +717,82 @@ class ShootStuffGame:
 
         return None
 
-    def _gameplay_assist_for_miss(self, hit: HitEvent):
-        """Return a candidate-backed assisted resolution or None.
-
-        IMPORTANT:
-        - game-only convenience, never physical detector truth;
-        - same shot_id only;
-        - active target only;
-        - bounded by candidate rank/confidence;
-        - candidate XY must still collide with the target's exact frozen shape.
-        """
-        if not GAMEPLAY_ASSIST_ENABLED:
-            return None
-
-        shot_id = getattr(hit, "shot_id", None)
-        if shot_id is None:
-            # Mouse/debug hits have no physical candidate snapshot.
-            return None
-
-        snap = object_hit_registry_v2223.snapshot_for_shot(int(shot_id))
-        if snap is None or not snap.results:
-            return None
-
-        eligible = []
-        for object_id, shadow in snap.results.items():
-            if object_id not in self._target_geometry:
-                continue
-
-            obj = self.manager.get(object_id)
-            if obj is None or not obj.hittable:
-                continue
-
-            if not bool(getattr(shadow, "hit", False)):
-                continue
-
-            rank = getattr(shadow, "candidate_rank", None)
-            confidence = float(getattr(shadow, "confidence", 0.0) or 0.0)
-            if rank is None or int(rank) > GAMEPLAY_ASSIST_MAX_CANDIDATE_RANK:
-                continue
-            if confidence < GAMEPLAY_ASSIST_MIN_CONFIDENCE:
-                continue
-
-            camera_x = getattr(shadow, "camera_x", None)
-            camera_y = getattr(shadow, "camera_y", None)
-            if camera_x is None or camera_y is None:
-                continue
-
-            game_xy = object_hit_registry_v2223.camera_to_game_point(
-                float(camera_x),
-                float(camera_y),
-            )
-            if game_xy is None:
-                continue
-
-            assist_x, assist_y = float(game_xy[0]), float(game_xy[1])
-
-            # Reuse ObjectManager and the shot's frozen GameObject snapshots.
-            # We never alter the real HitEvent or engine state.
-            proxy_hit = SimpleNamespace(
-                game_x=assist_x,
-                game_y=assist_y,
-                shot_id=int(shot_id),
-            )
-            assisted_resolution = self.manager.resolve_hit(proxy_hit, GAME_PROJECTILE)
-            assisted_interactions = [
-                item
-                for item in assisted_resolution.interactions
-                if item.object_id == object_id
-                and item.object_id in self._target_geometry
-            ]
-            if not assisted_interactions:
-                continue
-
-            eligible.append(
-                (
-                    confidence,
-                    -int(rank),
-                    float(getattr(shadow, "shot_novelty", 0.0) or 0.0),
-                    float(getattr(shadow, "hole_likeness", 0.0) or 0.0),
-                    object_id,
-                    shadow,
-                    assisted_resolution,
-                    assisted_interactions,
-                    assist_x,
-                    assist_y,
-                )
-            )
-
-        if not eligible:
-            return None
-
-        eligible.sort(key=lambda row: row[:4], reverse=True)
-        (
-            _confidence,
-            _neg_rank,
-            _novelty,
-            _likeness,
-            object_id,
-            shadow,
-            assisted_resolution,
-            assisted_interactions,
-            assist_x,
-            assist_y,
-        ) = eligible[0]
-
-        return {
-            "object_id": object_id,
-            "shadow": shadow,
-            "resolution": assisted_resolution,
-            "interactions": assisted_interactions,
-            "x": assist_x,
-            "y": assist_y,
-        }
-
     def _on_hit(self, hit: HitEvent) -> None:
-        now = time.monotonic()
-        if self.phase != "live":
-            print(
-                "[SHOOT-STUFF] ignored hit outside live window "
-                f"phase={self.phase} shot_id={getattr(hit, 'shot_id', None)}"
-            )
+        # CURRENT is comparison only; a late callback cannot spend another shot.
+        sid = getattr(hit, 'shot_id', None)
+        if not getattr(hit, 'is_simulated', False):
+            snap = hit_context_snapshot_for_shot(sid) if sid is not None else None
+            if snap is not None and snap.object_query is not None:
+                snap.object_current.update(camera_xy=[float(hit.camera_x),float(hit.camera_y)],
+                    game_xy=[float(hit.game_x),float(hit.game_y)], timestamp=float(hit.timestamp),
+                    source=hit.source, emitted=True)
             return
+        if self.phase == 'live':
+            resolution = self.manager.resolve_hit(hit, GAME_PROJECTILE)
+            self._apply_gameplay(None,resolution,dict(game_xy=[hit.game_x,hit.game_y]),simulated=True)
 
-        self.phase = "processing"
-        self._last_hit_shot_id = getattr(hit, "shot_id", None)
+    def _on_object_event(self, message):
+        if message.get('event') != 'physical.object_result':
+            return
+        physical = message['data']
+        if physical.get('final',True) is not True: return
+        sid = int(physical['shot_id'])
+        self._pending_object_shots.pop(sid,None)
+        snap = hit_context_snapshot_for_shot(sid)
+        if snap is None:
+            return
+        if sid in self._seen_object_shots:
+            snap.object_gameplay['duplicate_object_callbacks']=snap.object_gameplay.get('duplicate_object_callbacks',0)+1
+            return
+        owned = any(r.metadata.get('can_query_owner') == self._query_owner and
+            r.metadata.get('can_round') == self._round_token for r in snap.game_regions)
+        if not owned:
+            if any(r.metadata.get('can_query_owner')==self._query_owner for r in snap.game_regions):
+                snap.object_gameplay=dict(accepted=False,reason='stale_game_round',reaction_expected=False)
+            return
+        self._seen_object_shots.add(sid)
+        if len(self._seen_object_shots)>256:
+            self._seen_object_shots.remove(min(self._seen_object_shots))
+        if self.phase != 'live':
+            snap.object_gameplay = dict(accepted=False,reason='outside_live_game_window',reaction_expected=False)
+            return
+        resolution_started=time.perf_counter()
+        resolution,hypothesis = self.manager.resolve_object_query(physical,GAME_PROJECTILE)
+        resolution_ms=(time.perf_counter()-resolution_started)*1000.
+        if hypothesis is None and physical.get('hypotheses'):
+            hypothesis = physical['hypotheses'][0]  # diagnostic marker only
+        if OBJECT_COMPARE_HOLD_VISUALS:
+            self._comparison_shot = sid
+        self._apply_gameplay(physical,resolution,hypothesis)
+        snap.object_gameplay['exact_resolution_ms']=resolution_ms
+        self._awaiting_reaction_shots.add(sid)
 
-        geometry_before = {}
-        for obj in self.manager.objects:
-            geometry_before[obj.object_id] = (
-                float(obj.geometry.x),
-                float(obj.geometry.y),
-                float(obj.geometry.width),
-                float(obj.geometry.height),
-                int(obj.metadata.get("spec_index", 0)),
-            )
+    def _play_hit_sound(self, spec, shot_id):
+        if shot_id in self._sfx_played:
+            return
+        self._sfx_played.add(shot_id)
+        if len(self._sfx_played)>256:
+            self._sfx_played.remove(min(self._sfx_played))
+        sound = self._hit_sounds.get(spec.target_id)
+        if not CAN_SFX_ENABLED:
+            self._last_sfx=dict(status='MUTED_BY_EXPLICIT_OPTION',start_ts=None,cue=spec.target_id)
+        elif sound is not None:
+            self._last_sfx=audio_peak_detector.play_feedback(sound,owner=self._query_owner,
+                shot_id=shot_id,cue=spec.target_id)
+        else:
+            self._last_sfx=dict(status='UNAVAILABLE',start_ts=None,cue=spec.target_id)
 
-        # First and always preferred path: canonical final emitted HitEvent.
-        result = self.manager.resolve_hit(hit, GAME_PROJECTILE)
-        interactions = [
-            interaction
-            for interaction in result.interactions
-            if interaction.object_id in self._target_geometry
-        ]
-
-        emitted_x = float(result.game_x)
-        emitted_y = float(result.game_y)
-        gameplay_x = emitted_x
-        gameplay_y = emitted_y
-        assisted = False
-        assist_shadow = None
-
-        # Temporary game-local assist: only after a genuine final-XY miss.
-        if not interactions:
-            assist = self._gameplay_assist_for_miss(hit)
-            if assist is not None:
-                assisted = True
-                assist_shadow = assist["shadow"]
-                result = assist["resolution"]
-                interactions = assist["interactions"]
-                gameplay_x = float(assist["x"])
-                gameplay_y = float(assist["y"])
-
-                # Show BOTH facts: the detector-selected XY missed, while a
-                # same-shot strong candidate was used by this game.
-                self.markers.append(
-                    ImpactMarker(
-                        emitted_x,
-                        emitted_y,
-                        False,
-                        "VALD XY",
-                        now,
-                    )
-                )
-
+    def _apply_gameplay(self, physical, result, hypothesis, *, simulated=False):
+        now = time.monotonic()
+        self.phase = 'processing'
+        self._live_presented_ts=None
+        self._last_sfx=None
+        self._last_hit_shot_id = None if physical is None else physical['shot_id']
+        geometry_before = {obj.object_id:(obj.geometry.x,obj.geometry.y,obj.geometry.width,
+            obj.geometry.height,int(obj.metadata.get('spec_index',0))) for obj in self.manager.objects}
+        interactions = [] if result is None else [i for i in result.interactions if i.object_id in self._target_geometry]
+        xy = None if hypothesis is None else hypothesis.get('game_xy')
+        gameplay_x,gameplay_y = xy if xy is not None else (None,None)
         self.shots_used[self.player] += 1
 
         if interactions:
@@ -789,17 +815,12 @@ class ShootStuffGame:
             self.score[self.player] += gained
             self.hits[self.player] += 1
 
-            marker_label = (
-                f"ASSIST {spec.title} +{gained}"
-                if assisted
-                else f"{spec.title} +{gained}"
-            )
             self.markers.append(
                 ImpactMarker(
                     gameplay_x,
                     gameplay_y,
                     True,
-                    marker_label,
+                    f"{spec.title} +{gained}",
                     now,
                 )
             )
@@ -832,66 +853,36 @@ class ShootStuffGame:
             if streak_bonus:
                 subtitle += f" • svit +{streak_bonus}"
 
-            if assisted and assist_shadow is not None:
-                rank = int(getattr(assist_shadow, "candidate_rank", 0) or 0)
-                confidence = float(getattr(assist_shadow, "confidence", 0.0) or 0.0)
-                self.overlay_title = "ASSIST! " + self._hit_exclamation(spec)
-                self.overlay_subtitle = (
-                    subtitle
-                    + f" • kandidat #{rank} conf {confidence:.2f}"
-                )
-                self.overlay_color = AMBER
-                self._last_resolution_line = (
-                    f"ASSISTED {spec.title} | vald XY {emitted_x:.0f},{emitted_y:.0f} "
-                    f"-> kandidat XY {gameplay_x:.0f},{gameplay_y:.0f} "
-                    f"| rank={rank} conf={confidence:.2f}"
-                )
-            else:
-                self.overlay_title = self._hit_exclamation(spec)
-                self.overlay_subtitle = subtitle
-                self.overlay_color = GOOD
-                self._last_resolution_line = (
-                    f"TRÄFF {spec.title} | XY {gameplay_x:.0f},{gameplay_y:.0f} | "
-                    f"frozen={result.used_frozen_snapshot}"
-                )
+            self.overlay_title = self._hit_exclamation(spec)
+            self.overlay_subtitle = subtitle
+            self.overlay_color = GOOD
+            self._last_resolution_line = f"Objektträff: {spec.title}"
+            if not simulated:
+                self._play_hit_sound(spec,self._last_hit_shot_id)
         else:
             self.streak[self.player] = 0
-            self.markers.append(
-                ImpactMarker(
-                    emitted_x,
-                    emitted_y,
-                    False,
-                    "MISS",
-                    now,
-                )
-            )
-            self._spawn_miss_particles(emitted_x, emitted_y)
-            self.overlay_title = self.rng.choice(
-                ("MISS!", "NÄRA...", "LUFT!", "INGEN PRYL!")
-            )
-            self.overlay_subtitle = (
-                "Ingen aktiv mål-shape och ingen tillräckligt stark assist-kandidat"
-            )
-            self.overlay_color = BAD
-            self._last_resolution_line = (
-                f"MISS | XY {emitted_x:.0f},{emitted_y:.0f} | "
-                f"assist=none"
-            )
-
-        mode = "ASSISTED" if assisted and interactions else "DIRECT"
-        print(
-            "[SHOOT-STUFF] "
-            f"shot_id={self._last_hit_shot_id} player={self.player} "
-            f"shot={self.shots_used[self.player]}/{SHOTS_PER_PLAYER} "
-            f"distance={self.distance_m:.0f}m "
-            f"mode={mode} "
-            f"emitted_xy=({emitted_x:.1f},{emitted_y:.1f}) "
-            f"gameplay_xy=({gameplay_x:.1f},{gameplay_y:.1f}) "
-            f"objects={[i.object_id for i in interactions]} "
-            f"score={self.score[self.player]}"
-        )
-
-        self.phase = "result"
+            if xy is not None:
+                self.markers.append(ImpactMarker(gameplay_x,gameplay_y,False,'MISS',now))
+                self._spawn_miss_particles(gameplay_x,gameplay_y)
+            uncertain = physical is not None and physical['status'] == 'UNCERTAIN'
+            self.overlay_title = 'OSÄKERT' if uncertain else 'MISS!'
+            self.overlay_subtitle = 'Ingen säker objektträff' if uncertain else 'Ingen träff i målformen'
+            self.overlay_color = AMBER if uncertain else BAD
+            self._last_resolution_line = self.overlay_subtitle
+        if physical is not None:
+            snap = hit_context_snapshot_for_shot(self._last_hit_shot_id)
+            snap.object_gameplay = dict(accepted=bool(interactions),owner=self._query_owner,
+                exact_collision=[i.object_id for i in interactions],
+                chosen_rank=hypothesis.get('rank') if interactions and hypothesis else None,
+                hypothesis_game_xy=xy,physical_status=physical['status'],
+                decision_ts=time.time(),audio_to_gameplay_ms=(time.time()-physical['peak_ts'])*1000.,
+                player=self.player,shot=self.shots_used[self.player],distance_m=self.distance_m,
+                score=self.score[self.player],comparison_hold_visuals=OBJECT_COMPARE_HOLD_VISUALS,
+                reaction_expected=True,reaction_presented_ts=None,sfx=self._last_sfx,
+                diagnostic_assist=False,physical_truth=False)
+        else:
+            print('[CAN-MOUSE-DEBUG] '+json.dumps(dict(simulated=True,accepted=bool(interactions))))
+        self.phase = 'result'
         self.phase_until = now + SHOT_RESULT_SECONDS
 
     def _hit_exclamation(self, spec: TargetSpec) -> str:
@@ -920,6 +911,7 @@ class ShootStuffGame:
             self.phase = "live"
             self.overlay_title = ""
             self.overlay_subtitle = ""
+            self._clear_transient_projection()
             return None
 
         if self.phase == "result" and now >= self.phase_until:
@@ -929,12 +921,19 @@ class ShootStuffGame:
                 self.phase = "live"
                 self.overlay_title = ""
                 self.overlay_subtitle = ""
+                self._clear_transient_projection()
             return None
 
         if self.phase == "player_result" and now >= self.phase_until:
             self._advance_after_player_result()
 
         return None
+
+    def _clear_transient_projection(self):
+        # A new live round needs a static projected baseline. render() uses wall
+        # time for marker/score animation even when scene updates are frozen.
+        self.markers.clear();self.score_pops.clear();self.particles.clear();self.knocked_targets.clear()
+        self._live_presented_ts=None
 
     def _spawn_knock_animation(
         self,
@@ -1171,6 +1170,22 @@ class ShootStuffGame:
     # ------------------------------------------------------------------
 
     def render(self, screen: pygame.Surface) -> None:
+        self._last_render_was_live=False
+        for sid,peak in tuple(self._pending_object_shots.items()):
+            snap=hit_context_snapshot_for_shot(sid)
+            if (snap is not None and snap.object_query is not None and snap.object_query.final) or time.time()-peak>.35:
+                self._pending_object_shots.pop(sid,None)
+        if self._pending_object_shots and self._frozen_query_frame is not None:
+            screen.blit(self._frozen_query_frame,self.viewport.topleft)
+            return
+        self._frozen_query_frame=None
+        if self._comparison_shot is not None:
+            snap = hit_context_snapshot_for_shot(self._comparison_shot)
+            if snap is not None and not snap.object_current.get('state') and time.time()-snap.peak_ts < 3.:
+                if self._comparison_frame is not None:
+                    screen.blit(self._comparison_frame,self.viewport.topleft)
+                    return
+            self._comparison_shot = None
         surf = pygame.Surface((self.viewport.w, self.viewport.h)).convert_alpha()
         if self._background_cache is not None:
             surf.blit(self._background_cache, (0, 0))
@@ -1189,6 +1204,8 @@ class ShootStuffGame:
         elif self.phase == "game_over":
             self._draw_game_over(surf)
 
+        self._last_render = surf
+        self._last_render_was_live=self.phase=='live'
         screen.blit(surf, self.viewport.topleft)
 
     def _draw_targets(self, surf: pygame.Surface) -> None:
@@ -1263,22 +1280,15 @@ class ShootStuffGame:
         pygame.draw.arc(surf, spec.secondary, rect.inflate(-2, -2), 0.5, 4.7, 2)
 
     def _draw_duck(self, surf, rect, spec) -> None:
-        body = pygame.Rect(rect.x, rect.y + rect.height // 3, rect.width, rect.height * 2 // 3)
-        head_d = max(3, int(min(rect.width, rect.height) * 0.52))
-        head = pygame.Rect(
-            rect.x + int(rect.width * 0.52),
-            rect.y,
-            head_d,
-            head_d,
-        )
+        geometry=ObjectGeometry(rect.x,rect.y,rect.width,rect.height)
+        parts=self._shape_for_spec(spec,geometry).snapshot(geometry)['parts']
+        def ellipse_rect(p):
+            return pygame.Rect(round(p['x']),round(p['y']),max(1,round(p['width'])),max(1,round(p['height'])))
+        body,head=map(ellipse_rect,parts[:2])
         pygame.draw.ellipse(surf, (55, 53, 40), body.move(2, 2))
         pygame.draw.ellipse(surf, spec.primary, body)
         pygame.draw.ellipse(surf, spec.primary, head)
-        beak = [
-            (head.right - 1, head.centery - 2),
-            (head.right + max(2, rect.width // 5), head.centery),
-            (head.right - 1, head.centery + 3),
-        ]
+        beak = [(round(x),round(y)) for x,y in parts[2]['points']]
         pygame.draw.polygon(surf, spec.secondary, beak)
         eye_r = max(1, rect.width // 18)
         pygame.draw.circle(

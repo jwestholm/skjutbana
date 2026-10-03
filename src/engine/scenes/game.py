@@ -10,6 +10,22 @@ from src.engine.settings import load_viewport_rect
 class GameScene(Scene):
     wants_hit_scanning = True
 
+    @property
+    def shot_critical_updates_required(self):
+        return bool(getattr(self.game, 'shot_critical_updates_required', False))
+
+    @property
+    def owns_hit_presentation(self):
+        return bool(getattr(self.game, 'owns_hit_presentation', False))
+
+    def on_object_shot_frozen(self, snapshot):
+        callback = getattr(self.game, 'on_object_shot_frozen', None)
+        if callable(callback): callback(snapshot)
+
+    def on_frame_presented(self, timestamp):
+        callback = getattr(self.game, 'on_frame_presented', None)
+        if callable(callback): callback(timestamp)
+
     def __init__(self, game_root: str, script_path: str) -> None:
         self.game_root = game_root
         self.script_path = script_path

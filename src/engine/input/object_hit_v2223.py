@@ -313,6 +313,14 @@ class ObjectShotSnapshotV2223:
     transform_available: bool = False
     transform_method: str = "none"
     viewport_xywh: tuple[float, float, float, float] | None = None
+    # OBJECT is a separate scoped physical result, never a legacy SHADOW result
+    # or input to global ranking/learning. Storage reuses this bounded registry.
+    object_query: Any = None
+    object_camera_to_game: Any = None
+    object_gameplay: dict[str, Any] = field(default_factory=dict)
+    object_current: dict[str, Any] = field(default_factory=dict)
+    object_comparison_published: bool = False
+    object_cancel_reason: str | None = None
 
 
 def game_rect_to_screen_polygon(
@@ -711,11 +719,28 @@ class ObjectHitRegistryV2223:
             viewport_xywh=viewport,
         )
 
+        if any(r.metadata.get('physical_query', {}).get('mode') == 'OBJECT' for r in game_regions):
+            from copy import deepcopy
+            from src.engine.input.hit_input import hit_input
+            snap.game_regions = deepcopy(snap.game_regions)
+            snap.camera_regions = deepcopy(snap.camera_regions)
+            frozen = hit_input.frozen_camera_to_screen(method)
+            if frozen is not None and viewport is not None:
+                snap.object_camera_to_game = lambda x,y: transform_camera_point_to_game(x,y,viewport,frozen)
+
         with self._lock:
             self._snapshots[int(shot_id)] = snap
             self._latest_shot_id = max(self._latest_shot_id, int(shot_id))
             for old in sorted(self._snapshots)[:-32]:
                 self._snapshots.pop(old, None)
+
+        if any(r.metadata.get('physical_query', {}).get('mode') == 'OBJECT' for r in game_regions):
+            frozen_callback = getattr(scene, 'on_object_shot_frozen', None)
+            if callable(frozen_callback):
+                try:
+                    frozen_callback(snap)
+                except Exception as exc:
+                    snap.object_cancel_reason = 'freeze_callback_error:'+type(exc).__name__
 
         if snap.game_regions or snap.regions:
             print(
@@ -728,6 +753,164 @@ class ObjectHitRegistryV2223:
     def snapshot_for_shot(self, shot_id: int) -> ObjectShotSnapshotV2223 | None:
         with self._lock:
             return self._snapshots.get(int(shot_id))
+
+    def begin_object_query(self, shot_id, scanner, camera):
+        """Initialize from recent causal ring pixels; no static reference fallback."""
+        snap = self.snapshot_for_shot(shot_id)
+        if snap is None or snap.object_query is not None:
+            return
+        requested = [r for r in snap.game_regions if r.metadata.get('physical_query',{}).get('mode')=='OBJECT']
+        if not requested:
+            return
+        from dataclasses import replace
+        from src.engine.camera.object_physical_query import ObjectPhysicalQuery
+        from src.engine.shot_critical_v2223 import select_recent_pre_frame_v2223
+        config=requested[0].metadata['physical_query']
+        ids={r.object_id for r in requested}
+        scoped=replace(snap,game_regions=tuple(requested),
+            camera_regions=tuple(r for r in snap.camera_regions if r.object_id in ids))
+        ring=camera.get_ring_snapshot()
+        # Prefer the latest safe surface, not the historical default 350 ms old
+        # image. Never borrow a surface preceding another recorded shot.
+        previous_peak=max((s.peak_ts for s in self._snapshots.values() if s.peak_ts<snap.peak_ts),default=-math.inf)
+        ring=[f for f in ring if previous_peak<float(f.timestamp)<snap.peak_ts]
+        recent=select_recent_pre_frame_v2223(ring,snap.peak_ts,target_offset_s=.04,latest_safe_offset_s=.04)
+        pre=[] if recent is None else sorted((f for f in ring
+            if recent.timestamp-.10<=f.timestamp<=recent.timestamp),key=lambda f:f.timestamp)[-3:]
+        boundaries=[r.metadata['physical_query'].get('surface_after_ts') for r in requested
+                    if 'surface_after_ts' in r.metadata['physical_query']]
+        if any(t is None for t in boundaries) or snap.object_cancel_reason:
+            pre=[]
+        elif boundaries:
+            after=max(float(t) for t in boundaries)
+            pre=[f for f in pre if f.timestamp>after]
+        over_budget=sum(s.object_query is not None and not s.object_query.final
+            for s in self._snapshots.values())>=4
+        if over_budget:
+            pre=[]
+        capture_crop=None
+        import os
+        if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+            from src.engine.physical_trace import get_physical_trace_recorder
+            from src.engine.ai.runtime import get_ai_runtime
+            recorder=get_physical_trace_recorder()
+            recorder.configure(get_ai_runtime().settings)
+            event=next((e for e in scanner.audio_events if e.shot_id==shot_id),None)
+            if event is not None:recorder.start_from_scanner(scanner,event,get_ai_runtime().settings)
+            capture_crop=recorder.capture_object_crop
+        try:
+            snap.object_query=ObjectPhysicalQuery(scoped,pre,camera_to_game=snap.object_camera_to_game,
+                known_holes=tuple(getattr(scanner,'known_holes',())),
+                top_k=config.get('top_k',3),margin_px=config.get('margin_camera_px',36.),capture_crop=capture_crop)
+        except Exception as exc:
+            # Optional scoped preparation must not prevent ordinary CURRENT.
+            snap.object_query=ObjectPhysicalQuery(scoped,[])
+            snap.object_query.finish('UNCERTAIN','object_prepare_error:'+type(exc).__name__)
+        if over_budget:
+            snap.object_query.finish('UNCERTAIN','concurrent_query_budget_exceeded')
+        if snap.object_cancel_reason:
+            snap.object_query.finish('UNCERTAIN',snap.object_cancel_reason)
+
+    def cancel_object_queries(self, owner, reason):
+        """Retire only this consumer's unresolved queries; keep immutable diagnostics."""
+        with self._lock:
+            snapshots=tuple(self._snapshots.values())
+        for snap in snapshots:
+            if not any(r.metadata.get('physical_query',{}).get('owner')==owner for r in snap.game_regions):
+                continue
+            if not snap.object_comparison_published:
+                snap.object_current['projection_context_invalidated']=reason
+            query=snap.object_query
+            if query is None or not query.final:
+                snap.object_cancel_reason=reason
+                if query is not None:
+                    query.hypotheses=[]
+                    query.finish('UNCERTAIN',reason)
+
+    def advance_object_queries(self, scanner, camera, now=None):
+        """Main-thread bounded ROI work before global CV submission; no pickup cursor."""
+        now=time.time() if now is None else float(now)
+        tick_started=time.perf_counter()
+        with self._lock:
+            pending=[s for s in self._snapshots.values() if s.object_query is not None and not s.object_query.published]
+        if not pending:
+            return
+        from src.engine.events import event_bus
+        from src.engine.camera.object_physical_query import DEADLINE_S
+        ring=camera.get_ring_snapshot()
+        for snap in sorted(pending,key=lambda s:s.peak_ts):
+            query=snap.object_query
+            next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts),default=math.inf)
+            frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
+                and f.timestamp<=now),key=lambda f:f.timestamp)
+            for frame in frames[:2]:  # at most two relevant frames per query per main tick
+                if query.final:
+                    break
+                try:
+                    query.observe(frame,delivered_ts=now+time.perf_counter()-tick_started)
+                except Exception as exc:
+                    # An optional scoped query must never interrupt CURRENT.
+                    query.finish('UNCERTAIN','object_query_error:'+type(exc).__name__)
+            decision_now=now+time.perf_counter()-tick_started
+            if not query.final and (decision_now>=snap.peak_ts+DEADLINE_S or decision_now>=next_peak):
+                query.finish_deadline(decision_now)
+            if query.final:
+                query.published=True
+                dispatch_started=time.perf_counter()
+                event_bus.emit('physical.object_result',query.result,source='OBJECT')
+                query.result['timing']['event_bus_delivery_ms']=(time.perf_counter()-dispatch_started)*1000.
+
+    def object_result(self, shot_id):
+        snap=self.snapshot_for_shot(shot_id)
+        return None if snap is None or snap.object_query is None else snap.object_query.result
+
+    def publish_object_comparisons(self, scanner):
+        """One joined diagnostic after ordinary CURRENT ends; never used to rank."""
+        import json
+        from src.engine.events import event_bus
+        events={int(e.shot_id):e for e in scanner.audio_events}
+        for snap in tuple(self._snapshots.values()):
+            q=snap.object_query
+            event=events.get(snap.shot_id)
+            if q is None or not q.final or snap.object_comparison_published or event is None or event.state=='pending':
+                continue
+            current=dict(snap.object_current)
+            current.update(state=event.state,emitted=bool(event.emitted))
+            if event.emitted and not current.get('camera_xy'):
+                current['coordinate_status']='UNAVAILABLE_IN_SUBSCRIBER'
+            snap.object_current=current
+            # First release comparison visual hold, then log on the following
+            # tick so the joined record includes the actual presentation time.
+            gameplay=snap.object_gameplay
+            if gameplay.get('reaction_expected') and gameplay.get('reaction_presented_ts') is None and time.time()<snap.peak_ts+3.:
+                continue
+            snap.object_comparison_published=True
+            from src.engine.audio.audio_peak_detector import audio_peak_detector
+            audio=audio_peak_detector.playback_diagnostics(gameplay.get('owner',''),snap.shot_id)
+            xy=current.get('camera_xy')
+            comparisons=[]
+            for h in q.result['hypotheses']:
+                delta=math.dist(xy,h['camera_xy']) if xy is not None else None
+                comparisons.append(dict(rank=h['rank'],camera_distance_px=delta,
+                    agrees_within_px={str(t):None if delta is None else delta<=t for t in (5,10,20,42)}))
+            regions=[dict(object_id=r.object_id,camera_aabb=[r.x,r.y,r.width,r.height]) for r in q.regions]
+            shapes=[dict(object_id=r.object_id,game_aabb=[r.x,r.y,r.width,r.height],
+                exact_shape=r.metadata.get('v250_object_snapshot',{}).get('shape'),
+                player=r.metadata.get('can_player'),distance_m=r.metadata.get('can_distance_m')) for r in q.game_regions]
+            payload=dict(shot_id=snap.shot_id,object=q.result,gameplay=dict(gameplay),current=current,
+                frozen_camera_regions=regions,frozen_game_regions=shapes,audio_playback=audio,
+                current_object_agreement=comparisons,
+                semantics='Scoped physical query and ordinary CURRENT; neither game intent nor collision is physical GT')
+            q.result['comparison_diagnostic']=dict(current=current,agreement=comparisons,audio_playback=audio)
+            event_bus.emit('physical.object_comparison',payload,source='OBJECT')
+            print('[OBJECT-SHOT] '+json.dumps(dict(shot_id=snap.shot_id,status=q.result['status'],
+                frozen_regions=regions,frozen_shapes=shapes,pixels=q.search_pixels,
+                peak_ts=q.peak_ts,first_post_ts=q.first_post_ts,decision_ts=q.result['decision_ts'],
+                hypotheses=[{k:h[k] for k in ('rank','camera_xy','game_xy','confidence','evidence_score',
+                    'producer','frame_ts','pre_frame_ts','previous_frame_ts','regions','nearest_known_hole_px')}
+                    for h in q.result['hypotheses']],gameplay=gameplay,current=current,
+                per_object=q.result.get('per_object',[]),candidate_ledger=q.result.get('candidate_ledger',[]),
+                agreement=comparisons,audio_playback=audio,timing=q.result['timing']),separators=(',',':')))
 
     def game_regions_for_shot(self, shot_id: int) -> tuple[GameHitRegionV240, ...]:
         snap = self.snapshot_for_shot(shot_id)

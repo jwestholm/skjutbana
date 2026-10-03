@@ -255,7 +255,9 @@ class HitScanner:
             # Use the newest frame for detection
             frame_bgr = new_frames[-1].frame_bgr
             frame_ts = new_frames[-1].timestamp
-            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            # Already converted in ingestion. Retain the independent detection
+            # buffer so debug/detection consumers cannot mutate history pixels.
+            gray = gray_f.copy()
             self.debug_frames["camera_gray"] = gray
             self._last_frame_ts = frame_ts
             is_new_frame = True

@@ -88,6 +88,14 @@ class HitShapeSpec:
     local_width: float = 1.0
     local_height: float = 1.0
     points: tuple[tuple[float, float], ...] = ()
+    parts: tuple['HitShapeSpec', ...] = ()
+
+    @classmethod
+    def union(cls, *parts: 'HitShapeSpec') -> 'HitShapeSpec':
+        """A small explicit union of existing shapes, e.g. body/head/beak."""
+        if not 1 <= len(parts) <= 8 or any(p.kind=='union' for p in parts):
+            raise ValueError('shape union requires 1..8 non-union parts')
+        return cls(kind='union',parts=tuple(parts))
 
     @classmethod
     def rect(cls, *, x: float = 0.0, y: float = 0.0, width: float = 1.0, height: float = 1.0) -> "HitShapeSpec":
@@ -111,6 +119,9 @@ class HitShapeSpec:
 
     def snapshot(self, geometry: ObjectGeometry) -> dict[str, Any]:
         kind = str(self.kind).lower()
+        if kind == 'union':
+            return {'schema':SCHEMA_VERSION,'kind':'union',
+                    'parts':[p.snapshot(geometry) for p in self.parts]}
         if kind == "polygon":
             pts = [
                 [
@@ -139,6 +150,12 @@ class HitShapeSpec:
 
 def shape_bounds(snapshot: Mapping[str, Any]) -> tuple[float, float, float, float] | None:
     kind = str(snapshot.get("kind", "rect")).lower()
+    if kind == 'union':
+        bounds=[shape_bounds(p) for p in snapshot.get('parts',())[:8] if p.get('kind')!='union']
+        bounds=[b for b in bounds if b is not None]
+        if not bounds:return None
+        x,y=min(b[0] for b in bounds),min(b[1] for b in bounds)
+        return x,y,max(b[0]+b[2] for b in bounds)-x,max(b[1]+b[3] for b in bounds)-y
     if kind == "polygon":
         try:
             pts = [(float(p[0]), float(p[1])) for p in snapshot.get("points", ())]
@@ -187,6 +204,9 @@ def shape_contains(snapshot: Mapping[str, Any], x: float, y: float) -> bool:
     kind = str(snapshot.get("kind", "rect")).lower()
     px = float(x)
     py = float(y)
+
+    if kind == 'union':
+        return any(shape_contains(p,px,py) for p in snapshot.get('parts',())[:8] if p.get('kind')!='union')
 
     if kind == "polygon":
         try:

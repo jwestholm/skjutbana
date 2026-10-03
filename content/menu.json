@@ -155,20 +155,6 @@
               0,
               0
             ]
-          },
-          {
-            "id": "img_testtavla",
-            "type": "image",
-            "title": "Testtavla",
-            "description": "D01 Accuracy Development Target",
-            "path": "assets/images/testtavla.png",
-            "preview": "assets/images/testtavla.png",
-            "fit": "contain",
-            "bg_color": [
-              0,
-              0,
-              0
-            ]
           }
         ]
       },
@@ -433,10 +419,33 @@
             }
           },
           {
-            "id": "can_shootout_20m",
-            "title": "Skjut burkar – 20 m",
+            "id": "kompetensprov_ak",
+            "title": "Kompetensprov AK",
             "type": "game",
-            "description": "Två spelare, fem skott var. Skjut fysiskt korrekt skalade burkar på 20 meters virtuellt avstånd. Poäng, träffsvit, automarkering och träffanimationer.",
+            "description": "Kompetensprov med Helfigur 2020. Välj BAS Hv 30 m / Pk 1,30 eller BAS 50 m / Pk 1,00. 3 liggande, 3 knä/sittande, omladdning, stående + bättringar. 9 bästa träffarna räknas.",
+            "preview": "assets/games/kompetensprov_ak/preview.png",
+            "script": "content/games/kompetensprov_ak/game.py",
+            "path": "assets/games/kompetensprov_ak",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ],
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },
+          {
+            "id": "shoot_stuff_range",
+            "title": "Skjutprylar",
+            "type": "game",
+            "description": "Två spelare, fem skott var. Sju fysiskt skalade mål per omgång: burkar, toarulle, gummianka, sardiner och annat trams. +/- ändrar avståndet i 5-meterssteg. Tillfällig spel-assist kan använda en stark kandidat inne i ett aktivt mål om den slutligt valda träffkoordinaten missar.",
             "preview": "assets/thumbs/game_icon.png",
             "script": "content/games/can_shootout_game.py",
             "path": "",
@@ -448,7 +457,7 @@
                 255
               ]
             }
-          },          
+          },
           {
             "id": "pop_the_balloon",
             "title": "Pop the Balloon",
