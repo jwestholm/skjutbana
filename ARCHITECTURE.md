@@ -40,8 +40,9 @@ S03 names/paths/aliases are refused before source reads and never join the cache
 come from a model that excluded that event's entire physical session and the
 outer held/development sessions. Training-fold Vision features need nested
 cross-fitting, not predictions from a Vision model fitted on the same events.
-The contract checker refuses such leakage, but model-produced nested prediction
-artifacts are not implemented yet. Vision-derived fusion inputs stay disabled.
+The contract checker refuses such leakage. Nested predictions now exist inside
+the Vision peak stage below; downstream Evidence-specific outer-fold generation
+is still not implemented. Vision-derived fusion inputs stay disabled.
 
 Physical evidence remains authoritative; neither learned role invents GT,
 changes gameplay coordinates, vetoes old holes/edges, nor auto-promotes live hit
@@ -80,6 +81,46 @@ map normalization is GT-free preprocessing; learned channel statistics never fit
 held/development images. Repeated OOF model comparison remains development CV.
 Standalone OOF proposals do not solve nested upstream leakage for a downstream
 Evidence model; that integration remains disabled under the rule above.
+
+### Vision peak-stage nested reranking — 2026-10-03
+
+`automation.physical_ai_vision_peaks` is a role adapter to the same lab runner,
+not another detector, Evidence Fusion service or candidate class. It extends
+existing VISION proposal dictionaries with raw/reranked rank, measured local
+features and both model lineages. `RankModelV223` and its existing event-balanced
+training/mining/checkpoint code are reused with role VISION_PEAK_RERANK; no runtime
+model registry is written. The signed-log transform and TRAIN-only scaler are
+the existing implementations. No change to common temporal evidence ownership.
+
+The internal bound is32 points in either of two explicitly different orders:
+raw top32 → learned ordering → original-radius NMS, or original-score NMS → first
+32 survivors → learned ordering. Neither intermediate pool is emitted. Final
+top1/3/8 are prefixes of at most eight exact peak coordinates. The second order
+can reach deeper raw ranks by discarding redundant peaks first; comparisons must
+report that pool difference rather than crediting every gain to learned scoring.
+Heatmap maxima enumeration precedes bounded retention; full NMS history is a
+diagnostic, while the inference pool stops at32. NMS radius is unchanged,
+including stride rounding.
+
+Each outer fold preserves the existing TRAIN/dev/held split. For reranker TRAIN
+events, an inner Vision model fits the other two outer-TRAIN sessions; held/dev
+and the predicted TRAIN session are all excluded. Thus three genuinely trained
+inner models per outer fold produce cached features, not relabelled global OOF
+features that may have trained on the outer held session. Held peak features use
+the original outer Vision model. Normalizers and mining follow the same exclusion.
+Checkpointed inner/outer models and cache shards are hash-bound and validated.
+
+Twenty-four features describe the heatmap, peak geometry and the eight existing
+registered change maps. GT, absolute XY, object/zone distances and model/fold IDs
+never enter the vector. Frame/cutoff uncertainty stays in provenance. Temporal
+newness/onset/revocation are unqueried, not inferred from these correlated image
+features. Model logits remain uncalibrated; a returned proposal is not a hit.
+
+Peak champions start from the frozen base Vision result; losing its existing
+unique saves at a given output budget blocks replacement. Per-event diagnostics
+record pool absence, actual suppression and rank failure separately. Repeated
+OOF model selection remains development research. This nested peak chain does
+not enable Vision-to-Evidence fusion or confer live authority.
 
 ## Shared exact physical evidence contract, offline only — 2026-09-28
 

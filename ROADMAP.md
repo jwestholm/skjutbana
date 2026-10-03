@@ -1,6 +1,25 @@
 # Roadmap
 
-## NOW: bounded Vision proposal coverage — 2026-10-03
+## NOW: Vision peak ranking / NMS / nested OOF reranking — 2026-10-03
+
+- One-hour Vision result: 219 trials, best bounded top3 union31/37 @5. The six
+  remaining local maxima were not all near the cutoff: best raw ranks42 to74155.
+  Root-cause audit records actual suppressors and reproduces all36 audited top8s.
+- IMPLEMENTED: existing lab's peak-stage adapter, 32 internal coordinates,
+  unchanged final1/3/8 budgets, real nested cross-fitting (15 inner Vision fits),
+  existing V2.23 MLP/checkpoints/miner, lineage, immutable champions/failure wall.
+- SMOKE: NMS →32 survivors→rerank reaches32/37 top3@5, adding POST_FIX:3 without
+  losing the six prior unique saves. Rerank→NMS loses KOMP:1 and stays rejected.
+  Pool-stage choices are explicit; no larger final output or new coordinates.
+- NEXT: one bounded unattended peak-reranker search for stable gains/top1/burden.
+  The frozen NMS-first pool ceiling is already32/37. Further coverage requires
+  upstream representation/evidence work for POST_FIX:10, S01:3/5, S02:4/6;
+  more reranker trials cannot recover coordinates absent from the pool.
+- LATER: nested Vision→Evidence Fusion integration remains separate/disabled;
+  proposal-runtime optimization, additional measured evidence families and eventual
+  physical shadow validation. No CURRENT promotion, S03 use or new capture.
+
+## Bounded Vision proposal coverage completed — 2026-10-03
 
 - Evidence search completed its diagnostic role: 2,096 trials, raw plateau
   22/37 @5, strict champion 20/37. The only raw-22 model adds five catastrophes

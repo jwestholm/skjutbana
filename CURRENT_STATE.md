@@ -1,5 +1,80 @@
 # Current project state
 
+## Vision peak ranking / nested OOF reranker — 2026-10-03
+
+The subsequent one-hour Vision search completed 219 trials. Its budget champions
+are trial_000050 (top1), trial_000044 (top3), trial_000086 (top8). Best combined
+classic ∪ Vision oracle @5 is **29/31/31 of 37** at budgets 1/3/8. Top3 has six
+unique saves: KOMP:1/5 and S02:5/11/12/13. This is proposal coverage, not selected
+accuracy. Eight controls are scored separately; S03 remains forbidden.
+
+The six-event “local maximum below top8 or NMS” diagnosis has been resolved.
+For top3 champion trial_000044, the best <=5px raw ranks are POST_FIX:3 **42**,
+POST_FIX:10 **13503**, S01:3 **74155**, S01:5 **16035**, S02:4 **6580**, S02:6
+**10036**. The geometrically nearest maxima are sometimes different, lower-ranked
+points. Suppressors and full ranks are recorded, not inferred. All 36 audited
+event/model combinations across the three champions reproduce their saved top8
+XY exactly. Mere existence of a weak local maximum did not establish latent
+37/37 coverage. Five failures are far below any reasonable small pool.
+
+The existing lab now supports `peak-prepare/run/resume/status` through a focused
+Vision-stage adapter. Maximum internal pool **32**, final proposals still **1/3/8**.
+Two fixed orders were measured: raw top32 → rerank → NMS, and original NMS → first
+32 survivors → rerank. These are different bounded pools from the same heatmap;
+they are not claimed to be the same candidate set. Only the latter contains the
+POST_FIX:3 witness, at NMS rank27. No cap search, coordinate refinement or snapping.
+
+The reranker reuses V2.23's small MLP, scaler, event-balanced <=5/>42 label loss,
+hard-negative miner and optimizer checkpoints. Its 24 allowlisted features are
+heatmap/local-peak geometry plus means/inner-ring contrasts of the existing eight
+registered maps. Raw XY, GT, game geometry, model/fold ID are not input features.
+No new temporal/support/revocation measurements were invented. Correlated maps
+remain correlated measurements. Controls require native NO_IMPACT truth; UNKNOWN
+training rows are excluded.
+
+Training is genuinely nested: for each of five outer splits, three inner Vision
+models fit two outer-TRAIN sessions and predict the excluded TRAIN session.
+Outer held/development sessions are absent from all 15 inner fits. Reranker
+weights/scalers/mining see only these cross-fitted TRAIN peaks. Held predictions
+use the original outer Vision model, also excluding held/development. This
+implements nested reuse **within Vision**, not downstream Evidence Fusion.
+Architecture selection remains DEVELOPMENT CV, not untouched validation.
+
+Two predeclared MLP configurations differed only in NMS order. Results:
+
+| Method | Combined top3 @5/@10/@20/@42 | Changes vs trial_000044 |
+|---|---|---|
+| Original | 31/32/33/35 | reference |
+| Rerank before NMS | 30/32/33/35 | loses KOMP:1; rejected |
+| NMS before rerank | **32/33/34/36** | gains POST_FIX:3; no losses |
+
+POST_FIX:3 preserves exact XY **(2250,1321)**, error **4.262282px**, promoted
+raw42 → NMS27 → reranked3. All six prior unique saves survive. Top3 wrong proposals
+>5px drop 87→85, >42px 79→73; all events still receive exactly three proposals.
+Controls still receive three proposals, not rejected hits. Combined top1 remains
+29/37 @5; top8 becomes32/37. The rejected order promotes a KOMP:1 neighbor just
+outside 5px, which then suppresses the good peak. NMS itself is not a proven bug.
+
+The remaining five—POST_FIX:10, S01:3/5, S02:4/6—have no <=5px peak in either
+32-point pool. The NMS-first pool's union oracle ceiling is **32/37**, already
+reached by this smoke; its remaining opportunity is better top1/burden/stability,
+not >32 coverage without different upstream proposals. No weak-physical-evidence
+or low-contrast diagnosis is invented for those absent coordinates.
+
+Artifacts: `/data/skjutbana/evaluation_runs/vision_peak_rerank_20261003_01/REPORT.md`;
+nested cache `/data/skjutbana/physical_ai_lab/datasets/vision_peaks32_nested_20261003`;
+authoritative smoke `/data/skjutbana/physical_ai_lab/vision_peak_smoke_final_20261003`.
+The two configurations were repeated after a reporting-only fix distinguishing
+protected regressions from already-uncovered top1 events; every metric matched.
+20 new tests pass, plus 33 lab, 26 Vision and 15 common-verifier tests; relevant
+V2.23 checks pass except the previously documented unchanged V2.23.1 fixture.
+720 final proposals pass model/hash/held-lineage checks. CURRENT, settings, traces,
+game assets, frozen classic bank, exact-witness behavior and S03 remain unchanged.
+
+Next: one bounded local reranker search to check stability and top1/burden under
+the save-preserving champion guard, then stop at this pool's measured ceiling.
+Do not spend days searching for >32 with this frozen input. No long run here.
+
 ## Vision Proposal Lab V1 — 2026-10-03
 
 The one-hour Evidence experiment is now analyzed, not extended. Of 2,096 trials,
