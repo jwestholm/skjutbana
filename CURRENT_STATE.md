@@ -1,9 +1,78 @@
 # Current project state
 
+## Vision Proposal Lab V1 — 2026-10-03
+
+The one-hour Evidence experiment is now analyzed, not extended. Of 2,096 trials,
+only `trial_000934` reached raw Selected@5 **22/37** (23/24/25 at @10/20/42).
+It saved S01:2 and S01:9 with no @5 regressions, but emitted five control hits and
+five new >100px errors (KOMP:5, S01:5, S01:10, S02:5, S02:11). The exact comparator
+rejected the new catastrophes first. Strict champion `trial_001115` remains
+20/37. `trial_000187` won the UNKNOWN-count tie-break (22→21, adding an incorrect
+88.008839px emission on S02:4 and worsening emitted error tails); `trial_001115`
+then improved median error 3.929977→3.899767 px.
+`failure_wall.best_after` reports the raw maximum, including rejected trials.
+Twelve of fifteen common failures lack a <=5px coordinate in the fixed retained
+bank; POST_FIX:2, POST_FIX:8 and S01:10 have one but are not selected correctly.
+The classic ceiling remains **25/37 @5**, not a claim about every historical
+unretained proposal. Further Evidence-only search is not the immediate priority.
+
+`automation.physical_ai_lab vision-*` now reuses the same unattended lifecycle
+for V2.23.5 registered maps / V2.23.6 convolution. Native camera-resolution maps
+are cached once; small models search stride 1/2/4, channel subsets, loss and
+training settings. Own learned peaks have frozen **top-1/top-3/top-8** budgets.
+They never snap to GT, classic proposals or game geometry. Classic XYs are
+immutable; exact duplicates are removed from union, nearby distinct points stay.
+Five whole-session folds fit weights, normalization and hard-negative mining on
+three TRAIN sessions only; the development and held session are excluded.
+Every proposal carries model/data/code hashes, training/held sessions, rank,
+uncalibrated logit, exact camera XY and source-frame provenance. UNKNOWN truth
+never trains as a negative; operator-supported NO_IMPACT can. Nested Vision→
+Evidence fusion remains disabled pending outer-fold-safe cross-fitting.
+
+Two predeclared seeded OOF smoke trials completed (10.88 / 19.58 s core trial
+time; second via resume). Trial 1 (stride 2) measured:
+
+| Additional budget | Vision oracle @5/@10 | Combined @5/@10/@20/@42 | Unique @5 saves |
+|---|---|---|---|
+| 1 | 1/3 | 25/27/29/31 | none |
+| 3 | 4/9 | 26/29/30/32 | KOMP:1 |
+| 8 | 7/12 | 27/30/31/33 | KOMP:1, KOMP:5 |
+
+Denominator is 37 physical impacts; eight controls are also evaluated. KOMP:1
+has rank-2 XY (1897.5,1357.5), error **3.982516 px**; KOMP:5 has rank-7 XY
+(1761.5,1487.5), error **3.270506 px**. That model trained on D02/S01/S02, never
+KOMP or its reserved development session POST_FIX. These are independent learned
+proposals, **not selected hits or live validation**. Top-8 also adds 289 proposals
+farther than 5px from labelled GT across physical events (270 farther than 42px),
+and eight proposals on every control. Confidence is not calibrated; no rejection
+or physical support claim follows. No Evidence selector was retrained on them.
+Two trials are not a Vision plateau. The first3/last3 history representation is
+fixed and GT-free but not independently qualified clean PRE; KOMP clocks remain
+unknown. Stride 1 is covered by implementation/tests, not this physical smoke.
+
+Artifacts:
+`/data/skjutbana/evaluation_runs/vision_proposal_lab_20261003_01/REPORT.md`,
+native cache `/data/skjutbana/physical_ai_lab/datasets/vision_proposals_v1_20261003`,
+smoke `/data/skjutbana/physical_ai_lab/vision_proposal_smoke_20261003`.
+The report includes full per-session/budget results, lineage, failure wall and
+commands. New Vision tests (26), existing lab tests (33), relevant V2.23.6 and
+shared witness tests pass. An additional legacy V2.23.1 selftest fails its old
+"good" promotion fixture: baseline coverage/fresh-domain fields now required by
+the unchanged registry are absent. Test and registry match HEAD; neither was
+weakened. CURRENT, settings, traces, S03 and all physical witness semantics stay
+unchanged. Synthetic V3 status stays frozen.
+
+Next: one local unattended Vision search, then inspect bounded unique saves and
+common failures before spending more compute on Evidence selection:
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python3 -m automation.physical_ai_lab vision-run --experiment physical_vision_v1_1h --dataset /data/skjutbana/physical_ai_lab/datasets/vision_proposals_v1_20261003 --hours 1 --seed 2361
+python3 -m automation.physical_ai_lab vision-status --experiment physical_vision_v1_1h
+```
+
 ## Autonomous offline physical AI lab foundation — 2026-10-03
 
-The immediate priority is now reusable unattended DEVELOPMENT experiments, not
-proposal preprocessing. `automation.physical_ai_lab` builds a fixed cached
+This foundation preceded the Vision phase above. `automation.physical_ai_lab` builds a fixed cached
 benchmark and trains the existing V2.23 NumPy MLP through a physical-evidence
 adapter. This does not modify CURRENT, the frozen canonical challenger, settings,
 proposal generation, exact witness retention, thresholds or runtime authority.

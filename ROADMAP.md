@@ -1,8 +1,33 @@
 # Roadmap
 
-## NOW: autonomous physical AI lab foundation — 2026-10-03
+## NOW: bounded Vision proposal coverage — 2026-10-03
 
-This supersedes the immediate NEXT priorities in the historical entries below.
+- Evidence search completed its diagnostic role: 2,096 trials, raw plateau
+  22/37 @5, strict champion 20/37. The only raw-22 model adds five catastrophes
+  and five false control emissions. Twelve of fifteen common failures lack a
+  classic <=5px coordinate. Retained-bank oracle ceiling: 25/37 @5.
+- IMPLEMENTED: Vision proposals through the existing physical AI lab lifecycle,
+  native registered-map cache, small V2.23.6 convolution, TRAIN-only statistics
+  and mining, five session folds, fixed top-1/3/8, provenance, checkpoint/resume,
+  immutable per-budget champions, union scoreboard and observed failure wall.
+- SMOKE: two predeclared models, all 45 events. Top-3 union 26/37 @5; top-8 27/37,
+  uniquely recovering KOMP:1 and KOMP:5 as proposals. No selected/live claim;
+  distractor/control burden is substantial. This is development CV, not untouched
+  validation, and two trials do not establish a plateau.
+- NEXT: local unattended Vision search; inspect exact unique saves, proposal
+  budgets, held-session generalization and failure wall. No further Evidence-only
+  search now. No automatic live promotion.
+- LATER: return to Evidence Fusion when proposal coverage is materially higher;
+  first implement nested outer-fold-safe Vision→Evidence cross-fitting. Preserve
+  runtime proposal/reference-preprocessing optimization as a separate later item.
+  Additional physical evidence families should address observed remaining failures.
+- LIMITS: current fixed first3/last3 inputs are not qualified clean causal PRE;
+  probability calibration and control abstention are unproven. S03 forbidden,
+  CURRENT unchanged, Synthetic V3 unchanged. No new shooting or long run here.
+
+## Autonomous physical AI lab foundation completed — 2026-10-03
+
+Historical foundation status; the Vision phase above sets the current priority.
 
 - IMPLEMENTED: fixed 45-event development witness cache/scoreboard, explicit
   HIT/NO_IMPACT/UNKNOWN truth, selected-vs-oracle separation, S03 refusal,
@@ -18,8 +43,8 @@ This supersedes the immediate NEXT priorities in the historical entries below.
   representation/control loss are not qualified. Nested OOF Vision-to-Evidence
   generation is not implemented; that feature remains disabled, with exclusion
   contracts tested. No raw-patch rerun, Synthetic V3 expansion or long training.
-- NEXT: run one unattended Evidence NN experiment locally (12h command in
-  CURRENT_STATE), inspect fixed-scoreboard champions/rejection reasons and shared
+- COMPLETED SINCE THIS ENTRY: one local unattended Evidence NN experiment (1h),
+  including fixed-scoreboard champions/rejection reasons and shared
   failure walls. Treat the small development set as a finite evidence resource;
   more trials do not manufacture independent validation.
   The retained-bank oracle is 25/37 @5; no selector can recover the other twelve

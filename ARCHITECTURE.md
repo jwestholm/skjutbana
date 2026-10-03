@@ -16,7 +16,7 @@ Two complementary learned roles reuse `training_v223`:
   convolution can generate full-map peaks independently of retained detector
   candidates. The physical adapter uses a fixed chronological frame policy and
   canonical camera origin, without snapping to dense candidates or game targets.
-  Its first/last history representation and control training are research limits.
+  Its first/last history representation is not qualified clean causal PRE.
 - **Evidence Fusion NN:** existing RankModelV223 MLP representation/serialization
   and V2.23.5 gradients/mining support a labelled event-balanced training adapter.
   It learns candidate-local nonlinear evidence scores, preserving observed XY.
@@ -46,6 +46,40 @@ artifacts are not implemented yet. Vision-derived fusion inputs stay disabled.
 Physical evidence remains authoritative; neither learned role invents GT,
 changes gameplay coordinates, vetoes old holes/edges, nor auto-promotes live hit
 authority. Current exact-witness semantics and timing limitations are unchanged.
+
+### Bounded Vision proposal extension — 2026-10-03
+
+The existing runner accepts a role adapter from `automation.physical_ai_vision`;
+it keeps the same locking, time budget, deterministic trial identity, checkpoint,
+resume and immutable-result lifecycle. There is no new runtime detector or
+central verifier. `vision-prepare/run/resume/status` are subcommands of that lab.
+
+Registered maps are cached at native camera-crop resolution, hashed together with
+the unchanged physical benchmark. Existing 5×5 spatial convolution can use stride
+1/2/4 (5/10/20-camera-pixel receptive field). Direct learned maxima map back using
+the recorded crop origin and pixel-center convention, never dense-candidate/GT
+snapping. One ranked output of at most eight peaks supplies nested budgets 1/3/8.
+Classic ∪ Vision is currently an **offline oracle comparison**, not an activated
+Evidence input. The union deduplicates only identical XY; near-duplicate rate is
+reported without averaging or replacing exact points.
+
+Weights, channel statistics, positive sampling and model-scored hard-negative
+reweighting use TRAIN sessions only. Operator-supported NO_IMPACT samples can
+train the negative loss; UNKNOWN truth is excluded. The existing V2.23 gradients,
+convolution, serialization and stable mining order are reused. Fixed-budget
+champion tracks compare combined @5, unique saves, worst-session @5, combined
+@10, localization error, distractors and proposal/control counts in that order.
+First-model championship is a reference, not an improvement claim. Every trial
+retains comparison reasons, fold models, scaler lineage and per-event proposals.
+Control proposals are not control hit emissions or validated rejections.
+
+Each proposal identifies VISION source, exact camera XY, rank, uncalibrated logit,
+model/fold, training and held session, source session, code/data/model hashes,
+frame identifiers and causal-status limitations. Independent per-image registered
+map normalization is GT-free preprocessing; learned channel statistics never fit
+held/development images. Repeated OOF model comparison remains development CV.
+Standalone OOF proposals do not solve nested upstream leakage for a downstream
+Evidence model; that integration remains disabled under the rule above.
 
 ## Shared exact physical evidence contract, offline only — 2026-09-28
 

@@ -221,12 +221,20 @@ def refresh(root, data):
     return summary
 
 
-def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False):
+def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False,adapter=None):
+    # Same lifecycle for evidence and visual proposal trials; role-specific
+    # data/model/scoreboards are supplied by the existing Vision module.
+    identity_fn=adapter.code_identity if adapter else code_identity
+    load_fn=adapter.load if adapter else ds.load
+    refresh_fn=adapter.refresh if adapter else refresh
+    publish_fn=adapter.publish if adapter else publish
+    config_fn=adapter.config_for if adapter else config_for
+    train_fn=adapter.train_trial if adapter else train_trial
     ds.guard(root)
     if dataset is not None: ds.guard(dataset)
     if hours is not None and (hours<=0 or not np.isfinite(hours)): raise ValueError('hours must be positive')
     if max_trials is not None and max_trials<1: raise ValueError('max_trials must be positive')
-    identity=code_identity()
+    identity=identity_fn()
     if not resume:
         root.mkdir(parents=True,exist_ok=False)
     elif not root.is_dir(): raise ValueError('Unknown experiment')
@@ -246,7 +254,7 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False):
                           created=utc_iso(),live_authority=False,vision_features=False,
                           runtime=dict(python=platform.python_version(),numpy=np.__version__,machine=platform.machine(),
                                        cpu_count=os.cpu_count(),device='CPU NumPy',threads=os.environ.get('OPENBLAS_NUM_THREADS','environment default')))
-        data,x=ds.load(dataset)
+        data,x=load_fn(dataset)
         if resume and manifest['dataset_hash']!=data['dataset_hash']: raise ValueError('Dataset changed on resume')
         manifest['dataset_hash']=data['dataset_hash']; manifest['folds']=data['folds']
         manifest['active_started_at']=time.time()
@@ -259,16 +267,16 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False):
         for sig in old_handlers: signal.signal(sig,lambda *_:interrupted.__setitem__(0,True))
         stop=lambda:interrupted[0] or time.monotonic()-started>=remaining
         try:
-            refresh(root,data)
+            refresh_fn(root,data)
             trial=len(completed(root)); failures=0
             while not stop() and (manifest['max_trials'] is None or trial<manifest['max_trials']):
                 name=f'trial_{trial:06d}'; directory=root/'trials'/name; directory.mkdir(exist_ok=True)
-                cfg=config_for(manifest['seed'],trial)
+                cfg=config_fn(manifest['seed'],trial)
                 if (directory/'config.json').exists() and ds.read(directory/'config.json')!=cfg: raise ValueError('Trial configuration changed')
                 ds.atomic_json(directory/'config.json',cfg)
                 t=time.monotonic()
                 try:
-                    result=train_trial(directory,data,x,cfg,stop)
+                    result=train_fn(directory,data,x,cfg,stop)
                     result.update(status='COMPLETE',trial=name,config=cfg,dataset_hash=data['dataset_hash'],
                                   code=identity,elapsed_seconds=time.monotonic()-t,finished_at=time.time())
                     failures=0
@@ -281,9 +289,9 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False):
                 if target.exists(): raise ValueError('Refusing completed trial overwrite')
                 ds.atomic_json(target,result)
                 ds.atomic_json(directory/'summary.json',{k:result[k] for k in ('trial','status','metrics','finished_at','error') if k in result})
-                summary=publish(root,result,data)
+                summary=publish_fn(root,result,data)
                 # Full history scans are not on every trial's critical path.
-                if (trial+1)%100==0: refresh(root,data)
+                if (trial+1)%100==0: refresh_fn(root,data)
                 manifest['spent_seconds']=spent_before+time.monotonic()-started
                 manifest['active_started_at']=time.time()
                 ds.atomic_json(root/'manifest.json',manifest)
@@ -295,7 +303,7 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False):
             manifest['spent_seconds']=spent_before+time.monotonic()-started
             manifest['active_started_at']=None
             manifest['last_stopped']=utc_iso(); ds.atomic_json(root/'manifest.json',manifest)
-            refresh(root,data)
+            refresh_fn(root,data)
     return ds.read(root/'champion.json')
 
 
@@ -334,6 +342,10 @@ def run_ablations(root,hours):
 
 def main():
     ds.install_guard()
+    import sys
+    if len(sys.argv)>1 and sys.argv[1].startswith('vision-'):
+        from automation.physical_ai_vision import lab_main
+        return lab_main(sys.argv[1:])
     p=argparse.ArgumentParser(description=__doc__); sub=p.add_subparsers(dest='command',required=True)
     b=sub.add_parser('build'); b.add_argument('--output',type=Path,required=True)
     for command in ('run','resume','status','queue-ablations','run-ablations'):

@@ -344,6 +344,78 @@ def train_stage(
     return history
 
 
+def train_physical_proposals(model, samples, *, epochs, learning_rate, l2, seed,
+                             positive_radius=4.5, loss_kind='bce', hard_count=64,
+                             checkpoint=None, identity=None, stop=None):
+    """Small physical-lab adapter; existing convolution/gradients, exact resume.
+
+    Caller provides TRAIN-session samples only, normalized with TRAIN statistics.
+    Infinite distances denote explicit NO_IMPACT, never UNKNOWN. The wide neutral
+    band remains ignored. Hard mining reweights model-scored TRAIN negatives.
+    """
+    import os
+    from .evidence_model_v2235 import hard_negative_indices
+    if not samples or loss_kind not in ('bce', 'pair'):
+        raise ValueError('Need physical training samples and a known loss')
+    config=dict(epochs=epochs,learning_rate=learning_rate,l2=l2,seed=seed,
+                positive_radius=positive_radius,loss_kind=loss_kind,hard_count=hard_count,
+                identity=identity,kind=model.kind,shapes={k:list(v.shape) for k,v in model.arrays.items()})
+    rng=np.random.default_rng(seed); step=0; start=0; history=[]; mined=[]
+    m={k:np.zeros_like(v) for k,v in model.arrays.items()}; vv={k:np.zeros_like(v) for k,v in model.arrays.items()}
+    checkpoint=Path(checkpoint) if checkpoint else None
+    if checkpoint and checkpoint.exists():
+        with np.load(checkpoint,allow_pickle=False) as saved:
+            meta=json.loads(str(saved['meta']))
+            if meta['config']!=config: raise ValueError('Vision checkpoint identity mismatch')
+            for k in model.arrays:
+                model.arrays[k]=saved['p_'+k].copy();m[k]=saved['m_'+k].copy();vv[k]=saved['v_'+k].copy()
+            start=meta['epoch'];step=meta['step'];history=meta['history'];mined=meta['mined'];rng.bit_generator.state=meta['rng']
+    for epoch in range(start,epochs):
+        if stop and stop(): raise InterruptedError('Vision epoch checkpoint retained')
+        losses=[]; mines=0
+        for i in rng.permutation(len(samples)):
+            sample=samples[int(i)]; patches=sample.patches
+            if rng.random()<.5:patches=patches[:,:,:,::-1]
+            if rng.random()<.5:patches=patches[:,:,::-1,:]
+            scores=model.score_patches(patches); distances=sample.distances
+            pos=distances<=positive_radius;neg=distances>NEGATIVE_RADIUS_PX
+            if not (pos|neg).any():continue
+            if loss_kind=='pair' and pos.any() and neg.any():
+                # Neutral examples absent from the sampled bank; pair radius is
+                # the existing <=6.5 criterion and does not widen target sampling.
+                ds,loss=_pair_gradient(scores,distances)
+            else:
+                weight=np.zeros(len(scores),np.float32)
+                for mask in (pos,neg):
+                    if mask.any():weight[mask]=1/float(mask.sum())
+                weight/=weight.sum(); target=pos.astype(np.float32)
+                ds=(1/(1+np.exp(-np.clip(scores,-40,40)))-target)*weight
+                loss=float(np.sum(weight*(np.logaddexp(0,scores)-target*scores)))
+            if epoch>=max(1,epochs//3) and hard_count:
+                hard=hard_negative_indices(scores,distances,per_shot=hard_count)
+                # Extra negative-only gradient uses the same sampled source pool;
+                # no validation/held truth is read by this mining operation.
+                if len(hard):
+                    ds[hard]+=.25/(len(hard)*(1+np.exp(-np.clip(scores[hard],-40,40))))
+                    mines+=len(hard)
+            grads=_model_grads(model,patches,ds,l2=l2);step+=1;losses.append(loss)
+            for k,g in grads.items():
+                g=np.clip(g,-5,5).astype(np.float32)
+                m[k]=.9*m[k]+.1*g;vv[k]=.999*vv[k]+.001*g*g
+                model.arrays[k]-=learning_rate*(m[k]/(1-.9**step))/(np.sqrt(vv[k]/(1-.999**step))+1e-7)
+        if not losses or not np.isfinite(losses).all():raise ValueError('No finite supervised Vision loss')
+        history.append(float(np.mean(losses)));mined.append(mines)
+        if checkpoint:
+            checkpoint.parent.mkdir(parents=True,exist_ok=True);tmp=checkpoint.with_suffix('.tmp')
+            meta=dict(config=config,epoch=epoch+1,step=step,history=history,mined=mined,rng=rng.bit_generator.state)
+            with tmp.open('wb') as f:
+                np.savez(f,meta=json.dumps(meta),**{'p_'+k:v for k,v in model.arrays.items()},
+                         **{'m_'+k:v for k,v in m.items()},**{'v_'+k:v for k,v in vv.items()})
+                f.flush();os.fsync(f.fileno())
+            os.replace(tmp,checkpoint)
+    return dict(loss_history=history,mined_training_negatives=mined)
+
+
 def mine_heatmap_negatives(
     model: HeatmapModelV2236, refs: Sequence[HeatmapShotRefV2236], *, per_shot: int = 96,
 ) -> tuple[dict[tuple[str, int], np.ndarray], dict[str, Any]]:
