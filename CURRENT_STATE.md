@@ -1,5 +1,46 @@
 # Current project state
 
+## Chronological raw-information audit — 2026-10-04
+
+Frozen classic ∪ Vision top3 remains **32/33/34/36 of37 @5/@10/@20/@42**.
+No training, benchmark relabelling, model promotion or CURRENT change. The audit
+measured17 prespecified development events,624 saved frames and607 transitions:
+five hard events, seven protected Vision saves and five deterministically selected
+easy events. Native crop pixels, recorded receipt cutoffs and KOMP ordinal-only
+limitations are preserved. Extra clocked POST was inspected only before decision.
+
+There is no demonstrated common representation fix for the five failures:
+
+- POST_FIX:10 has a near-GT **brightening** peak at raw33/NMS27 before `_unit`,
+  error4.678358px. Clipping creates8,740 tied maxima and stable rank5671;
+  uint8 rounding does not cause this loss. Its identity as new event damage is
+  still ambiguous: polarity fluctuates and exact-GT onset is unsupported.
+- S02:4's first transition has local-contrast rank8. The first3 reference spans
+  the observed change; one earlier observation cannot certify clean stable PRE.
+- S01:3 and S02:6 have persistent steps at **existing** candidate coordinates
+  15.816977px and22.241914px from unchanged manual GT. Frozen Vision already ranks
+  those neighborhoods2 and1. Native labels omit source-frame identity. This is an
+  unresolved association, not evidence permitting automatic GT correction.
+- S01:5 has weak/ambiguous new change at its labelled neighborhood. No hardware
+  insufficiency or absent-projectile conclusion follows.
+
+All five exact-GT locations remain unsupported by the existing onset rule;
+this is UNKNOWN, not NO_PHYSICAL_HIT. Clipping also affects successful cases,
+so amplitude loss alone does not explain the failure wall. A fixed GT-blind
+three-observation persistent-change map recovers0/5 hard events in32 peaks and
+only1/7 protected saves. Preserve this negative result. Float32 after clipping
+cannot restore discarded amplitude; no hard top32 loss was caused by rounding.
+
+**LONG_RUN_RECOMMENDATION: NO.** Next is a bounded existing label-to-source-frame
+association audit for S01:3/S02:6, preserving original labels and benchmark.
+Resolve lineage before further training. A future pre-clipping signed-amplitude
+experiment is narrowly motivated by POST_FIX:10, but not yet qualified/promoted.
+
+Report: `/data/skjutbana/evaluation_runs/chronological_information_audit_20261004_01/REPORT.md`.
+New tools are diagnostic-only; shared preprocessing/runtime are unchanged. S03,
+settings, traces, champions, prior exact-witness and Synthetic V3 results remain
+untouched. This is source-information diagnosis, not selected/live accuracy.
+
 ## Vision representation / full-heatmap mining smoke — 2026-10-04
 
 The frozen NMS-first reranker baseline was reproduced from its saved models:

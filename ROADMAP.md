@@ -1,6 +1,26 @@
 # Roadmap
 
-## NOW: bounded Vision representation wall measured — 2026-10-04
+## NOW: chronological raw-information audit completed — 2026-10-04
+
+- Measured17 events/624 frames/607 transitions, fixed native crop, exact frozen
+  input ladder and existing temporal evidence. No model training or live changes.
+- POST_FIX:10 exposes pre-uint8 amplitude loss at `_unit`; physical-newness remains
+  ambiguous. S02:4 lacks stable history before its earliest change. S01:5 is weak
+  at GT. S01:3/S02:6 have strong nearby steps already ranked2/1 by frozen Vision,
+  outside their labels'5px tolerance; label-source-frame lineage is unavailable.
+- NEXT: bounded source-image/coordinate association audit for those two existing
+  manual labels. Preserve GT; do not substitute model coordinates. If association
+  cannot be recovered, record the limitation explicitly. No new shooting needed.
+- Negative probe: max persistent signed change in32 peaks recovers0/5 hard and
+  only1/7 protected events. Do not replace the representation with this probe.
+- **No long compute run now.** Frozen top3 union remains32/37 @5. Pre-clipping
+  signed amplitude is a later narrow information experiment, after provenance is
+  resolved; post-clipping float precision does not restore the lost ordering.
+- LATER: nested Vision→Evidence Fusion, preserved proposal/reference preprocessing
+  runtime optimization, measured additional evidence families and live shadow
+  validation. CURRENT and S03 remain untouched.
+
+## Completed: bounded Vision representation wall measured — 2026-10-04
 
 - Implemented resumable representation/full-map-mining trials through the existing
   lab, genuine nested OOF, pool32/final3, source hashes and protected champions.
