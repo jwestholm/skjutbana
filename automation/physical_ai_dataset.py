@@ -69,6 +69,69 @@ def digest(path):
     return h.hexdigest()
 
 
+LABEL_LINEAGE_STATES = (
+    'LABEL_SOURCE_LINEAGE_VERIFIED',
+    'LABEL_SOURCE_LINEAGE_VERIFIED_WITH_KNOWN_TRANSFORM',
+    'LABEL_SOURCE_ASSOCIATION_CONTRADICTED',
+    'LABEL_SOURCE_LINEAGE_UNRESOLVED',
+)
+
+
+def with_label_source_lineage(data, assessment):
+    """Optional hash-bound reporting sidecar; never filter/relabel model data.
+
+    A manual label's existence/quality is not proof of its displayed source frame.
+    Missing assessments remain NOT_AUDITED, not implicitly verified. This does
+    not load source imagery or alter the immutable dataset/cache/feature schema.
+    Verified findings must come from the cited provenance audit, not model scores.
+    """
+    import copy
+    if assessment.get('schema') != 'physical-label-lineage-1' or assessment.get('dataset_hash') != data['dataset_hash']:
+        raise ValueError('Label-lineage sidecar belongs to a different dataset/schema')
+    records = assessment.get('events', [])
+    if len({r['event'] for r in records}) != len(records):
+        raise ValueError('Duplicate lineage assessment')
+    events = copy.deepcopy(data['events']);lookup = {e['event']: e for e in events}
+    for record in records:
+        guard(record['event'])
+        if record['event'] not in lookup or record.get('status') not in LABEL_LINEAGE_STATES:
+            raise ValueError('Unknown event or lineage state')
+        event = lookup[record['event']]
+        for name, key in [('ground_truth.json', 'label_sha256'), ('trace.json', 'trace_sha256')]:
+            path = str(Path(event['source_root']) / name);guard(path)
+            expected = data['source_hashes'].get(path)
+            if not expected or record.get(key) != expected:
+                raise ValueError('Lineage does not match immutable label/trace identity')
+        if not record.get('reason') or not record.get('report'):
+            raise ValueError('Lineage needs explicit reason and provenance report')
+        guard(record['report'])
+        source = record.get('annotation_source_frame') or {}
+        if source.get('path'):
+            guard(source['path'])
+        if record['status'] in LABEL_LINEAGE_STATES[:2]:
+            if not source.get('path') or not re.fullmatch('[0-9a-f]{64}', str(source.get('sha256', ''))):
+                raise ValueError('Verified image lineage needs immutable source identity')
+        event['label_source_lineage'] = copy.deepcopy(record)
+    for event in events:
+        event.setdefault('label_source_lineage', dict(status='NOT_AUDITED'))
+    return events
+
+
+def label_lineage_partition(events):
+    """Explicit diagnostic membership only; no automatic benchmark exclusion."""
+    out = dict(verified=[], unresolved=[], contradicted=[], not_audited=[])
+    for event in events:
+        guard(event['event'])
+        status = event.get('label_source_lineage', {}).get('status', 'NOT_AUDITED')
+        if status not in LABEL_LINEAGE_STATES + ('NOT_AUDITED',):
+            raise ValueError('Unknown lineage state')
+        key = ('verified' if status in LABEL_LINEAGE_STATES[:2] else
+               'unresolved' if status == LABEL_LINEAGE_STATES[3] else
+               'contradicted' if status == LABEL_LINEAGE_STATES[2] else 'not_audited')
+        out[key].append(event['event'])
+    return out
+
+
 def canonical_hash(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False, separators=(',', ':')).encode()).hexdigest()
 

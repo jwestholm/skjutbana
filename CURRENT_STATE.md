@@ -1,5 +1,33 @@
 # Current project state
 
+## Manual label/source lineage audit — 2026-10-04
+
+S01:3 and S02:6 are both **LABEL_TO_SOURCE_LINEAGE_UNRESOLVED**. Runtime/session
+identity, unchanged native labels and benchmark source hashes agree. S02's target
+event also matches all128 files in its preserved September9 hash manifest.
+S01:3 is physical shot3; S02:6 is physical shot5, because controls occupy runtime
+IDs. Adjacent-event records provide no evidence of a label swap.
+
+Historical annotation code defaults to the last POST but allows frame/view
+changes; it saves neither the clicked frame/hash nor view/calibration identity.
+The current calibration is later and cannot reconstruct that missing provenance.
+Measured annotation-overlay shifts are at most0.084/0.068px, not an explanation
+for the15.817/22.242px label-to-recorded-witness offsets. Neither label nor nearby
+candidate is established as replacement truth. Both labels remain immutable.
+
+The existing dataset module now accepts an optional hash-bound lineage reporting
+sidecar. It never changes truth, model features, membership or canonical metrics;
+unaudited events stay NOT_AUDITED. Frozen top3 union remains **32/33/34/36 of37**.
+Excluding the two unresolved events gives32/33/33/34 of35 as a sensitivity check
+only, **not a verified-lineage subset or accuracy gain**. No event has had its
+clicked-source identity verified by this two-event audit, so that subset is N/A.
+
+Next: independent human review of the two preserved forensic comparison sheets;
+any label rebinding requires a separate explicit decision. No training or new
+shooting is justified by this audit. Annotation source identity remains an
+instrumentation gap; no runtime or annotation-writer behavior changed here.
+Report: `/data/skjutbana/evaluation_runs/label_source_lineage_audit_20261004_01/REPORT.md`.
+
 ## Chronological raw-information audit — 2026-10-04
 
 Frozen classic ∪ Vision top3 remains **32/33/34/36 of37 @5/@10/@20/@42**.

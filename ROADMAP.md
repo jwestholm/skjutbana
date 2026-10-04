@@ -1,6 +1,22 @@
 # Roadmap
 
-## NOW: chronological raw-information audit completed — 2026-10-04
+## NOW: label/source provenance limitation established — 2026-10-04
+
+- S01:3/S02:6 remain LABEL_TO_SOURCE_LINEAGE_UNRESOLVED. Event and byte identity
+  agree; historical clicked-frame/view/calibration identity was not recorded.
+  Known registration/display/crop operations do not explain the offsets. No
+  recorded off-by-one swap; S02 runtime6 is intentionally physical shot5.
+- Optional dataset lineage sidecar is reporting-only. Keep both native labels
+  and all37 physical benchmark events. Frozen top3 union stays32/37 @5.
+  The35-event exclusion sensitivity is not a verified-lineage benchmark.
+- NEXT: independent human review of the two existing forensic comparison sheets,
+  without new shooting or automatic relabelling. Any rebinding is separate and
+  explicitly approved; future annotations should retain clicked-source identity.
+- No training run now. Preserve the prior negative representation probes and
+  the later narrow pre-clipping signed-amplitude question. Runtime optimization,
+  nested Vision→Evidence and live shadow validation remain later work.
+
+## Completed: chronological raw-information audit — 2026-10-04
 
 - Measured17 events/624 frames/607 transitions, fixed native crop, exact frozen
   input ladder and existing temporal evidence. No model training or live changes.
