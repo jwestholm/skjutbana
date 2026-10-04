@@ -1,5 +1,29 @@
 # Current project state
 
+## Offline frozen-union selector runner — 2026-10-04
+
+`physical_ai_lab fusion-run/fusion-resume/fusion-status` reuse the existing
+Evidence MLP, TRAIN-only scaler/miner, checkpoints, journal, leaderboard and
+immutable champion history. The frozen Classic+Vision top3 cache contains1184
+coordinates; oracle remains32/33/34/36 of37. Existing batched temporal evidence is
+queried at added exact Vision XY; unavailable producer measurements stay missing.
+No Vision fitting, new physical feature, GT change or live promotion.
+
+**Restriction:** standalone Vision OOF is not downstream nested OOF. None of the
+saved Vision TRAIN rows safely excludes the outer held/dev sessions. These rows
+are omitted from training; all frozen union rows are scored on held events.
+Thus the runner is operational, but full combined-pool training remains blocked
+on deeper cross-fitted proposals. Do not describe it as fully nested fusion.
+Decision threshold is fixed0.5; abstention is UNKNOWN, not validated NO_IMPACT.
+
+Two real smoke trials completed, including resume/status. Best smoke selected
+20/22/23/24 of37, median3.9748px/P95 71.5671px,18 UNKNOWN,1 control false emission,
+1 error>100px; rejected by safety policy. Frozen baseline remains champion.
+71 focused tests passed. Outputs: `/data/skjutbana/physical_ai_lab/fusion_smoke_20261004`;
+cache: `datasets/fusion_frozen_top3_v1` under the same lab root.
+Previous forensic/representation questions are parked; native labels, CURRENT,
+S03, settings and trace symlink are unchanged. No long training run was started.
+
 ## Manual label/source lineage audit — 2026-10-04
 
 S01:3 and S02:6 are both **LABEL_TO_SOURCE_LINEAGE_UNRESOLVED**. Runtime/session

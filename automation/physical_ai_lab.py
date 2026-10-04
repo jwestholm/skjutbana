@@ -89,7 +89,7 @@ def predict(model, events, x, threshold):
     return predictions,detail
 
 
-def train_trial(directory, data, x, cfg, stop):
+def train_trial(directory, data, x, cfg, stop, *, training_filter=None):
     names,keep=columns(cfg); x=transform_matrix(x[:,keep],'signed_log')
     predictions={}; fold_reports=[]
     for i,fold in enumerate(data['folds']):
@@ -106,6 +106,8 @@ def train_trial(directory, data, x, cfg, stop):
             train=[e for e in data['events'] if e['session'] in fold['train']]
             dev=[e for e in data['events'] if e['session'] in fold['dev']]
             held=[e for e in data['events'] if e['session'] in fold['held']]
+            if training_filter is not None:
+                train=training_filter(train,fold)
             kw={k:cfg[k] for k in ('hidden','epochs','learning_rate','l2','hard_negative_count')}
             model,history=train_fusion_model(samples(train,x), feature_names=names,seed=cfg['seed']+i,
                 checkpoint=out/'training_checkpoint.npz',
@@ -118,6 +120,7 @@ def train_trial(directory, data, x, cfg, stop):
             dev_pred,_=predict(model,dev,x,cfg['threshold'])
             saved=dict(config=cfg,dataset_hash=data['dataset_hash'],fold=fold,predictions=pred,
                        detail=detail,training=history,dev_metrics=ds.evaluate(dev,dev_pred),
+                       training_rows={e['event']:len(e['indices']) for e in train},
                        model_hashes={n:ds.digest(out/n) for n in ('model.npz','model.json')})
             ds.atomic_json(done,saved)
         if set(predictions)&set(saved['predictions']): raise ValueError('Duplicate outer prediction')
@@ -161,12 +164,12 @@ def champion_entry(root, trial, metrics, data, reason):
                 dataset_hash=data['dataset_hash'],live_authority=False)
 
 
-def publish(root, result, data):
+def publish(root, result, data, *, compare=champion_compare):
     """O(1) trial publication; full leaderboard is rebuilt at durable boundaries."""
     current=ds.read(root/'champion.json'); accepted=False
     why=result.get('error','trial failed')
     if result['status']=='COMPLETE':
-        accepted,why=champion_compare(result['metrics'],current['metrics'])
+        accepted,why=compare(result['metrics'],current['metrics'])
         if accepted:
             entry=champion_entry(root,result['trial'],result['metrics'],data,why)
             path=root/'champions'/(result['trial']+'.json')
@@ -183,14 +186,14 @@ def publish(root, result, data):
     return current
 
 
-def refresh(root, data):
+def refresh(root, data, *, compare=champion_compare):
     baseline=ds.evaluate(data['events'],{e['event']:e['baseline_xy'] for e in data['events']})
     incumbent=baseline; champion='frozen_exact_witness_baseline'; history=[]; leaderboard=[]
     records=completed(root)
     for r in records:
         if r['status']!='COMPLETE':
             leaderboard.append(dict(trial=r['trial'],status=r['status'],reason=r.get('error'))); continue
-        win,why=champion_compare(r['metrics'],incumbent)
+        win,why=compare(r['metrics'],incumbent)
         leaderboard.append(dict(trial=r['trial'],status=r['status'],metrics=r['metrics'],accepted=win,reason=why))
         if win:
             champion=r['trial']; incumbent=r['metrics']
@@ -343,6 +346,9 @@ def run_ablations(root,hours):
 def main():
     ds.install_guard()
     import sys
+    if len(sys.argv)>1 and sys.argv[1].startswith('fusion-'):
+        from automation.physical_ai_fusion import main as fusion_main
+        return fusion_main(sys.argv[1:])
     if len(sys.argv)>1 and sys.argv[1].startswith('vision-repr-'):
         from automation.physical_ai_vision_repr import main as representation_main
         return representation_main(sys.argv[1:])

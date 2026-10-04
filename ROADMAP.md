@@ -1,6 +1,20 @@
 # Roadmap
 
-## NOW: label/source provenance limitation established — 2026-10-04
+## NOW: autonomous offline frozen-union selector training — 2026-10-04
+
+- Existing lab now runs/resumes/statuses Evidence selector search against the
+  frozen Classic+Vision top3 union, reporting selected metrics separately from
+  its32/37 @5 oracle. Arbitrary positive hour budgets; no automatic live promotion.
+- Safe current scope: Classic training rows, full frozen union held scoring.
+  Saved Vision TRAIN rows fail deeper upstream exclusion and are not used.
+  Fully combined training needs additional cross-fitted upstream data, not a
+  relaxed leakage guard. No Vision retraining was attempted in this task.
+- Two smoke trials completed and were rejected for control false emissions;
+  baseline champion preserved. Operator may run the limited safe trainer locally.
+- Previous forensic, clipping and representation investigations are parked.
+  No new physical data or failure-case research during this implementation.
+
+## Parked: label/source provenance limitation — 2026-10-04
 
 - S01:3/S02:6 remain LABEL_TO_SOURCE_LINEAGE_UNRESOLVED. Event and byte identity
   agree; historical clicked-frame/view/calibration identity was not recorded.
