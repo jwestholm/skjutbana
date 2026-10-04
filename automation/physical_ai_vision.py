@@ -196,9 +196,25 @@ def config_for(seed, trial):
                 temporal='first3_last3',normalization='train_channel_standardization')
 
 
-def event_maps(cache,row,stride):
+def representation_maps(maps,representation='native'):
+    """GT-free, shape-preserving representation; native cache stays immutable.
+
+    context9 retains all four native persistent channels. Unused slots contain
+    their 9x9 context, giving the existing 5x5 model a 13px context field at stride1.
+    This does not recover temporal information discarded by the original cache.
+    """
+    if representation=='native':return maps
+    if representation!='context9':raise ValueError('Unknown physical representation')
+    out=np.array(maps,copy=True)
+    for target,source in zip((0,1,3,6),(2,4,5,7)):
+        out[target]=cv2.GaussianBlur(maps[source],(9,9),2,borderType=cv2.BORDER_REFLECT_101)
+    return out
+
+
+def event_maps(cache,row,stride,representation='native'):
     ds.guard(Path(cache)/row['path'])
     maps=np.load(Path(cache)/row['path'],mmap_mode='r',allow_pickle=False)
+    maps=representation_maps(maps,representation)
     return maps if stride==1 else downsample_block_mean(maps,stride)
 
 
@@ -208,7 +224,7 @@ def training_samples(data,cache,fold,cfg):
     samples=[];events=[];rng=np.random.default_rng(cfg['seed']);stride=cfg['stride']
     for e in data['events']:
         if e['session'] not in fold['train'] or e['truth']=='UNKNOWN':continue
-        row=data['vision_rows'][e['event']];maps=event_maps(cache,row,stride)
+        row=data['vision_rows'][e['event']];maps=event_maps(cache,row,stride,cfg.get('representation','native'))
         yy,xx=np.indices(maps.shape[1:]);grid=np.column_stack([xx.ravel(),yy.ravel()])
         if e['truth']=='HIT':
             camera=grid*stride+(stride-1)*.5+np.asarray(row['origin'])
@@ -312,6 +328,69 @@ def evaluate_union(events,outputs):
     return results
 
 
+def mine_full_map_samples(model,data,cache,fold,cfg,norm,samples,stop=None):
+    """Adapter of V2236's full-map negative miner to explicit physical events.
+
+    Only TRAIN events are loaded. GT defines supervised negative exclusion, never
+    inference peaks. Native NO_IMPACT may supply negatives; UNKNOWN is skipped.
+    Reuses the original bounded maxima extractor and patch representation.
+    """
+    from src.engine.ai.training_v223.heatmap_model_v2236 import _local_maxima
+    if set(fold['train'])&set(fold['held']+fold['dev']):raise ValueError('Mining fold overlap')
+    for session in fold['train']+fold['held']+fold['dev']:ds.guard(session)
+    if norm['training_sessions']!=fold['train']:raise ValueError('Mining scaler lineage')
+    count=cfg.get('full_map_negatives',0)
+    if not 0<=count<=64:raise ValueError('Full-map mining is bounded at 64/TRAIN event')
+    if count==0:return list(samples),[]
+    by_id={s.shot_id:s for s in samples};result=[];journal=[];stride=cfg['stride']
+    for e in data['events']:
+        if e['session'] not in fold['train'] or e['truth']=='UNKNOWN':continue
+        if stop and stop():raise InterruptedError('TRAIN heatmap mining interrupted')
+        s=by_id[e['event']];row=data['vision_rows'][e['event']]
+        maps=event_maps(cache,row,stride,cfg.get('representation','native'))
+        score=model.score_map(normalize(maps,norm));yy,xx=np.indices(score.shape)
+        if e['truth']=='HIT':
+            distances=np.hypot(xx*stride+(stride-1)*.5+row['origin'][0]-e['gt_xy'][0],
+                               yy*stride+(stride-1)*.5+row['origin'][1]-e['gt_xy'][1])
+        elif e['truth']=='NO_IMPACT':distances=np.full(score.shape,np.inf)
+        else:raise ValueError('Unqualified negative truth')
+        points=_local_maxima(score,top_k=count,nms_radius=max(1,int(np.ceil(6/stride))),allowed=distances>42).astype(int)
+        patches=normalize(extract_grid_patches(maps,points),norm,patches=True)
+        dd=distances[points[:,1],points[:,0]]
+        result.append(HeatmapTrainingSampleV2236(s.session_id,s.shot_id,
+            np.concatenate([s.patches,patches]),np.concatenate([s.distances,dd])))
+        journal.append(dict(event=e['event'],session=e['session'],count=len(points),
+            camera_xy=(points*stride+(stride-1)*.5+np.asarray(row['origin'])).tolist(),
+            scores=score[points[:,1],points[:,0]].tolist(),training_sessions=fold['train'],
+            held_sessions=fold['held'],truth=e['truth'],scope='TRAIN_ONLY_FULL_HEATMAP'))
+    if {s.shot_id for s in result}!=set(by_id):raise ValueError('Mining sample coverage changed')
+    return result,journal
+
+
+def fit_proposal_model(model,data,cache,fold,cfg,norm,samples,path,*,seed,identity,stop=None):
+    """Same optimizer, with optional bounded full-map mining/refinement stage.
+
+    Epoch checkpoints preserve warmup and refinement separately. Mining is
+    deterministic from the checkpointed warmup, so interrupted mining is rerun
+    without using partially refined weights or changing its sample bank.
+    """
+    args={k:cfg[k] for k in ('epochs','learning_rate','l2','positive_radius','loss_kind','hard_count')}
+    history=train_physical_proposals(model,samples,seed=seed,checkpoint=path/'training_checkpoint.npz',
+                                    identity=identity,stop=stop,**args)
+    refine=cfg.get('refine_epochs',0)
+    if not refine:return history
+    if not 1<=refine<=8:raise ValueError('Refinement bounded at 8 epochs')
+    mined=[]
+    if cfg.get('full_map_negatives',0):
+        samples,mined=mine_full_map_samples(model,data,cache,fold,cfg,norm,samples,stop)
+    ds.atomic_json(path/'full_map_mining.json',dict(identity=identity,events=mined,normalization=norm,
+        model_before_mining=ds.canonical_hash({k:v.tolist() for k,v in model.arrays.items()})))
+    args['epochs']=refine
+    refinement=train_physical_proposals(model,samples,seed=seed+7001,checkpoint=path/'refinement_checkpoint.npz',
+        identity=dict(parent=identity,mining_hash=ds.canonical_hash(mined)),stop=stop,**args)
+    return dict(warmup=history,refinement=refinement,full_map_mining=mined)
+
+
 def train_trial(directory,data,cache,cfg,stop):
     if cfg['budgets']!=list(BUDGETS):raise ValueError('Proposal budgets are frozen')
     outputs={};reports=[];identity=code_identity();cv2.setNumThreads(1)
@@ -326,9 +405,8 @@ def train_trial(directory,data,cache,cfg,stop):
             if stop():raise InterruptedError('Vision deadline')
             samples,norm=training_samples(data,cache,fold,cfg)
             model=init_heatmap_model(cfg['kind'],hidden=cfg['hidden'],seed=cfg['seed']+i)
-            args={k:cfg[k] for k in ('epochs','learning_rate','l2','positive_radius','loss_kind','hard_count')}
-            training=train_physical_proposals(model,samples,seed=cfg['seed']+i,checkpoint=path/'training_checkpoint.npz',
-                         identity=dict(cache=data['dataset_hash'],fold=fold,config=cfg,normalization=norm),stop=stop,**args)
+            training=fit_proposal_model(model,data,cache,fold,cfg,norm,samples,path,seed=cfg['seed']+i,
+                         identity=dict(cache=data['dataset_hash'],fold=fold,config=cfg,normalization=norm),stop=stop)
             del samples
             model.metadata.update(config=cfg,normalization=norm,fold=fold,cache_hash=data['dataset_hash'],
                                   code=identity,live_authority=False,role='VISION_PROPOSAL')
@@ -336,7 +414,7 @@ def train_trial(directory,data,cache,cfg,stop):
             for e in data['events']:
                 if e['session'] not in fold['held']:continue
                 if stop():raise InterruptedError('Model checkpoint retained before held scoring')
-                row=data['vision_rows'][e['event']];maps=event_maps(cache,row,cfg['stride'])
+                row=data['vision_rows'][e['event']];maps=event_maps(cache,row,cfg['stride'],cfg.get('representation','native'))
                 score=model.score_map(normalize(maps,norm))
                 pp=proposals(score,stride=cfg['stride'],origin=row['origin'],nms_radius_px=cfg['nms_radius_px'])
                 for p in pp:

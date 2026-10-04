@@ -343,6 +343,9 @@ def run_ablations(root,hours):
 def main():
     ds.install_guard()
     import sys
+    if len(sys.argv)>1 and sys.argv[1].startswith('vision-repr-'):
+        from automation.physical_ai_vision_repr import main as representation_main
+        return representation_main(sys.argv[1:])
     if len(sys.argv)>1 and sys.argv[1].startswith('peak-'):
         from automation.physical_ai_vision_peaks import main as peak_main
         return peak_main(sys.argv[1:])

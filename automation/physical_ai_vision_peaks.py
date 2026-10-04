@@ -110,7 +110,9 @@ def extract_pool(score,maps,*,stride,origin,nms_radius_px,order):
              int(np.sum((distances[local]>0)&(distances[local]<=12))),float(min(x,y,w-1-x,h-1-y)*stride)]
         raw+=means.tolist()+contrasts.tolist()
         peaks.append(dict(camera_xy=camera[local].tolist(),confidence=float(logit[idx]),source='VISION',
-                          raw_rank=int(idx)+1,rank=local+1,stride=stride,feature_schema=SCHEMA,
+                          raw_rank=int(idx)+1,rank=local+1,pool_rank=local+1,
+                          nms_rank=local+1 if order==ORDERS[1] else None,
+                          stride=stride,feature_schema=SCHEMA,
                           peak_features=dict(zip(FEATURES,raw))))
     return peaks
 
@@ -158,21 +160,26 @@ def validate_upstream(peak,event,outer,*,training):
 def _extract_events(data,cache,events,model,model_dir,cfg,model_id,train_sessions):
     result={};model_hash=ds.digest(model_dir/'model.npz')
     for e in events:
-        row=data['vision_rows'][e['event']];maps=vision.event_maps(cache,row,cfg['stride'])
+        row=data['vision_rows'][e['event']];maps=vision.event_maps(cache,row,cfg['stride'],cfg.get('representation','native'))
         score=model.score_map(vision.normalize(maps,model.metadata['normalization']))
+        # Reranker measurements retain the original eight-channel semantics,
+        # even when the upstream Vision model uses a context representation.
+        evidence_maps=vision.event_maps(cache,row,cfg['stride'])
         modes={}
         for order in ORDERS:
-            peaks=extract_pool(score,maps,stride=cfg['stride'],origin=row['origin'],nms_radius_px=cfg['nms_radius_px'],order=order)
+            peaks=extract_pool(score,evidence_maps,stride=cfg['stride'],origin=row['origin'],nms_radius_px=cfg['nms_radius_px'],order=order)
             for p in peaks:p.update(event=e['event'],model_id=model_id,model_sha256=model_hash,
                 training_sessions=list(train_sessions),held_session=e['session'],source_session=e['source_session'],
                 base_data_hash=data['dataset_hash'],input_frames=dict(reference=row['reference_frames'],post=row['post_frames']),
-                causal_status=e['status'],base_code=model.metadata['code'],stride=cfg['stride'])
+                causal_status=e['status'],base_code=model.metadata['code'],stride=cfg['stride'],
+                representation_id=cfg.get('representation','native'),normalization_training_sessions=model.metadata['normalization']['training_sessions'],
+                mining_training_sessions=list(train_sessions))
             modes[order]=peaks
         result[e['event']]=modes
     return result
 
 
-def prepare(experiment,trial,output,*,resume=False):
+def prepare(experiment,trial,output,*,resume=False,stop=None):
     """Cache 15 genuinely cross-fitted TRAIN models, never reuse global OOF rows.
 
     Outer held/development sessions are absent from every inner fit. Source outer
@@ -191,6 +198,7 @@ def prepare(experiment,trial,output,*,resume=False):
     else:output.mkdir(parents=True,exist_ok=False);ds.atomic_json(output/'intent.json',intent)
     cv2.setNumThreads(1);shards=[]
     for i,fold in enumerate(data['folds']):
+        if stop and stop():raise InterruptedError('Nested peak preparation interrupted')
         path=output/f'fold_{i:02d}';path.mkdir(exist_ok=True);done=path/'peaks.json'
         if done.exists():
             saved=ds.read(done)
@@ -221,8 +229,8 @@ def prepare(experiment,trial,output,*,resume=False):
                     samples,norm=vision.training_samples(data,cache,inner,cfg)
                     assert all(s.session_id in inner['train'] for s in samples)
                     model=init_heatmap_model(cfg['kind'],hidden=cfg['hidden'],seed=identity['seed'])
-                    history=train_physical_proposals(model,samples,seed=identity['seed'],checkpoint=inner_dir/'training_checkpoint.npz',
-                        identity=identity,**{k:cfg[k] for k in ('epochs','learning_rate','l2','positive_radius','loss_kind','hard_count')})
+                    history=vision.fit_proposal_model(model,data,cache,inner,cfg,norm,samples,inner_dir,
+                        seed=identity['seed'],identity=identity,stop=stop)
                     model.metadata.update(normalization=norm,fold=inner,outer_fold=fold,code=code_identity(),role='VISION_NESTED_TRAIN_PEAKS',live_authority=False)
                     model.save(inner_dir)
                     record=dict(identity=identity,history=history,model_hashes={n:ds.digest(inner_dir/n) for n in ('model.json','model.npz')})

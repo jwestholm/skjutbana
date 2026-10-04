@@ -1,5 +1,56 @@
 # Current project state
 
+## Vision representation / full-heatmap mining smoke — 2026-10-04
+
+The frozen NMS-first reranker baseline was reproduced from its saved models:
+all **45 event output coordinate lists match exactly**, with classic ∪ Vision
+top3 **32/33/34/36 of 37** at @5/@10/@20/@42. Clarification: its Vision-only
+32-peak pool covers **26/37 @5**; classic ∪ that pool covers **32/37**.
+
+`automation.physical_ai_vision_repr` now adapts the existing lab runner, V2.23.6
+convolution, registered-map cache and nested peak reranker. It supports bounded
+TRAIN-only full-heatmap negative mining, separate warmup/refinement checkpoints,
+native/context representations, session-safe scalers, immutable champions,
+per-event ranks and failure walls. The primary pool stays32 and final budget3.
+No Evidence Fusion, runtime detector, settings, game, or temporal-witness change.
+
+The audit found that the winning base model already uses stride1 and a native
+5×5 receptive field. Existing mining only reweighted its pre-sampled patch bank.
+The new miner adds at most64 full-map false peaks per TRAIN event in one round.
+The context variant retains all four native persistent channels and replaces
+unused slots with their 9×9-smoothed context; the existing network then sees a
+13px context field. It preserves native localization. Reranker physical-map
+features keep their original semantics even when upstream representation changes.
+
+Four predeclared, equal-seed/equal-epoch comparisons completed genuine nested
+development CV on37 impacts/8 controls (80 Vision fits,20 reranker fits):
+
+| Variant | Union pool @5 | Final union top3 @5/@10/@20/@42 |
+|---|---|---|
+| Frozen baseline | 32 | 32/33/34/36 |
+| Persistent maps, extra epochs, no new mining | 31 | 30/31/32/34 |
+| Persistent maps + mined peaks | 31 | 29/30/31/33 |
+| All eight maps + mined peaks | 29 | 28/30/31/34 |
+| Native persistent + context + mined peaks | 28 | 28/31/33/34 |
+
+**Negative result:** zero new hard events enter the pool; every challenger loses
+protected saves and is rejected. The frozen32 champion remains intact. Some
+deep ranks improve (S02:6 raw10036→3608 with all maps), still far outside32.
+This is not selected accuracy or physical validation. All controls still receive
+three proposals; no rejection/emission claim follows. S03 was not accessed.
+
+**NIGHT_RUN_RECOMMENDATION: NO** for this measured search space. Four trials do
+not prove all representations impossible. Next is a bounded source-information
+audit of the five failures: compare available chronological signed changes
+before normalization against the first3/last3 cached maps. Determine whether
+usable information was discarded or never captured before expanding training.
+KOMP stays ordinal-only; none of these map policies establishes clean causal PRE.
+
+Report: `/data/skjutbana/evaluation_runs/vision_representation_20261004_01/REPORT.md`.
+Search input: `/data/skjutbana/physical_ai_lab/datasets/vision_representation_v1_20261004`.
+Smoke: `/data/skjutbana/physical_ai_lab/vision_repr_smoke_20261004`.
+The earlier physical exact-witness and Synthetic V3 results remain unchanged.
+
 ## Vision peak ranking / nested OOF reranker — 2026-10-03
 
 The subsequent one-hour Vision search completed 219 trials. Its budget champions

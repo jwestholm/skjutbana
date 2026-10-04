@@ -1,6 +1,21 @@
 # Roadmap
 
-## NOW: Vision peak ranking / NMS / nested OOF reranking — 2026-10-03
+## NOW: bounded Vision representation wall measured — 2026-10-04
+
+- Implemented resumable representation/full-map-mining trials through the existing
+  lab, genuine nested OOF, pool32/final3, source hashes and protected champions.
+- Frozen union top3 remains32/37 @5. Four short controlled variants reach30,29,28,28;
+  none puts a new hard event into the bounded pool. Preserve this negative result.
+- NEXT: source-information audit on the five existing development failures:
+  chronological signed evidence before clipping versus cached first3/last3 maps.
+  No new shooting. Establish a missing-information hypothesis before another
+  training search. **Do not run the current space for nine hours tonight.**
+- LATER: nested Vision→Evidence Fusion after proposal coverage improves; preserve
+  proposal/reference-preprocessing runtime optimization, additional physical
+  evidence families when measured, and eventual live shadow validation.
+- CURRENT and S03 unchanged. No model auto-promotion or Synthetic V3 expansion.
+
+## Completed: Vision peak ranking / NMS / nested OOF reranking — 2026-10-03
 
 - One-hour Vision result: 219 trials, best bounded top3 union31/37 @5. The six
   remaining local maxima were not all near the cutoff: best raw ranks42 to74155.
