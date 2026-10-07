@@ -1,5 +1,49 @@
 # Current project state
 
+## Fusion 80k plateau, nested TRAIN cache and runner repair — 2026-10-07
+
+`fusion_week_01` was deliberately stopped at **80,000 trials**. Its final research
+champion is `trial_060456`: **22/24/25/26 Selected@5/@10/@20/@42 of37**, versus
+the frozen **32/33/34/36 candidate oracle**. Controls falsely emitted0/8;
+catastrophic >100px errors0; UNKNOWN19/45; emitted median3.974782px/P95
+13.377420px; worst-session Selected@5=0.444444. History:
+000814→006378→010489→017684→030437→060456. No later champion through80,000;
+224469.261472 seconds spent, stopped2026-10-07T11:22:06Z. This improved the
+offline frozen selected baseline20→22, not physical/live accuracy. Further search
+on the old Classic-only TRAIN/full-union HELD mismatch is not recommended.
+
+The existing Fusion adapter now accepts genuinely nested Vision TRAIN rows.
+For outer TRAIN={A,B,C}, predicting C uses Vision(A,B) and reranker(A,B);
+reranker samples for A come from Vision(B), and samples for B from Vision(A).
+Outer HELD/dev and predicted C are excluded from every upstream fit/scaler/miner.
+Reuse:15 existing pair models,5 new singleton models,15 inner rerankers, existing
+RankModel and physical evidence query. The new cache adds394 eligible Vision
+TRAIN rows across folds; all frozen HELD event records/features and labels match
+exactly. Five sessions/45 events, pool32/final3, decision threshold0.5 unchanged.
+Architecture/configuration selection remains repeated development CV.
+
+Two controlled smoke fits used the final champion configuration, first its seed,
+then seed+1. Selected results were20/23/25/26 and20/24/25/26; controls false3/0,
+catastrophes2/3, UNKNOWN14/15. Both gained S02:12 but lost three @5 successes;
+both were rejected. Established protected cases survived. **No new long run is
+recommended.** Safe TRAIN construction fixes the structural exclusion but does
+not demonstrate better selection or resolve missing/ambiguous physical evidence.
+
+Runner repairs: interruptible two-step champion publication omitted `fusion`;
+SIGINT protection also ended before final refresh. Metadata now publishes with
+the transactional champion, interruption stays deferred through finalization,
+and legacy status has a read-only fallback. Status for80k returns in~0.12s.
+The old1,596,141,694-byte leaderboard repeated full event metrics and refresh
+rescanned/resorted history. New runs use an incremental SQLite index and bounded
+top20/recent100 JSON views; immutable trial/model/champion files remain the source
+of record. The original80k artifacts were preserved, not migrated or resumed.
+102 focused tests passed, including actual SIGINT/checkpoint/status/resume.
+
+Cache: `/data/skjutbana/physical_ai_lab/datasets/fusion_nested_top3_v1_20261007`.
+Report: `/data/skjutbana/evaluation_runs/fusion_crossfit_20261007_01/REPORT.md`.
+CURRENT, settings, trace symlink and S03 unchanged; no model promotion. UNKNOWN
+still does not mean validated NO_PHYSICAL_HIT. Prior research remains below.
+
 ## Offline frozen-union selector runner — 2026-10-04
 
 `physical_ai_lab fusion-run/fusion-resume/fusion-status` reuse the existing

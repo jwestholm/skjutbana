@@ -19,7 +19,10 @@ REVISION='frozen-union-evidence-1'
 
 def code_identity():
     identity=lab.code_identity();repo=Path(__file__).resolve().parents[1]
-    for name in ('automation/physical_ai_fusion.py','src/engine/offline/common_verifier.py','src/engine/offline/clean_physical_change.py'):
+    for name in ('automation/physical_ai_fusion.py','automation/physical_ai_fusion_crossfit.py',
+                 'automation/physical_ai_vision.py','automation/physical_ai_vision_peaks.py',
+                 'src/engine/ai/training_v223/heatmap_model_v2236.py',
+                 'src/engine/offline/common_verifier.py','src/engine/offline/clean_physical_change.py'):
         identity['source_hashes'][name]=ds.digest(repo/name)
     return dict(identity,role='FROZEN_UNION_EVIDENCE_SELECTOR')
 
@@ -125,6 +128,10 @@ def build(output):
 
 
 def load(path):
+    ds.guard(path)
+    if (Path(path)/'nested.json').is_file():
+        from automation.physical_ai_fusion_crossfit import load as nested_load
+        return nested_load(path)
     data,x=ds.load(path)
     if data.get('fusion',{}).get('revision')!=REVISION:raise ValueError('Not a frozen union cache')
     for e in data['events']:
@@ -142,8 +149,15 @@ def config_for(seed,trial):
 
 def train_trial(directory,data,x,cfg,stop):
     if cfg['threshold']!=.5:raise ValueError('Frozen decision threshold')
-    result=lab.train_trial(directory,data,x,cfg,stop,training_filter=training_filter)
-    result['scope']='FULL_FROZEN_UNION_HELD; UPSTREAM_SAFE_TRAIN_ROWS_ONLY'
+    def filtered(events,fold):
+        if 'nested_training' not in data:return training_filter(events,fold)
+        record=next(r for r in data['nested_training'] if r['fold']==fold)
+        if {e['event'] for e in record['events']}!={e['event'] for e in events}:raise ValueError('Nested TRAIN coverage differs')
+        safe=training_filter(record['events'],fold)
+        if any(len(a['indices'])!=len(b['indices']) for a,b in zip(safe,record['events'])):raise ValueError('Nested rows failed lineage exclusion')
+        return safe
+    result=lab.train_trial(directory,data,x,cfg,stop,training_filter=filtered)
+    result['scope']='FULL_FROZEN_UNION_HELD; NESTED_CLASSIC_PLUS_VISION_TRAIN' if 'nested_training' in data else 'FULL_FROZEN_UNION_HELD; UPSTREAM_SAFE_TRAIN_ROWS_ONLY'
     return result
 
 
@@ -163,26 +177,43 @@ def publish(root,result,data):return lab.publish(root,result,data,compare=compar
 
 
 def refresh(root,data):
-    state=lab.refresh(root,data,compare=compare)
-    state['policy']='Selected@5; no new control/catastrophe or protected loss; worst session/@10/tails/UNKNOWN'
-    state['fusion']=data['fusion'];ds.atomic_json(root/'champion.json',state)
-    return state
+    return lab.refresh(root,data,compare=compare,metadata=dict(fusion=data['fusion'],
+        policy='Selected@5; no new control/catastrophe or protected loss; worst session/@10/tails/UNKNOWN'),
+        initial_metrics=data['fusion'].get('reference_metrics'),
+        initial_champion=data['fusion'].get('reference_champion','frozen_exact_witness_baseline'))
+
+
+def next_trial(root):
+    from automation.physical_ai_lab_index import trial_count
+    return trial_count(root)
 
 
 def status(root):
-    state=ds.read(root/'champion.json');records=lab.completed(root)
-    return dict(trials=len(records),champion=state['champion'],history=state['history'],metrics=state['metrics'],
-                scope=state['fusion'],live_authority=False,failure_wall=str(root/'failure_wall.json'))
+    from automation import physical_ai_lab_index as index
+    state=index.read_state(root) if (root/index.NAME).is_file() else ds.read(root/'champion.json')
+    scope=state.get('fusion')
+    if scope is None:
+        # Read-only compatibility with interrupted pre-index experiments.
+        manifest=ds.read(root/'manifest.json');data=ds.read(Path(manifest['dataset'])/'dataset.json')
+        if data['dataset_hash']!=manifest['dataset_hash']:raise ValueError('Status dataset identity mismatch')
+        scope=data['fusion']
+    return dict(trials=next_trial(root),champion=state['champion'],history=state['history'],metrics=state['metrics'],
+                scope=scope,live_authority=False,failure_wall=str(root/'failure_wall.json'))
 
 
 def main(argv):
     import sys
     ds.install_guard();p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
+    prep=sub.add_parser('fusion-prepare-nested');prep.add_argument('--output',type=Path,required=True);prep.add_argument('--resume',action='store_true')
     for command in ('fusion-run','fusion-resume','fusion-status'):
         q=sub.add_parser(command);q.add_argument('--experiment',required=True)
         if command!='fusion-status':q.add_argument('--hours',type=float);q.add_argument('--max-trials',type=int)
         if command=='fusion-run':q.add_argument('--dataset',type=Path,default=DEFAULT);q.add_argument('--seed',type=int,default=1729)
-    args=p.parse_args(argv);root=lab.location(lab.ROOT,args.experiment)
+    args=p.parse_args(argv)
+    if args.command=='fusion-prepare-nested':
+        from automation.physical_ai_fusion_crossfit import prepare
+        prepare(args.output,resume=args.resume);return
+    root=lab.location(lab.ROOT,args.experiment)
     if args.command=='fusion-status':print(json.dumps(status(root),indent=2));return
     resume=args.command=='fusion-resume'
     if not resume:

@@ -1,6 +1,28 @@
 # Roadmap
 
-## NOW: autonomous offline frozen-union selector training — 2026-10-04
+## NOW: nested Fusion TRAIN implemented; negative smoke preserved — 2026-10-07
+
+- Completed80,000-trial run: safe champion060456 selected22/24/25/26 of37;
+  candidate oracle32/33/34/36. No champion after60,456; controls false0,
+  catastrophes0. This is offline development, not live validation.
+- Fixed Ctrl+C/status failure and full-history leaderboard growth. Transactional
+  incremental index, bounded JSON views, preserved champion/trial artifacts;
+  original80k run remains unchanged. Checkpoint/status/resume regression-tested.
+- Existing Vision/peak/Evidence adapters now provide genuine nested TRAIN rows:
+  outer TRAIN={A,B,C}, predict C with models trained on A/B; train that reranker
+  with singleton cross-predictions B→A and A→B. No outer HELD/dev contamination.
+- Added394 eligible Vision TRAIN rows across five folds. Frozen HELD union and
+  labels unchanged. Two controlled smoke fits selected20/37, introducing control
+  or catastrophic errors. Both rejected; no protected-case regression.
+- NEXT: review this negative controlled comparison before authorizing any further
+  experiment. **No unattended search now.** Fixing TRAIN exclusion alone has not
+  closed the22-selected versus32-oracle gap; do not attribute a new physical cause
+  without a separately scoped measurement. No failure-case investigation here.
+- LATER: targeted evidence/provenance work if separately justified; preserve
+  proposal/reference runtime optimization and eventual live SHADOW validation.
+  No new capture, CURRENT promotion or S03 access.
+
+## Completed: autonomous offline frozen-union selector training — 2026-10-04
 
 - Existing lab now runs/resumes/statuses Evidence selector search against the
   frozen Classic+Vision top3 union, reporting selected metrics separately from

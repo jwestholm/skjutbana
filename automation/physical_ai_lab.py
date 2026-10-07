@@ -25,6 +25,7 @@ from src.engine.ai.training_v223.model import RankModelV223, train_fusion_model
 
 ROOT = Path('/data/skjutbana/physical_ai_lab')
 CODE_FILES = ('automation/physical_ai_dataset.py', 'automation/physical_ai_lab.py',
+              'automation/physical_ai_lab_index.py',
               'src/engine/ai/training_v223/model.py',
               'src/engine/ai/training_v223/evidence_model_v2235.py',
               'src/engine/ai/canonical_challenger.py')
@@ -165,63 +166,15 @@ def champion_entry(root, trial, metrics, data, reason):
 
 
 def publish(root, result, data, *, compare=champion_compare):
-    """O(1) trial publication; full leaderboard is rebuilt at durable boundaries."""
-    current=ds.read(root/'champion.json'); accepted=False
-    why=result.get('error','trial failed')
-    if result['status']=='COMPLETE':
-        accepted,why=compare(result['metrics'],current['metrics'])
-        if accepted:
-            entry=champion_entry(root,result['trial'],result['metrics'],data,why)
-            path=root/'champions'/(result['trial']+'.json')
-            if path.exists() and ds.read(path)!=entry: raise ValueError('Champion overwrite refused')
-            if not path.exists(): ds.atomic_json(path,entry)
-            current.update(champion=result['trial'],metrics=result['metrics'],history=current['history']+[result['trial']])
-            ds.atomic_json(root/'champion.json',current)
-    compact=dict(trial=result['trial'],status=result['status'],accepted=accepted,reason=why,
-                 selected=result.get('metrics',{}).get('selected'),finished_at=result['finished_at'])
-    # This live progress stream is advisory. result.json is the journal authority;
-    # an abrupt partial append never controls resume/champion decisions.
-    with (root/'progress.jsonl').open('a') as f:
-        f.write(json.dumps(compact,allow_nan=False)+'\n'); f.flush(); os.fsync(f.fileno())
-    return current
+    from automation import physical_ai_lab_index as index
+    return index.publish(root,result,data,compare)
 
 
-def refresh(root, data, *, compare=champion_compare):
-    baseline=ds.evaluate(data['events'],{e['event']:e['baseline_xy'] for e in data['events']})
-    incumbent=baseline; champion='frozen_exact_witness_baseline'; history=[]; leaderboard=[]
-    records=completed(root)
-    for r in records:
-        if r['status']!='COMPLETE':
-            leaderboard.append(dict(trial=r['trial'],status=r['status'],reason=r.get('error'))); continue
-        win,why=compare(r['metrics'],incumbent)
-        leaderboard.append(dict(trial=r['trial'],status=r['status'],metrics=r['metrics'],accepted=win,reason=why))
-        if win:
-            champion=r['trial']; incumbent=r['metrics']
-            entry=champion_entry(root,champion,incumbent,data,why)
-            dst=root/'champions'/(champion+'.json')
-            if dst.exists():
-                if ds.read(dst)!=entry: raise ValueError('Immutable champion record changed')
-            else: ds.atomic_json(dst,entry)
-            history.append(champion)
-    summary=dict(champion=champion,metrics=incumbent,history=history,live_authority=False,
-                 policy='Selected@5 primary; protected/catastrophe/control guardrails; then worst session/@10/coverage/tails',
-                 repeated_cv_is_development=True)
-    ds.atomic_json(root/'champion.json',summary)
-    ds.atomic_json(root/'leaderboard.json',leaderboard)
-    successes=[r for r in records if r['status']=='COMPLETE']
-    ranked=sorted(successes,key=lambda r:(r['metrics']['selected']['5'],r['metrics']['worst_session_selected5'] or 0),reverse=True)[:5]
-    failure_sets=[{q['event'] for q in r['metrics']['per_event'] if q['truth']=='HIT' and (q['error'] is None or q['error']>5)} for r in ranked]
-    common=sorted(set.intersection(*failure_sets)) if failure_sets else []
-    milestones={str(n):max(r['metrics']['selected']['5'] for r in successes[:n]) for n in (100,1000,len(successes)) if n and len(successes)>=n}
-    last=next((r['finished_at'] for r in reversed(successes) if r['trial']==champion),None)
-    ds.atomic_json(root/'failure_wall.json',dict(completed_trials=len(successes),best_after=milestones,
-                   top_model_common_failures=common,top_model_count=len(ranked),
-                   seconds_since_champion_improvement=time.time()-last if last else None,
-                   metadata={e['event']:dict(session=e['session'],truth=e['truth'],status=e['status'],caveats=e.get('caveats',[])) for e in data['events'] if e['event'] in common},
-                   interpretation='Repeated small development set can overfit; plateau is not evidence of physical sufficiency'))
-    # Rebuildable journal derived from atomic result files; no partial append recovery.
-    ds.atomic_json(root/'journal.json',[{k:r[k] for k in ('trial','status','finished_at','error') if k in r} for r in records])
-    return summary
+def refresh(root, data, *, compare=champion_compare, metadata=None,
+            initial_metrics=None, initial_champion='frozen_exact_witness_baseline'):
+    from automation import physical_ai_lab_index as index
+    return index.refresh(root,data,compare,metadata=metadata,
+                         initial_metrics=initial_metrics,initial_champion=initial_champion)
 
 
 def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False,adapter=None):
@@ -271,7 +224,9 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False,adapter=None
         stop=lambda:interrupted[0] or time.monotonic()-started>=remaining
         try:
             refresh_fn(root,data)
-            trial=len(completed(root)); failures=0
+            from automation import physical_ai_lab_index as index
+            trial=(getattr(adapter,'next_trial',None) or (lambda p:len(completed(p))))(root) if adapter else index.trial_count(root)
+            failures=0
             while not stop() and (manifest['max_trials'] is None or trial<manifest['max_trials']):
                 name=f'trial_{trial:06d}'; directory=root/'trials'/name; directory.mkdir(exist_ok=True)
                 cfg=config_fn(manifest['seed'],trial)
@@ -302,11 +257,14 @@ def run(root,dataset,*,hours,seed=1729,max_trials=None,resume=False,adapter=None
                 trial+=1
                 if failures>=3: raise RuntimeError('Three consecutive failed trials; stopping unattended loop')
         finally:
-            for sig,handler in old_handlers.items(): signal.signal(sig,handler)
-            manifest['spent_seconds']=spent_before+time.monotonic()-started
-            manifest['active_started_at']=None
-            manifest['last_stopped']=utc_iso(); ds.atomic_json(root/'manifest.json',manifest)
-            refresh_fn(root,data)
+            try:
+                # Keep SIGINT deferred through atomic metadata/index publication.
+                manifest['spent_seconds']=spent_before+time.monotonic()-started
+                manifest['active_started_at']=None
+                manifest['last_stopped']=utc_iso(); ds.atomic_json(root/'manifest.json',manifest)
+                refresh_fn(root,data)
+            finally:
+                for sig,handler in old_handlers.items(): signal.signal(sig,handler)
     return ds.read(root/'champion.json')
 
 

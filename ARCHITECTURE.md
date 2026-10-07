@@ -28,7 +28,14 @@ construct physical benchmark truth. Completed trial JSON is the recovery journal
 of record. Adam/RNG/epoch checkpoints are atomic, completed fold models are hash
 bound, and leaderboard/failure-wall summaries are rebuildable. Champion history
 is append-preserved and lives only under /data; no runtime registry is written.
-Per-trial publication avoids reloading every full historical report each trial.
+Evidence/Fusion runs now index compact trial summaries and full champion state in
+transactional SQLite (`physical_ai_lab_index`). Publication atomically updates
+count, comparison and role metadata; JSON views contain top20/recent100 results.
+Immutable result/model/champion files preserve full reproducibility; an interrupted
+publication is recovered from the next durable result, without rescanning history.
+Legacy status is read-only and can recover missing role metadata from the bound
+dataset. SIGINT stays deferred through finalization. Existing80k artifacts are not
+automatically rewritten; code-identity guards still reject mixed-code resumes.
 
 The split unit is the whole physical session. Each recorded outer fold has three
 training sessions, one development-reporting session and one unseen-by-weights
@@ -40,9 +47,35 @@ S03 names/paths/aliases are refused before source reads and never join the cache
 come from a model that excluded that event's entire physical session and the
 outer held/development sessions. Training-fold Vision features need nested
 cross-fitting, not predictions from a Vision model fitted on the same events.
-The contract checker refuses such leakage. Nested predictions now exist inside
-the Vision peak stage below; downstream Evidence-specific outer-fold generation
-is still not implemented. Vision-derived fusion inputs stay disabled.
+The contract checker refuses such leakage. The Fusion TRAIN adapter now extends
+the peak-stage cross-fitting by one level, described below. Legacy standalone OOF
+TRAIN rows remain excluded; only explicitly qualified nested rows are admitted.
+
+### Nested Vision → Evidence TRAIN cache — 2026-10-07
+
+`physical_ai_fusion_crossfit` prepares fold-specific TRAIN rows using existing
+Vision/peak models, RankModel, common physical evidence and frozen union helpers.
+For outer Evidence TRAIN={A,B,C}, HELD=H, dev=D, a proposal for C uses base
+Vision(A,B) and reranker(A,B). That reranker's training peaks on A come from
+Vision(B-only), and on B from Vision(A-only). Thus neither C nor H/D enters any
+upstream fit, scaler or miner. Repeat for A/B and each outer fold. Existing pair
+models are reused; five singleton Vision fits and fifteen inner rerankers complete
+the cache. No hyperparameter search, new evidence family or runtime owner is added.
+
+The cache retains exact XY/source/frame provenance, model hashes, training events,
+transitive model lineage and separate fold-specific feature indices. Load checks
+actual model metadata/hashes and excludes outer HELD/dev at every level. GT is
+only supervised training truth/evaluation, never an inference feature. Existing
+scalar features do not contain source/session identity or proposal-oracle values.
+TRAIN union deduplicates exact XY only, with pool32/final3 unchanged. HELD uses the
+original frozen Classic+Vision event/feature rows exactly. Train-only Evidence
+scaling/mining and threshold0.5 remain unchanged; model comparisons are development
+CV, not untouched validation. UNKNOWN does not establish NO_IMPACT.
+
+The new cache binds the80k final champion as its safety baseline. The first two
+controlled smoke fits were rejected; neither trained weights nor research
+champions change CURRENT authority. Source qualification and historical timing
+limitations survive nesting; cross-fitting cannot manufacture missing evidence.
 
 Physical evidence remains authoritative; neither learned role invents GT,
 changes gameplay coordinates, vetoes old holes/edges, nor auto-promotes live hit
@@ -60,8 +93,9 @@ the unchanged physical benchmark. Existing 5×5 spatial convolution can use stri
 1/2/4 (5/10/20-camera-pixel receptive field). Direct learned maxima map back using
 the recorded crop origin and pixel-center convention, never dense-candidate/GT
 snapping. One ranked output of at most eight peaks supplies nested budgets 1/3/8.
-Classic ∪ Vision is currently an **offline oracle comparison**, not an activated
-Evidence input. The union deduplicates only identical XY; near-duplicate rate is
+Classic ∪ Vision is an offline proposal benchmark and frozen Evidence HELD input;
+the nested cache above also supplies safe TRAIN proposals. The union deduplicates
+only identical XY; near-duplicate rate is
 reported without averaging or replacing exact points.
 
 Weights, channel statistics, positive sampling and model-scored hard-negative
@@ -80,7 +114,7 @@ frame identifiers and causal-status limitations. Independent per-image registere
 map normalization is GT-free preprocessing; learned channel statistics never fit
 held/development images. Repeated OOF model comparison remains development CV.
 Standalone OOF proposals do not solve nested upstream leakage for a downstream
-Evidence model; that integration remains disabled under the rule above.
+Evidence model; TRAIN consumption requires the additional cache described above.
 
 ### Vision peak-stage nested reranking — 2026-10-03
 
@@ -119,8 +153,9 @@ features. Model logits remain uncalibrated; a returned proposal is not a hit.
 Peak champions start from the frozen base Vision result; losing its existing
 unique saves at a given output budget blocks replacement. Per-event diagnostics
 record pool absence, actual suppression and rank failure separately. Repeated
-OOF model selection remains development research. This nested peak chain does
-not enable Vision-to-Evidence fusion or confer live authority.
+OOF model selection remains development research. This peak chain alone does not
+qualify downstream Evidence TRAIN rows; the additional cross-fitting above is
+required. Neither chain confers live authority.
 
 ### Representation and full-heatmap training adapter — 2026-10-04
 
