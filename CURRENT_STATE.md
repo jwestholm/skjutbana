@@ -1,5 +1,48 @@
 # Current project state
 
+## Focused selector-gap audit and listwise probe — 2026-10-07
+
+The frozen80k champion has ten oracle-available @5 gaps: KOMP:1/5,
+S01:2/9/10, S02:12/13, POST_FIX:2/3/8. Five proposal failures remain separate;
+the unchanged candidate oracle is32/33/34/36 of37. No relabelling or new proposals.
+
+Four good Vision candidates (KOMP:1/5, POST_FIX:3, S02:13) have **exactly identical
+36-value cached vectors to wrong Vision candidates**. Their preserved temporal
+signals differ, so this proves a selector-input collision, not absent raw physical
+information. Eleven of sixteen physical scalars are unavailable there. Producer
+morphology/local-change is absent from all five Vision gap candidates; S02:12
+retains temporal support but lacks nine local dimensions. Scalar support summaries
+do not preserve the full signal when onset is unsupported/ambiguous.
+
+TRAIN-only directional diagnostics find circularity favors the good candidate in
+POST_FIX:8/S01:9; S01:2 already ranks correctly but abstains. These are modest
+ranking/calibration opportunities, not proof of general separability. POST_FIX:2
+and S01:10 remain nonidentical but directionally ambiguous. Support/choice/state
+and darkening/change are correlated descriptions, not independent witnesses.
+
+Two predeclared event-listwise probes reused RankModel/V2.23 gradients and the
+nested TRAIN cache. Producer score/history is excluded; physical scalars/missing
+flags plus within-event ranks are used. Uniform multi-positive <=5px targets,
+explicit zero-logit UNKNOWN for native controls/no-good-candidate TRAIN events;
+no held calibration, threshold search, epoch selection or new evidence.
+
+**Linear selected23/24/25/26 of37**, gaining S02:12 without @5 regressions,
+reproduced at seeds1729/1730/1731. Controls false0/8, >42 and >100 errors0,
+protected regressions0, UNKNOWN19/45; worst-session@5=44.4%. Seed1729 median
+3.982357px/P95 13.368820px, max21.501703px. MLP selected21/24/25/26 and was
+rejected. This is a small offline development gain, not physical/live validation;
+the original trial_060456 registry/artifacts remain unchanged. The comparison
+also changes loss, feature projection and training pool relative to that champion,
+so the gain cannot be attributed to listwise loss alone.
+
+132 focused tests passed, including nested isolation and interruption/storage
+regressions. No broad or long run. Next: a bounded information audit of the
+already-saved temporal signals lost at the four scalar collisions, using TRAIN
+directions only before proposing any additional feature. More search cannot
+distinguish identical candidate vectors. No new capture is needed for that audit.
+Report: `/data/skjutbana/evaluation_runs/selector_gap_20261007_01/REPORT.md`.
+CURRENT, S03, settings, labels and trace symlink unchanged.
+
 ## Fusion 80k plateau, nested TRAIN cache and runner repair — 2026-10-07
 
 `fusion_week_01` was deliberately stopped at **80,000 trials**. Its final research

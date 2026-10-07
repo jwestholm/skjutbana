@@ -1,5 +1,28 @@
 # Roadmap
 
+## NOW: focused selector formulation measured — 2026-10-07
+
+- Audited the ten32-oracle versus22-selected gaps without regenerating evidence.
+  Four exact cached-vector collisions prove an input limitation; saved temporal
+  signals remain different. Two morphology ranking opportunities and one rank1
+  abstention justified only a bounded event-listwise comparison.
+- Linear RankModel with multi-positive <=5px/UNKNOWN event loss reaches
+  **23/24/25/26 selected of37**, gains S02:12, no @5/protected regressions, false
+  controls0, >42/>100 errors0, UNKNOWN19. Three fixed seeds agree on counts and
+  overlap. MLP reaches21/37 @5 and is rejected. Frozen oracle32/33/34/36 unchanged.
+- This remains repeated offline development evaluation, not live validation.
+  Original80k champion and engineering fixes preserved. No threshold/architecture
+  sweep; source scores/identity/XY are not physical input features.
+- NEXT: inspect which distinctions already present in the saved temporal signals
+  are collapsed at the four identical-vector cases. Use TRAIN-only comparisons
+  and existing evidence ownership; do not add a larger selector first. Do not
+  claim differing raw signals alone prove physical separability.
+- No long unattended run now. The hash-bound two-model/confirmation commands are
+  resumable; further feature/model work is a separate scoped decision. Label
+  lineage sensitivity was not run; canonical labels and held membership remain.
+- LATER: independently validated selector improvement, preserved runtime proposal
+  optimization and live SHADOW work. No CURRENT promotion or new shooting.
+
 ## NOW: nested Fusion TRAIN implemented; negative smoke preserved — 2026-10-07
 
 - Completed80,000-trial run: safe champion060456 selected22/24/25/26 of37;
