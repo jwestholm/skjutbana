@@ -207,6 +207,11 @@ class PhysicalTraceRecorder:
             self._base_provenance = {"status": "unavailable", "error": type(exc).__name__}
 
     def configure(self, settings: Mapping[str, Any] | None) -> None:
+        if os.environ.get('SKJUTBANA_PHYSICAL_TRACE_DISABLE')=='1':
+            if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+                raise ValueError('Explicit full capture and trace-disable are mutually exclusive')
+            self.enabled=False
+            return  # process-only gameplay; never write into saved historical roots
         values = settings if isinstance(settings, Mapping) else {}
         self.enabled = bool(values.get("physical_trace_capture_enabled", False))
         if values.get("physical_trace_root"):

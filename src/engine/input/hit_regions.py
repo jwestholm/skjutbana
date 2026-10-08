@@ -36,7 +36,8 @@ def hit_context_snapshot_for_shot(shot_id: int):
 
 
 def object_query_regions(regions, *, top_k=3, margin_camera_px=36., owner=None,
-                         surface_after_ts=None, require_presented_surface=False):
+                         surface_after_ts=None, require_presented_surface=False,
+                         result_semantics=None):
     """Request OBJECT over these shot-frozen regions. Margin never expands collision.
 
     Results arrive as EventBus ``physical.object_result`` and remain available
@@ -46,8 +47,21 @@ def object_query_regions(regions, *, top_k=3, margin_camera_px=36., owner=None,
     config=dict(mode='OBJECT',top_k=min(3,int(top_k)),
         margin_camera_px=max(0.,min(128.,float(margin_camera_px))))
     if owner is not None: config['owner']=str(owner)
+    if result_semantics is not None:
+        if result_semantics != 'OBJECT_HIT': raise ValueError('Unknown object result semantics')
+        config['result_semantics']=result_semantics
     if require_presented_surface: config['surface_after_ts']=surface_after_ts
     return tuple(replace(r,metadata={**r.metadata,'physical_query':dict(config)}) for r in regions)
+
+
+def object_hit_regions(regions, **kwargs):
+    """Opt in to one credible object or UNKNOWN, using the existing scoped query.
+
+    ``physical.object_result.data.object_decision`` carries state/object_id and
+    observed diagnostic XY. Multiple supported objects abstain; no global XY
+    fallback. GameObject exact shapes take precedence over plain HitRegion rects.
+    """
+    return object_query_regions(regions, result_semantics='OBJECT_HIT', **kwargs)
 
 
 def object_physical_result(shot_id):
@@ -63,5 +77,6 @@ __all__ = [
     "latest_hit_context_snapshot",
     "hit_context_snapshot_for_shot",
     "object_query_regions",
+    "object_hit_regions",
     "object_physical_result",
 ]

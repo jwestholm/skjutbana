@@ -859,6 +859,10 @@ class ObjectHitRegistryV2223:
                 dispatch_started=time.perf_counter()
                 event_bus.emit('physical.object_result',query.result,source='OBJECT')
                 query.result['timing']['event_bus_delivery_ms']=(time.perf_counter()-dispatch_started)*1000.
+                if query.object_hit_requested:
+                    import json
+                    print('[OBJECT-HIT] '+json.dumps(query.compact_record(gameplay=snap.object_gameplay,
+                        current=snap.object_current),separators=(',',':')),flush=True)
 
     def object_result(self, shot_id):
         snap=self.snapshot_for_shot(shot_id)
@@ -903,6 +907,12 @@ class ObjectHitRegistryV2223:
                 semantics='Scoped physical query and ordinary CURRENT; neither game intent nor collision is physical GT')
             q.result['comparison_diagnostic']=dict(current=current,agreement=comparisons,audio_playback=audio)
             event_bus.emit('physical.object_comparison',payload,source='OBJECT')
+            if q.object_hit_requested:
+                # Immediate OBJECT-HIT already allowed gameplay. CURRENT is a
+                # later diagnostic, never the source of the object decision.
+                print('[OBJECT-HIT-CURRENT] '+json.dumps(q.compact_record(gameplay=gameplay,
+                    current=current),separators=(',',':')),flush=True)
+                continue
             print('[OBJECT-SHOT] '+json.dumps(dict(shot_id=snap.shot_id,status=q.result['status'],
                 frozen_regions=regions,frozen_shapes=shapes,pixels=q.search_pixels,
                 peak_ts=q.peak_ts,first_post_ts=q.first_post_ts,decision_ts=q.result['decision_ts'],

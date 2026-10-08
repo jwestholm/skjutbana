@@ -202,7 +202,7 @@ class Sequences(unittest.TestCase):
             mode='OBJECT',status='PHYSICAL_HIT',hypotheses=[],peak_ts=old.peak_ts)))
         self.assertEqual(self.game.shots_used,{1:0,2:0});self.assertEqual(self.game.player,2)
 
-    def test_two_hypotheses_two_objects_one_game_hit(self):
+    def test_two_supported_objects_abstain_in_opt_in_game(self):
         snap=self.freeze();points=[self.target(n).geometry.center for n in ('soda_can','gold_can')]
         q=ObjectPhysicalQuery(snap,[fixture.frame(self.surface,self.now-.04)],camera_to_game=lambda x,y:(x,y))
         post=self.surface.copy()
@@ -212,8 +212,9 @@ class Sequences(unittest.TestCase):
         r=q.observe(fixture.frame(post,self.now+.066),delivered_ts=self.now+.07)
         self.assertGreaterEqual(len(r['hypotheses']),2)
         self.game._on_object_event(dict(event='physical.object_result',data=r))
-        self.assertEqual(self.game.hits[1],1)
-        self.assertEqual(sum(s.play.call_count for s in self.sounds.values()),1)
+        self.assertEqual(r['object_decision']['state'],'UNKNOWN')
+        self.assertEqual(self.game.hits[1],0)
+        self.assertEqual(sum(s.play.call_count for s in self.sounds.values()),0)
 
     def test_normal_render_stays_frozen_before_decision(self):
         self.game.markers.append(can.ImpactMarker(120,90,True,'fixture',self.now))
@@ -272,6 +273,12 @@ class Sequences(unittest.TestCase):
         self.assertEqual(self.game.hits[1],0)
 
     def test_full_match_streak_and_perfect_bonus_once(self):
+        # This test isolates GAME scoring/round flow with a fixed camera mapping.
+        # The actual uniform old-hole registration produces competing hypotheses;
+        # its correct UNKNOWN result is preserved in the separate regression.
+        register=patch('src.engine.camera.object_physical_query.CandidateGeneratorV2._register_current',
+            side_effect=lambda _,post,pre,**kw:(pre,{'applied':False,'fixture':'fixed_registration'}))
+        register.start();self.addCleanup(register.stop)
         for player in (1,2):
             expected=0
             for i,name in enumerate(('soda_can','rubber_duck','gold_can','beans_xxl','sardines')):
@@ -284,6 +291,16 @@ class Sequences(unittest.TestCase):
             self.assertEqual(self.game.shots_used[player],5);self.assertEqual(self.game.hits[player],5)
             if player==1:self.game._advance_after_player_result();self.live()
         self.game._advance_after_player_result();self.assertEqual(self.game.phase,'game_over')
+
+    def test_uniform_old_hole_registration_ambiguity_is_not_gameplay_truth(self):
+        for name in ('soda_can','rubber_duck','gold_can','beans_xxl','sardines'):
+            self.shoot(name);self.live() if self.game.shots_used[1]<5 else None
+        self.game._start_player(2);self.live()
+        self.shoot('soda_can',level=0);self.live()
+        snap=self.shoot('rubber_duck',level=0)
+        self.assertGreater(len(snap.object_query.result['object_decision']['supported_object_ids']),1)
+        self.assertEqual(snap.object_query.result['object_decision']['state'],'UNKNOWN')
+        self.assertEqual(self.game.hits[2],1)
 
     def test_playback_audio_is_visible_but_not_misclassified_or_scored(self):
         for name in ('rubber_duck','soda_can'):
@@ -320,8 +337,10 @@ class Sequences(unittest.TestCase):
         self.assertEqual(record['gameplay']['player'],1)
         self.assertIsNotNone(record['gameplay']['reaction_presented_ts'])
         self.assertIsNotNone(record['gameplay']['sfx']['start_ts'])
-        self.assertEqual(record['hypotheses'][0]['producer'],'OBJECT_LOCAL_CHANGE')
-        self.assertIsNotNone(record['agreement'][0]['camera_distance_px'])
+        self.assertEqual(record['semantic'],'OBJECT_HIT')
+        self.assertIsNotNone(record['diagnostic_xy']['camera_xy'])
+        self.assertEqual(record['exact_coordinate_result']['camera_xy'],[1.,2.])
+        self.assertNotIn('candidate_ledger',record)
 
 
 class Properties(unittest.TestCase):

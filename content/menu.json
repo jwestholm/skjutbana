@@ -445,7 +445,7 @@
             "id": "shoot_stuff_range",
             "title": "Skjutprylar",
             "type": "game",
-            "description": "Två spelare, fem skott var. Sju fysiskt skalade mål per omgång: burkar, toarulle, gummianka, sardiner och annat trams. +/- ändrar avståndet i 5-meterssteg. Tillfällig spel-assist kan använda en stark kandidat inne i ett aktivt mål om den slutligt valda träffkoordinaten missar.",
+            "description": "Två spelare, fem skott var. Sju fysiskt skalade mål per omgång: burkar, toarulle, gummianka, sardiner och annat trams. +/- ändrar avståndet i 5-meterssteg. Fysisk OBJECT_HIT i frysta målregioner; osäkra eller tvetydiga träffar ger ingen objektträff.",
             "preview": "assets/thumbs/game_icon.png",
             "script": "content/games/can_shootout_game.py",
             "path": "",

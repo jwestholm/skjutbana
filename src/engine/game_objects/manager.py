@@ -215,6 +215,17 @@ class ObjectManager:
         sid = int(result.get('shot_id', 0) or 0)
         if sid <= 0 or result.get('mode') != 'OBJECT' or result.get('status') != 'PHYSICAL_HIT':
             return None, None
+        hypotheses=result.get('hypotheses', ())[:3]
+        if result.get('result_semantics')=='OBJECT_HIT':
+            decision=result.get('object_decision',{})
+            if decision.get('state')!='OBJECT_HIT':return None,None
+            h=decision.get('hypothesis') or {}
+            xy=h.get('game_xy')
+            if not h.get('confirmed') or xy is None:return None,None
+            snapshot,hits=self._frozen_hits(sid,*xy)
+            if snapshot is None or {v['object_id'] for v in hits}!={decision.get('object_id')}:
+                return None,None
+            hypotheses=[h]
         cache = getattr(self, '_object_query_resolutions', None)
         if cache is None:
             cache = self._object_query_resolutions = {}
@@ -223,7 +234,7 @@ class ObjectManager:
         cache[sid] = True
         for old in sorted(cache)[:-32]:
             cache.pop(old, None)
-        for hypothesis in result.get('hypotheses', ())[:3]:
+        for hypothesis in hypotheses:
             xy = hypothesis.get('game_xy')
             if not hypothesis.get('confirmed') or xy is None:
                 continue

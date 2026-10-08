@@ -51,6 +51,8 @@ class ObjectPhysicalQuery:
         self.peak_ts = snapshot.peak_ts
         self.regions = deepcopy(tuple(snapshot.camera_regions))
         self.game_regions = deepcopy(tuple(snapshot.game_regions))
+        self.object_hit_requested = any(r.metadata.get('physical_query',{}).get(
+            'result_semantics') == 'OBJECT_HIT' for r in self.game_regions)
         self.camera_to_game = camera_to_game
         self.capture_crop=capture_crop
         if int(top_k)<1: raise ValueError('OBJECT top_k must be positive')
@@ -70,6 +72,8 @@ class ObjectPhysicalQuery:
         self.roi_prepare_ms = self.pre_prepare_ms = 0.
         self.post_analysis_ms = []
         self.merge_dedupe_ms = []
+        self.proposal_ms = []
+        self.local_confirmation_ms = []
         self.candidate_count = 0
         self.examined_candidate_count = 0
         self.result = None
@@ -307,6 +311,7 @@ class ObjectPhysicalQuery:
             values = absolute[mask>0]
             median = float(np.median(values))
             threshold = max(3.,median+3.*1.4826*float(np.median(np.abs(values-median))))
+            proposal_started=time.perf_counter()
             binary = ((absolute>=threshold)&(mask>0)).astype(np.uint8)
             count,labels,stats,_ = cv2.connectedComponentsWithStats(binary,8)
             self.saw_change |= count>1
@@ -338,6 +343,8 @@ class ObjectPhysicalQuery:
                 py,px = np.unravel_index(np.argmax(support),support.shape)
                 ranked.append((float(support[py,px]),x+px,y+py,int(area),int(component)))
             ranked.sort(reverse=True)
+            self.proposal_ms.append((time.perf_counter()-proposal_started)*1000.)
+            evidence_started=time.perf_counter()
             self.candidate_count += len(ranked)
             for nomination_score,x,y,area,component in ranked:
                 if over_budget(): return self.result
@@ -366,6 +373,12 @@ class ObjectPhysicalQuery:
                     shape=(original.metadata.get('v250_object_snapshot',{}).get('shape') if original else None)
                     if game_xy is not None and shape:
                         exact=shape_contains(shape,*game_xy)
+                    elif self.object_hit_requested and game_xy is not None and original is not None:
+                        # Plain HitRegion has rectangular semantics. Context
+                        # margin never enters this exact game-space membership.
+                        gx,gy=game_xy
+                        exact=(original.x<=gx<original.x+original.width and
+                               original.y<=gy<original.y+original.height)
                     associations.append(dict(object_id=region.object_id,inside_camera_aabb=distance==0.,
                         camera_aabb_distance_px=distance,inside_exact_shape=exact))
                 if not associations:
@@ -389,6 +402,7 @@ class ObjectPhysicalQuery:
                     known_hole_semantics='context_only_no_truth_update'))
             tile['previous']=(absolute,signed)
             tile['previous_ts']=ts
+            self.local_confirmation_ms.append((time.perf_counter()-evidence_started)*1000.)
         if over_budget(): return self.result
         merge_started=time.perf_counter()
         self.post_analysis_ms.append((merge_started-started)*1000.)
@@ -431,6 +445,7 @@ class ObjectPhysicalQuery:
             timing=dict(prepare_ms=getattr(self,'prepare_ms',0.),processing_ms=list(self.processing_ms),
                 roi_prepare_ms=self.roi_prepare_ms,pre_prepare_ms=self.pre_prepare_ms,
                 post_analysis_ms=list(self.post_analysis_ms),merge_dedupe_ms=list(self.merge_dedupe_ms),
+                proposal_ms=list(self.proposal_ms),local_confirmation_ms=list(self.local_confirmation_ms),
                 audio_to_first_frame_ms=None if self.first_post_ts is None else (self.first_post_ts-self.peak_ts)*1000,
                 audio_to_first_hypothesis_ms=None if self.first_hypothesis_ts is None else (self.first_hypothesis_ts-self.peak_ts)*1000,
                 audio_to_decision_ms=(now-self.peak_ts)*1000,
@@ -439,5 +454,60 @@ class ObjectPhysicalQuery:
     def finish(self,status,reason,now=None):
         self.final=True
         self.result=self.payload(status,reason,now)
+        if self.object_hit_requested:
+            started=time.perf_counter()
+            self.result['result_semantics']='OBJECT_HIT'
+            self.result['object_decision']=self._object_decision(status,reason)
+            self.result['timing']['object_decision_ms']=(time.perf_counter()-started)*1000.
         self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
         return self.result
+
+    def _object_decision(self,status,reason):
+        """Resolve supported local observations before public top-k truncation.
+
+        No thresholds/scores change. More than one supported requested object is
+        ambiguous, including overlapping shapes. Retain diagnostics, never pick
+        an object by depth, priority, distance or arbitrary list order.
+        """
+        supported={}
+        if status=='PHYSICAL_HIT':
+            for row in self.per_object:
+                oid=row['object_id']
+                points=[c for c in row['candidates'] if c['confirmed'] and any(
+                    a['object_id']==oid and a['inside_exact_shape'] is True for a in c['regions'])]
+                if points: supported[oid]=min(points,key=self._physical_order)
+        oid=next(iter(supported)) if len(supported)==1 else None
+        state='OBJECT_HIT' if oid is not None else ('NO_OBJECT_HIT' if status=='NO_PHYSICAL_HIT' else 'UNKNOWN')
+        chosen=supported.get(oid)
+        if chosen is not None:
+            chosen=next((h for h in self.result['hypotheses'] if h['camera_xy']==chosen['camera_xy']),chosen)
+        return dict(state=state,object_id=oid,hypothesis=deepcopy(chosen),
+            supported_object_ids=sorted(supported),
+            reason=('unique_supported_object' if oid is not None else
+                'multiple_supported_objects' if len(supported)>1 else
+                'no_confirmed_point_in_requested_shape' if status=='PHYSICAL_HIT' else reason),
+            scope='requested_frozen_objects_only',global_rescue_used=False,
+            no_physical_impact_established=False)
+
+    def compact_record(self, *, gameplay=None, current=None):
+        """Bounded per-object diagnostics; no pixel arrays or frame ledgers."""
+        result=self.result or {}
+        def point(c):
+            if c is None:return None
+            return {k:c.get(k) for k in ('camera_xy','game_xy','confirmed','evidence_score',
+                'evidence_decision','evidence','previous_same_xy_evidence','frame_ts',
+                'previous_frame_ts','pre_frame_ts','registration','producer','component_id','tile_camera_bbox')}
+        decision=result.get('object_decision',{})
+        return dict(shot_id=self.shot_id,semantic='OBJECT_HIT',status=decision.get('state','UNKNOWN'),
+            physical_query_status=result.get('status'),
+            object_id=decision.get('object_id'),reason=decision.get('reason'),
+            supported_object_ids=decision.get('supported_object_ids',[]),
+            diagnostic_xy=point(decision.get('hypothesis')),
+            frozen_regions=[dict(object_id=r.object_id,camera_aabb=[r.x,r.y,r.width,r.height]) for r in self.regions],
+            per_object=[dict(object_id=r.object_id,game_aabb=[r.x,r.y,r.width,r.height],
+                shape=r.metadata.get('v250_object_snapshot',{}).get('shape'),
+                best_candidate=point(next((row['candidates'][0] for row in self.per_object
+                    if row['object_id']==r.object_id and row['candidates']),None))) for r in self.game_regions],
+            timing=result.get('timing',{}),searched_pixels=self.search_pixels,
+            global_rescue_used_for_object=False,exact_coordinate_result=dict(current or {'state':'pending'}),
+            gameplay=dict(gameplay or {}),physical_accuracy_claim=False)

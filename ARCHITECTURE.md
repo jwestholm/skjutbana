@@ -1,5 +1,35 @@
 # Architecture
 
+## Opt-in OBJECT_HIT gameplay contract — 2026-10-08
+
+`input.hit_regions.object_hit_regions` extends the existing OBJECT request; it does
+not add a detector or history owner. PANG freezes requested regions, exact shapes
+and calibrated camera/game mapping in ObjectShotSnapshotV2223. Existing
+ObjectPhysicalQuery uses camera-ring PRE/POST crops, V2 registration and V2.25
+disc/ring confirmation, with bounded regional proposals and same-XY persistence.
+`physical.object_result` additionally carries `result_semantics=OBJECT_HIT` and
+`object_decision={state, object_id, hypothesis, supported_object_ids, reason}`.
+Only one physically supported exact object qualifies. Several supported objects
+abstain before public top-k truncation; no game priority/z-order chooses physical
+identity. A plain HitRegion means its exact rectangle; GameObjects retain their
+frozen shape. Search margin never expands object membership. NO_OBJECT_HIT is
+scoped to requested objects and does not prove global NO_IMPACT.
+
+ObjectManager consumes that decision with its existing frozen generation/active
+guards and damage mechanics. Can gameplay opts in; legacy OBJECT and ordinary
+HitEvent/exact-coordinate behavior remain available. Global CURRENT/FULL rescue
+is independent diagnostic work and cannot supply an OBJECT_HIT. Immediate compact
+OBJECT-HIT logging precedes the later OBJECT-HIT-CURRENT comparison; neither waits
+for global exact-coordinate success. Exact observed XY remains diagnostic and is
+never snapped. Timing records reuse the query and add proposal/confirmation/object
+decision costs. No scheduler, learned gate or new evidence family was introduced.
+
+The gameplay launcher uses the existing process/log owner with
+`SKJUTBANA_PHYSICAL_TRACE_DISABLE=1`, disallowing simultaneous explicit full capture.
+Saved settings and trace roots remain unchanged. Full research capture still uses
+the existing explicit binding/preflight; compact gameplay is not a claim that its
+historical physical PRE/timing qualification has been resolved.
+
 ## Offline physical AI lab: two learned roles — 2026-10-03
 
 `automation.physical_ai_dataset` adapts the existing exact EvidenceBundle witness

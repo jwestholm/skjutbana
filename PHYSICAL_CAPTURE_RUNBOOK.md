@@ -1,5 +1,71 @@
 # Physical capture runbook
 
+## Play today: existing Skjutprylar OBJECT_HIT test — 2026-10-08
+
+This is normal gameplay with compact diagnostics, not the old full research
+capture/preflight workflow. Use the existing calibrated camera, projection and
+audio setup. No new game, model, labels or saved settings are installed.
+
+From the repository root:
+
+```bash
+python3 -m automation.physical_collection play-can \
+  --output-dir /data/skjutbana/evaluation_runs/can_play_01
+```
+
+Choose **Spel > Skjutprylar** (the existing `shoot_stuff_range` entry), at **20 m**.
+The launcher starts the normal menu, mutes can SFX for the initial controls, turns
+off comparison visual hold and disables full-frame physical traces **only in this
+process**. The output directory must be new; choose `can_play_02` for another run.
+Never reuse an old capture directory. Existing `launch-can` still means a full
+research capture with its own foundation preflight; it is not this command.
+
+Before shooting, check projected alignment with the usual setup. If visibly wrong,
+use the existing calibration menu. Wait until the HUD says **SKJUT!** and the image
+has settled for at least one second before each shot. The old late-PRE limitation
+is not fixed by OBJECT_HIT; this test measures practical behavior rather than
+asserting that the physical reference is already validated.
+
+1. **Player 1, shots 1–5:** one clear physical hit inside each of MINIBURK,
+   LÄSKBURK, GULDBURK, BÖNBURK XXL and SARDINER, in that order. The sardine tin is
+   the fifth can; leave the duck and toilet roll alone.
+2. Wait for **Player 2** and the restored rack. **Shots 6–10:** repeat those five
+   objects, one hit each. Use a visibly different spot within each object rather
+   than assuming another projectile through the same hole creates new damage.
+3. After the match, press **R**, wait for SKJUT! and settled projection.
+   **Shots 11–15:** deliberately hit paper between/outside all active objects:
+   left of the rack, between mini/soda, between roll/gold, below the shelf, right
+   of the rack. Stay inside the calibrated shooting surface. Avoid all seven
+   active shapes, including the duck and roll. If a false hit removes an object,
+   reset with R and wait again before the next control.
+
+For every shot, independently observe the physical placement; intended aim is
+not truth. Fill `event_notes.json` with the corresponding console `shot_id`, actual
+object (or outside), and result. Unknown placement is marked uncertain, not guessed.
+Unexpected audio-triggered events get separate notes rather than silently shifting
+shot numbers.
+
+| Human-observed physical placement | Record |
+| --- | --- |
+| Inside intended active object | correct_object / wrong_object / no_object_detected |
+| Outside all active objects | correctly_no_object / false_object_hit |
+
+Grade object identity, **not camera @5 accuracy**. Diagnostic XY is retained.
+The console/runtime.log has immediate `[OBJECT-HIT]` records and later
+`[OBJECT-HIT-CURRENT]` comparisons with ordinary exact-coordinate output. Fields
+include frozen regions/shapes, per-object best candidate/evidence, UNKNOWN reasons,
+timing, and `global_rescue_used_for_object=false`. Ordinary global rescue can still
+run independently and retains its existing shot-id runtime messages. No raw image
+datasets or frame ledgers are saved by this launcher. `runtime_exit.json` records
+process exit; `play.json` records source hashes and the settings hash.
+
+Initial practical target is at least95% correct object identity and zero false
+object hits on outside shots. With only10 target trials that means10/10 for95%;
+**9/10 targets and5/5 clean controls is PLAYABLE for this initial check**, not a
+general95% validation claim. Preserve a playable result and play. If poor, inspect
+the observed failures and compact evidence before changing mechanics. Do not start
+another selector/locality sweep. UNKNOWN is an abstention, not proof of NO_IMPACT.
+
 ## Kompetensprov diagnostic recovery lesson — 2026-09-27
 
 `launch-kompetensprov` is a **silent, static diagnostic**, without the normal

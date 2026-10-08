@@ -9,6 +9,7 @@ The project must remain enjoyable to build and use. Near-term work therefore pri
 
 ### NOW — make OBJECT_HIT practically usable in existing games
 
+- Software checkpoint 2026-10-08: existing **Skjutprylar** now opts into explicit single-object/UNKNOWN results over the existing region-local query; ambiguous objects abstain. `physical_collection play-can` launches normal gameplay with compact logs/15-shot notes and no full traces or settings writes. **Next action is the 10-target + 5-outside physical test**, not further selector work. Physical reliability and real latency remain unverified; see CURRENT_STATE.md and PHYSICAL_CAPTURE_RUNBOOK.md.
 - Reuse the existing GameObject / HitRegion / shot-id / frozen-shot geometry and object-local physical search. Do **not** build a parallel detector and do not rebuild existing games such as the can-shooting game.
 - Add/finish `OBJECT_HIT` as an opt-in engine semantic: the game supplies active object regions; the physical engine inspects only those relevant regions and returns the physically supported object, `UNKNOWN`, or no hit.
 - `OBJECT_HIT` must not be implemented as global exact-XY selection followed by nearest-object snapping. Region context narrows where physical evidence is evaluated; it never creates a hit.

@@ -33,7 +33,7 @@ def stats(values):
                 p95=float(np.percentile(values,95)),maximum=float(max(values)))
 
 
-def run(output,repeats):
+def run(output,repeats,object_hit=False):
     output.mkdir(parents=True,exist_ok=False)
     pygame.init();pygame.display.set_mode((800,600))
     game=ShootStuffGame('',pygame.Rect(0,0,800,600));game.on_enter()
@@ -61,6 +61,9 @@ def run(output,repeats):
             return manager
         manager=manager_for_sample()
         regions=manager.get_hit_regions()
+        if object_hit:
+            from src.engine.input.hit_regions import object_hit_regions
+            regions=object_hit_regions(regions)
         camera=tuple(transform_game_rect_to_camera_aabb(r,(0,0,800,600),lambda x,y:(x*4.8,y*3.6)) for r in regions)
         snap=ObjectShotSnapshotV2223(1,2.,2.,(),game_regions=regions,camera_regions=camera,transform_available=True)
         c=camera[0];x,y=round(c.x+c.width/2),round(c.y+c.height/2)
@@ -100,6 +103,8 @@ def run(output,repeats):
                     second_frame_ms=(end-first)*1000,processing_total_ms=(end-start)*1000,
                     roi_prepare_ms=q.roi_prepare_ms,pre_prepare_ms=q.pre_prepare_ms,
                     merge_dedupe_total_ms=sum(q.merge_dedupe_ms),event_bus_total_ms=bus_ms,
+                    proposal_ms=sum(q.proposal_ms),local_confirmation_ms=sum(q.local_confirmation_ms),
+                    object_decision_ms=q.result['timing'].get('object_decision_ms',0.),
                     event_bus_overhead_ms=max(0,bus_ms-sum(delivery.values())),**delivery))
                 observations.append(q.result)
         results.append(dict(distance_m=distance,active_regions=count,layout=layout,repeats=repeats,
@@ -115,7 +120,7 @@ def run(output,repeats):
         with wave.open(str(output/(target+'.wav')),'wb') as f:
             f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050);f.writeframes(hit_sound_wave(target,22050).tobytes())
     game.on_exit()
-    report=dict(status='SOFTWARE_BENCHMARK_NOT_PHYSICAL_VALIDATION',cases=results,
+    report=dict(status='SOFTWARE_BENCHMARK_NOT_PHYSICAL_VALIDATION',object_hit=object_hit,cases=results,
         camera_wait_and_real_audio_to_gameplay_latency='NOT_MEASURED',
         blocking='Synchronous bounded crop CPU only; no capture_fresh_frame, sleeps, disk reads or waiting on global CV',
         delivery_semantics='Real ObjectManager and EventBus with one resolver/SFX subscriber; no rendering, camera wait or microphone. SDL dummy output.',
@@ -132,6 +137,7 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--repeats',type=int,default=20)
+    parser.add_argument('--object-hit',action='store_true',help='Time the opt-in single-object/ambiguity decision')
     args=parser.parse_args()
     if args.repeats<1:parser.error('repeats must be positive')
-    run(args.output,args.repeats)
+    run(args.output,args.repeats,args.object_hit)

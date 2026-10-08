@@ -1,5 +1,53 @@
 # Current project state
 
+## Existing Skjutprylar: opt-in OBJECT_HIT ready for gameplay test — 2026-10-08
+
+The existing can game already had a live ObjectPhysicalQuery, frozen GameObject
+geometry, two-frame local confirmation and immediate reactions. Reused that path;
+no detector, game, model or evidence subsystem was replaced. `object_hit_regions`
+now requests an explicit `object_decision` on the existing physical.object_result:
+one supported frozen object -> OBJECT_HIT(id); competing supported objects ->
+UNKNOWN. Selection reads per-object evidence before public top-three truncation.
+Exact shapes (or a plain HitRegion's rectangle) define membership; technical search
+margin, global CURRENT/FULL rescue and fictional z-order cannot create object hits.
+ObjectManager verifies the frozen identity and preserves exact observed diagnostic
+XY, active/generation guards and once-only damage. Can scoring/art/rounds unchanged.
+
+`python3 -m automation.physical_collection play-can --output-dir /data/skjutbana/evaluation_runs/can_play_01`
+starts the normal app: choose **Spel > Skjutprylar**, at 20 m. The process mutes can
+SFX and disables full physical tracing without editing saved settings (currently
+pointing at an old trace root). Compact OBJECT-HIT decision and later CURRENT logs,
+source hashes and 15-shot manual notes go into the fresh output directory. Existing
+full research capture/preflight remains separate and unchanged. No hardware or new
+physical capture was started by this implementation task.
+
+Test: five named cans once each as player 1, again as player 2; R resets, then five
+deliberate outside/between shots. Record observed object, shot_id and correct/wrong/
+missing object, or false/clean control. Independent physical observation remains
+truth; intended aim and game response are not labels. Full steps are in
+PHYSICAL_CAPTURE_RUNBOOK.md. Nine of ten targets with five clean controls can be
+called PLAYABLE under this initial test, not proof of general 95% physical accuracy.
+
+154 targeted tests and 150 V2.24/V2.25 explicit checks pass. A uniform old-hole
+fixture exposes existing registration-generated competing hypotheses: the new
+semantic correctly abstains. Game scoring is separately tested with fixed fixture
+registration; no production threshold was weakened. Five isolated generated-4K
+timing samples for seven targets: total crop CPU mean 55.36 ms, P95 56.07 ms;
+proposal 8.12 ms, local confirmation 0.84 ms, object decision 0.065 ms. This excludes
+real camera/audio waits, projector response, rendering and competing CURRENT work.
+The existing 350 ms deadline remains; overload abstains. No live latency or physical
+accuracy improvement is claimed. PRE may still be post-damage; physical reliability
+must be established by the short gameplay test.
+
+Shoot/Don't Shoot was inventoried: it currently has sprite slots/countdown, no
+HitRegions or physical-result consumer. The same API can expose frozen sprite
+regions for both friendly/hostile characters and let game rules consume object_id;
+no separate detector is needed. Migration is parked until the can test.
+
+Exact-coordinate code/FULL rescue, safe offline linear 23/24/25/26 and oracle
+32/33/34/36 are unchanged. Locality/selector research remains closed. S03 untouched.
+Software artifacts: `/data/skjutbana/evaluation_runs/object_hit_gameplay_20261008_01/`.
+
 ## Locality-midrank ablation: false controls remain — 2026-10-08
 
 Removed only `core_ring_concentration__event_midrank` from the rejected locality

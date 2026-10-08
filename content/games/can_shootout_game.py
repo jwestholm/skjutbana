@@ -7,8 +7,8 @@ Default virtual distance: 20 m
 Distance controls: + / - in 5 m steps (starts a fresh match).
 
 Physical hit policy:
-- OBJECT queries frozen regions and returns actual observed physical coordinates.
-- Exact frozen GameObject shapes resolve up to three confirmed hypotheses.
+- OBJECT_HIT queries frozen regions and retains observed coordinates as diagnostics.
+- One supported exact frozen GameObject scores; competing objects remain UNKNOWN.
 - No center snapping, SHADOW fallback or synthetic HitInput event.
 - CURRENT is independently logged; OBJECT is not global accuracy validation.
 
@@ -38,7 +38,7 @@ from src.engine.game_objects import (
     make_breakable_object,
 )
 from src.engine.input.hit_input import HitEvent, hit_input
-from src.engine.input.hit_regions import object_query_regions, hit_context_snapshot_for_shot
+from src.engine.input.hit_regions import object_hit_regions, hit_context_snapshot_for_shot
 from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
 from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.events import event_bus
@@ -574,7 +574,7 @@ class ShootStuffGame:
         regions = tuple(replace(r, metadata={**r.metadata,
             'can_query_owner': self._query_owner, 'can_round': self._round_token,
             'can_player':self.player,'can_distance_m':self.distance_m}) for r in regions)
-        return object_query_regions(regions, top_k=3, owner=self._query_owner,
+        return object_hit_regions(regions, top_k=3, owner=self._query_owner,
             surface_after_ts=self._live_presented_ts, require_presented_surface=True)
 
     def on_object_shot_frozen(self, snapshot):
@@ -864,7 +864,8 @@ class ShootStuffGame:
             if xy is not None:
                 self.markers.append(ImpactMarker(gameplay_x,gameplay_y,False,'MISS',now))
                 self._spawn_miss_particles(gameplay_x,gameplay_y)
-            uncertain = physical is not None and physical['status'] == 'UNCERTAIN'
+            uncertain = physical is not None and (physical['status'] == 'UNCERTAIN' or
+                physical.get('object_decision',{}).get('state')=='UNKNOWN')
             self.overlay_title = 'OSÄKERT' if uncertain else 'MISS!'
             self.overlay_subtitle = 'Ingen säker objektträff' if uncertain else 'Ingen träff i målformen'
             self.overlay_color = AMBER if uncertain else BAD

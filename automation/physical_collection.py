@@ -176,12 +176,53 @@ def launch_can(output,trace_root,foundation_report=None):
  env=dict(os.environ,SKJUTBANA_PHYSICAL_CAPTURE_BINDING=str(binding),SKJUTBANA_CAN_SFX='0',SKJUTBANA_OBJECT_COMPARE='0')
  return _run_capture(binding,env)
 
+def prepare_can_play(output):
+ """Compact gameplay acceptance, not a full research-capture binding."""
+ output=_development_path(output)
+ if not output.resolve().is_relative_to(Path('/data/skjutbana')):
+  raise ValueError('Gameplay diagnostics must be under /data/skjutbana')
+ output.mkdir(parents=True,exist_ok=False)
+ targets=['mini_can','soda_can','gold_can','beans_xxl','sardines']
+ notes=[dict(shot=i+1,player=1+i//5,intended_object=targets[i%5],
+   observed_physical_object=None,shot_id=None,result=None,notes='') for i in range(10)]
+ notes.extend(dict(shot=i+11,player=1,intended_object=None,observed_physical_object=None,
+   shot_id=None,result=None,notes='deliberate outside/between active objects') for i in range(5))
+ manifest=dict(mode='OBJECT_HIT_GAMEPLAY_ACCEPTANCE',game='shoot_stuff_range',
+   menu_title='Skjutprylar',full_frame_capture=False,live_accuracy_validated=False,
+   head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+   settings_sha256=hashlib.sha256(Path('content/ai/settings.json').read_bytes()).hexdigest(),
+   source_sha256={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in (
+     'src/engine/camera/object_physical_query.py','src/engine/input/hit_regions.py',
+     'src/engine/input/object_hit_v2223.py','src/engine/game_objects/manager.py',
+     'src/engine/physical_trace.py','content/games/can_shootout_game.py',__file__)})
+ path=output/'play.json';path.write_text(json.dumps(manifest,indent=2)+'\n')
+ (output/'event_notes.json').write_text(json.dumps(dict(
+   truth='Independent observed impact/object, not intended aim or game reaction',events=notes,
+   target_results=['correct_object','wrong_object','no_object_detected'],
+   control_results=['correctly_no_object','false_object_hit'],
+   unexpected_audio_events=[]),indent=2)+'\n')
+ env=dict(os.environ)
+ for key in ('SKJUTBANA_PHYSICAL_CAPTURE_BINDING','SKJUTBANA_PHYSICAL_TRACE_ROOT',
+             'SKJUTBANA_PHYSICAL_CAPTURE_HISTORY','SKJUTBANA_KOMPETENSPROV_TEST'):
+  env.pop(key,None)
+ env.update(SKJUTBANA_PHYSICAL_TRACE_DISABLE='1',SKJUTBANA_CAN_SFX='0',SKJUTBANA_OBJECT_COMPARE='0')
+ return path,env
+
+def play_can(output):
+ manifest,env=prepare_can_play(output)
+ print('OBJECT_HIT gameplay test: select Spel > Skjutprylar, 20 m. Normal game, SFX OFF.\n'
+       'Shoot mini/soda/gold/beans/sardines once in player 1, then once each in player 2.\n'
+       'Press R after the match: five deliberate outside shots. Wait for LIVE/settled image each time.\n'
+       'Record observed physical object, shot_id and result in '+str(manifest.parent/'event_notes.json')+'\n'
+       'Compact logs only; full trace disabled for this process. Physical reliability is unverified.',flush=True)
+ return _run_capture(manifest,env,compact=True)
+
 def launch_d02(output,trace_root,plan_path,*,capture_history=None):
  binding=prepare_d02_launch(output,trace_root,plan_path,capture_history=capture_history)
  print(f'D02 CAPTURE BINDING: {binding}\nCURRENT unchanged. Use a static scene; complete geometry/event notes before shooting. Warm up at least 5 seconds.',flush=True)
  return _run_capture(binding,dict(os.environ,SKJUTBANA_PHYSICAL_CAPTURE_BINDING=str(binding)))
 
-def _run_capture(binding,env):
+def _run_capture(binding,env,*,compact=False):
  with (binding.parent/'runtime.log').open('x') as log:
   process=subprocess.Popen([sys.executable,'-u','main.py'],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
   try:
@@ -195,7 +236,8 @@ def _run_capture(binding,env):
    if process.poll() is None:process.terminate()
    process.wait()
    exit_record=dict(returncode=process.returncode,finished_at=datetime.now(timezone.utc).isoformat(),
-    metadata_finalization='Verify trace.json / trace_error.json; process exit alone is not trace completeness')
+    metadata_finalization=('Compact gameplay log only; no trace requested' if compact else
+      'Verify trace.json / trace_error.json; process exit alone is not trace completeness'))
    (binding.parent/'runtime_exit.json').write_text(json.dumps(exit_record,indent=2)+'\n')
    print(f'[CAPTURE] process exited returncode={process.returncode}',flush=True)
  return process.returncode
@@ -226,6 +268,8 @@ def preflight(plan_path,session,trace_root,binding=None,settings_path='content/a
  return not reasons,reasons
 def main():
  p=argparse.ArgumentParser();sub=p.add_subparsers(dest='cmd',required=True)
+ play=sub.add_parser('play-can',help='Existing Skjutprylar gameplay; compact 15-shot notes, no full traces/settings writes')
+ play.add_argument('--output-dir',type=Path,required=True)
  c=sub.add_parser('launch-can',help='Fresh captured three-shot Can retry; never edits settings.json')
  c.add_argument('--foundation-report',type=Path,help='Required READY no-shoot geometry/timing/PRE preflight; current policy remains blocked')
  c.add_argument('--output-dir',type=Path,required=True);c.add_argument('--trace-root',type=Path,default=Path('/data/skjutbana/physical_traces'))
@@ -244,7 +288,10 @@ def main():
  from automation.physical_label_reset import add_reset_arguments,reset_labels
  add_reset_arguments(sub.add_parser('reset-labels',help='Preview or archive/reset labels; preserve captured evidence'))
  a=p.parse_args()
- if a.cmd=='launch-kompetensprov':
+ if a.cmd=='play-can':
+  try:raise SystemExit(play_can(a.output_dir))
+  except (ValueError,OSError,KeyError) as exc:p.exit(2,f'CAN GAMEPLAY LAUNCH REFUSED: {exc}\n')
+ elif a.cmd=='launch-kompetensprov':
   try:raise SystemExit(launch_kompetensprov(a.output_dir,a.trace_root))
   except (ValueError,OSError,KeyError) as exc:p.exit(2,f'KOMPETENSPROV LAUNCH REFUSED: {exc}\n')
  elif a.cmd=='launch-d02':
