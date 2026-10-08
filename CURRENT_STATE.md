@@ -1,5 +1,43 @@
 # Current project state
 
+## Locality-midrank ablation: false controls remain — 2026-10-08
+
+Removed only `core_ring_concentration__event_midrank` from the rejected locality
+test. Absolute locality, explicit missingness, all original baseline inputs and
+16 baseline ranks remain. All retained TRAIN scaler values match the previous
+fit exactly across 15 folds. Same linear model, 48 epochs, folds, nested Vision
+TRAIN rows, seeds 1729–1731 and fixed-zero UNKNOWN; no new evidence or tuning.
+
+All three seeds select 24/25/26/27 @5/@10/@20/@42, gain S02:13 and lose no prior
+@5 success. However, **all are rejected**: false controls are 1/3/1, UNKNOWN 17/15/17.
+S02:10 falsely emits in every seed; S02:2 and S02:8 also emit in seed 1730.
+There are no >42 px or >100 px physical errors or protected regressions. Maximum
+emitted physical error 22.241914 px, median 4.004992 px, P95 12.879188 px; worst-session
+@5 remains 44.4%. Frozen candidate oracle 32/33/34/36 is unchanged and separate.
+The safe offline linear 23/24/25/26 remains the baseline; no live promotion.
+
+For the control pair, S02:13 at (2250,1413), locality 0.6494, is correct in all
+seeds. S02:2's competing point (1713,1387), locality 0.4466, has margins against
+UNKNOWN of -0.060/+0.032/-0.219. S02:10 at (3003,1126), locality 0.6130, remains
+positive at +0.568/+0.662/+0.411. Locality rank appears only in post-fit audit.
+Removing its inference column helps safety but does not solve it. Ranking and
+emission still use the same logit, including 16 original event-relative ranks.
+Stop locality scalar refinement; absolute locality remains contextual evidence,
+not an emission guarantee.
+
+Design audit only: a separate absolute-evidence linear gate at the fixed ranking
+winner could reuse RankModel, gradients, TRAIN scalers and checkpoints. It would
+need explicit exact-coordinate labels and train-only validation; no gate was
+implemented. Do not feed in-sample ranker winners/scores into a learned gate and
+call that cross-fitted. This is a parked research option, not a new search run.
+
+136 focused tests passed, including 8 new ablation tests and existing lifecycle,
+bounded storage, nested isolation and shared-evidence tests. Detailed metrics,
+all control logits and reproducible checkpoints:
+`/data/skjutbana/evaluation_runs/locality_midrank_ablation_20261008_01/REPORT.md`.
+Native labels, frozen inputs, previous results, runtime and settings preserved.
+S03 untouched. This is offline development evidence only.
+
 ## Core/ring locality: general signal, unsafe selector result — 2026-10-08
 
 One bounded audit compared S02:13 VISION:3 at(2250,1413),4.013311px from GT,
