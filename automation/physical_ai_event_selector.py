@@ -18,10 +18,10 @@ from src.engine.ai.training_v223.evidence_model_v2235 import EvidenceModelV2235,
 NAMES=gap.NAMES+tuple(n+'__event_midrank' for n in gap.PHYSICAL)
 
 
-def relative_features(physical):
+def relative_features(physical, physical_names=gap.PHYSICAL):
     """Runtime candidate matrix only: no labels/XY/IDs/source arguments."""
-    if physical.ndim!=2 or physical.shape[1]!=len(gap.NAMES):raise ValueError('Physical schema required')
-    n=len(gap.PHYSICAL);r=np.zeros((len(physical),n),np.float32)
+    if physical.ndim!=2 or physical.shape[1]!=2*len(physical_names):raise ValueError('Physical schema required')
+    n=len(physical_names);r=np.zeros((len(physical),n),np.float32)
     for j in range(n):
         valid=physical[:,j+n]==0;v=physical[valid,j]
         if len(v):r[valid,j]=[(np.sum(v<t)+.5*np.sum(v==t))/len(v) for t in v]
@@ -40,16 +40,17 @@ def loss_gradient(scores,positive):
     return float(-np.sum(q*np.log(np.maximum(p,1e-12)))),(p-q)[:-1]
 
 
-def fit(samples,cfg,path,identity,stop=lambda:False):
+def fit(samples,cfg,path,identity,stop=lambda:False,*,feature_names=NAMES):
     path=Path(path);path.mkdir(parents=True,exist_ok=True)
     joined=np.concatenate([x for x,_ in samples]);mean=joined.mean(0);scale=joined.std(0);scale[scale<1e-6]=1
-    rng=np.random.default_rng(cfg['seed']);d=len(NAMES);h=cfg['hidden']
+    names=tuple(feature_names)
+    rng=np.random.default_rng(cfg['seed']);d=len(names);h=cfg['hidden']
     if joined.shape[1]!=d or not np.isfinite(joined).all():raise ValueError('Invalid features')
     if cfg['kind']=='linear':params=dict(w=np.zeros(d,np.float32),b=np.zeros(1,np.float32))
     elif cfg['kind']=='mlp':params=dict(w1=rng.normal(0,np.sqrt(2/d)*.45,(d,h)).astype(np.float32),b1=np.zeros(h,np.float32),w2=rng.normal(0,.1,(h,1)).astype(np.float32),b2=np.zeros(1,np.float32))
     else:raise ValueError('Only predeclared linear/MLP')
     m={k:np.zeros_like(v) for k,v in params.items()};v={k:np.zeros_like(a) for k,a in params.items()};start=step=0;history=[]
-    checkpoint=path/'checkpoint.npz';binding=dict(config=cfg,identity=identity)
+    checkpoint=path/'checkpoint.npz';binding=dict(config=cfg,identity=identity,feature_names=list(names))
     if checkpoint.exists():
         with np.load(checkpoint,allow_pickle=False) as old:
             state=json.loads(str(old['metadata']))
@@ -73,11 +74,11 @@ def fit(samples,cfg,path,identity,stop=lambda:False):
         with tmp.open('wb') as f:
             np.savez(f,metadata=json.dumps(state),mean=mean,scale=scale,**{'p_'+k:a for k,a in params.items()},**{'m_'+k:a for k,a in m.items()},**{'v_'+k:a for k,a in v.items()});f.flush();os.fsync(f.fileno())
         os.replace(tmp,checkpoint)
-    return RankModelV223(cfg['kind'],NAMES,mean,scale,params,dict(binding,role='OFFLINE_EVENT_LISTWISE',unknown_logit=0,live_authority=False)),history
+    return RankModelV223(cfg['kind'],names,mean,scale,params,dict(binding,role='OFFLINE_EVENT_LISTWISE',unknown_logit=0,live_authority=False)),history
 
 
-def predict(model,matrix):
-    scores=model.score_matrix(relative_features(matrix))
+def predict(model,matrix,physical_names=gap.PHYSICAL):
+    scores=model.score_matrix(relative_features(matrix,physical_names))
     # Deterministic tie with UNKNOWN is abstention, never forced emission.
     best=int(np.argmax(scores)) if len(scores) else None
     return (best if best is not None and scores[best]>0 else None),scores

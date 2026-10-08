@@ -81,6 +81,26 @@ Physical evidence remains authoritative; neither learned role invents GT,
 changes gameplay coordinates, vetoes old holes/edges, nor auto-promotes live hit
 authority. Current exact-witness semantics and timing limitations are unchanged.
 
+### Optional observed-window descriptors — 2026-10-08
+
+`common_verifier.query_temporal_observation` extends the existing EvidenceBundle
+query over an already recorded exact witness. It describes the bounded (at most50
+observations) same-XY core-minus-ring signal with fixed first3/last3 signed change
+and weakest same-polarity tail change divided by endpoint MAD (floor0.75). Frame
+identities/order/cutoff are checked. Fewer than6 observations remain explicitly
+missing. Ordinals never become timestamps, and the first window is not certified
+clean PRE. The query leaves witness support/revocation untouched and returns no
+new physical witness. Both scalars share one correlated contrast family.
+
+The optional `physical_ai_temporal_representation` sidecar applies this contract
+to Classic and Vision coordinates identically, retaining their provenance outside
+model features. It reuses nested TRAIN lineage and the existing linear listwise
+selector; default feature projection and CURRENT remain unchanged. Dataset,
+witness sources, schema and code are hash-bound for resume. This is diagnostic
+only: the three-seed repair resolved vector collisions but regressed selection,
+so no live or research-champion promotion follows. Source-independent physical
+evidence does not mean treating an unqualified temporal change as new damage.
+
 ### Bounded Vision proposal extension — 2026-10-03
 
 The existing runner accepts a role adapter from `automation.physical_ai_vision`;

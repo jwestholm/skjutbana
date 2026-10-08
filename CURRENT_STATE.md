@@ -1,5 +1,96 @@
 # Current project state
 
+## Core/ring locality: general signal, unsafe selector result — 2026-10-08
+
+One bounded audit compared S02:13 VISION:3 at(2250,1413),4.013311px from GT,
+with the temporal repair's false S02:2 VISION:2 at(2084,1376). Area-normalized
+absolute core/ring pixel changes were5.653/1.202 versus6.041/3.556 grayscale
+levels. Fixed concentration `(core-ring)/(core+ring)` was0.6494 versus0.2589.
+Both used the same frozen24-frame prefix, native sampler and first3/last3 policy;
+neither first window is certified clean PRE. No onset or damage proof follows.
+The control's core/ring tail MADs2.784/2.983 collapse to0.199 in their difference,
+explaining how a stable-looking contrast can hide substantial surrounding change.
+
+The definition was frozen before the1184-row bank check. Median concentration:
+0.857 for46 GT-near rows in23 linear successes;0.498 for9 GT-near selector-gap
+rows;0.206 for212 control rows. Positive within-event ordering appears in all
+five sessions, with substantial control/wrong-candidate overlap. Rank correlation
+with rejected temporal strength/magnitude is only0.166/0.173; correlation with
+existing signed change is-0.812 on its61 available rows. Locality is contextual
+information from the same imagery, not independent physical proof.
+
+This justified exactly one optional scalar test on the original23/37 linear
+baseline, reusing frozen HELD and394 nested Vision TRAIN rows. Seeds1729/1730/1731
+selected23/24/25/26,24/25/26/27,22/24/25/26 respectively. **All are rejected:**
+all falsely emit on S02:2/8/10 and make one >100px error (max900.308px); UNKNOWN14.
+All gain S02:13; seed1729 loses S02:1,1730 loses none,1731 loses S02:1/12.
+S02:1 is protected. The32/33/34/36 candidate oracle is unchanged. No further fits,
+threshold changes, model search or promotion; the safe23/37 linear remains.
+
+Locality lowers the original false S02:2 point to rank5, but another frozen point
+at(1713,1387) wins instead. In seed1729, the new locality event-midrank contributes
+the same+1.026 logit to that control winner and the true S02:13 winner. This is an
+exact within-model decomposition, not proof of a causal effect across retraining.
+The S02 outer TRAIN fold contains one native control event; no split was changed.
+Next scoped test, only if requested: remove only the added locality midrank,
+retain absolute locality and baseline inputs, and compare the same three seeds.
+This would test false confidence from relative rank, not add physical features.
+
+128 focused tests passed, including lifecycle/storage/nested isolation and10 new
+locality tests. No runtime/shared-evidence/selector code changed in this pass;
+audit tooling and bounded fit scripts are offline only. Report:
+`/data/skjutbana/evaluation_runs/core_ring_locality_20261008_01/REPORT.md`.
+All prior uncommitted work, native labels, frozen sources, settings, trace symlink
+and experiment artifacts preserved. S03 untouched. No live accuracy claim.
+
+## Temporal feature-collision audit: loss located, repair rejected — 2026-10-08
+
+Replayed148 hash-verified saved frames at11 existing Vision coordinates in
+KOMP:1/5, POST_FIX:3 and S02:13. Source-local core/ring signals, every-prefix
+witness lifecycle and frozen36-value rows reproduce exactly. All seven good/wrong
+pairs have different signals. None ever obtains supported onset in this prefix.
+The shared EvidenceBundle retains those signals, but `physical_ai_dataset.vector`
+omits them and projects unsupported summaries/missing signed-change and noise to
+identical rows. This is not quantization, shared-candidate evidence or registration
+drift. One POST_FIX:3 pair also has different raw onset states, omitted by that
+projection. Unsupported evidence must not be converted into physical proof.
+
+Vision temporal extraction already runs at each exact XY. Its nine absent
+morphology/local-change fields instead come from Classic producer records; the
+Vision adapter supplies only the witness. Available local pixels do not justify
+inventing the producer's contour area/circularity or a clean PRE reference.
+
+One predeclared optional shared query describes the existing signal's first3 to
+last3 signed contrast and weakest same-polarity tail change normalized by endpoint
+MAD. These are two correlated descriptions of one contrast family, not certified
+new damage. The source-independent sidecar covers1184 frozen rows plus394 nested
+TRAIN rows, preserves explicit missingness, exact XY, cutoff and ordinal/receipt
+limitations, and never changes support/revocation. No live hook or default feature
+schema changes. KOMP remains ordinal-only; first3 is not certified pre-damage.
+
+**Negative fixed-seed result:** all seven collisions become distinct, but the same
+linear selector reaches22/24/26/27 (seeds1729/1730) and22/25/26/27 (1731), below
+the23/24/25/26 linear baseline. All gain S02:13 but lose S02:3 and S02:12. First two
+seeds falsely emit on control S02:2; last seed emits no controls. UNKNOWN17/17/18;
+>42/>100 errors0, established protected failures0, max22.241914px, worst-session
+@5=44.4%. KOMP:1 remains6.024px; KOMP:5 and POST_FIX:3 remain UNKNOWN. Oracle
+stays32/33/34/36 of37. No promotion, further seeds, ablations or long run.
+
+The original linear path reproduces all45 decisions and scores exactly.194 tests
+pass, including witness/revocation, nested isolation, lifecycle/storage and new
+information-loss regressions. S01:2 was rank1/UNKNOWN in the80k model, but is rank5
+in the23/37 linear model and rank7 after this repair: lowering its threshold would
+select a wrong candidate. Keep the80k champion and23/37 linear research baseline.
+
+Next: one bounded source-independent core/ring spatial-change audit comparing
+recovered S02:13 with false control S02:2, to determine whether existing local
+versus surrounding change distinguishes them before adding any feature or model.
+No physical nuisance cause is established by this result. Five proposal failures
+remain separate. Report and resumable artifacts:
+`/data/skjutbana/evaluation_runs/temporal_collision_20261007_01/REPORT.md`.
+Labels, frozen inputs, old experiments, CURRENT, settings and trace symlink are
+preserved; S03 untouched. These are offline development results only.
+
 ## Focused selector-gap audit and listwise probe — 2026-10-07
 
 The frozen80k champion has ten oracle-available @5 gaps: KOMP:1/5,

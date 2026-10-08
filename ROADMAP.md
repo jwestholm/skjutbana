@@ -1,5 +1,45 @@
 # Roadmap
 
+## NOW: bounded core/ring audit completed; feature test rejected — 2026-10-08
+
+- Locality distinguishes S02:13 from the temporal repair's S02:2 false coordinate
+  and carries general descriptive information across1184 frozen rows/five sessions.
+  It overlaps controls and is not physical-impact proof. No new proposals or labels.
+- One scalar added to the original linear baseline, exactly three fixed seeds:
+  Selected@5=23/24/22; every fit has3 false controls and1 >100px error. Reject all,
+  including the24/37 result. Preserve safe23/37 and frozen oracle32/37 separately.
+- Original S02:2 false point falls to rank5, but another control point wins. Its
+  added locality event-midrank contributes+1.026, identical to the true S02:13
+  winner's rank contribution. The S02 outer TRAIN fold has one native control.
+- NEXT, separately scoped: ablate only the added locality event-midrank while
+  retaining absolute locality and all baseline inputs, same folds/three seeds.
+  Test the observed relative-rank false-confidence hypothesis; do not lower a
+  threshold, change folds or expand features. No unattended run now.
+- No physical nuisance cause was invented. Proposal failures remain parked;
+  no runtime promotion or shooting.128 tests pass; earlier work stays preserved.
+
+## NOW: temporal information loss measured; bounded repair rejected — 2026-10-08
+
+- All seven audited good/wrong pairs differ in saved core/ring signals; their
+  unsupported onset summaries and missing conditional measurements collapse in
+  the scalar cache. EvidenceBundle still retains the distinct full signals.
+  The Vision temporal query runs; missing producer morphology is a separate path
+  gap, not evidence that local pixels are physically unavailable.
+- Optional source-independent first3/last3 descriptors resolve all seven exact
+  collisions, without certifying onset or changing support/revocation. Three
+  fixed linear seeds all reach22/37 @5, below23/37; gain S02:13, lose S02:3/12,
+  two seeds emit falsely on S02:2. Reject the selector repair. Oracle32/37
+  unchanged, no protected-case or >42/>100 regression.194 tests pass.
+- NEXT: a bounded existing-frame core/ring spatial-change comparison of S02:13
+  and control S02:2, using existing common evidence ownership. Establish whether
+  local versus surrounding change separates them; do not assume board motion or
+  add new features without measurement. No new capture or long compute run.
+- Preserve23/37 linear research and22/37 registered80k champion. No larger model,
+  random sweep, threshold lowering or further expansion of these two summaries.
+- LATER: five proposal-coverage failures, qualified source-independent local
+  extraction, train-only inner calibration, runtime optimization and live SHADOW
+  validation. No CURRENT promotion. Earlier milestones below are historical.
+
 ## NOW: focused selector formulation measured — 2026-10-07
 
 - Audited the ten32-oracle versus22-selected gaps without regenerating evidence.

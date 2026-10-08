@@ -339,6 +339,51 @@ def _physical_witness_bundle(x, frames, context, *, event_id, candidate_id,
         family_count_is_not_independent_votes=True),witnesses=(witness,))
 
 
+def query_temporal_observation(witness):
+    """Describe an existing bounded signal without certifying new damage.
+
+    Same r4 core-minus-r8..12 ring channel for every producer. First/last three
+    observations are fixed by the supplied prefix, NOT selected by onset or GT.
+    Neither the first window nor its median is claimed to be clean pre-impact.
+    This optional query leaves the exact witness support/revocation unchanged.
+    """
+    from .clean_physical_change import persistent_local_support
+    from .evidence import EvidenceBundle
+    x = np.asarray(witness['signal'], dtype=np.float64)
+    frames = witness['frames']; availability = witness['availability']
+    if x.ndim != 1 or len(x) != len(frames) or not 1 <= len(x) <= 50 or not np.isfinite(x).all():
+        raise ValueError('One bounded finite observation per frame required')
+    context = _physical_witness_context(frames, availability['cutoff_frame_id'], availability['receipt_cutoff'])
+    ids, ordinals, times, sequences = context
+    _physical_witness_identity(x, frames, context, witness['event_id'], witness['candidate_id'],
+        witness['coordinate_version'], witness['camera_xy'], witness['source_provenance'], None)
+    if times is not None and (not np.isfinite(times).all() or np.any(np.diff(times) <= 0)):
+        raise ValueError('Strict receipt ordering required')
+    if sequences is not None and (not np.isfinite(sequences).all() or np.any(np.diff(sequences) <= 0)):
+        raise ValueError('Strict camera sequence ordering required')
+    result = dict(available=len(x) >= 6, reason='OBSERVED_WINDOW_ONLY' if len(x) >= 6 else 'INSUFFICIENT_OBSERVATIONS',
+        signed_change=None, coherent_strength=None, noise=None,
+        reference_level=None, last_level=None,
+        first_frame_ids=ids[:3], last_frame_ids=ids[-3:], observation_count=len(x),
+        receipt_span=None if times is None else float(times[-1]-times[0]),
+        max_receipt_gap=None if times is None or len(times)<2 else float(np.max(np.diff(times))),
+        certification=availability['certification'], cutoff_frame_id=ids[-1],
+        receipt_cutoff=availability['receipt_cutoff'])
+    if result['available']:
+        before, after = x[:3], x[-3:]
+        reference, last = float(np.median(before)), float(np.median(after))
+        noise = max(.75, 1.4826*float(np.median(np.abs(before-reference))),
+                    1.4826*float(np.median(np.abs(after-last))))
+        measured = persistent_local_support(reference, after, noise)
+        result.update(signed_change=measured['signed_change'], coherent_strength=measured['support'],
+                      noise=noise, reference_level=reference, last_level=last)
+    return EvidenceBundle(None, {}, None, metadata=dict(observed_window=result,
+        family='LOCAL_PHYSICAL_CHANGE', dependency_family='raw_same_xy_disc_annulus_contrast',
+        source_independent=True, physical_state='UNKNOWN',
+        units='signed grayscale contrast; weakest same-polarity last3 change / first3-and-last3 MAD floor0.75',
+        clean_pre_certified=False, onset_certified=False, scope='OFFLINE_SHADOW_NO_EMISSION_AUTHORITY'))
+
+
 def query_physical_witness(signal, frames, *, event_id, candidate_id,
                            coordinate_version, camera_xy, source_provenance,
                            cutoff_frame_id, cutoff_ts=None, previous=None):
