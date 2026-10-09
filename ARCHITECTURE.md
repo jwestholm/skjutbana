@@ -15,6 +15,18 @@ identity. A plain HitRegion means its exact rectangle; GameObjects retain their
 frozen shape. Search margin never expands object membership. NO_OBJECT_HIT is
 scoped to requested objects and does not prove global NO_IMPACT.
 
+After the first gameplay test, opt-in support additionally requires observed
+freshness: align the existing (up to three) PRE crops into the latest PRE plane,
+retain per-pixel min/max, then warp that envelope with the existing PRE-to-POST
+transform. Test the signed residual beyond this envelope with the same local
+disc/ring checks in both POST observations, requiring matching core polarity.
+At least two distinct ordered PRE observations are required; absent history is
+UNKNOWN. This is coordinate-local, producer-independent and causal at the query
+cutoff; it does not certify clean pre-damage acquisition or physical cause.
+`persistent_local_change` remains separately logged rather than equated to
+freshness. New projector changes and registration artifacts remain limitations.
+No cross-shot location blacklist or game-derived physical truth is introduced.
+
 ObjectManager consumes that decision with its existing frozen generation/active
 guards and damage mechanics. Can gameplay opts in; legacy OBJECT and ordinary
 HitEvent/exact-coordinate behavior remain available. Global CURRENT/FULL rescue
@@ -29,6 +41,13 @@ The gameplay launcher uses the existing process/log owner with
 Saved settings and trace roots remain unchanged. Full research capture still uses
 the existing explicit binding/preflight; compact gameplay is not a claim that its
 historical physical PRE/timing qualification has been resolved.
+
+Explicit `play-can --object-crops` uses an object-only instance of the existing
+PhysicalTraceRecorder (same queue/atomic array/checkpoint implementation), leaving
+global trace settings disabled. It saves only bounded query inputs/results, under
+a fresh development output root, with20-event/11M-pixel-per-event/16MiB-queue limits.
+Crop completeness concerns persisted inputs only, not physical truth. Default
+gameplay still saves compact metadata without image crops.
 
 ## Offline physical AI lab: two learned roles — 2026-10-03
 

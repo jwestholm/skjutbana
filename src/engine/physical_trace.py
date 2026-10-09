@@ -159,10 +159,11 @@ class PhysicalTraceRecorder:
     def __init__(self, root: Path | str = DEFAULT_ROOT, *, repo_root: Path | None = None, enabled: bool = False,
                  queue_maxsize: int = 128, max_queued_bytes: int = 1024 * 1024 * 1024,
                  writer_delay_s: float = 0.0, writer_workers: int = 8,
-                 capture_history: dict | None = None) -> None:
+                 capture_history: dict | None = None, object_only: bool = False) -> None:
         self.root = Path(root)
         self.repo_root = Path(repo_root or Path.cwd())
         self.enabled = bool(enabled)
+        self.object_only = bool(object_only)
         self.capture_history = validate_capture_history(capture_history)
         self._history_environment = None
         self._capture_event_limit_reached = False
@@ -300,6 +301,7 @@ class PhysicalTraceRecorder:
                 active["persisted_counts"]["evidence"] += 1
             elif meta['artifact']=='object_crop':
                 active['trace'].setdefault('object_evidence_crops',[]).append(meta)
+                if self.object_only:active['persisted_counts']['object']+=1
 
     def _request_checkpoint(self, shot_id, active):
         """One metadata job after a bounded event closes and its arrays settle.
@@ -367,6 +369,14 @@ class PhysicalTraceRecorder:
                 self._record_error(shot_id,kind='object_crop_without_active_trace')
                 return
             seq=active.get('object_crop_seq',0);active['object_crop_seq']=seq+1
+            if self.object_only:
+                # Query limit: <=64 regions, 3 PRE + 8 POST; <=1M pixels/frame.
+                size=np.asarray(pixels).size
+                total=active.get('object_pixels',0)+size
+                if seq>=64*11 or size>1_000_000 or total>11_000_000:
+                    self._record_error(shot_id,kind='object_crop_limit');return
+                active['object_pixels']=total
+                active['expected_counts']['object']+=1
             frozen=np.asarray(pixels,dtype=np.uint8).copy()
             path=active['directory']/'object_inputs'/f'{seq:04d}_{kind}.npy'
             meta=dict(artifact='object_crop',kind=kind,timestamp=float(timestamp),camera_bbox=list(bbox),
@@ -383,6 +393,10 @@ class PhysicalTraceRecorder:
             shot_id = int(getattr(event, "shot_id"))
             with self._lock:
                 if shot_id in self._active or shot_id in self._refused_events:
+                    return
+                if self.object_only and len(self._active)>=20:
+                    self._refused_events.add(shot_id)
+                    print('[OBJECT-CROPS] 20-event diagnostic limit reached',flush=True)
                     return
                 if self.capture_history and len(self._active) >= self.capture_history['max_events']:
                     if not self._capture_event_limit_reached:
@@ -448,6 +462,12 @@ class PhysicalTraceRecorder:
                           "writer_errors": 0, "queue_drops": 0, "errors": [], "expected_counts": {"pre": 0, "post": 0, "evidence": 0},
                           "persisted_counts": {"pre": 0, "post": 0, "evidence": 0}, "post_limit_drops": 0}
                 self._active[shot_id] = active
+                if self.object_only:
+                    active['expected_counts']['object']=active['persisted_counts']['object']=0
+                    trace['capture_scope']='OBJECT crops only; no full-frame replay'
+                    trace['session_id']=self.root.name
+                    self._seen_events.add(shot_id)
+                    return  # Never save scanner history/snapshot or global evidence.
                 if self.capture_history:
                     peak = trace['peak_ts']
                     active['history_config'] = dict(self.capture_history)
@@ -552,6 +572,7 @@ class PhysicalTraceRecorder:
         return new_post
 
     def _save_frame(self, shot_id: int, kind: str, timestamp: float, frame: np.ndarray) -> None:
+        if self.object_only:return
         started = time.perf_counter()
         with self._lock:
             active = self._active.get(shot_id)
@@ -578,6 +599,7 @@ class PhysicalTraceRecorder:
                 del self._capture_samples[:1000]
 
     def observe_scanner(self, scanner: Any, event: Any | None = None, settings: Mapping[str, Any] | None = None) -> None:
+        if self.object_only:return
         if not self.enabled:
             return
         try:
@@ -673,6 +695,7 @@ class PhysicalTraceRecorder:
 
     def capture_decision(self, scanner: Any, track: Any, event: Any, settings=None) -> None:
         """Freeze deterministic authority input before any existing AI override."""
+        if self.object_only:return
         if not self.enabled:
             return
         self.start_from_scanner(scanner, event, settings)
@@ -694,6 +717,7 @@ class PhysicalTraceRecorder:
                 }
 
     def finish(self, shot_id: int, scanner: Any, event: Any) -> None:
+        if self.object_only:return
         with self._lock:
             active = self._active.get(int(shot_id))
             if active is None:
@@ -727,11 +751,29 @@ class PhysicalTraceRecorder:
                 "runtime_event_debug": debug, "timeout": str(getattr(event, "state", "")) == "missed", "ground_truth": None}
             active["finished"] = True
 
+    def finish_object_query(self, shot_id, result):
+        """Checkpoint bounded query inputs on the existing writer; no global data."""
+        if not self.object_only:return
+        with self._lock:
+            active=self._active.get(shot_id)
+            if active is None or active['finished']:return
+            active['trace']['object_query_diagnostic']=_safe(result)
+            active['trace']['outcome']=dict(status=result.get('status'),ground_truth=None,
+                object_decision=_safe(result.get('object_decision')))
+            active['finished']=active['post_window_closed']=True
+            self._request_checkpoint(shot_id,active)
+
     def _finalize_trace(self, shot_id: int, active: dict[str, Any], *, timed_out: bool) -> bool:
         with self._lock:
             expected, persisted = dict(active["expected_counts"]), dict(active["persisted_counts"])
             complete = (not timed_out and not active["errors"] and active["post_limit_drops"] == 0 and expected == persisted and active["finished"])
             trace = active["trace"]
+            if self.object_only:
+                trace['completeness']=dict(trace_complete=complete,expected=expected,persisted=persisted,
+                    writer_errors=active['writer_errors'],queue_drops=active['queue_drops'],errors=active['errors'])
+                path=active['directory']/'trace.json';temporary=path.with_name(path.name+'.tmp')
+                temporary.write_text(_json(trace),encoding='utf-8');os.replace(temporary,path)
+                return True
             if 'capture_history' in trace:
                 for kind,coverage in trace['capture_history']['coverage'].items():
                     saved = sorted(f['timestamp'] for f in trace['frames'] if f['kind']==kind)
@@ -861,3 +903,30 @@ def get_physical_trace_recorder() -> PhysicalTraceRecorder:
     if _RECORDER is None:
         _RECORDER = PhysicalTraceRecorder()
     return _RECORDER
+
+
+_OBJECT_RECORDER: PhysicalTraceRecorder | None = None
+
+
+def get_object_crop_recorder() -> PhysicalTraceRecorder | None:
+    """Explicit short gameplay diagnostic, reusing the bounded trace writer.
+
+    A separate instance keeps ordinary trace configuration/authority untouched.
+    Only object crops and the completed scoped query enter this writer.
+    """
+    global _OBJECT_RECORDER
+    name=os.environ.get('SKJUTBANA_OBJECT_CROP_ROOT')
+    if not name:return None
+    from automation.physical_collection import _development_path
+    root=_development_path(name)
+    if not root.resolve().is_relative_to(Path('/data/skjutbana')):
+        raise ValueError('Object diagnostics must be under /data/skjutbana')
+    if os.environ.get('SKJUTBANA_PHYSICAL_TRACE_DISABLE')!='1' or os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+        raise ValueError('Object-only crops require full tracing disabled')
+    if _OBJECT_RECORDER is None:
+        root.mkdir(parents=True,exist_ok=False)  # Never append into a prior run.
+        _OBJECT_RECORDER=PhysicalTraceRecorder(root,enabled=True,object_only=True,
+            writer_workers=1,queue_maxsize=128,max_queued_bytes=16*1024*1024)
+    elif _OBJECT_RECORDER.root!=root:
+        raise ValueError('Cannot rebind object diagnostics in one process')
+    return _OBJECT_RECORDER

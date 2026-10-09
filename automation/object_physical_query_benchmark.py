@@ -104,6 +104,7 @@ def run(output,repeats,object_hit=False):
                     roi_prepare_ms=q.roi_prepare_ms,pre_prepare_ms=q.pre_prepare_ms,
                     merge_dedupe_total_ms=sum(q.merge_dedupe_ms),event_bus_total_ms=bus_ms,
                     proposal_ms=sum(q.proposal_ms),local_confirmation_ms=sum(q.local_confirmation_ms),
+                    freshness_ms=sum(getattr(q,'freshness_ms',())),
                     object_decision_ms=q.result['timing'].get('object_decision_ms',0.),
                     event_bus_overhead_ms=max(0,bus_ms-sum(delivery.values())),**delivery))
                 observations.append(q.result)

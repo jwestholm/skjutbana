@@ -410,7 +410,7 @@ class CanTests(unittest.TestCase):
         registry._snapshots[1]=snap;game.manager._snapshot_provider=lambda sid:snap
         pre=np.full((600,800),140,np.uint8);post=pre.copy()
         x,y=map(int,obj.geometry.center);post[y-2:y+3,x-2:x+3]=30
-        camera=S(get_ring_snapshot=lambda:[frame(pre,1.94),frame(post,2.03),frame(post,2.065)])
+        camera=S(get_ring_snapshot=lambda:[frame(pre,1.90),frame(pre,1.94),frame(post,2.03),frame(post,2.065)])
         with patch.object(can,'hit_context_snapshot_for_shot',return_value=snap):
             registry.begin_object_query(1,S(known_holes=[]),camera)
             registry.advance_object_queries(S(),camera,2.08)

@@ -1,5 +1,85 @@
 # Current project state
 
+## OBJECT_HIT saved-crop replay and exact batching — 2026-10-08
+
+Second physical run `can_play_02`: five UNKNOWN outcomes, including two processing
+deadlines. There is no independently entered object GT. The saved six crop tiles
+contain two PRE and two POST observations per shot; no complete camera sequence.
+`automation.object_hit_replay` now reuses the live query with saved pixels, frozen
+shapes and saved calibration only. All nine available live frame ledgers reproduce
+exactly, excluding processing clocks and the unsaved known-hole context. Offline
+processing clocks are neutralized: this is evidence replay, not live timing replay.
+Missing crops/mapping fail closed; compact-only `can_play_01` remains log analysis.
+Outputs include per-shot resumable checkpoints, 35 object rows, candidate recurrence,
+input hashes, scalar parity and optional profiles. No labels are inferred from aim.
+
+Clock-neutral supported-object counts are **5/4/3/1/6**, unchanged by batching.
+Shot4's single-object result is a counterfactual to its live timeout, not a verified
+hit. `clean_pre_certified=false` and `physical_cause_certified=false` deliberately
+describe limitations, not bypassed mandatory gate inputs. SUPPORTED establishes
+change beyond the observed PRE envelope, not projectile causation. Two PRE samples
+about80ms apart cannot certify a clean baseline. Recurrent coordinates and local
+nuisance diagnostics are recorded; neither is an automatic veto. No new support
+rule was justified or installed; multiple supported objects still return UNKNOWN.
+
+Profiling found repeated disc/ring evidence extraction dominating query cost.
+OBJECT_HIT now batches the same bounded nominees with scalar-equivalent reduction
+order: coordinates, raw values, qualification, retention and decisions match exactly.
+Same-run saved-crop CPU: scalar247–255ms versus batched113–115ms (five-repeat batch
+medians), excluding I/O/camera waits. All candidates still receive the same evidence;
+the350ms deadline is unchanged. Actual live latency after this change is unmeasured.
+Ordinary EXACT_COORDINATE/FULL rescue and mouse/debug geometry remain unchanged.
+
+177 targeted tests pass. Detailed report and commands:
+`/data/skjutbana/evaluation_runs/object_hit_replay_20261009_01/REPORT.md`.
+**Next: local replay, then a short independently observed crop retest for latency and
+object decisions.** Support-rule research needs a longer diagnostic PRE baseline;
+the current crop flag captures only actual query inputs, not that longer baseline.
+S03 untouched; safe offline selector and physical captures preserved. Git checkpoint
+was blocked by read-only `.git`; the original work is also preserved as a patch and
+file copies in the report directory. No accuracy improvement or live promotion claim.
+
+## OBJECT_HIT support qualification and bounded crop retest — 2026-10-08
+
+First physical Skjutprylar run `can_play_01` exited normally but returned UNKNOWN
+for all ten fired shots: 5/6/7/7/7/7/6/7/7/7 supported objects. All70 logged best
+candidates passed local confirmation;66 were inside requested shapes. The rule
+proved unsigned difference from one PRE in two POST frames, not event newness.
+Seven supported candidates reversed mean core polarity;34 recurred within5px of
+a prior logged same-object candidate. Neither recurrence nor polarity identifies
+the actual physical cause. There are only four compact files, no saved image crops,
+and no independently filled physical observations. Intent is not GT; no replay or
+object-accuracy measurement can be fabricated from this run.
+
+Opt-in OBJECT_HIT now additionally requires localized signed change beyond the
+observed registered PRE range in two POST observations at the same XY, with matching
+core polarity. Reuses existing crop registration, photometry and disc/ring thresholds;
+no threshold tuning, source/game bonus, old-hole veto or score-based object tie-break.
+PRE history is aligned once; its envelope follows the existing POST registration.
+Missing history remains UNKNOWN. This is a necessary freshness qualification, not
+proof of projectile causation; new projected changes/registration residuals can
+still pass, and damage already present in PRE can be missed. Multiple supported
+objects still abstain. Ordinary EXACT_COORDINATE and legacy OBJECT behavior remain.
+
+`physical_collection play-can --object-crops` optionally records actual query-only
+PRE/POST crops through the existing bounded asynchronous PhysicalTraceRecorder:
+20 events,3 PRE/8 POST maximum,11M uint8 pixels/event,16MiB queue. Full-frame capture
+stays disabled, saved settings untouched. Each shot checkpoints input identities,
+geometry, hashes, complete scoped candidate ledger and explicit persistence errors.
+Runtime logs include each object's three retained alternatives, freshness values,
+qualification reasons, PRE registration and timing. No independent truth is invented.
+
+165 targeted query/gameplay/replay/capture/coordinate tests passed. Isolated generated
+4K seven-object benchmark (five repeats): old query CPU mean57.77ms/P9561.59ms,
+new87.95ms/P9589.77ms; freshness29.18ms, object decision0.121ms. This excludes real
+camera/audio/projector waits and optional crop recording, and is not measured live
+latency or accuracy. Original run audio-to-decision was202.6–265.6ms. The350ms query
+deadline remains. **Next: short physical retest with independent observed damage and
+bounded crops; do not tune these ten logs or resume selector research.**
+
+Audit: `/data/skjutbana/evaluation_runs/object_hit_support_20261008_01/REPORT.md`.
+Original capture preserved. S03 untouched; no exact-coordinate/live accuracy claim.
+
 ## Existing Skjutprylar: opt-in OBJECT_HIT ready for gameplay test — 2026-10-08
 
 The existing can game already had a live ObjectPhysicalQuery, frozen GameObject

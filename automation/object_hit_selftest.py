@@ -25,7 +25,7 @@ class ObjectHitTests(unittest.TestCase):
         camera=tuple(CameraHitRegionV240(r.object_id,r.x,r.y,r.width,r.height) for r in regions)
         snap=fx.snapshot(camera,regions);manager._snapshot_provider=lambda sid:snap
         pre=np.full((240,480),140,np.uint8)
-        q=ObjectPhysicalQuery(snap,[fx.frame(pre,1.94)],camera_to_game=lambda x,y:(x,y),top_k=top_k)
+        q=ObjectPhysicalQuery(snap,[fx.frame(pre,t) for t in (1.87,1.90,1.94)],camera_to_game=lambda x,y:(x,y),top_k=top_k)
         return q,pre,manager
 
     def damage(self,q,pre,points):
@@ -90,7 +90,7 @@ class ObjectHitTests(unittest.TestCase):
         regions=object_hit_regions((HitRegion('plain',100,60,60,80),))
         pre=np.full((240,480),140,np.uint8)
         q=ObjectPhysicalQuery(fx.snapshot(game=regions,regions=(CameraHitRegionV240('plain',100,60,60,80),)),
-            [fx.frame(pre,1.94)],camera_to_game=lambda x,y:(x,y))
+            [fx.frame(pre,t) for t in (1.90,1.94)],camera_to_game=lambda x,y:(x,y))
         r=self.damage(q,pre,[(123,93)])
         self.assertEqual(r['object_decision']['object_id'],'plain')
 
@@ -110,7 +110,7 @@ class ObjectHitTests(unittest.TestCase):
         self.assertEqual(record['object_id'],'0');self.assertEqual(record['exact_coordinate_result'],current)
         self.assertNotIn('candidate_ledger',record)
         self.assertNotIn('hypotheses',record)
-        self.assertLess(len(json.dumps(record)),6000)
+        self.assertLess(len(json.dumps(record)),16000)  # bounded three alternatives + freshness
 
     def test_invalid_semantic_rejected(self):
         with self.assertRaises(ValueError):object_query_regions([],result_semantics='snap')

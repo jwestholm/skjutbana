@@ -204,7 +204,7 @@ class Sequences(unittest.TestCase):
 
     def test_two_supported_objects_abstain_in_opt_in_game(self):
         snap=self.freeze();points=[self.target(n).geometry.center for n in ('soda_can','gold_can')]
-        q=ObjectPhysicalQuery(snap,[fixture.frame(self.surface,self.now-.04)],camera_to_game=lambda x,y:(x,y))
+        q=ObjectPhysicalQuery(snap,[fixture.frame(self.surface,self.now-t) for t in (.10,.07,.04)],camera_to_game=lambda x,y:(x,y))
         post=self.surface.copy()
         for x,y in points:
             x,y=int(x),int(y);post[y-2:y+3,x-2:x+3]=30

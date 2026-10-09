@@ -21,7 +21,7 @@ from src.engine.camera.candidate_generator_v2 import CandidateGeneratorV2
 from src.engine.camera.demo_object_zone_extension import _regions_in_work_space
 from src.engine.game_objects.geometry import shape_contains
 from src.engine.shot_object_local_v241 import merge_camera_regions_v241
-from src.engine.shot_region_freshness_v252 import _disc_ring_metrics
+from src.engine.shot_region_freshness_v252 import _disc_ring_metrics, RegisteredMetricsV252
 
 MAX_REGIONS = 64
 MAX_PIXELS = 1_000_000
@@ -31,6 +31,10 @@ PER_OBJECT_HYPOTHESES = 3
 PER_OBJECT_COMPONENTS = 2
 DEADLINE_S = .35
 CONTEXT_PX = 8
+_yy,_xx=np.ogrid[-8:9,-8:9]
+_d2=_xx**2+_yy**2
+_CENTER=_d2<=4
+_RING=(_d2>=16)&(_d2<=64)
 
 
 def _gray(frame):
@@ -46,7 +50,7 @@ class ObjectPhysicalQuery:
     """
 
     def __init__(self, snapshot, pre_frames, *, camera_to_game=None,
-                 known_holes=(), top_k=3, margin_px=36., capture_crop=None):
+                 known_holes=(), top_k=3, margin_px=36., capture_crop=None, capture_result=None):
         self.shot_id = snapshot.shot_id
         self.peak_ts = snapshot.peak_ts
         self.regions = deepcopy(tuple(snapshot.camera_regions))
@@ -55,6 +59,7 @@ class ObjectPhysicalQuery:
             'result_semantics') == 'OBJECT_HIT' for r in self.game_regions)
         self.camera_to_game = camera_to_game
         self.capture_crop=capture_crop
+        self.capture_result=capture_result
         if int(top_k)<1: raise ValueError('OBJECT top_k must be positive')
         self.top_k = min(3, int(top_k))
         self.margin = max(0., min(128., float(margin_px)))
@@ -74,10 +79,11 @@ class ObjectPhysicalQuery:
         self.merge_dedupe_ms = []
         self.proposal_ms = []
         self.local_confirmation_ms = []
+        self.freshness_ms = []
         self.candidate_count = 0
         self.examined_candidate_count = 0
         self.result = None
-        self.pre_times = [float(f.timestamp) for f in pre_frames]
+        self.pre_times = [float(f.timestamp) for f in (pre_frames[-3:] if self.object_hit_requested else pre_frames)]
         self.search_pixels = self.read_pixels = self.frame_pixels = 0
         self.hypotheses = []
         self.per_object = []
@@ -89,6 +95,8 @@ class ObjectPhysicalQuery:
             self.finish('UNCERTAIN', 'region_budget_exceeded')
         elif not pre_frames or any(t >= self.peak_ts for t in self.pre_times):
             self.finish('UNCERTAIN', 'no_causal_recent_surface')
+        elif self.object_hit_requested and any(a>=b for a,b in zip(self.pre_times,self.pre_times[1:])):
+            self.finish('UNCERTAIN','pre_history_not_strictly_ordered')
         elif self.peak_ts - max(self.pre_times) > .5:
             self.finish('UNCERTAIN', 'recent_surface_too_old')
         else:
@@ -154,10 +162,24 @@ class ObjectPhysicalQuery:
                     self.capture_crop(self.shot_id,'pre',f.timestamp,(x0,y0,x1,y1),pixels)
             reference = stack[-1].copy()  # latest current surface; not a clean-board median
             noise = np.median(np.abs(stack-reference),axis=0)
+            envelope=None;pre_registration=[];photometric_offsets=[]
+            if self.object_hit_requested and len(stack)>=2:
+                freshness_started=time.perf_counter()
+                low,high=reference.copy(),reference.copy()
+                for prior in stack[:-1]:
+                    aligned,reg=CandidateGeneratorV2._register_current(None,reference,prior,
+                        roi=mask,cfg={'registration_max_dimension':256})
+                    matched,offset=CandidateGeneratorV2._normalise_photometry(reference,aligned,roi=mask)
+                    np.minimum(low,matched,out=low);np.maximum(high,matched,out=high)
+                    pre_registration.append(reg);photometric_offsets.append(offset)
+                envelope=(low,high)
+                self.freshness_ms.append((time.perf_counter()-freshness_started)*1000.)
             self.pre_activity |= np.count_nonzero((noise>3.)&(mask>0))>=2
             valid_pixels=int(np.count_nonzero(mask))
             self.tiles.append(dict(geometry=geometry,mask=mask,valid_pixels=valid_pixels,pre=reference,
-                noise=noise,previous=None,previous_ts=None,object_ids=window.object_ids))
+                noise=noise,previous=None,previous_ts=None,object_ids=window.object_ids,
+                pre_envelope=envelope,pre_registration=pre_registration,
+                pre_photometric_offsets=photometric_offsets,previous_new=None))
             self.search_pixels += valid_pixels
             self.pre_prepare_ms += (time.perf_counter()-pre_started)*1000.
         if not self.tiles:
@@ -172,11 +194,68 @@ class ObjectPhysicalQuery:
         d=signed[y0:y+9,x0:x+9]
         z = a / np.maximum(1., np.minimum(n,4.))
         m = _disc_ring_metrics(a,z,np.maximum(-d,0),n,x-x0,y-y0)
+        return ObjectPhysicalQuery._local_result(m)
+
+    @staticmethod
+    def _local_result(m):
         if m is None:
             return None,False,0.
         localized = m.center_abs >= 1.6 and m.compact_abs >= .30 and m.center_z >= 1.3
         score = max(0.,m.compact_abs) * min(1.,m.center_abs/6.)
         return m,localized,score
+
+    @staticmethod
+    def _evidence_many(absolute,noise,signed,points):
+        """Same r2/r4..8 measurements, vectorized over this bounded component list.
+
+        Boolean selection order, float32 means and Python-float subtraction match
+        _disc_ring_metrics. No pruning, map smoothing or new physical threshold.
+        Clipped boundary patches retain the scalar implementation.
+        """
+        if not points:return []
+        h,w=absolute.shape
+        if (any(a.dtype!=np.float32 for a in (absolute,noise,signed)) or
+                any(x<8 or y<8 or x+8>=w or y+8>=h for x,y in points)):
+            return [ObjectPhysicalQuery._evidence(absolute,noise,signed,x,y) for x,y in points]
+        xy=np.asarray(points,dtype=int);offset=np.arange(-8,9)
+        ix=xy[:,0,None,None]+offset[None,None,:]
+        iy=xy[:,1,None,None]+offset[None,:,None]
+        a=absolute[iy,ix];n=noise[iy,ix];d=signed[iy,ix]
+        z=a/np.maximum(1.,np.minimum(n,4.));dark=np.maximum(-d,0)
+        # Boolean indexing yields a column-contiguous array. Copy rows to keep
+        # NumPy's pairwise reduction order identical to scalar a[mask].mean().
+        def mean(v,mask):return np.ascontiguousarray(v[:,mask]).mean(axis=1)
+        values=np.stack([mean(a,_CENTER),mean(a,_RING),
+            mean(z,_CENTER),mean(dark,_CENTER),mean(dark,_RING),
+            a[:,_CENTER].max(axis=1),np.median(n[:,_CENTER],axis=1)],axis=1)
+        result=[]
+        for center,ring,center_z,center_dark,ring_dark,peak,pre_noise in values.tolist():
+            m=RegisteredMetricsV252(center_abs=center,ring_abs=ring,compact_abs=center-ring,
+                peak_abs=peak,center_z=center_z,center_dark=center_dark,ring_dark=ring_dark,
+                dark_compact=center_dark-ring_dark,dark_fraction=max(0.,min(1.5,center_dark/max(.5,center))),
+                pre_noise=max(0.,pre_noise))
+            result.append(ObjectPhysicalQuery._local_result(m))
+        return result
+
+    @staticmethod
+    def _new_change(signed, other_signed):
+        """Signed distance beyond ALL observed PRE levels, in the POST plane.
+
+        Inputs are POST minus registered/photometrically matched PRE bounds.
+        Zero means POST overlaps the observed PRE envelope. No learned threshold,
+        polarity preference, candidate identity or game geometry enters here.
+        This qualifies observed novelty, not projectile causation or clean PRE.
+        """
+        low,high=signed.copy(),signed.copy()
+        for delta in other_signed:
+            np.minimum(low,delta,out=low);np.maximum(high,delta,out=high)
+        return np.maximum(low,0.)+np.minimum(high,0.)
+
+    @staticmethod
+    def _same_polarity(a,b):
+        # mean(signed) == mean(abs) - 2*mean(darkening), same existing r2 core.
+        return a is not None and b is not None and (
+            (a.center_abs-2*a.center_dark)*(b.center_abs-2*b.center_dark)>0.)
 
     def _component_reserve(self, labels, sizes, means, geometry):
         """Keep the existing crop budget, reserving two components per object.
@@ -308,6 +387,19 @@ class ObjectPhysicalQuery:
             current, _ = CandidateGeneratorV2._normalise_photometry(pre,post,roi=mask)
             signed = current-pre
             absolute = np.abs(signed).astype(np.float32)
+            new_signed=None
+            if self.object_hit_requested and tile['pre_envelope'] is not None:
+                freshness_started=time.perf_counter()
+                low,high=tile['pre_envelope']
+                if registration['applied']:
+                    matrix=np.float32([[1,0,-registration['dx']],[0,1,-registration['dy']]])
+                    low,high=(cv2.warpAffine(a,matrix,(post.shape[1],post.shape[0]),
+                        flags=cv2.INTER_LINEAR,borderMode=cv2.BORDER_REPLICATE) for a in (low,high))
+                # Positive interpolation weights preserve a conservative envelope:
+                # warped minimum <= every warped PRE <= warped maximum.
+                new_signed=self._new_change(current-low,(current-high,))
+                self.freshness_ms.append((time.perf_counter()-freshness_started)*1000.)
+            new_absolute=None if new_signed is None else np.abs(new_signed)
             values = absolute[mask>0]
             median = float(np.median(values))
             threshold = max(3.,median+3.*1.4826*float(np.median(np.abs(values-median))))
@@ -346,19 +438,45 @@ class ObjectPhysicalQuery:
             self.proposal_ms.append((time.perf_counter()-proposal_started)*1000.)
             evidence_started=time.perf_counter()
             self.candidate_count += len(ranked)
-            for nomination_score,x,y,area,component in ranked:
+            batches=None
+            if self.object_hit_requested:
+                points=[(r[1],r[2]) for r in ranked]
+                def measure(a,d):return self._evidence_many(a,tile['noise'],d,points)
+                missing=[(None,False,0.)]*len(points)
+                batches=(measure(absolute,signed),missing if tile['previous'] is None else measure(*tile['previous']),
+                    missing if new_signed is None else measure(new_absolute,new_signed),
+                    missing if tile['previous_new'] is None else measure(*tile['previous_new']))
+            for index,(nomination_score,x,y,area,component) in enumerate(ranked):
                 if over_budget(): return self.result
                 self.examined_candidate_count+=1
-                metric,local_ok,score = self._evidence(absolute,tile['noise'],signed,x,y)
+                metric,local_ok,score = batches[0][index] if batches is not None else self._evidence(absolute,tile['noise'],signed,x,y)
                 if metric is None:
                     continue
                 previous = tile['previous']
-                old_metric,previous_ok,old_score = (None,False,0.) if previous is None else self._evidence(
-                    previous[0],tile['noise'],previous[1],x,y)
+                old_metric,previous_ok,old_score = (batches[1][index] if batches is not None else
+                    (None,False,0.) if previous is None else self._evidence(previous[0],tile['noise'],previous[1],x,y))
                 # Large coherent changes remain UNCERTAIN, not NO_HIT. This is
                 # per-frame morphology/context, never a permanent edge blacklist.
                 compact_component = area <= max(64,int(tile['valid_pixels']*.1))
-                confirmed = bool(local_ok and previous_ok and compact_component)
+                persistent = bool(local_ok and previous_ok and compact_component)
+                confirmed=persistent
+                freshness=None
+                if self.object_hit_requested:
+                    nm,nok,_=batches[2][index]
+                    pm,pok,_=batches[3][index]
+                    polarity=self._same_polarity(nm,pm)
+                    confirmed=bool(persistent and nok and pok and polarity)
+                    why=('new_change_beyond_observed_pre' if confirmed else
+                        'pre_history_unavailable' if new_signed is None else
+                        'not_persistent_local_change' if not persistent else
+                        'post_overlaps_pre_variation' if not nok else
+                        'previous_post_not_new' if not pok else 'post_polarity_reversal')
+                    freshness=dict(state='SUPPORTED' if confirmed else 'UNKNOWN',reason=why,
+                        criterion='same_xy_signed_pre_envelope_v1',pre_frame_ts=list(self.pre_times),
+                        current=asdict(nm) if nm else None,previous=asdict(pm) if pm else None,
+                        same_polarity=bool(polarity),pre_registration=tile['pre_registration'],
+                        pre_photometric_offsets=tile['pre_photometric_offsets'],clean_pre_certified=False,
+                        physical_cause_certified=False)
                 cx,cy = geometry.local_to_camera(x,y)
                 game_xy = self.camera_to_game(cx,cy) if self.camera_to_game else None
                 associations = []
@@ -385,11 +503,13 @@ class ObjectPhysicalQuery:
                     continue
                 nearest=min((math.hypot(cx-h['camera_x'],cy-h['camera_y']) for h in self.known_holes
                     if 'camera_x' in h and 'camera_y' in h),default=None)
-                physical_score=min(score,old_score) if confirmed else score
+                physical_score=min(score,old_score) if persistent else score
                 candidates.append(dict(camera_xy=[cx,cy],game_xy=list(game_xy) if game_xy else None,
                     evidence_score=physical_score,confidence=1.-math.exp(-physical_score/8.),
                     confidence_semantics='uncalibrated_evidence_strength',confirmed=confirmed,
-                    evidence_decision=('persistent_local_change' if confirmed else
+                    persistent_local_change=persistent,event_freshness=freshness,
+                    evidence_decision=(freshness['reason'] if self.object_hit_requested else
+                        'persistent_local_change' if confirmed else
                         'current_xy_not_localized' if not local_ok else
                         'component_not_compact' if not compact_component else
                         'no_previous_same_xy_confirmation'),
@@ -401,6 +521,7 @@ class ObjectPhysicalQuery:
                     registration=registration,regions=associations,nearest_known_hole_px=nearest,
                     known_hole_semantics='context_only_no_truth_update'))
             tile['previous']=(absolute,signed)
+            tile['previous_new']=None if new_signed is None else (new_absolute,new_signed)
             tile['previous_ts']=ts
             self.local_confirmation_ms.append((time.perf_counter()-evidence_started)*1000.)
         if over_budget(): return self.result
@@ -446,6 +567,7 @@ class ObjectPhysicalQuery:
                 roi_prepare_ms=self.roi_prepare_ms,pre_prepare_ms=self.pre_prepare_ms,
                 post_analysis_ms=list(self.post_analysis_ms),merge_dedupe_ms=list(self.merge_dedupe_ms),
                 proposal_ms=list(self.proposal_ms),local_confirmation_ms=list(self.local_confirmation_ms),
+                freshness_ms=list(self.freshness_ms),
                 audio_to_first_frame_ms=None if self.first_post_ts is None else (self.first_post_ts-self.peak_ts)*1000,
                 audio_to_first_hypothesis_ms=None if self.first_hypothesis_ts is None else (self.first_hypothesis_ts-self.peak_ts)*1000,
                 audio_to_decision_ms=(now-self.peak_ts)*1000,
@@ -460,12 +582,14 @@ class ObjectPhysicalQuery:
             self.result['object_decision']=self._object_decision(status,reason)
             self.result['timing']['object_decision_ms']=(time.perf_counter()-started)*1000.
         self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
+        if self.capture_result:
+            self.capture_result(self.shot_id,self.result)
         return self.result
 
     def _object_decision(self,status,reason):
         """Resolve supported local observations before public top-k truncation.
 
-        No thresholds/scores change. More than one supported requested object is
+        More than one supported requested object is
         ambiguous, including overlapping shapes. Retain diagnostics, never pick
         an object by depth, priority, distance or arbitrary list order.
         """
@@ -496,9 +620,13 @@ class ObjectPhysicalQuery:
             if c is None:return None
             return {k:c.get(k) for k in ('camera_xy','game_xy','confirmed','evidence_score',
                 'evidence_decision','evidence','previous_same_xy_evidence','frame_ts',
-                'previous_frame_ts','pre_frame_ts','registration','producer','component_id','tile_camera_bbox')}
+                'previous_frame_ts','pre_frame_ts','registration','producer','component_id','tile_camera_bbox',
+                'persistent_local_change','event_freshness','regions','component_pixels','nomination_threshold')}
         decision=result.get('object_decision',{})
         return dict(shot_id=self.shot_id,semantic='OBJECT_HIT',status=decision.get('state','UNKNOWN'),
+            support_policy='same_xy_signed_pre_envelope_v1',peak_ts=self.peak_ts,
+            pre_frame_ts=list(self.pre_times),post_frames=self.frames,
+            timestamp_semantics='camera_receipt_not_exposure; PRE_is_not_certified_pre_damage',
             physical_query_status=result.get('status'),
             object_id=decision.get('object_id'),reason=decision.get('reason'),
             supported_object_ids=decision.get('supported_object_ids',[]),
@@ -506,6 +634,9 @@ class ObjectPhysicalQuery:
             frozen_regions=[dict(object_id=r.object_id,camera_aabb=[r.x,r.y,r.width,r.height]) for r in self.regions],
             per_object=[dict(object_id=r.object_id,game_aabb=[r.x,r.y,r.width,r.height],
                 shape=r.metadata.get('v250_object_snapshot',{}).get('shape'),
+                support_state=('SUPPORTED' if r.object_id in decision.get('supported_object_ids',[]) else 'UNKNOWN'),
+                decision=next((row['decision'] for row in self.per_object if row['object_id']==r.object_id),'no_observed_candidate'),
+                candidates=[point(c) for row in self.per_object if row['object_id']==r.object_id for c in row['candidates']],
                 best_candidate=point(next((row['candidates'][0] for row in self.per_object
                     if row['object_id']==r.object_id and row['candidates']),None))) for r in self.game_regions],
             timing=result.get('timing',{}),searched_pixels=self.search_pixels,

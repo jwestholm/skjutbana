@@ -789,6 +789,7 @@ class ObjectHitRegistryV2223:
         if over_budget:
             pre=[]
         capture_crop=None
+        capture_result=None
         import os
         if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
             from src.engine.physical_trace import get_physical_trace_recorder
@@ -798,10 +799,21 @@ class ObjectHitRegistryV2223:
             event=next((e for e in scanner.audio_events if e.shot_id==shot_id),None)
             if event is not None:recorder.start_from_scanner(scanner,event,get_ai_runtime().settings)
             capture_crop=recorder.capture_object_crop
+        elif os.environ.get('SKJUTBANA_OBJECT_CROP_ROOT'):
+            from src.engine.physical_trace import get_object_crop_recorder
+            from types import SimpleNamespace
+            try:
+                recorder=get_object_crop_recorder()
+                recorder.start_from_scanner(scanner,SimpleNamespace(shot_id=shot_id,peak_ts=snap.peak_ts))
+                capture_crop=recorder.capture_object_crop
+                capture_result=recorder.finish_object_query
+            except Exception as exc:
+                print(f'[OBJECT-CROPS] unavailable: {type(exc).__name__}: {exc}',flush=True)
         try:
             snap.object_query=ObjectPhysicalQuery(scoped,pre,camera_to_game=snap.object_camera_to_game,
                 known_holes=tuple(getattr(scanner,'known_holes',())),
-                top_k=config.get('top_k',3),margin_px=config.get('margin_camera_px',36.),capture_crop=capture_crop)
+                top_k=config.get('top_k',3),margin_px=config.get('margin_camera_px',36.),
+                capture_crop=capture_crop,capture_result=capture_result)
         except Exception as exc:
             # Optional scoped preparation must not prevent ordinary CURRENT.
             snap.object_query=ObjectPhysicalQuery(scoped,[])

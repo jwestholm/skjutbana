@@ -1,5 +1,38 @@
 # Physical capture runbook
 
+## Analyze saved OBJECT_HIT crops locally — 2026-10-08
+
+`can_play_02` is preserved. Replay its saved query inputs without camera/projector
+access or current calibration:
+
+```bash
+OPENBLAS_NUM_THREADS=1 python3 -m automation.object_hit_replay \
+  --capture /data/skjutbana/evaluation_runs/can_play_02 \
+  --output /data/skjutbana/evaluation_runs/can_play_02_analysis_01 \
+  --repeats 20 --profile --compare-scalar
+```
+
+Output must be new. After interruption, repeat the identical command with
+`--resume`; completed shots are reused and changed inputs/code/options are refused.
+`REPORT.md`, `summary.json`, `objects.csv`/JSON, `candidate_recurrence.json` and
+per-shot checkpoints contain decisions, reasons, diagnostics and CPU measurements.
+For `can_play_01`, use its path and a fresh output: compact logs are analyzed without
+inventing image replay. No physical labels are inferred or edited.
+
+Evidence replay neutralizes CPU deadlines, so its terminal result can differ from a
+live timeout. Saved frame timestamps/cutoffs remain enforced. Known-hole context and
+original scheduling are unavailable. All recorded frame ledgers are checked; missing
+crops or mapping fail closed. Timing measures CPU with observer copies, excluding
+loading/camera waits. Recurrence is diagnostic, never a re-hit veto.
+
+The next `can_play_03` test checks post-batching latency and independently observed
+object decisions. It does not validate a new support rule. Record actual fresh damage,
+object/outside/uncertain and shot_id after every shot; aim and game response are not GT.
+Two PRE observations in `can_play_02` cannot certify a clean baseline. A later rule
+experiment needs longer timestamped PRE crop history across nuisance variation plus
+independent placement observations. The current flag saves actual query inputs only;
+it does not yet capture that longer diagnostic history.
+
 ## Play today: existing Skjutprylar OBJECT_HIT test — 2026-10-08
 
 This is normal gameplay with compact diagnostics, not the old full research
@@ -10,13 +43,14 @@ From the repository root:
 
 ```bash
 python3 -m automation.physical_collection play-can \
-  --output-dir /data/skjutbana/evaluation_runs/can_play_01
+  --object-crops \
+  --output-dir /data/skjutbana/evaluation_runs/can_play_03
 ```
 
 Choose **Spel > Skjutprylar** (the existing `shoot_stuff_range` entry), at **20 m**.
 The launcher starts the normal menu, mutes can SFX for the initial controls, turns
 off comparison visual hold and disables full-frame physical traces **only in this
-process**. The output directory must be new; choose `can_play_02` for another run.
+process**. The output directory must be new; choose a new suffix if03 exists.
 Never reuse an old capture directory. Existing `launch-can` still means a full
 research capture with its own foundation preflight; it is not this command.
 
@@ -43,7 +77,10 @@ For every shot, independently observe the physical placement; intended aim is
 not truth. Fill `event_notes.json` with the corresponding console `shot_id`, actual
 object (or outside), and result. Unknown placement is marked uncertain, not guessed.
 Unexpected audio-triggered events get separate notes rather than silently shifting
-shot numbers.
+shot numbers. **After each shot, independently identify the new physical damage
+and record the observed object or outside.** If placement cannot be established,
+write `uncertain` in notes; never copy intended_object into observed truth. Record
+wrong/no reaction too. Preserve the original10-UNKNOWN run as the baseline.
 
 | Human-observed physical placement | Record |
 | --- | --- |
@@ -55,9 +92,20 @@ The console/runtime.log has immediate `[OBJECT-HIT]` records and later
 `[OBJECT-HIT-CURRENT]` comparisons with ordinary exact-coordinate output. Fields
 include frozen regions/shapes, per-object best candidate/evidence, UNKNOWN reasons,
 timing, and `global_rescue_used_for_object=false`. Ordinary global rescue can still
-run independently and retains its existing shot-id runtime messages. No raw image
-datasets or frame ledgers are saved by this launcher. `runtime_exit.json` records
-process exit; `play.json` records source hashes and the settings hash.
+run independently and retains its existing shot-id runtime messages. The optional
+`--object-crops` now records only actual query crops (up to3 PRE/8 POST,20 events;
+11M uint8 pixels/event maximum) in `object_crops/shots/shot_*/object_inputs/`.
+Each `trace.json` contains frame timestamps, crop origins/hashes, exact query ledger
+and persistence completeness/errors. No full camera frames are saved. Omit the flag
+for ordinary compact-only gameplay. `runtime_exit.json` records process exit;
+`play.json` records source hashes and the settings hash.
+
+For this retest inspect per-object `event_freshness`: new change beyond observed
+PRE, overlap with PRE variation, insufficient history, missing previous POST
+newness, or polarity reversal. Non-support remains physical UNKNOWN, not validated
+NO_IMPACT. Logs preserve old persistence separately, all retained alternatives,
+geometry membership, final ambiguity and timing. If all objects still pass, stop:
+use these crops to distinguish projection/registration effects before another change.
 
 Initial practical target is at least95% correct object identity and zero false
 object hits on outside shots. With only10 target trials that means10/10 for95%;
