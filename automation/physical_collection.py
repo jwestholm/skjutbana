@@ -1,7 +1,7 @@
 """Safe research collection orchestration and validation helpers."""
 from __future__ import annotations
 import argparse,json,uuid,subprocess,os,hashlib,shutil
-import sys,signal,re
+import sys,signal,re,threading,time
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -176,9 +176,11 @@ def launch_can(output,trace_root,foundation_report=None):
  env=dict(os.environ,SKJUTBANA_PHYSICAL_CAPTURE_BINDING=str(binding),SKJUTBANA_CAN_SFX='0',SKJUTBANA_OBJECT_COMPARE='0')
  return _run_capture(binding,env)
 
-def prepare_can_play(output, *, object_crops=False):
+def prepare_can_play(output, *, object_crops=False, mature_candidates=False, verbose_console=False,
+                     gt_review=False, gt_shots=3):
  """Compact gameplay acceptance, not a full research-capture binding."""
  output=_development_path(output)
+ if mature_candidates and not object_crops:raise ValueError('Mature candidate diagnostics require --object-crops')
  if not output.resolve().is_relative_to(Path('/data/skjutbana')):
   raise ValueError('Gameplay diagnostics must be under /data/skjutbana')
  output.mkdir(parents=True,exist_ok=False)
@@ -187,16 +189,32 @@ def prepare_can_play(output, *, object_crops=False):
    observed_physical_object=None,shot_id=None,result=None,notes='') for i in range(10)]
  notes.extend(dict(shot=i+11,player=1,intended_object=None,observed_physical_object=None,
    shot_id=None,result=None,notes='deliberate outside/between active objects') for i in range(5))
+ if gt_review:
+  hypotheses=['clean visible surface','near old damage/tape','dark/projected detail']
+  notes=[dict(slot=i+1,shot_id=None,physical_discharge='UNKNOWN',actual_result='UNKNOWN',
+    observed_physical_object=None,notes='',inspection_hypothesis=hypotheses[i] if i<3 else 'independent hole visibility')
+    for i in range(gt_shots)]
  manifest=dict(mode='OBJECT_HIT_GAMEPLAY_ACCEPTANCE',game='shoot_stuff_range',
    menu_title='Skjutprylar',full_frame_capture=False,live_accuracy_validated=False,
+   console_mode='verbose' if verbose_console else 'operator',
+   diagnostic_logs=dict(full_stdout_stderr='runtime.log',event_updates='logs/event_summary.jsonl',
+     payload_policy='Complete original stream in runtime.log; compact index references byte ranges and canonical shot artifacts'),
    head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+   mature_candidates=bool(mature_candidates),
+   gt_review=bool(gt_review),gt_review_full_frame_capture=bool(gt_review),
+   gt_review_event_limit=gt_shots if gt_review else None,
+   mature_candidate_limits=dict(pools_per_event=32,candidates_per_pool=1024,bytes_per_event=8*1024*1024) if mature_candidates else None,
    object_crops=bool(object_crops),object_crop_limits=dict(events=20,pre_frames=3,post_frames=8,
      pixels_per_frame=1000000,queue_bytes=16*1024*1024) if object_crops else None,
    settings_sha256=hashlib.sha256(Path('content/ai/settings.json').read_bytes()).hexdigest(),
    source_sha256={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in (
      'src/engine/camera/object_physical_query.py','src/engine/input/hit_regions.py',
      'src/engine/input/object_hit_v2223.py','src/engine/game_objects/manager.py',
-     'src/engine/physical_trace.py','content/games/can_shootout_game.py',__file__)})
+     'src/engine/physical_trace.py','src/engine/shot_async_v2224.py',
+     'src/engine/shot_fast_v2225.py','src/engine/shot_region_proposal_v251.py',
+     'src/engine/shot_region_freshness_v252.py','src/engine/shot_cross_thread_novelty_v253.py',
+     'src/engine/camera/candidate_generator_v2.py','content/games/can_shootout_game.py',
+     'automation/physical_capture_console.py',__file__)})
  path=output/'play.json';path.write_text(json.dumps(manifest,indent=2)+'\n')
  (output/'event_notes.json').write_text(json.dumps(dict(
    truth='Independent observed impact/object, not intended aim or game reaction',events=notes,
@@ -205,47 +223,118 @@ def prepare_can_play(output, *, object_crops=False):
    unexpected_audio_events=[]),indent=2)+'\n')
  env=dict(os.environ)
  for key in ('SKJUTBANA_PHYSICAL_CAPTURE_BINDING','SKJUTBANA_PHYSICAL_TRACE_ROOT',
-             'SKJUTBANA_PHYSICAL_CAPTURE_HISTORY','SKJUTBANA_KOMPETENSPROV_TEST','SKJUTBANA_OBJECT_CROP_ROOT'):
+             'SKJUTBANA_PHYSICAL_CAPTURE_HISTORY','SKJUTBANA_KOMPETENSPROV_TEST','SKJUTBANA_OBJECT_CROP_ROOT',
+             'SKJUTBANA_OBJECT_MATURE_CAPTURE','SKJUTBANA_GT_CAPTURE_ROOT'):
   env.pop(key,None)
  env.update(SKJUTBANA_PHYSICAL_TRACE_DISABLE='1',SKJUTBANA_CAN_SFX='0',SKJUTBANA_OBJECT_COMPARE='0')
  if object_crops:env['SKJUTBANA_OBJECT_CROP_ROOT']=str(output/'object_crops')
+ if mature_candidates:env['SKJUTBANA_OBJECT_MATURE_CAPTURE']='1'
+ if gt_review:
+  from automation.physical_gt_capture import prepare
+  env['SKJUTBANA_GT_CAPTURE_ROOT']=str(prepare(output,gt_shots))
  return path,env
 
-def play_can(output, *, object_crops=False):
- manifest,env=prepare_can_play(output,object_crops=object_crops)
+def play_can(output, *, object_crops=False, mature_candidates=False, verbose_console=False,
+             gt_review=False, gt_shots=3):
+ manifest,env=prepare_can_play(output,object_crops=object_crops,mature_candidates=mature_candidates,
+   verbose_console=verbose_console,gt_review=gt_review,gt_shots=gt_shots)
+ if gt_review:
+  print(f'GT REVIEW: select Spel > Skjutprylar. First {gt_shots} audio events receive post-decision full-frame review.\n'
+        '3-shot plan: clean surface; near old damage/tape; dark/projected detail.\n'
+        'DO NOT SHOOT during WHITE/BLACK/MID_GRAY or rearming. Wait for scanner READY.\n'
+        'Review images are HUMAN LABELING ONLY, never live evidence. UNKNOWN is valid.\n'
+        f'Capture: {manifest.parent}\nInstructions: {manifest.parent}/gt_review/REPORT.md',flush=True)
+  return _run_capture(manifest,env,compact=True,verbose_console=verbose_console)
  print('OBJECT_HIT gameplay test: select Spel > Skjutprylar, 20 m. Normal game, SFX OFF.\n'
        'Shoot mini/soda/gold/beans/sardines once in player 1, then once each in player 2.\n'
        'Press R after the match: five deliberate outside shots. Wait for LIVE/settled image each time.\n'
        'Record observed physical object, shot_id and result in '+str(manifest.parent/'event_notes.json')+'\n'
        'Full trace disabled. '+('Bounded object PRE/POST crops enabled (20 events maximum). ' if object_crops else 'Compact logs only. ')+
        'Observe actual damage independently after each shot; intent is not truth. Physical reliability is unverified.',flush=True)
- return _run_capture(manifest,env,compact=True)
+ return _run_capture(manifest,env,compact=True,verbose_console=verbose_console)
 
 def launch_d02(output,trace_root,plan_path,*,capture_history=None):
  binding=prepare_d02_launch(output,trace_root,plan_path,capture_history=capture_history)
  print(f'D02 CAPTURE BINDING: {binding}\nCURRENT unchanged. Use a static scene; complete geometry/event notes before shooting. Warm up at least 5 seconds.',flush=True)
  return _run_capture(binding,dict(os.environ,SKJUTBANA_PHYSICAL_CAPTURE_BINDING=str(binding)))
 
-def _run_capture(binding,env,*,compact=False):
- with (binding.parent/'runtime.log').open('x') as log:
-  process=subprocess.Popen([sys.executable,'-u','main.py'],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+def _run_capture(binding,env,*,compact=False,verbose_console=False):
+ """Drain the existing child pipe off the main thread, including during SIGINT.
+
+ Full raw output has one owner/file. Capture-scoped presentation/JSONL indexing
+ runs in this parent process, not the detector. Non-play capture keeps its tee.
+ """
+ from contextlib import ExitStack
+ with ExitStack() as files:
+  log=files.enter_context((binding.parent/'runtime.log').open('xb'))
+  view=None
+  if compact:
+   from automation.physical_capture_console import CaptureConsole
+   (binding.parent/'logs').mkdir(exist_ok=True)
+   events=files.enter_context((binding.parent/'logs/event_summary.jsonl').open('x'))
+   view=CaptureConsole(binding.parent,events,verbose=verbose_console,
+     object_crops=bool(env.get('SKJUTBANA_OBJECT_CROP_ROOT')),
+     mature=env.get('SKJUTBANA_OBJECT_MATURE_CAPTURE')=='1')
+   print(f'[CAPTURE] {binding.parent}\n[CAPTURE] Full diagnostics: runtime.log; event updates: logs/event_summary.jsonl',flush=True)
+  process=subprocess.Popen([sys.executable,'-u','main.py'],env=env,stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,start_new_session=compact)
+  failures=[];timing=dict(lines=0,bytes=0,drain_ms=0.,max_line_ms=0.)
+  def drain():
+   try:
+    for line in process.stdout:
+     started=time.perf_counter()
+     raw=line.encode('utf-8') if isinstance(line,str) else line
+     offset=log.tell();log.write(raw);log.flush()
+     text=raw.decode('utf-8',errors='replace')
+     if view:view.observe(text,offset,len(raw))
+     else:print(text,end='',flush=True)
+     elapsed=(time.perf_counter()-started)*1000.
+     timing['lines']+=1;timing['bytes']+=len(raw);timing['drain_ms']+=elapsed
+     timing['max_line_ms']=max(timing['max_line_ms'],elapsed)
+   except Exception as exc:
+    failures.append(f'{type(exc).__name__}: {exc}')
+    print('[CAPTURE ERROR] Log drain/write failed; capture incomplete: '+str(exc),file=sys.stderr,flush=True)
+    if process.poll() is None:process.terminate()
+  reader=threading.Thread(target=drain,name='capture-log-drain',daemon=True);reader.start()
+  interrupted=False
   try:
-   for line in process.stdout:print(line,end='');log.write(line);log.flush()
+   process.wait()
   except KeyboardInterrupt:
+   interrupted=True
+   print('[CAPTURE] Stopping; draining final diagnostics...',flush=True)
    if process.poll() is None:
     process.send_signal(signal.SIGINT)
     try:process.wait(timeout=10)
-    except subprocess.TimeoutExpired:process.terminate()
+    except (subprocess.TimeoutExpired,KeyboardInterrupt):
+     print('[CAPTURE WARNING] Graceful shutdown incomplete; terminating child.',flush=True)
+     process.terminate()
   finally:
-   if process.poll() is None:process.terminate()
-   process.wait()
+   if process.poll() is None:
+    try:process.wait(timeout=3)
+    except (subprocess.TimeoutExpired,KeyboardInterrupt):process.kill();process.wait()
+   reader.join(timeout=10)
+   if reader.is_alive():
+    failures.append('log pipe did not close after child exit')
+    print('[CAPTURE ERROR] Log drain incomplete after child exit.',file=sys.stderr,flush=True)
+   else:
+    process.stdout.close()
+   summary={}
+   if view and not reader.is_alive():
+    try:summary=view.finish()
+    except Exception as exc:
+     failures.append(f'summary finalization: {type(exc).__name__}: {exc}')
+     print('[CAPTURE ERROR] Event summary could not be finalized: '+str(exc),file=sys.stderr,flush=True)
    exit_record=dict(returncode=process.returncode,finished_at=datetime.now(timezone.utc).isoformat(),
+    interrupted=interrupted,log_drain_complete=not reader.is_alive() and not failures,
+    logging_errors=failures,logging_cost=timing,event_summary=summary,
     metadata_finalization=('Check object_crops/shots/*/trace.json completeness; crops only' if compact and env.get('SKJUTBANA_OBJECT_CROP_ROOT') else
       'Compact gameplay log only; no trace requested' if compact else
       'Verify trace.json / trace_error.json; process exit alone is not trace completeness'))
    (binding.parent/'runtime_exit.json').write_text(json.dumps(exit_record,indent=2)+'\n')
-   print(f'[CAPTURE] process exited returncode={process.returncode}',flush=True)
- return process.returncode
+   print(f'[CAPTURE] process exited returncode={process.returncode}'+
+     (f" events={summary.get('events','?')} warnings={summary.get('warnings','?')}" if compact else ''),flush=True)
+   if compact:print(f'[CAPTURE] Artifacts: {binding.parent} (runtime.log, logs/event_summary.jsonl, runtime_exit.json)',flush=True)
+ return process.returncode if process.returncode else (1 if failures else 0)
 def _set_trace(settings_path,root,backup):
  p=Path(settings_path); original=p.read_bytes(); Path(backup).write_bytes(original)
  data=json.loads(original); data['physical_trace_capture_enabled']=True; data['physical_trace_root']=str(root)
@@ -275,6 +364,10 @@ def main():
  p=argparse.ArgumentParser();sub=p.add_subparsers(dest='cmd',required=True)
  play=sub.add_parser('play-can',help='Existing Skjutprylar gameplay; compact 15-shot notes, no full traces/settings writes')
  play.add_argument('--object-crops',action='store_true',help='Save bounded query PRE/POST crops, never full frames; max 20 events')
+ play.add_argument('--mature-candidates',action='store_true',help='Add bounded native mature candidate delivery/confirmation sidecars; requires --object-crops')
+ play.add_argument('--verbose-console',action='store_true',help='Echo full diagnostics to terminal as well as runtime.log (default: compact operator status)')
+ play.add_argument('--gt-review',action='store_true',help='Research only: pause AFTER all live work for full-frame WHITE/BLACK/MID_GRAY human inspection')
+ play.add_argument('--gt-shots',type=int,default=3,help='Bound GT review to first N audio events (default 3; not physical truth)')
  play.add_argument('--output-dir',type=Path,required=True)
  c=sub.add_parser('launch-can',help='Fresh captured three-shot Can retry; never edits settings.json')
  c.add_argument('--foundation-report',type=Path,help='Required READY no-shoot geometry/timing/PRE preflight; current policy remains blocked')
@@ -295,7 +388,7 @@ def main():
  add_reset_arguments(sub.add_parser('reset-labels',help='Preview or archive/reset labels; preserve captured evidence'))
  a=p.parse_args()
  if a.cmd=='play-can':
-  try:raise SystemExit(play_can(a.output_dir,object_crops=a.object_crops))
+  try:raise SystemExit(play_can(a.output_dir,object_crops=a.object_crops,mature_candidates=a.mature_candidates,verbose_console=a.verbose_console,gt_review=a.gt_review,gt_shots=a.gt_shots))
   except (ValueError,OSError,KeyError) as exc:p.exit(2,f'CAN GAMEPLAY LAUNCH REFUSED: {exc}\n')
  elif a.cmd=='launch-kompetensprov':
   try:raise SystemExit(launch_kompetensprov(a.output_dir,a.trace_root))

@@ -97,11 +97,33 @@ def load(capture):
         t=json.loads(trace_path.read_text())
         if t['shot_id']!=sid:raise ValueError('trace/log shot identity mismatch')
         if not t['completeness']['trace_complete']:raise ValueError(f'shot {sid}: incomplete crop persistence')
+        q=t['object_query_diagnostic']
+        crops=t.get('object_evidence_crops') or []
+
+        # A query may terminate before _prepare(), for example when no causal
+        # recent PRE surface exists. Such an event is valid recorded evidence
+        # but has no crop/frame geometry to replay. Preserve it as explicitly
+        # unavailable instead of rejecting the entire capture.
+        preprepare_terminal=(
+            not crops
+            and int(q.get('post_frames') or 0)==0
+            and int(q.get('full_camera_pixels') or 0)==0
+        )
+        if preprepare_terminal:
+            shots.append(dict(
+                sid=sid,
+                log=log,
+                trace=None,
+                boundary='PREPARE_TERMINAL_NO_CROP_EVIDENCE',
+                unavailable_reason=q.get('reason'),
+            ))
+            continue
+
         convert,map_meta=mapping(t)
         w,h=t['context']['runtime_geometry']['calibration']['camera_frame_size']
-        if w*h!=t['object_query_diagnostic']['full_camera_pixels']:raise ValueError('saved frame dimensions disagree')
+        if w*h!=q['full_camera_pixels']:raise ValueError('saved frame dimensions disagree')
         by_frame={};kind_by_ts={}
-        for c in sorted(t['object_evidence_crops'],key=lambda c:c['seq']):
+        for c in sorted(crops,key=lambda c:c['seq']):
             file=safe_file(directory,c['path']);_development_path(file)
             pixels=np.load(file,allow_pickle=False)
             if (list(pixels.shape)!=c['shape'] or str(pixels.dtype)!=c['dtype'] or
@@ -328,8 +350,17 @@ def main():
     p.add_argument('--resume',action='store_true');p.add_argument('--profile',action='store_true')
     p.add_argument('--compare-scalar',action='store_true',help='Assert complete scalar/batched evidence and decision parity per shot')
     p.add_argument('--repeats',type=int,default=1)
+    region=p.add_mutually_exclusive_group()
+    region.add_argument('--single-region',help='Research only: replay this frozen object alone; no live authority')
+    region.add_argument('--each-region',action='store_true',help='Research only: each frozen region in isolation')
     a=p.parse_args()
     if not 1<=a.repeats<=1000:p.error('repeats must be 1..1000')
+    if a.single_region or a.each_region:
+        if a.resume or a.profile or a.compare_scalar or a.repeats!=1:
+            p.error('single-region research requires a fresh output and one deterministic pass')
+        from automation.object_region_research import run as run_region
+        run_region(a.capture,a.output,object_id=a.single_region)
+        return
     run(a.capture,a.output,resume=a.resume,repeats=a.repeats,profile=a.profile,compare_scalar=a.compare_scalar)
 
 

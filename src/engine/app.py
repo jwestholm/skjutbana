@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pygame
 from pygame._sdl2.video import Window
 
@@ -23,6 +24,11 @@ AUTOMATION_EVENT = pygame.event.custom_type()
 
 class App:
     def __init__(self) -> None:
+        # Dedicated optical research process; no mixed shot/GT capture ownership.
+        optical = os.environ.get('SKJUTBANA_OPTICAL_LAB') == '1'
+        if optical and any(os.environ.get(k) for k in ('SKJUTBANA_GT_CAPTURE_ROOT',
+                'SKJUTBANA_PHYSICAL_CAPTURE_BINDING','SKJUTBANA_OBJECT_CROP_ROOT')):
+            raise ValueError('optical lab cannot share physical shot capture')
         pygame.init()
 
         self.base_caption = "Skjutbana"
@@ -39,11 +45,16 @@ class App:
         self.communication_server.start()
 
         camera_manager.start()
-        audio_peak_detector.start()
+        if not optical:
+            audio_peak_detector.start()
 
         self._init_led_runtime()
 
-        self.scene = LoadingScene()
+        if optical:
+            from src.engine.scene import Scene
+            self.scene = Scene()  # No game or calibration scene runs optical probes.
+        else:
+            self.scene = LoadingScene()
         self.scene.on_enter()
 
         self._sync_runtime_services(force=True)
@@ -157,6 +168,17 @@ class App:
 
     def _handle_automation_event(self, event: pygame.event.Event) -> None:
         command: AutomationCommand = event.automation_command
+
+        optical = getattr(self, '_optical_lab', None)
+        if optical is not None:
+            if command.command == 'setWindowPos' and not optical.active:
+                self._handle_set_window_pos(command)
+            else:
+                try:
+                    optical.command(command)
+                except Exception as exc:
+                    command.reply_error(str(exc))
+            return
 
         if command.command == "setWindowPos":
             self._handle_set_window_pos(command)

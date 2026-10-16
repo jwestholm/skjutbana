@@ -1,5 +1,326 @@
 # Current project state
 
+## One enemy / one frozen hitbox research foundation — 2026-10-14
+
+**IMPLEMENTED / OFFLINE VERIFIED. PHYSICAL SINGLE-REGION ACCEPTANCE PENDING.**
+This is the new practical priority; Infinite Trench and live authority are unchanged.
+The existing `ObjectPhysicalQuery` already accepts one region. The existing replay
+CLI now accepts `--single-region OBJECT_ID` or `--each-region` (one at a time),
+using saved crops, frozen exact shapes/homography and unchanged query mechanics.
+No new detector, region owner, weights, thresholds or live consumer was introduced.
+
+Research family ledgers retain raw local change, registered change beyond the
+observed PRE envelope, bounded context-fitted translation/photometry, and multiscale
+structure of the remaining residual at existing candidate coordinates. Exact-shape
+pixels and outside margin remain separate. These correlated descriptions do not
+prove material damage; motion, tape, old holes and projected edges are never vetoes.
+Raw/spatial maps are saved for later primary-versus-secondary analysis, not assigned
+physical causes. The recent object-query PREs are not the guarded GT references.
+
+Projector explanation remains **UNAVAILABLE**: existing shots lack an immutable
+rendered-image identity and calibrated optical response. Pygame owns the mutable
+screen, but a deferred reference would not preserve its old contents. Saved camera
+homography alone is not a radiometric projector model. Future reuse belongs at the
+existing render/flip and shot-freeze hooks, with bounded immutable image retention;
+no desktop capture or live hook was added in this offline pass.
+
+On `can_play_candidate_compare_20261011_203905`, 35 isolated region runs over five
+events yield30 legacy `OBJECT_HIT` supports and5 legacy UNKNOWNs; event6 has no
+replayable geometry/images. **All36 research records remain physical UNKNOWN.**
+There is no independent hole/object truth. Merely removing competing objects does
+not certify an impact. Among those35 runs,20 have one native qualified coordinate,
+10 have several and5 have none. Coordinates remain diagnostics, never snapped.
+128 region/POST measurements are available and5 missing tiles remain explicit.
+
+Offline CPU median/P95: unchanged query20.6/34.1ms per isolated event-region;
+local registration/envelope2.33/3.39ms per region frame; residual structure24.48/
+32.66ms. Motion ledger shares registration cost, not another witness. Exact-mask
+construction130.3/219.5ms and total research238.7/337.9ms are offline overhead;
+these are **not live latency measurements**. No research cost enters gameplay.
+26 new tests pass;241-test relevant run:240 pass,1 existing sandbox socket skip.
+Broader65-case boundary run:63 pass,2 unchanged readiness fixtures fail, reproduced
+independently (second-POST final-decision assumptions; no production guard weakened).
+V2.25/V2.22.4 checks pass. Both saved-data passes have identical semantic hashes
+for all36 entries. Details and source
+hashes in `/data/skjutbana/evaluation_runs/single_region_foundation_20261014_173206/`.
+The root REPORT preserves scope, reuse points, runtime and the future max10-shot
+inside/near-outside matrix. No physical capture or accuracy improvement claimed.
+
+## Optical/HIL lab v0.1 — 2026-10-14
+
+**IMPLEMENTED / OFFLINE VERIFIED. PHYSICAL OPTICAL VALIDATION PENDING.**
+`automation.physical_optical_lab` provides passive noise surveys,20 projector
+probes and saved-data geometry audits. It reuses the existing TCP command queue,
+EventListener/EventBus, CameraFrame/ring, HitInput homography and bounded native
+image writer. A dedicated `SKJUTBANA_OPTICAL_LAB=1` process bypasses audio dispatch,
+scanner and game updates. Normal gameplay and GT capture contracts are unchanged.
+
+Passive analysis streams tile mean/stddev/range and histogram median/MAD (1DN
+quantized tile means, not per-pixel noise), brightness drift/differences, source
+timing/gaps and existing diagnostic global translation. Default raw sampling is
+every10s. Bright/dark squares and vertical/horizontal edge patches use five
+viewport-local positions with baseline/probe/recovery and explicit flip/receipt
+barriers. Response location is measured over the whole camera image, without
+expected-location snapping. Saved homography roundtrip, optical centroid spread
+and reference disagreement are separate; missing calibration stays UNAVAILABLE.
+
+Synthetic validation:900 passive observations/3 raw samples;20 probes/60 raw
+frames; maximum synthetic response roundtrip displacement0.00471px. This is test
+geometry, **not physical or projectile accuracy**. Native-size synthetic cost is
+median92.9ms/P95104.0ms per3840x2160 frame, largely full-image SHA256. Native30fps is
+not demonstrated: backpressure is counted and marks a run INCOMPLETE. Research-only
+camera retention is8 frames, processor backlog2; ordinary camera retention remains
+300. Stable statistics consume16.9MB at4K; synthetic process peak267MB excludes the
+real camera ring. Default passive raw storage is about75MB/30s at4K;20 probe triplets
+about1.49GB. Full-rate storage is explicit `--save-all-frames` and may drop writes.
+
+Detailed inventory, test logs, cost profile and reports:
+`/data/skjutbana/evaluation_runs/optical_hil_development_20261014_103415/`.
+The sandbox prohibits sockets: actual TCP roundtrip test is skipped; existing
+command-queue/main-thread/EventListener parser path and synthetic lifecycle pass.
+173 relevant unittest cases:172 pass,1 socket test skipped; another41 V2.22.3/
+V2.22.4 checks pass. Python compilation and git diff checks pass.
+No camera/projector was opened. The separate three-shot GT physical acceptance
+remains pending. PASSIVE_VARIABILITY and PROJECTOR_RESPONSE are never hit evidence.
+
+## GT timing hardening — 2026-10-14
+
+**IMPLEMENTED / OFFLINE VERIFIED; PHYSICAL ACCEPTANCE PENDING.** No camera was
+opened and no new physical shots or labels were made. The old three PREs remain
+UNQUALIFIED: −50.556/−29.546/−38.350ms relative to receipt-anchored audio; the
+operator saw the new hole in PRE. All nine settled neutral frames remain intact.
+
+The saved backend is V4L2. Raw OpenCV POS_MSEC is present, but its clock/source
+flags and device sequence are not exported. It is not verified exposure time.
+Camera receipt follows cap.read(); publication follows rotation/flip and precedes
+ring insertion. Audio uses PCM receipt/sample-position estimates, not a device
+timestamp. Neither clock proves physical impact timing. Keep the 500ms guard:
+`pre_cutoff_verified != causal_pre_certified`; the latter remains false.
+
+The existing ring holds 300 frames (about10s at requested30fps, not a measured
+retention guarantee). GT previously searched it after live closure. The opt-in
+adapter now pins a readonly native PRE reference immediately after event dispatch,
+before object/scanner work; no pixel copy, hash or disk write occurs there. Missing
+history is fixed as UNAVAILABLE with no later fallback. Writing and the unchanged
+WHITE/BLACK/MID_GRAY phase still wait for live closure. Synthetic300-frame binding:
+median1.641ms, P951.908ms; idle hook0.0007ms. This is not measured physical latency.
+
+`physical_gt_timing_v1` adds explicit clock semantics, source identity, deltas,
+guard, certification and null unavailable fields to review sidecars/manifests.
+`python3 -m automation.physical_gt_audit --capture CAPTURE` is read-only, validates
+hashes and reports PRE qualification and each neutral image. Manual labels now
+record their inspection basis and explicitly cannot certify PRE. An independent
+human observation note can support a settled-image click without PRE; it never
+creates a label automatically. UNKNOWN/no overlays remain enforced.
+
+143 capture/label/reconciliation tests and V2.22.3/V2.22.4 selftests pass. Report,
+historical hashes and reproducible synthetic cost measurement:
+`/data/skjutbana/evaluation_runs/gt_timing_hardening_20261014_075506/`.
+No detector/gameplay authority, camera acquisition settings or neutral timing changed.
+
+## GT-review PRE causality repair — 2026-10-13
+
+Operator observation in `physical_gt_capture_v1_20261013_142407`: the new hole
+was already visible in PRE. Its three PRE receipts were only50.556/29.546/38.350ms
+before the receipt-anchored audio estimate. The GT adapter independently selected
+the latest ring frame before audio, bypassing the older shot-time PRE offset.
+This was a reference-selection bug, not evidence of a clean physical baseline.
+All three existing PREs are **causally unverified**, and fail the new guard. Original
+capture/labels are preserved; physical impact time cannot be recovered from these
+clock fields or unverified backend timestamps.
+
+GT capture now reuses `select_recent_pre_frame_v2223` on native ring references,
+requiring camera receipt AND publication at least500ms before audio, with complete
+camera/audio clock provenance. No recent/static fallback; absence is PRE UNAVAILABLE.
+Saving and review loading both verify the cutoff. Sidecars retain the rule, audio
+acquisition, receipt/read/publication timestamps and signed deltas. A passing
+`pre_cutoff_verified` is **not** physical certification: `causal_pre_certified=false`
+remains explicit because audio upstream delay/exposure/impact are unmeasured.
+Legacy PREs are marked UNQUALIFIED in review. Neutral settled acquisition, live
+detector/gameplay authority and same-shot timing are unchanged. No new shots or
+labels were generated. 136 relevant capture/label/reconciliation tests pass;
+compilation and diff checks pass. Detailed timestamp audit lives under
+`/data/skjutbana/evaluation_runs/gt_pre_causality_20261013_134750/`.
+
+## Independent full-frame GT capture v1 ready for observability test — 2026-10-13
+
+Operator review found the previous paired object crops **not independently
+labelable**, despite PRE/POST, blink and zoom. Candidate data exists; exact hole
+GT does not. All six events remain UNKNOWN. No candidate-derived labels, new
+detector hypothesis, training or physical accuracy claim.
+
+`physical_collection play-can --gt-review --gt-shots 3` now opt-ins to a separate
+post-decision research pause using CameraFrame/get_ring_snapshot, the existing
+PhysicalTraceRecorder bounded async NPY writer and the installed V2224 run loop.
+It waits for both published OBJECT and terminal CURRENT plus an idle worker/no
+pending audio. Native PRE + up to2 LIVE_POST frames are copied only after closure;
+then WHITE/BLACK/MID_GRAY camera frames are saved with **GT_SETTLED** roles,
+frame/acquisition/orientation identity and pixel/file hashes. They never enter
+ordinary trace.frames or same-shot live evidence. The same game scene is restored,
+review buffers purged, and scanner/audio rearmed; scores/rules are unchanged.
+Missing images, overlapping events, interruptions and failed restoration stay
+explicit. Default gameplay never constructs the research adapter.
+
+`physical_trace_label --gt-review` reuses the original-image crop UI, now also native
+BGR full frames. PRE inspection + original GT_SETTLED click produces separate
+atomic/versioned `physical_gt_review_exact_camera_v1` labels; UNKNOWN remains valid.
+No candidate overlays or assisted XY. Existing paired oracle analysis accepts
+these independent labels without treating review frames as detector evidence.
+
+Software-only timing: pending live hook median1.54µs/p95 1.88µs, zero array jobs;
+six3840×2160 BGR frames drained in0.813s (6–23ms copy,126–160ms writer/image).
+Configured GT waits total3.3s plus acquisition/I/O; simulated phase3.35s. Real
+live latency, projector exposure/settling and hole visibility remain unverified.
+Next is the three-shot **observability**, not accuracy, acceptance in the runbook.
+24 new tests and the94-test focused capture/label/reconciliation set pass. Broader
+regression:220/223 pass; three unchanged `object_hit_selftest` fixtures expect a
+final decision at the second POST, but current pre-existing behavior is
+`UNCERTAIN/awaiting_object_disambiguation`. They fail separately too; authority
+was not weakened. V2224 async and current disambiguation checks pass; compilation
+and diff whitespace checks pass.
+Inventory/measurements: `/data/skjutbana/evaluation_runs/physical_gt_capture_v1_prep_20261012_175534/`.
+
+## Independent crop-label adapter ready — 2026-10-12
+
+`physical_trace_label --paired-object-crops` reuses the existing Pygame manual UI
+and display-to-source coordinate helper. Added native crop-origin/frame-hash binding,
+original PRE/POST toggle/blink, pixel zoom/pan, POST-only final clicks, explicit
+UNKNOWN and separate atomic versioned `exact_camera_ground_truth.json`. Candidate,
+support, target and heatmap views are unavailable in this mode; no current calibration
+or guessed camera scale. Crops are saved grayscale inputs, not recovered full RGB.
+
+Prepared the169 crops for events1–5 of `can_play_candidate_compare_20261011_203905`;
+event6 remains IMAGE DATA UNAVAILABLE. Same-frame tiles group by timestamp/acquisition.
+Events2/4 have partial last POST tile coverage. All physical labels remain UNKNOWN;
+no holes were labelled by the assistant. Review package and inventory:
+`/data/skjutbana/evaluation_runs/paired_manual_label_prep_20261012_152909/`.
+
+`object_candidate_reconciliation --paired --exact-camera-gt FILE` now validates
+independent source-bound labels before reporting saved-pool @5/@10/@20/@42 oracle.
+Absent/UNKNOWN labels produce no oracle; incomplete/changed-source labels fail
+closed. CURRENT selected/emitted metrics remain separate; no object truth inferred.
+Missing raw/intermediate stages remain UNAVAILABLE, and changing mature packets
+are not merged into a best-over-time oracle. 112 relevant tests pass, including synthetic UI clicks and source-bound oracle tests.
+The actual CLI traversed all six events headlessly without saving labels;199 prior
+input hashes remain unchanged. Ready for operator labeling, not a physical accuracy
+result. No live authority, detector, gameplay or settings changes.
+
+
+## Paired OBJECT_LOCAL / mature capture analysis — 2026-10-12
+
+Verified capture: `can_play_candidate_compare_20261011_203905`. Six audio/event IDs
+exist; 1–5 have complete object traces, 169 crop files and 20 complete mature
+boundary packets in total. Event6 has export-call log lines but no saved trace,
+geometry or mature sidecars. A log call is not persistence acknowledgement.
+Legacy exit metadata says returncode0; it does not record whether Ctrl+C occurred.
+The operator explicitly confirms **no independent physical observations for any
+of the six events**. All physical truth stays UNKNOWN. No object accuracy,
+false-object rate, actual-hole recall or exact-camera oracle can be measured.
+
+OBJECT results1–5 are UNKNOWN: multi-support5/4/4 on1/3/5, and deadlines on2/4
+(356.98/352.72ms). Last observed regional supports on those deadlines were5/5;
+they are not emitted support. Early mature workers arrive236.9/182.8/135.6ms on
+1/3/5 but have no registered freshness; event5's early source frame predates its
+audio peak by6.6ms. Registered worker deliveries are1937.4/1503.6/1811.6/1801.0/
+1783.9ms, with1308–1687ms worker CPU. Scheduling alone does not explain that cost.
+
+Every captured confirmation output has8 unchanged native coordinates. Exact-shape
+coverage shrinks at that boundary (event2: three represented objects -> zero),
+but absent GT this is not proof of losing the physical hit or removing noise.
+Registered confirmations represent3/0/3/3 objects on1–4; event5 has no registered
+confirmation packet. All strict research bridge results abstain (neighborhood
+offsets and/or missing freshness), not evidence of no impact. No live change.
+Local ledgers store three retained alternatives/object/frame, not the full raw
+pool; worker sidecars are post-cleanup and confirmations post-balance.
+
+`object_candidate_reconciliation --paired` adds per-packet CSV/JSON, unchanged-XY
+geometry/provenance, timing, explicit partial events, hashed inputs and an UNKNOWN
+operator worksheet using the existing schema. 87 targeted tests pass. Report:
+`/data/skjutbana/evaluation_runs/object_paired_pool_analysis_20261012_083654/REPORT.md`.
+Next is source-bound independent annotation of saved crops before detector choices.
+The new crop-origin/frame-hash adapter above supplies separate label output; use
+its paired mode rather than the legacy full-frame mode on these originals. No new
+capture, labels, training, threshold changes or live promotion; S03 untouched.
+
+## Capture console ergonomics — 2026-10-12
+
+`physical_collection play-can` now shows compact event status and visible warnings
+by default; `--verbose-console` restores detailed console output. Full original
+stdout/stderr remains byte-for-byte in `runtime.log`. A small append-only
+`logs/event_summary.jsonl` indexes shot/timing updates and canonical artifacts.
+Ctrl+C drains final diagnostics before writing `runtime_exit.json`; requested
+trace/export integrity failures remain visible. All new routing/serialization is
+in the parent capture process. Detector/game/OBJECT_HIT semantics are unchanged.
+
+Saved-stream checks on can_play_03/04 preserved raw bytes and reduced terminal
+output from 846/527 KB to under 1 KB each. Measured incremental parent processing
+was 2.59/2.14 ms per event (9 repeats; excludes real terminal rendering and camera
+execution). No live latency or physical accuracy improvement is claimed. New
+logging and relevant capture/reconciliation/replay tests: 79 passed. Artifacts:
+`/data/skjutbana/evaluation_runs/capture_console_ergonomics_20261011_205510/`.
+
+## OBJECT_HIT candidate ownership reconciliation — 2026-10-11
+
+OBJECT_HIT currently **bypasses mature candidate pools**. `ObjectPhysicalQuery`
+generates `OBJECT_LOCAL_CHANGE` components in frozen object crops, reusing V2
+registration and V2.25 disc/ring arithmetic, but not CandidateGeneratorV2's
+V1/FAST/bank/vault/region proposals. V2.25.1 is a regional extractor inside the
+mature worker; it is not the object query. This is duplicated localization, not
+proof that one path has better physical discrimination.
+
+Read-only comparison artifacts:
+`/data/skjutbana/evaluation_runs/object_hit_candidate_reconciliation_20261011_131358/`.
+Operator object truth in can_play_03/04 gives eight real shots: the correct object
+is supported in all eight, but all eight results are UNKNOWN. Support counts are
+5/7/7/7/5 and 7/4/7. The false-audio control can_play_04:4 has zero object support,
+`no_causal_recent_surface`, and no crop replay inputs. Exact hole XY is unavailable.
+
+Complete mature candidate pools were not saved in these captures. Console V2.25.2
+logs show fresh nominees in all seven **expanded groups**, including the control;
+these rounded working-space summaries do not prove exact-shape membership. The
+later ordinary CURRENT result on that control is (2555,1315), inside frozen
+beans_xxl; it is not OBJECT_HIT authority and includes a projection-change warning.
+This rules out using the late CURRENT winner as an object shortcut.
+
+Registered mature jobs took 1348.0–1479.2 ms on these captures, beyond the 350 ms
+object budget. Earlier non-registered jobs exist, but lack registered-freshness
+proof. Frame time is not worker-delivery time. Historical immutable D01/S01/S02/
+POST_FIX caches reproduce all 39 original CURRENT selections unchanged: selected
+@5 = 5/35 impacts versus current-pool oracle 16/35. This older cohort is **not** the
+modern 37-impact selector benchmark. Only 7/29 native-clock historical events have
+recorded consumed candidates by 350 ms; POST_FIX delivery clocks are reconstructed.
+
+Implemented: `automation.object_candidate_reconciliation` consumes named captures
+and the existing immutable stage cache, preserving unavailable evidence explicitly.
+A pure research adapter in `object_physical_replay` projects unchanged native XY
+into exact frozen shapes, retains overlaps/provenance, checks actual delivery and
+confirmation clocks, excludes FULL-RESCUE, and abstains on missing/truncated or
+neighborhood-only proof. No live resolver uses it. Optional `play-can --object-crops
+--mature-candidates` exports bounded worker-delivery/local-confirmation sidecars via
+the existing trace writer (32 pools/event, 1024 candidates/pool, 8 MiB/event).
+Default runtime authority, settings, candidate ordering and normal FULL-RESCUE are
+unchanged. No S03 data was accessed.
+
+Software timing: native 40-row capture copy/encode/enqueue mean 3.85 ms, p95 4.49 ms
+(96 samples); pure 40-row research projection mean 0.60 ms (100 samples). These are
+microbenchmarks, not demonstrated live overhead. No detector latency improvement
+or physical accuracy improvement is claimed.
+
+Checks: 23 new reconciliation tests pass; relevant broader unit suite 187/192
+passes, with the same five failures observed before this task in object-hit/
+readiness fixtures that expect pre-continuation termination semantics. All 137
+async/FAST/tracking/V2.25.1–3/continuation script checks pass. User's existing query,
+replay and continuation-test changes are preserved. Next: capture the missing
+paired native pools/delivery times with independent object observations before
+changing authority or deciding whether mature-worker reuse can meet the deadline.
+
+Preserved negative results: waiting for multi-support to decay, simple signed
+freshness, early-to-late birth, dense residual, settled PRE-to-next-PRE permanence,
+and simple scalar ranking did not safely resolve object identity. Do not repeat
+these as new hypotheses. Controlled illumination remains a hypothesis, not a proven
+requirement. Selector/locality research remains parked; safe offline exact selector
+23/24/25/26 and frozen oracle 32/33/34/36 remain unchanged and live-unpromoted.
+
 ## OBJECT_HIT saved-crop replay and exact batching — 2026-10-08
 
 Second physical run `can_play_02`: five UNKNOWN outcomes, including two processing

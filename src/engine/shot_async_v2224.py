@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 import copy
+import os
 from dataclasses import dataclass, field
 import threading
 import time
@@ -452,6 +453,14 @@ class AsyncDetectorV2224:
         scanner.last_vote_threshold_value = float(result.vote_threshold)
         scanner._v2224_result_frame_ts = float(result.frame_ts)
 
+        if os.environ.get('SKJUTBANA_OBJECT_MATURE_CAPTURE') == '1':
+            from src.engine.physical_trace import capture_object_mature_pool
+            from src.engine.shot_fast_v2225 import rescue_router_v2225
+            capture_object_mature_pool(result.shot_id, 'WORKER_DELIVERY', result.candidates,
+                result.frame_ts, full_rescue=rescue_router_v2225.was_consumed(result.shot_id),
+                diagnostics=dict(worker_ms=result.worker_ms, queue_ms=result.queue_ms,
+                    stages_ms=result.stages_ms, window_debug=result.window_debug))
+
         stages = result.stages_ms
         v2_ms = _finite(stages.get("generate", 0.0))
         other_ms = max(0.0, result.worker_ms - v2_ms)
@@ -878,8 +887,25 @@ def install_v2224_runtime(AppClass: Any) -> None:
 
         controller.last_seen_peak_ts = float(getattr(audio_peak_detector, "last_peak_ts", 0.0) or 0.0)
 
+        # Explicit research launcher only. No capture work/default import in the
+        # ordinary live path; the adapter waits for BOTH authorities to finish.
+        gt_review = None
+
         try:
+            if os.environ.get('SKJUTBANA_OPTICAL_LAB') == '1':
+                from automation.physical_optical_runtime import OpticalController
+                self._optical_lab = OpticalController(self, camera_manager)
+            if os.environ.get('SKJUTBANA_GT_CAPTURE_ROOT'):
+                from automation.physical_gt_capture import from_environment
+                gt_review = from_environment()
             while self.running:
+                if getattr(self, '_optical_lab', None) is not None:
+                    # Explicit research-only loop: no audio/scanner/game authority.
+                    self._optical_lab.tick(pygame, AUTOMATION_EVENT)
+                    continue
+                if gt_review is not None and gt_review.active:
+                    gt_review.tick(pygame)
+                    continue
                 # A queued PANG remains the first engine decision. CV itself is
                 # now a worker job, so the main thread stays available for the
                 # next PANG and for rendering/window events.
@@ -898,6 +924,10 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 audio_peak_detector.update()
                 audio_ms = (time.perf_counter() - t0) * 1000.0
                 controller.discover_scanner_events(hit_scanner, self.scene)
+                if gt_review is not None:
+                    # Research reference only: no image copy, hash, disk I/O or
+                    # changed live inputs. Pin before the camera ring can age out.
+                    gt_review.freeze_pre(hit_scanner, camera_manager)
 
                 t0 = time.perf_counter()
                 camera_manager.update()
@@ -953,8 +983,21 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 self.scene.render(self.screen)
                 pygame.display.flip()
                 controller.mark_visible_after_flip(self.scene)
+                if gt_review is not None:
+                    gt_review.observe(self, hit_scanner, camera_manager, object_hit_registry_v2223,
+                                      async_detector_v2224, audio_peak_detector, controller)
 
         finally:
+            if getattr(self, '_optical_lab', None) is not None:
+                try:
+                    self._optical_lab.close()
+                except Exception as exc:
+                    print(f'[OPTICAL ERROR] finalization failed: {exc}', flush=True)
+            if gt_review is not None:
+                try:
+                    gt_review.close()
+                except Exception as exc:
+                    print(f'[GT-CAPTURE ERROR] finalization failed: {exc}', flush=True)
             _shutdown_workers()
             try:
                 self.scene.on_exit()

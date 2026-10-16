@@ -26,6 +26,79 @@ from src.engine.input.object_hit_v2223 import (ObjectShotSnapshotV2223,
     CameraHitRegionV240,GameHitRegionV240)
 
 
+def mature_candidate_bridge(snapshot, camera_to_game, packet, cutoff, *, next_peak=None):
+    """Read-only research projection of ONE delivered native pool, never live authority.
+
+    Delivery and evidence clocks are both required. Native confirmation is kept
+    distinct from exact-XY confirmation: nonzero/missing neighborhood offsets
+    abstain. No score ordering, target priority, XY movement or pool union through
+    time (which would incorrectly make revoked support permanent).
+    """
+    from src.engine.offline.causal_candidates import classify, finite
+    from src.engine.physical_trace import _diagnostic_source
+    sid = snapshot.shot_id
+    rows = []
+    available, credible = set(), set()
+    requested = [r for r in snapshot.game_regions
+                 if r.enabled and r.metadata.get('physical_query', {}).get('mode') == 'OBJECT']
+    valid_packet = (sid is not None and sid > 0 and packet.get('shot_id') == sid
+                    and packet.get('coordinate_space') == 'camera'
+                    and packet.get('peak_ts') == snapshot.peak_ts
+                    and finite(packet.get('frame_ts')) is not None
+                    and finite(packet.get('available_at')) is not None)
+    packet_class = classify(cutoff=cutoff, observed_at=packet.get('available_at'),
+        evidence_at=packet.get('frame_ts'), owner=packet.get('shot_id'),
+        shot_id=sid, next_peak=next_peak)
+    for index, candidate in enumerate(packet.get('candidates', [])):
+        c = deepcopy(candidate)  # Audit provenance stays external to physical evidence.
+        x, y = finite(c.get('camera_x')), finite(c.get('camera_y'))
+        owner = c.get('v2224_producer_shot_id')
+        availability = classify(cutoff=cutoff, observed_at=packet.get('available_at'),
+            evidence_at=c.get('timestamp'), owner=owner, shot_id=sid, next_peak=next_peak)
+        if packet_class != 'CAUSALLY_AVAILABLE': availability = packet_class
+        if not valid_packet or x is None or y is None or finite(c.get('timestamp')) is None:
+            availability = 'UNKNOWN'
+        if (c.get('v251_shot_id',sid) != sid or
+                c.get('v253_peak_ts',snapshot.peak_ts) != snapshot.peak_ts):
+            availability = 'CROSS_EVENT_OR_FUTURE'
+        ids = []
+        if x is not None and y is not None and camera_to_game is not None:
+            gx, gy = camera_to_game(x, y)
+            for region in requested:
+                shape = region.metadata.get('v250_object_snapshot', {}).get('shape')
+                inside = (shape_contains(shape, gx, gy) if shape else
+                          region.x <= gx <= region.x+region.width and region.y <= gy <= region.y+region.height)
+                if inside: ids.append(region.object_id)
+        causal = (availability == 'CAUSALLY_AVAILABLE' and
+                  c['timestamp'] >= snapshot.peak_ts)
+        if causal: available.update(ids)
+        offsets = ('v252_evidence_best_dx', 'v252_evidence_best_dy',
+                   'v2225_confirm_best_dx', 'v2225_confirm_best_dy')
+        reasons = []
+        if not causal: reasons.append('not_proven_available_in_event_at_cutoff')
+        if not ids: reasons.append('outside_requested_exact_shapes_or_mapping_unavailable')
+        if packet.get('stage') != 'LOCAL_CONFIRMATION': reasons.append('proposal_only')
+        if packet.get('full_rescue') is not False: reasons.append('global_rescue_or_scope_unknown')
+        for field in ('v252_evidence_ready', 'v252_fresh_physical', 'v2225_local_confirm'):
+            if (finite(c.get(field)) or 0) <= .5: reasons.append('missing_'+field)
+        if any(finite(c.get(field)) != 0. for field in offsets):
+            reasons.append('neighborhood_proof_is_not_exact_xy_proof')
+        if not packet.get('complete'): reasons.append('incomplete_pool')
+        supported = not reasons
+        if supported: credible.update(ids)
+        rows.append(dict(index=index, camera_xy=[c.get('camera_x'), c.get('camera_y')],
+            source=_diagnostic_source(c), candidate=c, availability=availability,
+            inside_object_ids=ids, supported=supported, reasons=reasons))
+    unique = len(credible) == 1 and packet.get('complete') and valid_packet
+    return dict(authority='RESEARCH_ONLY', shot_id=sid, rows=rows,
+        available_object_ids=sorted(available), supported_object_ids=sorted(credible),
+        object_id=next(iter(credible)) if unique else None,
+        state='OBJECT_HIT' if unique else 'UNKNOWN',
+        reason='unique_exact_xy_native_qualification' if unique else
+               'multiple_supported_objects' if len(credible)>1 else 'insufficient_evidence',
+        no_physical_impact_established=False, scores_compared=False)
+
+
 def safe_file(root,relative):
     root=Path(root)
     p=root/relative

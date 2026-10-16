@@ -169,6 +169,7 @@ class PhysicalTraceRecorder:
         self._capture_event_limit_reached = False
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=max(1, int(queue_maxsize)))
         self._active: dict[int, dict[str, Any]] = {}
+        self._review_paths: set[Path] = set()
         self._seen_events: set[int] = set()
         self._refused_events: set[int] = set()
         self._owned_capture_roots: set[Path] = set()
@@ -257,6 +258,22 @@ class PhysicalTraceRecorder:
                     active = self._active[job['shot_id']]
                     active['checkpoint_saved'] = self._finalize_safely(job['shot_id'], active, timed_out=False)
                     continue
+                elif job["kind"] == "review_frame":
+                    # Separate post-decision human-inspection artifact. Never
+                    # append to trace.frames or expose to detector replay.
+                    started = time.perf_counter()
+                    array = job['value']
+                    temporary = path.with_name(path.name + '.tmp')
+                    with temporary.open('wb') as stream:
+                        np.save(stream, array, allow_pickle=False)
+                    os.replace(temporary, path)
+                    metadata = dict(job['meta'], image_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                        pixel_sha256=hashlib.sha256(array.tobytes()).hexdigest(),
+                        writer_ms=(time.perf_counter()-started)*1000., status='SAVED')
+                    sidecar = path.with_suffix('.json')
+                    temporary = sidecar.with_name(sidecar.name+'.tmp')
+                    temporary.write_text(_json(metadata), encoding='utf-8')
+                    os.replace(temporary, sidecar)
                 elif job["kind"] == "array":
                     temporary = path.with_name(path.name + ".tmp")
                     with temporary.open("wb") as stream:
@@ -264,11 +281,15 @@ class PhysicalTraceRecorder:
                     os.replace(temporary, path)
                 elif job["kind"] == "json":
                     temporary = path.with_name(path.name + ".tmp")
-                    temporary.write_text(_json(job["value"]), encoding="utf-8")
+                    payload = job.get('encoded_json')
+                    temporary.write_text(payload if payload is not None else _json(job["value"]), encoding="utf-8")
                     os.replace(temporary, path)
                 else:
                     raise ValueError(f"unknown trace writer job kind: {job['kind']}")
-                self._artifact_persisted(job)
+                if job['kind'] == 'review_frame':
+                    job['persisted'] = True  # Never append to any live trace.frames.
+                else:
+                    self._artifact_persisted(job)
             except Exception as exc:
                 self._record_error(job.get("shot_id"), kind="writer_exception", path=Path(job["path"]), exc=exc)
             finally:
@@ -339,6 +360,49 @@ class PhysicalTraceRecorder:
         except queue.Full:
             self._record_error(job.get("shot_id"), kind="queue_full", path=Path(job["path"]), queue_drop=True)
             return False
+
+    def enqueue_review_frame(self, path, pixels, metadata):
+        """Full native image via existing bounded writer, post-decision ONLY.
+
+        Caller owns the terminal-shot/presentation barrier. A separate schema,
+        role and path prevent review pixels from entering live trace.frames.
+        Copy cost is measured here; hashes/NPY I/O run in the existing writer.
+        """
+        if (metadata.get('schema') != 'physical_gt_review_frame_v1'
+                or metadata.get('live_authority') is not False
+                or metadata.get('role') not in ('PRE','LIVE_POST','GT_SETTLED')):
+            raise ValueError('explicit non-authoritative review frame contract required')
+        return self._enqueue_inspection_frame(path, pixels, metadata)
+
+    def enqueue_optical_frame(self, path, pixels, metadata):
+        """Research optical pixels, never GT or ordinary detector trace.frames."""
+        if (metadata.get('schema') != 'physical_optical_frame_v1'
+                or metadata.get('live_authority') is not False
+                or metadata.get('projectile_truth') is not False
+                or metadata.get('shot_id') is not None
+                or metadata.get('role') not in ('OPTICAL_PASSIVE','OPTICAL_BASELINE','OPTICAL_PROBE','OPTICAL_RECOVERY')):
+            raise ValueError('explicit non-authoritative optical frame contract required')
+        return self._enqueue_inspection_frame(path, pixels, metadata)
+
+    def _enqueue_inspection_frame(self, path, pixels, metadata):
+        """Shared bounded native image writer; callers validate separate roles."""
+        path = Path(path)
+        if (not path.resolve().is_relative_to(self.root.resolve()) or path.exists()
+                or path.with_suffix('.json').exists()):
+            raise ValueError('review artifact must be new and under recorder root')
+        with self._lock:
+            if path.resolve() in self._review_paths:
+                raise ValueError('review path already reserved; never overwrite an enqueued frame')
+            self._review_paths.add(path.resolve())
+        started = time.perf_counter()
+        frozen = np.asarray(pixels).copy()
+        if frozen.dtype != np.uint8 or frozen.ndim != 3 or frozen.shape[2] != 3:
+            raise ValueError('native full camera BGR uint8 required')
+        meta = dict(metadata, shape=list(frozen.shape), dtype=str(frozen.dtype), color_space='BGR',
+                    full_camera_size=[frozen.shape[1],frozen.shape[0]],
+                    copy_ms=(time.perf_counter()-started)*1000.)
+        return self._enqueue(dict(kind='review_frame', path=path, value=frozen,
+                                  nbytes=frozen.nbytes, shot_id=metadata['shot_id'], meta=meta))
 
     def _provenance(self, settings: Mapping[str, Any] | None) -> dict[str, Any]:
         settings_copy = _safe(dict(settings or {}))
@@ -763,6 +827,44 @@ class PhysicalTraceRecorder:
             active['finished']=active['post_window_closed']=True
             self._request_checkpoint(shot_id,active)
 
+    def capture_mature_pool(self, shot_id, stage, candidates, frame_ts, available_at,
+                            *, full_rescue=False, diagnostics=None):
+        """Bounded additive sidecars, including late deliveries after OBJECT closes.
+
+        Native dictionaries/order are copied, never mutated. No images or new
+        detector work. Uses this recorder's existing queue/lifetime; no new owner.
+        Missing/truncated exports cannot authorize a unique shadow object.
+        """
+        if not self.object_only or not self.enabled:return False
+        with self._lock:
+            active=self._active.get(shot_id)
+            if active is None:return False
+            seq=active.get('mature_pool_count',0)
+            if active.get('mature_pool_limit_reported'):return False
+            packet=dict(schema='object-mature-pool-1',shot_id=shot_id,
+                peak_ts=active['trace']['peak_ts'],stage=stage,coordinate_space='camera',
+                frame_ts=float(frame_ts),available_at=float(available_at),
+                availability_semantics='main_thread_delivery_before_tracking; not worker frame time',
+                delivery_thread=threading.current_thread().name,full_rescue=bool(full_rescue),
+                input_count=len(candidates),complete=len(candidates)<=1024,
+                candidates=_copy_candidates(candidates[:1024]),diagnostics=_safe(diagnostics or {}))
+            encoded=_json(packet)
+            if len(encoded.encode('utf-8'))>2*1024*1024:
+                packet.update(candidates=[],diagnostics={},complete=False,unavailable_reason='pool_byte_limit')
+                encoded=_json(packet)
+            used=active.get('mature_pool_bytes',0)
+            size=len(encoded.encode('utf-8'))
+            limit=seq>=32 or used+size>8*1024*1024-4096  # reserve the small limit marker
+            if limit:
+                active['mature_pool_limit_reported']=True
+                packet.update(candidates=[],diagnostics={},complete=False,unavailable_reason='event_export_limit')
+                encoded=_json(packet)
+            name='LIMIT.json' if limit else f'pool_{seq:04d}.json'
+            active['mature_pool_count']=seq+1
+            size=len(encoded.encode('utf-8'));active['mature_pool_bytes']=used+size
+            return self._enqueue(dict(kind='json',path=active['directory']/'mature_candidates'/name,
+                value=packet,encoded_json=encoded,nbytes=size,shot_id=shot_id,meta=dict(artifact='mature_candidates')))
+
     def _finalize_trace(self, shot_id: int, active: dict[str, Any], *, timed_out: bool) -> bool:
         with self._lock:
             expected, persisted = dict(active["expected_counts"]), dict(active["persisted_counts"])
@@ -906,6 +1008,21 @@ def get_physical_trace_recorder() -> PhysicalTraceRecorder:
 
 
 _OBJECT_RECORDER: PhysicalTraceRecorder | None = None
+
+
+def capture_object_mature_pool(shot_id, stage, candidates, frame_ts, *, full_rescue=False, diagnostics=None):
+    """Optional main-thread observation only; never initializes capture/hardware."""
+    if os.environ.get('SKJUTBANA_OBJECT_MATURE_CAPTURE')!='1' or _OBJECT_RECORDER is None:return
+    available_at=time.time()
+    started=time.perf_counter()
+    try:
+        _OBJECT_RECORDER.capture_mature_pool(int(shot_id),stage,candidates,frame_ts,available_at,
+            full_rescue=full_rescue,diagnostics=diagnostics)
+    except Exception as exc:
+        print(f'[OBJECT-MATURE-CAPTURE] unavailable: {type(exc).__name__}: {exc}',flush=True)
+    finally:
+        print(f'[OBJECT-MATURE-CAPTURE] shot={shot_id} stage={stage} candidates={len(candidates)} '
+              f'copy_enqueue_ms={(time.perf_counter()-started)*1000.:.3f}',flush=True)
 
 
 def get_object_crop_recorder() -> PhysicalTraceRecorder | None:

@@ -1,5 +1,429 @@
 # Physical capture runbook
 
+## Optical/HIL lab v0.1 — no shooting
+
+**OPTICAL/HIL TEST != PROJECTILE VALIDATION. SYNTHETIC != PHYSICAL.**
+PASSIVE_VARIABILITY is environmental/camera variability; PROJECTOR_RESPONSE is a
+deliberate optical probe, not impact evidence. No physical optical run has been
+validated yet. This does not replace the pending three-shot GT acceptance below.
+
+When camera/projector access is available, start a dedicated research process:
+
+```bash
+SKJUTBANA_OPTICAL_LAB=1 python3 main.py
+```
+
+Use the existing calibrated projector window placement. `setWindowPos` is allowed
+only between runs; no menu entry or game is needed. This process never starts audio
+acquisition or executes the detector/game loop. Do not combine it with shot/GT
+capture environment variables. Quit/restart normally to return to gameplay.
+
+In a second terminal, from the repository:
+
+```bash
+PASSIVE="/data/skjutbana/evaluation_runs/optical_hil_passive_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_optical_lab passive --duration 30 --output-dir "$PASSIVE"
+
+PROBES="/data/skjutbana/evaluation_runs/optical_hil_probes_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_optical_lab probes --settle 0.6 --output-dir "$PROBES"
+
+GEOMETRY="/data/skjutbana/evaluation_runs/optical_hil_geometry_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_optical_lab geometry --input "$PROBES" --output-dir "$GEOMETRY"
+```
+
+The CLI subscribes before sending the start command and waits on explicit events.
+Ctrl+C requests cancellation; Escape/window close preserves completed records.
+New directories only; source captures and existing runs are never overwritten.
+Geometry auditing is offline, hashes the saved images and uses only saved mapping
+and probe plans. Missing triplets/calibration are UNAVAILABLE. It does not calibrate
+or save settings. Optical centroid displacement includes photometric/perspective
+effects; do not interpret it as pure calibration error or a physical-hole XY.
+
+Passive: constant MID_GRAY, streaming tile moments/range and1DN histogram MAD of
+tile means, per-frame brightness/difference/timing, relative low/high-variability
+tiles, brightness lag correlation and diagnostic translation. Translation is not
+applied to images. Native-pixel temporal noise is not the tile-mean statistic.
+Probes: bright/dark squares plus vertical/horizontal edge patches at center/four
+quadrants, each with baseline/probe/recovery. Full-camera difference minus measured
+recovery variation gives a weighted response centroid/spread; no expected-position
+ROI or snapping. Broad/multiple optical changes can make it ambiguous.
+
+Artifacts: `config.json`, `manifest.json`, `summary.json`, `REPORT.md`,
+`transitions.jsonl` (physical runs), `frames.jsonl`, `timing.csv`,
+`passive/tile_statistics.npz`, sampled native NPY+JSON under `passive/` or
+`projector_probes/`. Records include original acquisition metadata, raw backend
+timestamps, pixel/file hashes, source sequence, projector command/apply/flip times,
+source code hashes, processing/copy/write cost and gaps. Flip is not photon time;
+receipt is not exposure. No image is tagged as projectile GT.
+
+Default30s passive saves roughly3 native frames (~75MB at3840x2160 BGR), plus compact
+statistics/logs; the image window is30s after0.6s settle, then writer drain. Probes
+save60 frames (~1.49GB at4K), with36s intentional settle plus acquisition/analysis
+time (budget roughly45–70s, physically unverified). `--save-all-frames` is explicit:
+30s×30fps×4K BGR is about22.4GB before metadata and may exceed write throughput.
+The4K synthetic processing profile is~93ms/frame, so native30fps is not guaranteed.
+Backpressure/write losses are counted and mark INCOMPLETE; do not treat irregular
+sampling as a full-rate flicker measurement. No deadline or evidence rule is relaxed.
+
+Offline without devices/server (deterministic seed1729; never physical evidence):
+
+```bash
+python3 -m automation.physical_optical_lab passive --synthetic --duration 30 \
+  --output-dir "/data/skjutbana/evaluation_runs/optical_hil_synthetic_passive_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_optical_lab probes --synthetic \
+  --output-dir "/data/skjutbana/evaluation_runs/optical_hil_synthetic_probes_$(date +%Y%m%d_%H%M%S)"
+```
+
+`--dry-run` is an alias for synthetic execution, not a hardware preflight. Share
+manifest/summary/config, frame and transition logs, timing CSV and relevant complete
+NPY+JSON pairs when troubleshooting. Socket execution is not verified in Codex's
+restricted environment; queue/event parsing and instrument lifecycle are tested.
+
+## Independent full-frame GT review capture v1 — 2026-10-13
+
+**PRE causality correction:** in the first three-shot run
+`physical_gt_capture_v1_20261013_142407`, the operator saw the new hole in PRE.
+Those references are not certified before-damage truth. The repaired adapter
+uses the existing ring selector with a hard500ms receipt/publication margin before
+audio; missing clocks or older frames produce PRE UNAVAILABLE. Do not use a
+near-audio or static fallback. No original capture or labels were rewritten.
+
+**2026-10-14 offline hardening:** the qualified native reference is pinned at the
+first dispatched event observation, before camera/object/scanner work. The existing
+300-frame ring need not retain PRE until live processing ends. No live image copy
+or disk I/O is added; saving still waits for closure. Missing history at event start
+remains UNAVAILABLE even if later frames arrive. The operator is currently unavailable;
+physical acceptance is pending, and no additional capture is needed for this audit.
+
+**LIVE PHYSICAL EVIDENCE != GT REVIEW CAPTURE.** The operator could not identify
+holes independently in the old paired object crops, even with blink/zoom. That
+series remains UNKNOWN; candidates and phone photographs cannot supply its XY.
+The following opt-in test captures new human-inspection material, without changing
+same-shot detection, thresholds, selection or game scoring. It has software tests;
+physical visibility is not validated yet.
+
+From the repository, use a new output directory:
+
+```bash
+GT_RUN="/data/skjutbana/evaluation_runs/physical_gt_capture_v1_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_collection play-can \
+  --object-crops --mature-candidates --gt-review --gt-shots 3 \
+  --output-dir "$GT_RUN"
+```
+
+Select **Spel → Skjutprylar**. Perform only three deliberate shots, individually:
+1. Clean, visibly inspectable surface.
+2. Near old damage/tape.
+3. Dark/projected detail.
+
+Do not move the camera or board between live and review. Wait after each shot:
+both OBJECT_HIT and ordinary CURRENT must finish, and the mature worker must be
+idle. After the game result has been displayed, the same scene is paused; audio
+acquisition and scanner are stopped. Wait0.5s, then display WHITE, BLACK, MID_GRAY
+in sequence, waiting0.6s before each original full-camera frame acquisition.
+No calibration/reference scene is invoked. Only pixels are filled on the display;
+no board reference, evidence, gameplay hit or label is derived from the neutral
+background. After normal scene restoration and1s plus a new camera frame, the
+review ring is cleared and the existing scanner/audio lifecycle rearms.
+**Do not shoot during this phase or rearming. Wait for scanner READY.** Keyboard
+game actions are paused; Escape/window close terminates capture cleanly.
+Each audio event consumes a review slot, including false triggers. Enter actual
+event IDs and independently observed discharge in `event_notes.json`; never assume
+three audio events mean three physical impacts. Overlapping events are explicitly
+unavailable for independent review association.
+
+Saved under `$GT_RUN/gt_review/`:
+- `config.json`, `manifest.json`, `REPORT.md`, `gt_capture_timing.csv`.
+- `shots/shot_XXXXXXXX/pre_0.npy`: latest clock-qualified native ring frame with
+  BOTH receipt and publication at least500ms before the audio estimate. If none
+  exists at event dispatch, no PRE file is saved; the manifest records UNAVAILABLE.
+- `live_post_0.npy`, `live_post_1.npy`: first two available normal POSTs before
+  live closure. A long live job can exhaust POST history; PRE is now pinned earlier.
+  No missing frame is invented.
+- `white.npy`, `black.npy`, `mid_gray.npy`: separate **GT_SETTLED** native BGR
+  camera frames, never ordinary detector `trace.frames` or same-shot evidence.
+- Each NPY has a JSON sidecar: shot/event, role, canonical dimensions/orientation,
+  acquisition sequence/stream, frame timestamp, file/pixel hashes, display RGB,
+  flip-return time, delay and write/copy timing. Read/receive times do not certify
+  sensor exposure or actual projector photometry. Missing/dropped/interrupted
+  images stay explicit. A failed camera restore or writer drain stops before rearm.
+
+PRE sidecars also record `audio_peak_ts`, original `audio_acquisition`,
+`delta_ms_to_audio` (negative means earlier), receipt/read/publication clocks,
+`selection_rule`, allowed cutoffs and `pre_cutoff_verified`. **The500ms guard is
+not a measured upper bound on audio latency.** `causal_pre_certified=false` and
+`physical_impact_timestamp=null` remain honest limits until causality can be
+independently established. Backend timestamps are not exposure truth. Legacy
+references show PRE UNQUALIFIED; guarded references still show pre-damage
+UNVERIFIED. If the purported new hole is already visible in PRE, do not certify
+newness from that comparison; preserve UNKNOWN and report the provenance.
+
+`physical_gt_timing_v1` records source stream/application sequence, backend,
+read start/end, receipt and publication, audio estimate, signed deltas, configured
+guard and explicit unavailable fields. Application sequence is not device sequence.
+Publication is after transform, before ring insertion. Raw POS_MSEC is retained
+without assuming V4L2 clock/exposure flags. **CAMERA RECEIVE TIME != PROVEN
+EXPOSURE TIME; pre_cutoff_verified != causal_pre_certified.**
+
+Read-only audit (no hardware, no candidate data, no capture mutation):
+
+```bash
+python3 -m automation.physical_gt_audit \
+  --capture /data/skjutbana/evaluation_runs/physical_gt_capture_v1_20261013_142407
+```
+
+It reports all three old PREs UNQUALIFIED, and availability/SHA256 for the nine
+neutral images. Optional `--output NEW_JSON_PATH` writes outside the source capture
+under `/data/skjutbana/`; existing output files are refused.
+
+The wait schedule is at least3.3s per event plus camera, audio stop/start and write
+cost. In the software benchmark, six3840×2160 BGR images (~149MB) drained in0.81s;
+copy6–23ms/image and writer126–160ms/image occurred after live closure. Actual
+capture times and drops are recorded, not estimated as detector latency.
+
+Review later with the existing UI (keep labels outside original capture):
+
+```bash
+python3 -m automation.physical_trace_label --gt-review \
+  --capture "$GT_RUN" \
+  --output "${GT_RUN}_labels/exact_camera_ground_truth.json"
+```
+
+`4` PRE, `3` review/POST, up/down cycles LIVE_POST and neutral frames; the title
+shows the actual role and WHITE/BLACK/MID_GRAY. `B` blink, `+/-` zoom, right-drag
+pan, `0` fit; original pixels only. Inspect PRE, return to a GT_SETTLED image with
+blink off, click the independently visible NEW hole, Enter to save. Final clicks
+on LIVE_POST are refused in this mode. `U/S` UNKNOWN; `N` no visible hole also means
+UNKNOWN, never NO_PHYSICAL_SHOT. Missing PRE blocks the normal comparison workflow.
+No candidates, support, selected XY, boxes, target suggestions or heatmaps are
+loaded/shown; `--show-candidates` is refused. Full-frame origin is(0,0): inverse
+display scale/pan produces canonical camera XY directly, without recalibration.
+
+If the human has independent physical knowledge identifying the hole in a settled
+frame, `--independent-hole-observation "actual human observation and basis"` permits
+that original GT_SETTLED click without PRE. Supply a real observation, not aim or
+detector output. This explicit note applies to labels saved in that invocation.
+`review_truth_basis` distinguishes this from PRE/POST inspection and records
+`causal_pre_certified=false` in both cases. Neither workflow proves hole birth from
+an unqualified PRE. If identification is uncertain, save UNKNOWN instead.
+
+Labels use `physical_gt_review_exact_camera_v1`, extending the existing manual
+camera_x/y convention with immutable image/metadata hashes, inspected PRE,
+GT_SETTLED role, projector state, click transform and revision history. Optional
+read-only contact sheets use `--prepare-only --review-package NEW_DIRECTORY`.
+After independently defensible labels, existing `object_candidate_reconciliation
+--paired --capture "$GT_RUN" --exact-camera-gt "${GT_RUN}_labels/exact_camera_ground_truth.json"
+--output NEW_ANALYSIS_DIRECTORY` accepts them; missing pools/GT remain UNAVAILABLE.
+
+**Future observability acceptance, when the operator is available:** only three
+shots; verify the new hole is absent from the guarded PRE and visible in at least
+one neutral frame for each. Label camera XY only if unambiguous. Otherwise retain UNKNOWN and report which
+information is missing. This is not detector accuracy acceptance. Share runtime.log,
+play.json, event_notes.json, gt_review config/manifest/timings and relevant complete
+NPY+JSON pairs when troubleshooting. No physical test has been performed by Codex.
+
+## Independent exact camera-XY labels from paired crops — 2026-10-12
+
+Historical adapter status: later operator review found this specific series
+unlabelable. All its physical labels remain UNKNOWN; do not force labels from
+candidate suggestions. The adapter remains available for other suitable crops. Reuse the
+existing `physical_trace_label` UI in its strict crop mode:
+
+```bash
+python3 -m automation.physical_trace_label \
+  --paired-object-crops \
+  --capture /data/skjutbana/evaluation_runs/can_play_candidate_compare_20261011_203905 \
+  --output /data/skjutbana/evaluation_runs/paired_manual_label_prep_20261012_152909/review/exact_camera_ground_truth.json
+```
+
+Event1–4 have two PRE and four POST timestamps, event5 two PRE/three POST;
+event6 is IMAGE DATA UNAVAILABLE. Six spatial tiles exist for each recorded event.
+Last POST on2/4 contains only4/3 of those tiles. The UI lists only saved frames for
+the selected tile. Saved grayscale pixels are already canonical camera oriented
+(recorded rotation180 applied); no current calibration, rotation or guessed scale
+is used. PRE means before audio, **not certification of a clean pre-impact board**.
+If a new physical hole cannot be distinguished confidently, leave UNKNOWN.
+
+Controls:
+- Left/right: event; brackets `[ ]`: spatial tile; up/down: saved POST frame.
+- `4`: original PRE; comma/period: PRE frame; `3`: original POST; `B`: blink.
+- `+/-`: zoom; right mouse drag: pan; `0`: fit. Nearest-neighbor display preserves
+  grayscale values; no per-image contrast stretch, registration or smoothing.
+- Inspect original PRE at the same tile, switch to `3` POST with blink off, click
+  the independently visible NEW hole. The green cross is only your pending click.
+  `R` cancels/retries. `Enter` explicitly saves; navigate back to revise later.
+- `U` or `S`: UNKNOWN / NOT_LABELABLE. `N`: NO_VISIBLE_HOLE, still UNKNOWN—not
+  NO_PHYSICAL_SHOT. `Q`: exit; already saved revisions persist. No save means no GT.
+
+Candidate/selected/support/heatmap/target overlays are disabled, including keyboard
+shortcuts; `--show-candidates` is refused. No candidate sidecars are opened by the
+label adapter. Only original POST can supply a final click. Object-level results,
+intended aim and discharge truth remain separate; XY never invents them.
+
+The separate file uses `paired_exact_camera_ground_truth_v1`, retaining existing
+`space=camera`, `camera_x/y`, `quality=precise` conventions plus `camera_xy` and
+crop-local/display coordinates. Each exact row binds capture play hash, shot/event
+ID, trace hash, source NPY file and pixel hashes, bbox/origin/size, full camera
+size, timestamp/acquisition identity, inspected PRE entries, manual method and
+`candidate_overlay=false`. A file contains explicit UNKNOWN for other events.
+Atomic validated replacement preserves every previous row in revision history.
+Existing labels from another capture/schema are refused rather than overwritten.
+Original capture and original operator truth are never written.
+
+Read-only review aids (not labels): `/data/skjutbana/evaluation_runs/paired_manual_label_prep_20261012_152909/review/` contains
+manifest.json, truth_status.json (preparation snapshot), per-event frames.json and
+candidate-free tile contact sheets. Tiles at the same timestamp/acquisition are
+one camera observation, not independent frames. No missing full-board pixels are
+reconstructed. A new package can be generated headlessly with the same command
+using `--prepare-only --review-package /data/skjutbana/evaluation_runs/NEW_REVIEW`
+instead of `--output`.
+
+After human labeling, use a NEW output directory:
+
+```bash
+OPENBLAS_NUM_THREADS=1 python3 -m automation.object_candidate_reconciliation \
+  --paired \
+  --capture /data/skjutbana/evaluation_runs/can_play_candidate_compare_20261011_203905 \
+  --exact-camera-gt /data/skjutbana/evaluation_runs/paired_manual_label_prep_20261012_152909/review/exact_camera_ground_truth.json \
+  --output /data/skjutbana/evaluation_runs/object_paired_manual_oracle_01
+```
+
+Invalid/incomplete exact labels fail closed. With only UNKNOWN, oracle remains
+UNAVAILABLE and no oracle files are emitted. Valid independent labels enable
+candidate_nearest_gt.csv and oracle_summary.json: saved local retained/supported
+pools and each complete mature boundary packet. Missing raw/intermediate pools
+remain UNAVAILABLE. Nearest candidate order is native order, not a shared score
+rank. First/last saved mature boundaries are summarized separately, never merged
+into a retrospective best pool. CURRENT emitted-coordinate metrics are separate
+from candidate oracle and from OBJECT_HIT truth. This is offline measurement only.
+
+
+## Paired saved-pool analysis — 2026-10-12
+
+Analyze the verified paired capture without launching hardware:
+
+```bash
+OPENBLAS_NUM_THREADS=1 python3 -m automation.object_candidate_reconciliation \
+  --paired \
+  --capture /data/skjutbana/evaluation_runs/can_play_candidate_compare_20261011_203905 \
+  --output /data/skjutbana/evaluation_runs/object_paired_review_02
+```
+
+Output must be new. It contains shot/stage/timing CSVs, candidate JSONL with original
+XY and source references, frozen-shape membership, input/source hashes, truth status
+and `operator_ground_truth.worksheet.json` using the existing `shots` schema.
+Optional `--operator-truth /path/to/separate/operator_ground_truth.json` reads
+independent observations without writing into the original capture. A filled
+worksheet remains separate and must retain its capture hash and explicit shot IDs.
+Do not bind planned shot ordinals to audio events automatically.
+
+For this run the operator explicitly reports no independent physical observations:
+all six events stay UNKNOWN. Do not fill labels from aim, game reactions or candidate
+locations. TARGET_MISS means a real board impact outside the intended object;
+NO_PHYSICAL_SHOT means no discharge/impact and is never inferred from UNKNOWN.
+All packet counts are version/stage counts, not hit accuracy. A missing stage stays
+UNAVAILABLE, including event6 whose export calls did not create candidate files.
+
+The original full-frame mode cannot display `object_evidence_crops` and can write
+unresolved statuses into its source. Use the strict paired mode described above
+with separate output. It reuses the same UI with native crop origins and source
+hashes; it never zero-fills a fake full frame or uses current calibration.
+F1/F2 scene framepacks cannot retroactively restore unsaved images or provide
+independent physical GT. No exact-camera oracle is emitted without valid labels.
+
+## Operator console and complete diagnostic logs — 2026-10-12
+
+`physical_collection play-can` now defaults to startup instructions, one compact
+line per physical/audio event, explicit warnings/errors, and a final summary:
+
+```text
+[SHOT 3] OBJECT_HIT=UNKNOWN supports=4 mature=?/? exact=pending decision=337ms
+```
+
+This line is printed when the object decision arrives. `?` means unavailable at
+that time, not zero; mature pool delivery and ordinary exact-coordinate results
+can arrive later. Their updates are saved without printing another shot line.
+Events interrupted before a decision are reported as UNAVAILABLE at shutdown.
+Mouse/debug activity is not assigned a physical shot ID.
+
+Files under the chosen capture directory:
+
+- `runtime.log`: complete original child stdout/stderr bytes, including all
+  OBJECT-HIT/CURRENT, mature-candidate, detector, resolver and latency details.
+- `logs/event_summary.jsonl`: append-only shot/status/timing updates and warnings,
+  with source, explicit shot IDs, original timing where available, parent receipt
+  time (not an evidence clock), and byte ranges pointing into `runtime.log`.
+- `runtime_exit.json`: exit/interruption status, log-drain completeness, counts,
+  logging cost and logging failures. Ctrl+C keeps draining the child's final output.
+- `play.json` and `event_notes.json`: capture configuration and independent operator
+  observations. Existing `object_crops/shots/shot_XXXXXXXX/trace.json`, crop files
+  and optional `mature_candidates/pool_NNNN.json` remain the canonical artifacts;
+  the summary does not duplicate their payloads.
+
+Missing/incomplete requested traces and truncated mature exports produce visible
+warnings. Raw legacy lines without a shot ID stay unassigned; interleaved output
+is retained and flagged where the summary cannot parse it reliably.
+
+For detailed terminal debugging only, opt in:
+
+```bash
+python3 -m automation.physical_collection play-can \
+  --object-crops --mature-candidates --verbose-console \
+  --output-dir /data/skjutbana/evaluation_runs/can_play_verbose_01
+```
+
+Use a new output directory for every run. Omit `--verbose-console` for normal
+operator use. Other application launches retain their existing console logging.
+For troubleshooting share `runtime.log`, `logs/event_summary.jsonl`, `play.json`,
+`runtime_exit.json`, independent event notes/operator truth, and the relevant shot
+directories including trace/crops/mature sidecars when enabled. Existing replay
+and candidate reconciliation commands continue consuming their original files.
+
+## Compare object-local and mature native candidates — 2026-10-11
+
+Analyze preserved captures without camera access, model fitting or regeneration:
+
+```bash
+python3 -m automation.object_candidate_reconciliation \
+  --capture /data/skjutbana/evaluation_runs/can_play_03 \
+  --capture /data/skjutbana/evaluation_runs/can_play_04 \
+  --historical-cache /data/skjutbana/evaluation_runs/D01_counterfactual_20260910_152433 \
+  --output /data/skjutbana/evaluation_runs/object_candidate_review_01
+```
+
+Output must be new. This comparison takes seconds, not an overnight training run.
+It reads named inputs only and records hashes. Missing mature pools are UNAVAILABLE,
+not zero candidates. Historical stage-oracle numbers are separate from original
+CURRENT selected results. Object GT cannot establish exact hole-coordinate error.
+
+The next short capture is justified only to fill the missing native-pool/delivery
+ledger. It does not install a new object selector:
+
+```bash
+python3 -m automation.physical_collection play-can \
+  --object-crops --mature-candidates \
+  --output-dir /data/skjutbana/evaluation_runs/can_play_candidate_compare_01
+```
+
+Use the existing Skjutprylar game. Independently record the actual impacted object
+for each physical shot and any verified no-discharge audio event; planned aim is
+not truth. Do not infer hole XY from object labels or game reactions. After the
+run, preserve operator observations in `operator_ground_truth.json` using the
+existing can_play_03/04 schema (`shots`, `shot_id`, `physical_truth`, `object_id`),
+only when independently verified. Without that file the comparator reports UNKNOWN
+truth and still measures support/timing. Keep the original event notes.
+
+The flag adds `mature_candidates/pool_NNNN.json` under each saved object-crop shot,
+including late worker/confirmation deliveries after OBJECT_HIT closes. Limits are
+32 pools/event, 1024 candidates/pool, 2 MiB/pool and 8 MiB/event; truncation/queue
+loss invalidates unique shadow qualification. No full frames or settings changes.
+The runtime log includes capture copy/enqueue cost. Default playback has no export.
+Mouse/debug tests remain separate from physical camera shots.
+
+can_play_03/04 supersede the proposed retest below: eight real shots had the correct
+object among several supported objects, so all remained UNKNOWN. can_play_04:4 is a
+verified no-discharge control with no crop inputs; do not fabricate its replay.
+
 ## Analyze saved OBJECT_HIT crops locally — 2026-10-08
 
 `can_play_02` is preserved. Replay its saved query inputs without camera/projector

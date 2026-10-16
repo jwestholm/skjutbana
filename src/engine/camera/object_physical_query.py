@@ -539,12 +539,20 @@ class ObjectPhysicalQuery:
         confirmed=[c for c in chosen if c['confirmed']]
         if confirmed:
             self.hypotheses=confirmed
+            if self._await_object_disambiguation(ts):
+                return self.payload('UNCERTAIN','awaiting_object_disambiguation',finished_at)
             return self.finish('PHYSICAL_HIT','persistent_local_change',finished_at)
         if self.frames>=MAX_FRAMES or ts-self.peak_ts>=.20:
             return self.finish_deadline(finished_at)
         return self.payload('UNCERTAIN','awaiting_persistence',finished_at)
 
     def finish_deadline(self, now=None):
+        # Preserve the latest physical support at an OBJECT_HIT deadline.
+        # The object resolver may still correctly return UNKNOWN when several
+        # requested objects remain supported.
+        if self.object_hit_requested and self._supported_objects_current_frame():
+            self.hypotheses=[c for c in self.hypotheses if c['confirmed']]
+            return self.finish('PHYSICAL_HIT','persistent_local_change',now)
         enough=self.frames>=2
         status='NO_PHYSICAL_HIT' if enough and not self.saw_change and not self.pre_activity else 'UNCERTAIN'
         return self.finish(status,'no_local_change' if status=='NO_PHYSICAL_HIT' else 'insufficient_or_unresolved_change',now)
@@ -586,6 +594,27 @@ class ObjectPhysicalQuery:
             self.capture_result(self.shot_id,self.result)
         return self.result
 
+    def _supported_objects_current_frame(self):
+        """Supported requested objects in the latest observed POST frame only."""
+        supported={}
+        for row in self.per_object:
+            oid=row['object_id']
+            points=[c for c in row['candidates'] if c['confirmed'] and any(
+                a['object_id']==oid and a['inside_exact_shape'] is True for a in c['regions'])]
+            if points:
+                supported[oid]=min(points,key=self._physical_order)
+        return supported
+
+    def _await_object_disambiguation(self, ts):
+        """OBJECT_HIT ambiguity may resolve on later causal camera frames."""
+        if not self.object_hit_requested:
+            return False
+        return (
+            len(self._supported_objects_current_frame()) != 1
+            and self.frames < MAX_FRAMES
+            and ts-self.peak_ts < .20
+        )
+
     def _object_decision(self,status,reason):
         """Resolve supported local observations before public top-k truncation.
 
@@ -593,13 +622,7 @@ class ObjectPhysicalQuery:
         ambiguous, including overlapping shapes. Retain diagnostics, never pick
         an object by depth, priority, distance or arbitrary list order.
         """
-        supported={}
-        if status=='PHYSICAL_HIT':
-            for row in self.per_object:
-                oid=row['object_id']
-                points=[c for c in row['candidates'] if c['confirmed'] and any(
-                    a['object_id']==oid and a['inside_exact_shape'] is True for a in c['regions'])]
-                if points: supported[oid]=min(points,key=self._physical_order)
+        supported=self._supported_objects_current_frame() if status=='PHYSICAL_HIT' else {}
         oid=next(iter(supported)) if len(supported)==1 else None
         state='OBJECT_HIT' if oid is not None else ('NO_OBJECT_HIT' if status=='NO_PHYSICAL_HIT' else 'UNKNOWN')
         chosen=supported.get(oid)

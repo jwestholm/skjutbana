@@ -8,7 +8,17 @@ from src.engine.settings import load_viewport_rect
 
 
 class GameScene(Scene):
-    wants_hit_scanning = True
+    @property
+    def shot_input_mode(self):
+        return getattr(self.game, "shot_input_mode", "PHYSICAL_COORDINATE")
+
+    @property
+    def wants_hit_scanning(self):
+        return self.shot_input_mode != "SHOT_ONLY"
+
+    @property
+    def wants_mouse_simulated_hits(self):
+        return self.shot_input_mode != "SHOT_ONLY"
 
     @property
     def shot_critical_updates_required(self):

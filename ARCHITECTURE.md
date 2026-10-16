@@ -1,5 +1,112 @@
 # Architecture
 
+## Single frozen region: research extension, not another authority — 2026-10-14
+
+`object_hit_regions([region])` and `ObjectPhysicalQuery` already support one exact
+region. `automation.object_hit_replay --single-region ID` uses those owners through
+`object_region_research`, with saved mapping and only subcrops wholly contained in
+persisted pixels. It is a counterfactual cropped-query replay, not a reconstruction
+of original live scheduling. Outside context never enlarges shape membership.
+
+The family ledger keeps observed local residual, bounded surface/photometric
+explanation and residual-local structure separate. Projector explanation explicitly
+abstains without an immutable presented image and optical transfer provenance.
+Scene flip/reaction timestamps currently do not identify immutable image content.
+Any future render binding must retain CPU presentation history around audio, not
+mislabel a newer dispatch-time surface as the exposure-time projection. CPU flip
+return is not photon timing; hash/copy ownership and timing uncertainty must survive.
+No new BoardState, verifier, mapper, live feature consumer or fusion is introduced.
+Camera POST pixels remain the physical coordinate plane; PRE is warped, never XY.
+
+Native query support is recorded separately from physical-impact truth. This
+research adapter cannot yet certify damage and returns physical UNKNOWN. It keeps
+all retained native supported XYs; several XYs inside one shape do not justify an
+invented exact winner. Camera and game XY remain diagnostics; region-local offset
+uses the frozen AABB origin and is not a sprite-local transform. Missing frozen
+sprite transform means object-local XY is unavailable. Future region-HIT proof may
+coexist with UNKNOWN exact XY, but no current evidence is promoted to that proof.
+Later recorded frames can enrich shadow diagnostics only and never reopen an
+already closed query. Known holes/tape/edges remain context, not vetoes.
+
+## Optical research boundary — 2026-10-14
+
+An explicit `SKJUTBANA_OPTICAL_LAB=1` application process uses the existing
+TCP/AutomationCommand queue and Pygame main thread to present optical probes.
+It bypasses audio dispatch, scanner and game simulation entirely; exiting this
+process is required before ordinary gameplay. No game/menu or calibration scene
+is repurposed. CameraManager remains the sole reader; its existing ring is bounded
+to8 entries only in this research process. A single measurement worker retains at
+most2 pending references and uses the existing bounded PhysicalTraceRecorder
+NPY/hash writer through a separately validated `physical_optical_frame_v1` entry.
+Optical roles cannot enter GT roles or ordinary detector trace.frames.
+
+Commands acknowledge acceptance, while EventBus emits presentation and completion.
+Intentional settle windows use measured CPU flip-return/read-start barriers, not
+claimed photon/exposure timestamps. Geometry uses frozen existing homography and
+viewport/content snapshots; offline analysis never loads today's calibration.
+Missing calibration/history and dropped frames stay explicit. PASSIVE_VARIABILITY,
+PROJECTOR_RESPONSE, human GT review and projectile validation are separate claims.
+
+## Research GT timing ownership — 2026-10-14
+
+The opt-in GT adapter pins an existing CameraFrame readonly pixel view immediately
+after audio event dispatch. It uses the existing ring selector with both camera
+receipt and publication <= audio receipt estimate minus500ms; unavailable clocks
+or history abstain without a newer fallback. This reference survives ring eviction;
+copies/hashes/writes and neutral projector frames wait for both live authorities
+and the worker to close. No second camera reader or live evidence path is added.
+GT_SETTLED remains human inspection only. Default gameplay does not construct this
+adapter. Camera receipt/publication and raw backend timestamps are not certified
+exposure; `pre_cutoff_verified` never implies `causal_pre_certified`. Review metadata
+and manual label inspection basis preserve that distinction explicitly.
+
+## Candidate ownership: current implementation and research bridge — 2026-10-11
+
+There are currently two localization paths, not one shared candidate pool:
+
+```text
+AudioPeakEvent -> ShotCriticalController -> frozen ObjectShotSnapshot / HitRegions
+  +-> ObjectHitRegistry.begin/advance_object_query (main thread, before scanner update)
+  |   CameraManager ring -> cropped PRE/POST -> OBJECT_LOCAL_CHANGE components
+  |   -> same-XY freshness/persistence -> exact frozen shape -> OBJECT_HIT / UNKNOWN
+  +-> HitScanner -> AsyncDetectorV2224 (single CV worker, scanner clone)
+      V1 -> CandidateGeneratorV2 registered maps -> FAST / V2.25.1 regional peaks
+      -> hybrid/bank/vault/cleanup -> crop-origin restoration -> main apply_result
+      -> local confirmation / V2.25.2 freshness / V2.25.3 readiness and history
+      -> tracks -> ordinary exact-coordinate selection/emission
+```
+
+The object query reuses registration/measurement primitives but generates its own
+coordinates. V2.25.1 consumes mature registered maps in the worker; it is not
+OBJECT_LOCAL_CHANGE. V2.25.3's lock-protected readiness/history bridge transports
+readiness and soft recurrence context, not a complete current-shot candidate pool.
+`last_stable_tracks` remains only a top-eight debug view, not local-confirmation
+proof. No new image owner, mapper, detector or verifier is introduced.
+
+`AsyncDetectorV2224.apply_result` is the smallest existing main-thread handoff for
+native mature XY before tracking. The installed local-confirmation wrapper is the
+second handoff for newly confirmed feature versions. Optional object-capture
+sidecars record these handoffs with actual delivery time, evidence frame time,
+shot owner, source dictionary, order, scope and truncation state. They use the
+existing recorder/queue and remain disabled by default. The object decision may
+already have closed when these arrive; exports do not reopen it.
+
+`automation.object_physical_replay.mature_candidate_bridge` is a pure research
+projection into the saved shot-time exact shapes/mapping. Proposal membership is
+reported separately from native qualification. Only current-shot, delivered,
+non-rescue, complete local-confirmation pools can qualify; registered and local
+confirmation flags and explicit zero neighborhood offsets are required. A flag
+is evidence under that producer's contract, not certification of physical cause.
+Late evidence, unknown mapping/ownership, truncation and missing proof abstain.
+Overlaps preserve every object, multiple qualified objects remain UNKNOWN, and
+source scores are never sorted together. Native XY is never moved. No gameplay
+code consumes this adapter; it does not establish a better live support rule.
+
+Recorded gameplay mature registered jobs miss the current object deadline.
+Reusing them for gameplay requires measured delivery at the required causal cutoff;
+saved image timestamps or later CURRENT emissions cannot substitute for this proof.
+Current full object crops do not reconstruct missing full-board worker inputs.
+
 ## Opt-in OBJECT_HIT gameplay contract — 2026-10-08
 
 `input.hit_regions.object_hit_regions` extends the existing OBJECT request; it does

@@ -445,7 +445,7 @@
             "id": "shoot_stuff_range",
             "title": "Skjutprylar",
             "type": "game",
-            "description": "Två spelare, fem skott var. Sju fysiskt skalade mål per omgång: burkar, toarulle, gummianka, sardiner och annat trams. +/- ändrar avståndet i 5-meterssteg. Fysisk OBJECT_HIT i frysta målregioner; osäkra eller tvetydiga träffar ger ingen objektträff.",
+            "description": "Två spelare, fem skott var. Sju fysiskt skalade mål per omgång: burkar, toarulle, gummianka, sardiner och annat trams. +/- ändrar avståndet i 5-meterssteg. Tillfällig spel-assist kan använda en stark kandidat inne i ett aktivt mål om den slutligt valda träffkoordinaten missar.",
             "preview": "assets/thumbs/game_icon.png",
             "script": "content/games/can_shootout_game.py",
             "path": "",
@@ -502,6 +502,30 @@
             "path": "",
             "led": {
               "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },
+          {
+            "id": "infinite_trench",
+            "kind": "item",
+            "type": "game",
+            "title": "Oändlig skyttegrav (prototyp)",
+            "description": "Procedurgenererad skyttegrav med nio rörelselägen. Ingen skjutning ännu.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/infinite_trench_game.py",
+            "path": "assets/games/infinite_trench",
+            "fit": "contain",
+            "bg_color": [
+              0,
+              0,
+              0
+            ],
+            "led": {
+              "enabled": false,
               "color": [
                 255,
                 255,

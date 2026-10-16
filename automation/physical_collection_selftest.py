@@ -6,17 +6,19 @@ from automation.physical_finalize import validate
 
 class CollectionTests(unittest.TestCase):
  def test_runner_records_exit_status_without_starting_hardware(self):
+  from io import BytesIO
   from unittest.mock import patch,Mock
   from automation.physical_collection import _run_capture
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);binding=p/'binding.json';binding.write_text('{}')
-   process=Mock(stdout=iter(['fixture completed\n']),returncode=-15)
+   process=Mock(stdout=BytesIO(b'fixture completed\n'),returncode=-15)
    process.poll.return_value=-15;process.wait.return_value=-15
    with patch('automation.physical_collection.subprocess.Popen',return_value=process):
     self.assertEqual(_run_capture(binding,{}),-15)
    self.assertEqual(json.loads((p/'runtime_exit.json').read_text())['returncode'],-15)
    self.assertEqual((p/'runtime.log').read_text(),'fixture completed\n')
    process.terminate.assert_not_called()
+   self.assertTrue(process.stdout.closed)
 
  def test_d02_process_only_unique_roots_settings_and_symlink_unchanged(self):
   import os

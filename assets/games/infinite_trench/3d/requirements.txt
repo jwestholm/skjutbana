@@ -1,0 +1,4 @@
+pygame>=2.6,<3
+moderngl>=5.13,<6
+numpy>=1.21
+Pillow>=9.0

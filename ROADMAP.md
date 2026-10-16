@@ -7,10 +7,61 @@ Exact physical coordinates remain a core capability, but they no longer block us
 
 The project must remain enjoyable to build and use. Near-term work therefore prioritizes playable physical games and reusable engine capabilities before more long-running exact-coordinate research.
 
-### NOW — make OBJECT_HIT practically usable in existing games
+### NOW — ONE ENEMY / ONE HITBOX / DID WE HIT IT?
 
-- `can_play_02`: five UNKNOWN outcomes, two deadlines, no independent object GT. Deterministic saved-crop replay is available via `automation.object_hit_replay`; all available live evidence ledgers reproduce. Clock-neutral support5/4/3/1/6 remains ambiguous; two immediate PRE observations do not certify physical newness. No new gate is justified. Exact batching reduces measured replay CPU247–255ms to113–115ms without pruning or changing the350ms deadline. **Next: run the local analyzer, then a short independently observed crop retest for latency/object decisions.** Longer diagnostic PRE history is a requirement for subsequent support-rule research, not a capability already provided by the crop flag. Preserve multiple-supported -> UNKNOWN; no highest-score shortcut or selector/locality research.
-- Existing **Skjutprylar** uses explicit single-object/UNKNOWN results over the region-local query; ambiguous objects abstain. `physical_collection play-can` launches normal gameplay with compact logs/15-shot notes and optional bounded actual-input crops. Physical reliability and post-batching live latency remain unverified; see CURRENT_STATE.md and PHYSICAL_CAPTURE_RUNBOOK.md.
+- **Single-region foundation (2026-10-14):** prioritize one frozen exact enemy
+  region over seven-object discrimination. Reuse `ObjectPhysicalQuery`; no separate
+  single-region authority or game implementation. Offline replay now isolates one
+  saved region and emits explicit family ledgers/spatial residuals.35 paired-data
+  region runs show30 legacy supports, but no certified physical HIT. All actual
+  truth remains UNKNOWN. Removing multi-object ambiguity is not damage detection.
+- **Next implementation boundary:** opt-in immutable engine render identity/image
+  linked through existing shot-freeze/mapping/recorder owners. Mutable screen
+  references and current calibration cannot reconstruct old projected content.
+  Projector explanation is UNAVAILABLE until scene and optical-response provenance
+  exist; do not substitute edge penalties. Keep region margin outside hit truth.
+- Physical acceptance remains pending, with no shooting requested now. Preserve the
+  separate3-shot GT observability gate. Later at most10 single-enemy shots:5 inside,
+  5 just outside; record independent actual impact, frozen geometry, guarded PRE,
+  POST and settled GT. Target5/5 inside and0/5 outside false HIT is a diagnostic
+  milestone, not general95–100% physical accuracy. No Infinite Trench changes or
+  live promotion until measured evidence supports them.
+
+Previous multi-object work and its negative results remain preserved below:
+
+- **Optical/HIL measurement foundation (2026-10-14):** passive variability,
+  projector response and saved-calibration roundtrip tools are implemented and
+  synthetic/offline verified. Physical optical validation remains pending. These
+  instruments generate no projectile labels and cannot replace the pending
+  three-shot GT acceptance. Native4K hashing currently limits throughput; explicit
+  backpressure/write gaps make a run INCOMPLETE, never silently full-rate. No
+  detector tuning or physical shooting while the operator is unavailable.
+- **GT timing/provenance hardened offline (2026-10-14):** PRE now pins the existing
+  clock-qualified ring reference at event dispatch, not after potentially long live
+  processing. The 500ms receipt/publication guard remains; V4L2 POS_MSEC lacks verified
+  clock/source flags and is not exposure truth. `physical_gt_audit` reports legacy
+  PREs UNQUALIFIED without mutation. No new shots while the operator is unavailable.
+  Physical acceptance remains pending: later only three shots, absence of the new
+  hole in guarded PRE, visibility in a neutral frame, manual XY only when clear.
+  No detector changes/search; preserve the failed −30..−50ms physical PRE finding.
+- **Independent GT observability (2026-10-13):** operator inspection found the
+  prior paired crops unlabelable. Preserve all six UNKNOWN labels; no actual-hole
+  oracle is available. The first three-shot full-frame run exposed noncausal PRE:
+  the new hole was already visible. GT-only selection now requires receipt and
+  publication500ms before audio, otherwise UNAVAILABLE; physical causality remains
+  explicitly unverified. Preserve the run; do not infer a clean PRE from its name.
+  The opt-in `play-can --gt-review --gt-shots 3` extension retains the same neutral
+  review sequence (clean surface / near old damage / dark detail).
+  After all live work ends it saves native PRE/LIVE_POST and separate settled
+  WHITE/BLACK/MID_GRAY human-review images. Use `physical_trace_label --gt-review`;
+  require3/3 independently visible holes before collecting more evaluation data.
+  This supersedes the older “label existing crops/no new shooting” next step below.
+  No live authority change, model search or accuracy claim; full procedure in runbook.
+- **Paired capture measured (2026-10-12):** `can_play_candidate_compare_20261011_203905` provides five paired events plus one log-only event. Operator truth is explicitly UNKNOWN for all six. Early unregistered mature pools exist on1/3/5; registered delivery takes1.50–1.94s, largely worker compute. Confirmation keeps8 unchanged coordinates and sometimes loses exact-shape coverage, but we cannot say which physical signal survived. Do not promote mature or change retention from these unlabeled counts. **Immediate next step:** operator review with the now-ready `physical_trace_label --paired-object-crops` adapter and separate source-bound labels, then paired oracle analysis only where holes can be independently identified. No new shooting is justified yet; full-board/missing event6 evidence cannot be reconstructed. See the paired report in CURRENT_STATE.md.
+- **Current blocker: candidate ownership and physical discrimination.** OBJECT_HIT makes its own OBJECT_LOCAL_CHANGE proposals; it does not consume the mature V1/V2/FAST/bank/vault pool. V2.25.1 region proposals are inside the mature worker. can_play_03/04 contain eight operator-verified real object hits: GT object supported 8/8, but gameplay UNKNOWN 8/8 due competing support. The false-audio control correctly has zero object support. No exact hole XY is available.
+- The original candidate reconciliation compared saved ledgers and immutable historical stage caches. Complete mature pools were absent in can_play_03/04; the paired capture above now fills that gap for five newer events, but lacks independent truth. Historical registered mature jobs took ~1.35–1.48s; neither those jobs nor the newly measured deliveries can simply replace the350ms object query. Use `object_candidate_reconciliation --paired` for saved exact-shape membership and delivery boundaries. No physical capture or live promotion was performed by either analysis task.
+- Preserve negative results: waiting for multi-support decay, simple signed freshness, early→late birth, dense residual, settled permanence and simple scalar ranking did not safely resolve object identity. Do not rerun them. Do not assume controlled illumination is required. Preserve multiple-supported → UNKNOWN; no highest-score shortcut or selector/locality research.
+- Existing **Skjutprylar** remains the gameplay integration. The saved-crop replay and exact scalar/batch equivalence remain available; no deadline was extended. Optional bounded candidate sidecars use the existing trace writer; default gameplay/candidate authority is unchanged. See CURRENT_STATE.md and PHYSICAL_CAPTURE_RUNBOOK.md.
 - Reuse the existing GameObject / HitRegion / shot-id / frozen-shot geometry and object-local physical search. Do **not** build a parallel detector and do not rebuild existing games such as the can-shooting game.
 - Add/finish `OBJECT_HIT` as an opt-in engine semantic: the game supplies active object regions; the physical engine inspects only those relevant regions and returns the physically supported object, `UNKNOWN`, or no hit.
 - `OBJECT_HIT` must not be implemented as global exact-XY selection followed by nearest-object snapping. Region context narrows where physical evidence is evaluated; it never creates a hit.

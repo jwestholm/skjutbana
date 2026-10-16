@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 import math
+import os
 import threading
 import time
 from typing import Any, Callable
@@ -928,6 +929,10 @@ def _install_local_confirmation_patch() -> None:
                 state.candidates,
                 frame_ts=float(frame_ts),
             )
+            if os.environ.get('SKJUTBANA_OBJECT_MATURE_CAPTURE') == '1':
+                from src.engine.physical_trace import capture_object_mature_pool
+                capture_object_mature_pool(state.shot_id, 'LOCAL_CONFIRMATION', confirmed,
+                    frame_ts, full_rescue=state.rescue_round, diagnostics=diag)
             if getattr(self, "physical_trace_capture_enabled", False):
                 self.last_trace_confirmation = {
                     "shot_id": int(state.shot_id), "frame_ts": float(frame_ts),
