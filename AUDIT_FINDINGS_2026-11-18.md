@@ -429,3 +429,16 @@ assert before == after
 print(len(after))
 PY
 ```
+
+### F. Live code navigation
+
+The opening section of `ARCHITECTURE.md` follows event creation, frame
+ownership, proposal and confirmation work, tracking, selection and delivery.
+Source inspection covered the installed resolver wrappers as well as the base
+scanner. A syntax-tree lookup verified 20 named functions across 10 modules.
+The documentation distinguishes a track seeded before confirmation, evidence
+from a subsequent frame, and the state assigned on delivery.
+
+All discovered `automation/*selftest*.py` modules passed at each checkpoint
+(A 140, B 141, C 142, D 143, E 143, F 143). The optical-lab module's TCP
+round trip also passed on isolated loopback at every checkpoint.
