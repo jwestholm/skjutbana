@@ -85,6 +85,10 @@ def main(argv=None) -> int:
     p_synth.add_argument("--export-candidates", action="store_true",
                          help="also write labelled candidates.jsonl (training data)")
 
+    p_latency = sub.add_parser("latency-report", help="show observed replay job intervals in milliseconds")
+    p_latency.add_argument("replay_dir", metavar="REPLAY_DIR", type=Path,
+                           help="output directory from replay --wall-clock-profile")
+
     p_cmp = sub.add_parser("compare", help="paired comparison of two synth runs")
     p_cmp.add_argument("baseline")
     p_cmp.add_argument("candidate")
@@ -151,6 +155,13 @@ def main(argv=None) -> int:
                          indent=2))
         return 0
     args = parser.parse_args(argv)
+    if args.command == "latency-report":
+        from automation.bench.latency_report import format_report
+        try:
+            print(format_report(args.replay_dir))
+        except (OSError, ValueError) as exc:
+            p_latency.error(str(exc))
+        return 0
     if args.command == "synth":
         from automation.bench.synth_runner import run
         run(args)

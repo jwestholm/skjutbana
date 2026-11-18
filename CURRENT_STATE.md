@@ -5,6 +5,8 @@
 Recorded replay accepts `--wall-clock-profile` to save host submission, start
 and finish timestamps for executor jobs. The replay schedule still uses virtual
 time. See `automation/bench/README.md` for the scope of each clock.
+`bench latency-report REPLAY_DIR` reads the sidecar and reports per-job
+intervals, observed threads and the number of endpoints contributing to each sum.
 
 ## Hole recognition on textured backgrounds — 2026-11-18 (evening)
 - H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp

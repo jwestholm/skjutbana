@@ -83,6 +83,14 @@ The `thread` field is sampled inside the job. A `MainThread` job
 misses the runtime branches guarded by the `shot-cv-v2224` thread prefix.
 Matching the prefix alone does not establish full parity with the live runtime.
 
+Run `python3 -m automation.bench latency-report REPLAY_DIR` on a profiled replay.
+It prints each submitted job's thread and the elapsed milliseconds from submission to start,
+start to finish, and submission to finish. Each sum is computed from
+integer nanoseconds and carries its observed/submitted count. `UNKNOWN` marks
+missing endpoints. Overlapping intervals contribute separately to the sums.
+The sidecar contains executor timestamps only. Attribution to stages, emissions
+or individual shots requires evidence outside these rows.
+
 ```bash
 python3 -m automation.bench replay SESSION_DIR --output /tmp/r1 [--pulse-offset-s 0.025]
 SKJUTBANA_MIN_POST_AGE_S=0.11 python3 -m automation.bench replay SESSION_DIR --output /tmp/r2

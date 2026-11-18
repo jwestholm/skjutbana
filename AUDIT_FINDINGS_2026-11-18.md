@@ -353,3 +353,14 @@ timers retain their original clock. This measures the offline executor.
 Each row records the observed thread name. At base 765580a, replay calls
 jobs on MainThread. Five runtime modules guard code with the worker name
 prefix, so method-installation parity alone overstates runtime coverage.
+
+**B.** Ran `bench replay --use-current-settings --wall-clock-profile` and
+`bench latency-report` on recorded projected session `20261118T162349Z_66d659ce`.
+Of 121 submitted jobs, 116 had both endpoints, all on `MainThread`. The other
+five had no observed start. The 116 intervals summed to 20.807 s from submit
+to start and 143.313 s from start to finish. These are sums over offline jobs
+on the legacy path. Replay used shared host resources and a read-only source
+tree, so optional writes to the local diagnostic log failed. Results are in
+`/data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/projected/`.
+Per-stage and per-physical-shot attribution remain open. The physical session
+was not run for this report.
