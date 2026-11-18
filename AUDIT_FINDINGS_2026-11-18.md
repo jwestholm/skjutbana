@@ -311,3 +311,35 @@ temporary `/data` for fixtures, and no camera device. Three modules ran concurre
 
 Work packages 1–6 remain open. There was no detector change, paired replay,
 latency measurement or physical validation in this run.
+
+## 16. What the F2 event timestamps and the replay clock measure
+
+The F2 report stores a timestamp and an associated synthetic peak timestamp for
+each delivered camera event (`AITrainingScene._on_live_hit`). For each of the
+two reports in §14c, we calculated `1000 * (ts - peak_ts)` for every entry in
+`hits` and used NumPy's linear percentiles. All entries had both timestamps.
+False emissions are included. A projected hole without an emission has no
+latency observation.
+
+| F2 report on 2026-11-18 | Delivered events | Median (ms) | p90 (ms) | Correct / projected holes | False emissions |
+|---|---:|---:|---:|---:|---:|
+| 17:27:14 | 54 | 990 | 1643 | 14/78 | 40 |
+| 19:14:33 | 62 | 1067 | 1950 | 30/79 | 32 |
+
+These were separate live optical runs with different projected holes. The exact
+latency figures in §14c were not reproduced from these two event lists using
+this definition. The input hashes, calculation and clock check are in
+`/data/skjutbana/evaluation_runs/f2_clock_audit_20261118_vPwRuW35/`.
+
+For the recorded-session replay command, the default `--worker-cost-s` is
+0.15. `VirtualExecutor` models a single FIFO worker and freezes the virtual
+clock during each job. `DetectorStageProfilerV2224` reads the patched
+`time.perf_counter()`. As a control, a standalone job that waited 25.06 ms
+on the host registered 0 ms inside the job and 150 ms from submission to
+completion in virtual time. Accordingly the stock replay timings cannot
+attribute the observed F2 percentiles to worker stages or duplicate jobs.
+
+All 140 selftest modules exited successfully in a fresh sequential run. The
+single skipped socket case passed with its full module on isolated loopback
+(25/25). The earlier missing-frame test also passed. Work package 1 remains
+open. This audit adds no paired replay or physical measurements.
