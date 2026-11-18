@@ -344,7 +344,49 @@ single skipped socket case passed with its full module on isolated loopback
 (25/25). The earlier missing-frame test also passed. Work package 1 remains
 open. This audit adds no paired replay or physical measurements.
 
-## 17. Offline bench maintenance
+The following two sections reproduce the findings from branch `claude/latency` at `43f70bd`.
+
+## 17. Replay fidelity bug: replays ran the FULL/legacy path, not the live path (fixed on claude/latency)
+`VirtualExecutor.run_due` (src/engine/offline/virtual_runtime.py) executed detector jobs on MainThread,
+but five live stages are gated on the CV worker thread name "shot-cv-v2224": V2.22.5 FAST extract
+(shot_fast_v2225.extract_v2225), V2.24.1 object-local, V2.25.1 region proposal, V2.25.2 freshness,
+V2.25.3 cross-shot novelty. Every `bench replay` so far therefore replayed the FULL extractor
+(cProfile: `_extract_candidates` 475 ms/job, 0 "FAST-EXTRACT" log lines; live logs show FAST).
+Fix: jobs run under the thread name "shot-cv-v2224-virtual"; `SKJUTBANA_REPLAY_LEGACY_THREAD=1`
+restores the old behaviour for comparisons with earlier baselines. bench_selftest/bench_fidelity pass.
+**All earlier replay numbers in §9–§14 used the legacy path.** Re-measured with the live path
+(`/data/skjutbana/evaluation_runs/replay_fidelity_20261118/`, age 0.15 + causal):
+
+| session | base | H11 |
+|---|---|---|
+| physical AR15 fresh paper (22) | 14 (5 false) | **16** (4) |
+| AI-test real AR15 stamps (78) | 21 (52) | **26** (47) |
+| validation moving (24) | 3 | 5 |
+| validation testtavla (24) | 9 | 9 |
+| validation pattern (24) | 11 | 9 |
+
+H11 on the live path: +7 overall (58→65) incl. +2 physical — smaller than the legacy-path +29 but
+consistent with the live F2 result (30/79 vs 14/78). Pattern −2 persists.
+
+## 18. Detector worker CPU: exact-equivalent speedups (claude/latency)
+cProfile of every async detector job while replaying the physical AR15 session on the live (FAST)
+path (82 jobs; profiler overhead inflates pure-Python code): 474 ms/job before. The two largest pure-
+Python O(n·m) loops were rewritten with a uniform-grid spatial index (new
+`src/engine/camera/spatial_grid.py`), keeping the exact distance tests and tie order:
+- `detector_v24_extension._update_shot_accumulator`: 37 → 7 ms per 220-candidate frame (bench);
+  reference kept as `_update_shot_accumulator_reference` (`SKJUTBANA_V24_ACC_REFERENCE=1`).
+- `CandidateGeneratorV2._update_candidate_bank`: 23 → 5 ms per frame; reference
+  `_update_candidate_bank_reference` (`SKJUTBANA_V2_BANK_REFERENCE=1`).
+Proof: new `automation/v24_accumulator_equivalence_selftest.py` and
+`automation/v2_candidate_bank_equivalence_selftest.py` (random frames, duplicates and ties, JSON-identical
+outputs and engine state); physical replay emissions identical (22 emissions, 14/22 correct).
+Profiled job: **474 → 304 ms (−36 %)**. Next candidates: `_refine_peak` (~63 ms/job, many tiny numpy
+calls — batching may change float32 rounding, needs an equivalence argument), v26 `build_output`.
+Live hit latency still has to be measured live (replay clock is virtual — Codex package A).
+
+<a id="17-offline-bench-maintenance"></a>
+
+## 19. Offline bench maintenance
 
 **A.** The optional recorded-replay sidecar records job boundaries on the
 host monotonic clock. A synthetic 25 ms sleep must measure at least 25 ms,
