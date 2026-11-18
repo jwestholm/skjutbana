@@ -371,3 +371,12 @@ time window and cost. Three compatibility fixtures passed on the baseline
 and on the refactor. They compare the patch and map candidate fields,
 including existing keys, missing values and a disabled map source. A fourth
 test checks the new observation type. No accuracy experiment was performed.
+
+**D.** Measured the standalone image-context function on synthetic 640 × 480
+grayscale arrays with a 4 × 6 grid and one OpenCV thread. Over 30 samples after
+three warmups, one frame cost 4.34 ms median / 4.83 ms p90. Three frames cost
+5.86 / 6.38 ms. Seed 20261118. Timings exclude file decoding and JSON output.
+The offline command emits a region grid for inspection. With one image,
+temporal variation is unknown. This run made no candidate-level measurements.
+Reproduce with `PYTHONPATH=. python3 /data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/measure.py`
+from the repository root. Individual samples are in `image_context_cost.json` alongside it.

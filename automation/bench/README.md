@@ -91,6 +91,18 @@ missing endpoints. Overlapping intervals contribute separately to the sums.
 The sidecar contains executor timestamps only. Attribution to stages, emissions
 or individual shots requires evidence outside these rows.
 
+### Inspect a PRE image
+
+`python3 -m automation.bench.image_context earlier.png pre.png --grid 4 6`
+prints a JSON grid for explicitly supplied images in chronological order.
+Each cell contains its pixel bounds (exclusive right and bottom), mean gray
+level and mean Sobel gradient magnitude in the last image. With two or more
+frames, `ctx_motion` is the mean within-cell temporal standard deviation
+of individual pixels. A single image yields `null` and the reason
+`single_frame`. The reported elapsed cost covers the in-memory calculation.
+
+### Run comparisons
+
 ```bash
 python3 -m automation.bench replay SESSION_DIR --output /tmp/r1 [--pulse-offset-s 0.025]
 SKJUTBANA_MIN_POST_AGE_S=0.11 python3 -m automation.bench replay SESSION_DIR --output /tmp/r2
