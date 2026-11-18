@@ -8,6 +8,9 @@ time. See `automation/bench/README.md` for the scope of each clock.
 `bench latency-report REPLAY_DIR` reads the sidecar and reports per-job
 intervals, observed threads and the number of endpoints contributing to each sum.
 
+Both hole-morphology sources use `src/engine/candidate_evidence.py` to write
+their existing flat scalar evidence fields. Missing reasons stay source-specific.
+
 ## Hole recognition on textured backgrounds — 2026-11-18 (evening)
 - H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp
   profile ranks candidates. Paired replay projected 48→77 correct (8 sessions), physical AR15 unchanged;

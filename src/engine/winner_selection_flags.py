@@ -317,6 +317,9 @@ def attach_h11(candidates: list, darkening, absdiff, x0: int, y0: int, snr=None)
     2026-11-18) and stays a separate shadow feature."""
     if not candidates or not (hole_likeness_rank() or os.environ.get("SKJUTBANA_H11_FULL_ROI_MAP") == "1"):
         return
+    from src.engine.candidate_evidence import CandidateEvidence
+    from src.engine.hole_morphology_evidence import EVIDENCE_FAMILY
+
     if snr is None:
         snr = _cached_snr(darkening, absdiff)
     h, w = snr.shape
@@ -328,9 +331,8 @@ def attach_h11(candidates: list, darkening, absdiff, x0: int, y0: int, snr=None)
             continue
         ya, yb, xa, xb = max(0, py - 2), min(h, py + 3), max(0, px - 2), min(w, px + 3)
         if yb > ya and xb > xa:
-            candidate["ev_hole_morph_snr"] = float(snr[ya:yb, xa:xb].max())
-            candidate["ev_hole_morph_valid"] = 1.0
-            candidate["ev_hole_morph_version"] = H11_MAP_VERSION
+            observation = CandidateEvidence(EVIDENCE_FAMILY, H11_MAP_VERSION, float(snr[ya:yb, xa:xb].max()))
+            observation.write_fields(candidate, "ev_hole_morph", "snr")
 
 
 def candidate_rank_value(candidate: dict) -> float:

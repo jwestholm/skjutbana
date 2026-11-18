@@ -364,3 +364,10 @@ tree, so optional writes to the local diagnostic log failed. Results are in
 `/data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/projected/`.
 Per-stage and per-physical-shot attribution remain open. The physical session
 was not run for this report.
+
+**C.** A shared immutable observation represents either a scalar value
+or a missing reason. It carries the family and version, with optional
+time window and cost. Three compatibility fixtures passed on the baseline
+and on the refactor. They compare the patch and map candidate fields,
+including existing keys, missing values and a disabled map source. A fourth
+test checks the new observation type. No accuracy experiment was performed.
