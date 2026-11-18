@@ -291,3 +291,23 @@ two sessions measured (identical to H11), kept off.
   identical to v6: AI-test 29/78, moving 9, testtavla 9, physical 15/22.
 - Code study of the whole evidence chain → new `EVIDENCE_CHAIN.md` (26 items, status, context maps,
   plan agreed with Codex).
+
+## 15. Offline selftest baseline at 765580a — 2026-11-18
+
+All 140 modules matching `automation/*selftest*.py` ran in separate Python processes
+on `codex/astra-latency`. Each process used dummy SDL video/audio drivers, a private
+temporary `/data` for fixtures, and no camera device. Three modules ran concurrently.
+
+- First pass: 139/140 modules exited successfully. In `physical_gt_capture_selftest`,
+  `test_interrupt_preserves_completed_frames_and_explicit_missing` saw an extra
+  `PRE` in the missing-frame list. The full module passed 37/37 on a separate rerun.
+  The cause of the first failure is open.
+- Four test cases skipped on the first pass. With the stamp fixture library mounted
+  read-only, `ai_training_content_selftest` passed 8/8. With a private loopback
+  network, `physical_optical_lab_selftest` passed 25/25, including its TCP round trip.
+- After reruns, all 140 modules had a successful run. The passing
+  `object_freshness_selftest` also logged trace finalization errors for temporary
+  fixture paths. The effect on fixture cleanup is unverified.
+
+Work packages 1–6 remain open. There was no detector change, paired replay,
+latency measurement or physical validation in this run.
