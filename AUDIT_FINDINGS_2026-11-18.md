@@ -484,3 +484,27 @@ from a subsequent frame, and the state assigned on delivery.
 All discovered `automation/*selftest*.py` modules passed at each checkpoint
 (A 140, B 141, C 142, D 143, E 143, F 143). The optical-lab module's TCP
 round trip also passed on isolated loopback at every checkpoint.
+
+## 20. Projected replay with the worker-name correction in isolation
+
+Replayed `20261118T162349Z_66d659ce` from the recorded projector and camera
+inputs using `--use-current-settings --wall-clock-profile`. The checkout used
+the code at `0457b07` with only `src/engine/offline/virtual_runtime.py` from
+`43f70bd` mounted read-only for the process. This run used the detector
+implementation from `0457b07`. The manifest records the mounted Git blob
+and settings hashes. The legacy thread override was unset.
+
+| Host-clock interval | Observed jobs / submitted | Sum (s) | Median (ms) | p90 (ms) |
+|---|---:|---:|---:|---:|
+| Submit to start | 115/120 | 17.822 | 155.98 | 196.50 |
+| Start to finish | 115/120 | 39.568 | 347.78 | 544.46 |
+
+All 115 observed starts recorded `shot-cv-v2224-virtual`. Five submissions
+had no observed start. The run logged 97 FAST extraction messages and read
+5,025 camera frames and 13,448 PCM blocks. These are elapsed host intervals
+of offline executor jobs. Submit to start includes other replay-loop work.
+The timers inside each stage still read the virtual clock. No physical
+session was profiled and no job was classified as duplicate work.
+
+The report, individual timestamps, log and input manifest are in
+`/data/skjutbana/evaluation_runs/projected_thread_check_20261118_DvDJU49m/`.
