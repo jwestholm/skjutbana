@@ -13,6 +13,7 @@ their existing flat scalar evidence fields. Missing reasons stay source-specific
 
 `automation.bench.image_context` reports regional brightness, edge strength
 and temporal variability for image files explicitly supplied to its offline CLI.
+The offline trainer excludes the three `ctx_*` measurements from feature selection.
 
 ## Hole recognition on textured backgrounds — 2026-11-18 (evening)
 - H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp

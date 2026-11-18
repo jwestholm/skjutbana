@@ -9,9 +9,14 @@ import cv2
 import numpy as np
 
 from automation.bench.image_context import image_context, main
+from automation.bench.train import _feature_names
 
 
 class ImageContextTests(unittest.TestCase):
+    def test_context_fields_stay_out_of_training(self):
+        fixture = {"sample": 7, "ctx_brightness": 80.0, "ctx_texture": 2.0, "ctx_motion": 0.0}
+        self.assertEqual(_feature_names([{"candidate": fixture}]), ["sample"])
+
     def test_partial_cells_cover_each_pixel_once(self):
         ramp = np.tile(np.arange(5, dtype=np.uint8), (3, 1))
         result = image_context([ramp], rows=2, columns=3)

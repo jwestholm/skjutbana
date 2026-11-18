@@ -22,7 +22,8 @@ import numpy as np
 
 STATUS = "OFFLINE_REPLAY_ONLY_UNVALIDATED"
 EXCLUDED_EXACT = {"camera_x", "camera_y", "timestamp", "analysis_crop_x0", "analysis_crop_y0",
-                  "v2224_producer_shot_id", "v2225_origin_frame_ts", "track_id", "hole_id"}
+                  "v2224_producer_shot_id", "v2225_origin_frame_ts", "track_id", "hole_id",
+                  "ctx_brightness", "ctx_texture", "ctx_motion"}  # diagnostic image context
 EXCLUDED_SUBSTRINGS = ("shot_id", "_ts", "origin_xy", "ground_truth", "training_")
 
 

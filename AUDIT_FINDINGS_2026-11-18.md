@@ -508,3 +508,15 @@ session was profiled and no job was classified as duplicate work.
 
 The report, individual timestamps, log and input manifest are in
 `/data/skjutbana/evaluation_runs/projected_thread_check_20261118_DvDJU49m/`.
+All 143 selftest modules from the working branch passed with the same
+read-only runtime overlay and an isolated loopback network.
+
+## 21. Image-context fields in offline training
+
+A synthetic candidate row containing `sample`, `ctx_brightness`,
+`ctx_texture` and `ctx_motion` contributed all four numeric fields to
+the trainer's feature list at `b9406e6`. With the three context fields
+explicitly excluded, only `sample` is selected. A regression test covers
+a measured motion value of zero alongside numeric brightness and texture.
+The image-context command remains standalone. Worker cost for generating
+context on candidates remains unmeasured.

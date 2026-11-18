@@ -100,6 +100,8 @@ level and mean Sobel gradient magnitude in the last image. With two or more
 frames, `ctx_motion` is the mean within-cell temporal standard deviation
 of individual pixels. A single image yields `null` and the reason
 `single_frame`. The reported elapsed cost covers the in-memory calculation.
+The offline trainer excludes `ctx_brightness`, `ctx_texture` and `ctx_motion`
+from feature discovery when they appear in a supplied candidate export.
 
 ### Run comparisons
 
