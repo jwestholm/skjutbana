@@ -528,3 +528,13 @@ explicitly excluded, only `sample` is selected. A regression test covers
 a measured motion value of zero alongside numeric brightness and texture.
 The image-context command remains standalone. Worker cost for generating
 context on candidates remains unmeasured.
+
+## 22. Selftest runner
+
+The runner reports each module's exit status and elapsed time, returns nonzero
+on failures and timeouts, and gives each module a private data and device
+namespace. Its first three-way run reported 142/143 modules passing. The
+failure reproduced the extra `PRE` missing-frame entry described in §15.
+Separate runner fixtures exercised success, failure, timeout and interrupted
+cleanup, including a test that left a detached descendant running.
+A subsequent two-way suite run passed all 143 modules at this checkpoint.

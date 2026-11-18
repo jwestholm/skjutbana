@@ -49,6 +49,23 @@ assets/                  — Bilder, video, spel, tavlor
 ```
 
 
+## Självtester
+
+Kör hela sviten från repots rot på Linux med `bubblewrap` installerat.
+
+```bash
+python3 -m automation.run_selftests
+```
+
+Köraren hittar `automation/*selftest*.py` och kör upp till tre moduler parallellt
+med SDL:s dummy-drivrutiner. Varje modul får egen process- och nätverksnamnrymd
+med lokal loopback, privat `/dev`, `/tmp` och `/data` samt skrivskyddad åtkomst
+till repot och befintliga testbilder i `/data/skjutbana/hole_library`.
+Varje modulrad visar status och tid. Vid fel visas slutet av testutskriften.
+Körningen ger felkod om en modul fallerar eller överskrider sin tidsgräns.
+Standardgränsen är 600 sekunder per modul. Exempelvis kör
+`python3 -m automation.run_selftests --jobs 2 --timeout 300` två moduler åt gången.
+
 ## Automation
 
 Starta spelet normalt och kör externa scripts från repositoryts rot. Exempel:

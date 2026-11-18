@@ -1,5 +1,11 @@
 # Current project state
 
+## Running the selftests — 2026-11-18
+
+`python3 -m automation.run_selftests` runs the discovered modules with a
+per-module deadline and up to three concurrent isolated processes. Each module
+receives private fixture directories, dummy SDL drivers and loopback. See README.md.
+
 ## Offline replay timing — 2026-11-18
 
 Recorded replay accepts `--wall-clock-profile` to save host submission, start
