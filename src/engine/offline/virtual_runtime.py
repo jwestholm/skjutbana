@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import threading
 import time as _time
 from concurrent.futures import Future
 from dataclasses import dataclass, field
@@ -124,6 +125,15 @@ class VirtualExecutor:
             job = self._jobs.pop(0)
             if not job.future.set_running_or_notify_cancel():
                 continue
+            # Live-path fidelity (2026-11-18): several live stages are gated on the CV worker
+            # thread name ("shot-cv-v2224": V2.22.5 FAST extract, V2.24.1 object-local, V2.25.1
+            # region proposal, V2.25.2 freshness, V2.25.3 novelty).  Running jobs on MainThread
+            # silently replayed the FULL/legacy path instead.  SKJUTBANA_REPLAY_LEGACY_THREAD=1
+            # restores the old behaviour for comparison with earlier baselines.
+            thread = threading.current_thread()
+            old_name = thread.name
+            if os.environ.get("SKJUTBANA_REPLAY_LEGACY_THREAD") != "1":
+                thread.name = "shot-cv-v2224-virtual"
             try:
                 with self.clock.frozen_at(job.start):
                     result = job.fn(*job.args, **job.kwargs)
@@ -132,6 +142,8 @@ class VirtualExecutor:
                 job.future.set_result(result)
             except BaseException as exc:  # mirrors ThreadPoolExecutor semantics
                 job.future.set_exception(exc)
+            finally:
+                thread.name = old_name
             ran += 1
             self.executed += 1
         return ran

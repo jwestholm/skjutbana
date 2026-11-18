@@ -1952,7 +1952,7 @@ class CandidateGeneratorV2:
 
         candidate["near_known_hole_dist"] = float(dist)
 
-    def _update_candidate_bank(
+    def _update_candidate_bank_reference(
         self,
         *,
         shot_id: int,
@@ -2290,6 +2290,374 @@ class CandidateGeneratorV2:
             candidate["v2_bank_confirmed"] = 1.0
             candidate["v2_bank_carried"] = 1.0
             carried_output.append(candidate)
+            existing_xy.append((ex, ey))
+
+        return current_output + carried_output
+
+
+    def _update_candidate_bank(
+        self,
+        *,
+        shot_id: int,
+        frame_candidates: list[dict[str, float]],
+        frame_ts: float,
+        cfg: dict[str, Any],
+    ) -> list[dict[str, float]]:
+        """Preserve useful V1/V2 candidates until the F2 evaluation snapshot.
+
+        V2.1 banked only the V2 list and could not rescue a legacy candidate.
+        It also withheld some weak *current-frame* rescue candidates while they
+        waited for confirmation. Both behaviours work against recall.
+
+        V2.2 deliberately makes the bank preservation-only:
+
+        * every current-frame hybrid candidate is returned unchanged
+        * historical candidates are allowed to fill only UNUSED output slots
+        * a strict V1 observation may be carried briefly after one frame
+        * V2 primary/rescue candidates still need repeated observations
+        * one bank entry can match at most once per camera frame
+        * carried candidates retain detector provenance for diagnostics/ranking
+
+        This means enabling the bank cannot delete a current candidate merely to
+        make space for history.
+
+        Grid-indexed (identical output to _update_candidate_bank_reference, 2026-11-18;
+        SKJUTBANA_V2_BANK_REFERENCE=1 runs the reference).
+        """
+        import os as _os
+        if _os.environ.get("SKJUTBANA_V2_BANK_REFERENCE") == "1":
+            return self._update_candidate_bank_reference(shot_id=shot_id, frame_candidates=frame_candidates,
+                                                         frame_ts=frame_ts, cfg=cfg)
+        from src.engine.camera.spatial_grid import GridIndex
+        if shot_id <= 0 or not bool(cfg.get("candidate_bank_enabled", True)):
+            return list(frame_candidates)
+
+        merge_radius = max(
+            1.0,
+            _safe_float(cfg.get("candidate_bank_merge_radius_px", 4.0), 4.0),
+        )
+        max_entries = max(
+            20,
+            _safe_int(cfg.get("candidate_bank_max_entries", 240), 240),
+        )
+        output_limit = max(
+            1,
+            _safe_int(cfg.get("candidate_bank_output_limit", 200), 200),
+        )
+        carried_limit = max(
+            0,
+            min(
+                output_limit,
+                _safe_int(cfg.get("candidate_bank_carried_limit", 70), 70),
+            ),
+        )
+        max_age = max(
+            0.10,
+            _safe_float(cfg.get("candidate_bank_max_age_s", 1.35), 1.35),
+        )
+        legacy_max_age = max(
+            0.05,
+            min(
+                max_age,
+                _safe_float(cfg.get("candidate_bank_legacy_max_age_s", 0.55), 0.55),
+            ),
+        )
+        unconfirmed_max_age = max(
+            0.03,
+            min(
+                max_age,
+                _safe_float(cfg.get("candidate_bank_unconfirmed_max_age_s", 0.16), 0.16),
+            ),
+        )
+        confirm_min_span = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_confirm_min_span_s", 0.020), 0.020),
+        )
+        v2_primary_hits = max(
+            2,
+            _safe_int(cfg.get("candidate_bank_primary_carry_min_hits", 2), 2),
+        )
+        v2_rescue_hits = max(
+            2,
+            _safe_int(cfg.get("candidate_bank_rescue_carry_min_hits", 2), 2),
+        )
+        legacy_hits = max(
+            1,
+            _safe_int(cfg.get("candidate_bank_legacy_carry_min_hits", 1), 1),
+        )
+        legacy_min_score = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_legacy_min_score", 3.0), 3.0),
+        )
+        repeat_bonus = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_repeat_bonus", 0.85), 0.85),
+        )
+        max_bonus = max(
+            0.0,
+            _safe_float(cfg.get("candidate_bank_max_bonus", 3.4), 3.4),
+        )
+
+        frame_index = self._candidate_bank_frame_counters.get(shot_id, 0) + 1
+        self._candidate_bank_frame_counters[shot_id] = frame_index
+        bank = self._candidate_banks.setdefault(shot_id, [])
+
+        for entry in bank:
+            entry["seen_this_frame"] = False
+
+        def merge_provenance(target: dict[str, Any], source: dict[str, Any]) -> None:
+            for key in (
+                "detector_v1",
+                "detector_v2",
+                "detector_agreement",
+                "v2_primary_peak",
+                "v2_rescue_saliency",
+                "v2_rescue_temporal",
+                "v2_rescue_blob",
+            ):
+                target[key] = max(
+                    _safe_float(target.get(key, 0.0)),
+                    _safe_float(source.get(key, 0.0)),
+                )
+
+        # Track current candidates. A bank entry can be matched only once in the
+        # same camera frame, preventing dense nearby noise from manufacturing
+        # fake hit counts.
+        bank_grid = GridIndex(merge_radius)
+        for _i, _e in enumerate(bank):
+            bank_grid.insert(_i, float(_e.get("x", 0.0)), float(_e.get("y", 0.0)))
+        for candidate in frame_candidates:
+            cx = _safe_float(candidate.get("camera_x", 0.0))
+            cy = _safe_float(candidate.get("camera_y", 0.0))
+            score = _safe_float(candidate.get("score", 0.0))
+
+            best_entry = None
+            best_index = -1
+            best_dist = float("inf")
+            for _i in bank_grid.near(cx, cy):
+                entry = bank[_i]
+                if bool(entry.get("seen_this_frame", False)):
+                    continue
+                last_frame = int(entry.get("last_frame_index", frame_index - 1))
+                if not bool(entry.get("confirmed", False)) and frame_index - last_frame > 2:
+                    continue
+                dist = math.hypot(
+                    float(entry.get("x", 0.0)) - cx,
+                    float(entry.get("y", 0.0)) - cy,
+                )
+                if dist <= merge_radius and dist < best_dist:
+                    best_dist = dist
+                    best_entry = entry
+                    best_index = _i
+
+            if best_entry is None:
+                initial = dict(candidate)
+                bank.append(
+                    {
+                        "x": cx,
+                        "y": cy,
+                        "first_ts": float(frame_ts),
+                        "last_ts": float(frame_ts),
+                        "first_frame_index": int(frame_index),
+                        "last_frame_index": int(frame_index),
+                        "hits": 1,
+                        "streak": 1,
+                        "confirmed": False,
+                        "best_score": score,
+                        "candidate": initial,
+                        "seen_this_frame": True,
+                    }
+                )
+                best_entry = bank[-1]
+                bank_grid.insert(len(bank) - 1, cx, cy)
+            else:
+                previous_frame = int(best_entry.get("last_frame_index", frame_index - 1))
+                streak = int(best_entry.get("streak", 1)) + 1 if frame_index - previous_frame == 1 else 1
+                old_score = max(0.01, float(best_entry.get("best_score", 0.01)))
+                alpha = float(np.clip(score / (old_score + score + 1e-6), 0.18, 0.55))
+                best_entry["x"] = (1.0 - alpha) * float(best_entry["x"]) + alpha * cx
+                best_entry["y"] = (1.0 - alpha) * float(best_entry["y"]) + alpha * cy
+                bank_grid.move(best_index, float(best_entry["x"]), float(best_entry["y"]))
+                best_entry["last_ts"] = float(frame_ts)
+                best_entry["last_frame_index"] = int(frame_index)
+                best_entry["hits"] = int(best_entry.get("hits", 1)) + 1
+                best_entry["streak"] = int(streak)
+                best_entry["seen_this_frame"] = True
+
+                stored = best_entry.get("candidate")
+                if not isinstance(stored, dict):
+                    stored = {}
+                merged_candidate = dict(stored)
+                merge_provenance(merged_candidate, candidate)
+                if score >= old_score:
+                    replacement = dict(candidate)
+                    merge_provenance(replacement, merged_candidate)
+                    best_entry["candidate"] = replacement
+                    best_entry["best_score"] = score
+                else:
+                    best_entry["candidate"] = merged_candidate
+
+            base = best_entry.get("candidate")
+            if not isinstance(base, dict):
+                continue
+
+            is_legacy = _safe_float(base.get("detector_v1", 0.0)) > 0.5
+            is_v2_primary = _safe_float(base.get("v2_primary_peak", 0.0)) > 0.5
+            is_agreement = _safe_float(base.get("detector_agreement", 0.0)) > 0.5
+            streak = max(1, int(best_entry.get("streak", 1)))
+            hits = max(1, int(best_entry.get("hits", 1)))
+            span = max(
+                0.0,
+                float(best_entry.get("last_ts", frame_ts))
+                - float(best_entry.get("first_ts", frame_ts)),
+            )
+
+            if is_agreement:
+                required_hits = 1
+            elif is_legacy:
+                required_hits = legacy_hits
+            elif is_v2_primary:
+                required_hits = v2_primary_hits
+            else:
+                required_hits = v2_rescue_hits
+
+            score_ok = (not is_legacy) or float(best_entry.get("best_score", 0.0)) >= legacy_min_score
+            span_ok = is_legacy or is_agreement or span >= confirm_min_span
+            if hits >= required_hits and streak >= required_hits and score_ok and span_ok:
+                best_entry["confirmed"] = True
+
+        # Expire hypotheses. Single-frame V1 candidates get their own short TTL;
+        # confirmed repeated candidates may use the longer generic TTL.
+        retained = []
+        for entry in bank:
+            age = max(0.0, frame_ts - float(entry.get("last_ts", frame_ts)))
+            base = entry.get("candidate") if isinstance(entry.get("candidate"), dict) else {}
+            is_legacy = _safe_float(base.get("detector_v1", 0.0)) > 0.5
+            if bool(entry.get("confirmed", False)):
+                ttl = legacy_max_age if is_legacy and int(entry.get("hits", 1)) <= 1 else max_age
+            else:
+                ttl = unconfirmed_max_age
+            if age <= ttl:
+                retained.append(entry)
+        bank[:] = retained
+
+        def bank_rank(entry: dict[str, Any]) -> float:
+            hits = max(1, int(entry.get("hits", 1)))
+            streak = max(1, int(entry.get("streak", 1)))
+            age = max(0.0, frame_ts - float(entry.get("last_ts", frame_ts)))
+            bonus = min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
+            agreement = 0.75 if _safe_float(
+                (entry.get("candidate") or {}).get("detector_agreement", 0.0)
+            ) > 0.5 else 0.0
+            return (
+                float(entry.get("best_score", 0.0))
+                + bonus
+                + 0.22 * min(5, streak)
+                + agreement
+                - 0.15 * age
+            )
+
+        bank.sort(key=bank_rank, reverse=True)
+        if len(bank) > max_entries:
+            del bank[max_entries:]
+
+        # CURRENT observations remain authoritative. V2.3 annotates them with
+        # the matching bank hypothesis so persistence can help ranking even
+        # while the candidate is still visible in the current frame.
+        current_output = [dict(candidate) for candidate in frame_candidates[:output_limit]]
+
+        seen_grid = GridIndex(merge_radius)
+        for _i, _e in enumerate(bank):
+            seen_grid.insert(_i, float(_e.get("x", 0.0)), float(_e.get("y", 0.0)))
+        for candidate in current_output:
+            cx = _safe_float(candidate.get("camera_x", 0.0))
+            cy = _safe_float(candidate.get("camera_y", 0.0))
+            nearest_entry = None
+            nearest_distance = float("inf")
+            for _i in seen_grid.near(cx, cy):
+                entry = bank[_i]
+                if not bool(entry.get("seen_this_frame", False)):
+                    continue
+                distance = math.hypot(
+                    float(entry.get("x", 0.0)) - cx,
+                    float(entry.get("y", 0.0)) - cy,
+                )
+                if distance <= merge_radius and distance < nearest_distance:
+                    nearest_entry = entry
+                    nearest_distance = distance
+
+            if nearest_entry is not None:
+                hits = max(1, int(nearest_entry.get("hits", 1)))
+                streak = max(1, int(nearest_entry.get("streak", 1)))
+                confirmed = bool(nearest_entry.get("confirmed", False))
+                candidate["candidate_bank_hits"] = float(hits)
+                candidate["candidate_bank_streak"] = float(streak)
+                candidate["candidate_bank_confirmed"] = 1.0 if confirmed else 0.0
+                candidate["v2_bank_hits"] = float(hits)
+                candidate["v2_bank_streak"] = float(streak)
+                candidate["v2_bank_confirmed"] = 1.0 if confirmed else 0.0
+
+        # frame_merged is capped by the normal scanner candidate_limit (usually
+        # 200), while output_limit defaults to 240. This creates a REAL reserve
+        # for up to 40 confirmed historical candidates instead of the V2.2
+        # behaviour where a full current frame left capacity=0.
+        capacity = max(0, output_limit - len(current_output))
+        if capacity <= 0 or carried_limit <= 0:
+            return current_output
+
+        carried_entries = [
+            entry for entry in bank
+            if bool(entry.get("confirmed", False))
+            and not bool(entry.get("seen_this_frame", False))
+        ]
+        carried_entries.sort(key=bank_rank, reverse=True)
+
+        carried_output: list[dict[str, float]] = []
+        existing_xy = [
+            (
+                _safe_float(candidate.get("camera_x", 0.0)),
+                _safe_float(candidate.get("camera_y", 0.0)),
+            )
+            for candidate in current_output
+        ]
+        existing_grid = GridIndex(merge_radius)
+        for _i, (_x, _y) in enumerate(existing_xy):
+            existing_grid.insert(_i, _x, _y)
+
+        for entry in carried_entries:
+            if len(carried_output) >= min(capacity, carried_limit):
+                break
+            base = entry.get("candidate")
+            if not isinstance(base, dict):
+                continue
+            ex = float(entry.get("x", base.get("camera_x", 0.0)))
+            ey = float(entry.get("y", base.get("camera_y", 0.0)))
+            if any(math.hypot(ex - existing_xy[_j][0], ey - existing_xy[_j][1]) < merge_radius
+                   for _j in existing_grid.near(ex, ey)):
+                continue
+
+            candidate = dict(base)
+            hits = max(1, int(entry.get("hits", 1)))
+            streak = max(1, int(entry.get("streak", 1)))
+            candidate["camera_x"] = ex
+            candidate["camera_y"] = ey
+            candidate["score"] = (
+                float(entry.get("best_score", candidate.get("score", 0.0)))
+                + min(max_bonus, repeat_bonus * float(max(0, hits - 1)))
+                + 0.35
+            )
+            candidate["timestamp"] = float(frame_ts)
+            candidate["candidate_bank_hits"] = float(hits)
+            candidate["candidate_bank_streak"] = float(streak)
+            candidate["candidate_bank_confirmed"] = 1.0
+            candidate["candidate_bank_carried"] = 1.0
+            # Compatibility with V2.1 diagnostics.
+            candidate["v2_bank_hits"] = float(hits)
+            candidate["v2_bank_streak"] = float(streak)
+            candidate["v2_bank_confirmed"] = 1.0
+            candidate["v2_bank_carried"] = 1.0
+            carried_output.append(candidate)
+            existing_grid.insert(len(existing_xy), ex, ey)
             existing_xy.append((ex, ey))
 
         return current_output + carried_output
