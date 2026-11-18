@@ -380,3 +380,52 @@ The offline command emits a region grid for inspection. With one image,
 temporal variation is unknown. This run made no candidate-level measurements.
 Reproduce with `PYTHONPATH=. python3 /data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/measure.py`
 from the repository root. Individual samples are in `image_context_cost.json` alongside it.
+
+### E. Static reachability and removals
+
+At `6f74b9b`, the AST import graph for 667 tracked Python files had zero incoming
+edges for each of the four modules in §6. The scan resolved relative imports and
+checked both module imports and `from package import name`. A second pass found
+zero string literals containing their full module names or file paths outside the
+modules themselves. No module in the table appeared in `sys.modules` after either
+headless installer probe in `automation/bench_fidelity_selftest.py`. Those probes
+stop before the application loop. The game loader also accepts a script path and
+manual CLI use and imports from outside the repository remain possible.
+To reproduce the static scan from the repository root, run
+`python3 /data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/import_graph.py 6f74b9b`.
+
+| Module | Source and history | Decision |
+|---|---|---|
+| `ai/ranker_v5_extension.py` | The installer is exported through `__all__`. Its bootstrap call was removed in `41bb312`, which explicitly retained the implementation for rollback. | Keep the public installer. |
+| `ai/training_data.py` | `9ccef61` removed the in-tree call to `save_training_example`. The public helper writes session JSON. | Keep the callable for scripts. |
+| `offline/replay_context.py` | `ReplayScannerContext` constructs `ReplayFrame` and `ReplayAudioEvent`. All three names occur only in this module in tracked Python source. The file is listed with a hash in `PACKAGE_V2_12_MANIFEST.txt`. | Keep the packaged module. |
+| `output/led_test.py` | `__main__` calls `main()` and the script has its own argument parser. | Keep the standalone tool. |
+
+To check the call sites, run `git grep -nwE 'save_training_example|install_ranker_v5_extension|ReplayScannerContext|ReplayFrame|ReplayAudioEvent' 6f74b9b -- '*.py'`. The installer probe uses `main.py`'s v241 → v243 → v244 install order. V243 restores v241's saved extractor, and v244 reads v243's saved ROI function. The v241/v243 installers and the v2221 replacement for `HitScanner._resolve_audio_events` participate in that sequence. V25 has three disabled feature switches in the checked-in config, but its top-level `enabled` is true and its wrapper writes telemetry. `object_physical_query.py` directly imports `_regions_in_work_space` from the demo extension.
+
+Within `src`, the 30 definitions of `_safe_float` have 10 distinct argument/body AST combinations and the 11 definitions of `_runtime_settings` have three. For example, the result repository permits a `None` default for invalid floats while ranker V4 returns a numeric default. Name counts do not establish an unused definition. All live wrappers and helper definitions remain in place.
+
+The deletion is confined to `automation/temporal_impact_research.py`. Commit `fb44e37` retained the old single-coordinate branch after an unconditional `continue` in the same loop. Removing the unreachable tail and the now-redundant final `continue` leaves all 553 decoded instructions of `run` equal on CPython 3.10. The comparison also covers instructions of nested code objects loaded by `run`. Reproduce from the repository root after applying this change:
+
+```sh
+python3 - <<'PY'
+import dis, subprocess, types
+from pathlib import Path
+
+path = Path("automation/temporal_impact_research.py")
+old = subprocess.check_output(["git", "show", f"6f74b9b:{path}"], text=True)
+
+def instructions(code):
+    return [(i.opname, instructions(i.argval) if isinstance(i.argval, types.CodeType)
+             else i.argval) for i in dis.get_instructions(code)]
+
+def run_code(text):
+    module = compile(text, str(path), "exec")
+    return next(c for c in module.co_consts if isinstance(c, types.CodeType)
+                and c.co_name == "run")
+
+before, after = (instructions(run_code(s)) for s in (old, path.read_text()))
+assert before == after
+print(len(after))
+PY
+```
