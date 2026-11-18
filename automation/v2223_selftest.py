@@ -5,9 +5,13 @@ from pathlib import Path
 import tempfile
 import time
 from unittest.mock import patch
+from types import SimpleNamespace
+
+import numpy as np
 
 from src.engine.input.object_hit_v2223 import ObjectHitRegistryV2223, viewport_center_prior
-from src.engine.shot_critical_v2223 import ShotCriticalControllerV2223, select_recent_pre_frame_v2223
+from src.engine.camera.hit_scanner import HitScanner, camera_manager
+from src.engine.shot_critical_v2223 import ShotCriticalControllerV2223, select_recent_pre_frame_v2223, _install_recent_pre_snapshot
 
 
 @dataclass
@@ -31,6 +35,21 @@ def main() -> None:
     best = select_recent_pre_frame_v2223(ring, peak, target_offset_s=0.35, latest_safe_offset_s=0.08)
     check("recent PRE selects a safe timestamped frame before the shot", best is not None and abs(best.timestamp - 99.64) < 1e-6)
     check("recent PRE never leaks a post/too-late frame", best.timestamp <= peak - 0.08)
+
+    _install_recent_pre_snapshot()
+    scanner = HitScanner()
+    frame = SimpleNamespace(timestamp=99.64, frame_bgr=np.full((4, 4, 3), 120, dtype=np.uint8))
+    with patch.object(camera_manager, "get_ring_snapshot", return_value=[frame]):
+        scanner._capture_pre_shot_snapshot(peak)
+    check("installed PRE snapshot records camera receive-time provenance",
+          scanner._pre_shot_snapshot_source == "camera_ring"
+          and scanner._pre_shot_snapshot_timestamp_semantics == "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE")
+    scanner.scene_reference_gray = np.zeros((4, 4), dtype=np.uint8)
+    with patch.object(camera_manager, "get_ring_snapshot", return_value=[]):
+        scanner._capture_pre_shot_snapshot(peak)
+    check("scene-reference PRE timestamp remains explicitly synthetic",
+          scanner._pre_shot_snapshot_source == "scene_reference"
+          and scanner._pre_shot_snapshot_timestamp_semantics == "SYNTHETIC_RELATIVE_VALUE_NOT_FRAME_TIME")
 
     centre, edge = viewport_center_prior(500, 500, (0, 0, 1000, 1000))
     outer_centre, outer_edge = viewport_center_prior(990, 500, (0, 0, 1000, 1000))

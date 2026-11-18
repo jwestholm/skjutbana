@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -36,6 +37,9 @@ class AudioShotEvent:
     confidence: float = 0.0
     note: str = ""
     audio_trigger: dict = field(default_factory=dict)
+    lifecycle_state: str = "PENDING"
+    created_monotonic: float = 0.0
+    decision_deadline_monotonic: float = 0.0
 
 
 @dataclass
@@ -63,6 +67,20 @@ class HoleEntry:
     first_seen_ts: float
     last_seen_ts: float
     hit_count: int = 1
+
+
+def select_pre_background_frame_v1(ring, peak_ts: float, *, target_offset_s: float = 0.50,
+                                   latest_safe_offset_s: float = 0.20):
+    """Choose a receive-timestamped frame before a conservative PRE cutoff.
+
+    CameraFrame.timestamp is application receive time, not exposure time. This
+    prevents an obvious future-frame leak in the fallback reference path; it
+    does not certify exposure-time causality.
+    """
+    cutoff = float(peak_ts) - max(0.0, float(latest_safe_offset_s))
+    target = float(peak_ts) - max(0.0, float(target_offset_s))
+    eligible = [cf for cf in ring if float(getattr(cf, "timestamp", float("inf"))) <= cutoff]
+    return min(eligible, key=lambda cf: abs(float(cf.timestamp) - target)) if eligible else None
 
 
 class HitScanner:
@@ -150,6 +168,8 @@ class HitScanner:
         # are added to frame_history. This is the authoritative pre-shot.
         self.pre_shot_snapshot: np.ndarray | None = None
         self.pre_shot_snapshot_ts: float = 0.0
+        self._pre_shot_snapshot_source = "UNAVAILABLE"
+        self._pre_shot_snapshot_timestamp_semantics = "UNAVAILABLE"
 
         self.last_status = "off"
         self.debug_frames: dict[str, np.ndarray] = {}
@@ -200,6 +220,10 @@ class HitScanner:
             audio_peak_detector.unsubscribe(self._on_audio_peak)
             self._audio_subscribed = False
         self.frame_history.clear()
+        for event in self.audio_events:
+            if event.state == "pending":
+                event.lifecycle_state = "CANCELLED"
+                event.note = "scanner_disabled"
         self.audio_events.clear()
         self._active_tracks.clear()
         self.reference_capture_buffer.clear()
@@ -265,7 +289,23 @@ class HitScanner:
             # No new frames this cycle
             frame_bgr = camera_manager.get_latest_frame()
             if frame_bgr is None:
-                self.last_status = "no_camera_frame"
+                # Research-only policy: permit the existing resolver to advance
+                # from already observed tracks during camera loss. It can emit a
+                # previously ready track, so this behavior remains opt-in.
+                if os.environ.get("SKJUTBANA_RESOLVE_WITHOUT_CAMERA") == "1":
+                    now = time.time()
+                    emitted_now = self._resolve_audio_events(now)
+                    self._prune_finished_events(now)
+                    self._prune_old_holes(now)
+                    self._refresh_debug_views()
+                else:
+                    emitted_now = 0
+                if (os.environ.get("SKJUTBANA_REPORT_NO_FRESH_PENDING_FRAME") == "1"
+                        and self._has_open_events()):
+                    self.last_status = "pending_shot_no_fresh_camera_frame"
+                else:
+                    self.last_status = (f"no_camera_frame emit={emitted_now}"
+                                        if emitted_now else "no_camera_frame")
                 return
             frame_ts = camera_manager.get_latest_timestamp() or time.time()
             is_new_frame = self._last_frame_ts is None or abs(frame_ts - self._last_frame_ts) > 1e-6
@@ -307,6 +347,12 @@ class HitScanner:
             f"active peaks={self.audio_event_count} events={len(self.audio_events)} "
             f"tracks={len(self._active_tracks)} holes={len(self.known_holes)} emit={emitted_now}"
         )
+        # Diagnostic-only opt-in: an active loop can otherwise look healthy
+        # while a pending shot has received no new camera observation this
+        # cycle. Do not change timeout or hit/miss semantics here.
+        if (os.environ.get("SKJUTBANA_REPORT_NO_FRESH_PENDING_FRAME") == "1"
+                and not is_new_frame and self._has_open_events()):
+            self.last_status = "pending_shot_no_fresh_camera_frame"
 
     # ------------------------------------------------------------------
     # Debug/status
@@ -375,7 +421,11 @@ class HitScanner:
         # CRITICAL: Capture pre-shot frame RIGHT NOW, before hit_scanner.update()
         # adds new frames to frame_history. At this point, frame_history only
         # contains frames from PREVIOUS update cycles — guaranteed before the hole.
+        callback_started = time.monotonic()
+        if isinstance(getattr(ev, "acquisition", None), dict):
+            ev.acquisition["shot_id_assigned_monotonic"] = callback_started
         self._capture_pre_shot_snapshot(ev.timestamp)
+        pre_selected = time.monotonic()
 
         self._diag_shot_id += 1
         self._diag_frame_count = 0
@@ -383,15 +433,27 @@ class HitScanner:
             print(f"\n[SHOT-DIAG #{self._diag_shot_id}] === Audio peak detected === "
                   f"peak={ev.peak:.3f} ts={ev.timestamp:.3f} "
                   f"known_holes={len(self.known_holes)} tracks={len(self._active_tracks)}")
-        self.audio_events.append(
-            AudioShotEvent(
+        wall_now = time.time()
+        mono_now = time.monotonic()
+        remaining_s = max(0.0, self.event_timeout_s - max(0.0, wall_now - float(ev.timestamp)))
+        created_event = AudioShotEvent(
                 shot_id=self._next_shot_id,
                 peak_ts=ev.timestamp,
-                created_at=time.time(),
+                created_at=wall_now,
+                created_monotonic=mono_now,
+                decision_deadline_monotonic=mono_now + remaining_s,
                 audio_trigger={"timestamp": float(ev.timestamp), "peak": float(ev.peak), "rms": float(ev.rms),
-                               "diagnostics": dict(getattr(ev, "diagnostics", {}))},
+                               "diagnostics": dict(getattr(ev, "diagnostics", {})),
+                               "pre_source": self._pre_shot_snapshot_source,
+                               "pre_timestamp": (self.pre_shot_snapshot_ts
+                                   if self._pre_shot_snapshot_source == "camera_ring" else None),
+                               "pre_timestamp_semantics": self._pre_shot_snapshot_timestamp_semantics},
             )
-        )
+        if isinstance(getattr(ev, "acquisition", None), dict):
+            ev.acquisition["pre_source_selected_monotonic"] = pre_selected
+            ev.acquisition["shot_created_monotonic"] = mono_now
+            ev.acquisition["deadline_monotonic"] = created_event.decision_deadline_monotonic
+        self.audio_events.append(created_event)
         self._next_shot_id += 1
 
     def _capture_pre_shot_snapshot(self, peak_ts: float) -> None:
@@ -407,6 +469,8 @@ class HitScanner:
         if self.scene_reference_gray is not None:
             self.pre_shot_snapshot = self.scene_reference_gray.copy()
             self.pre_shot_snapshot_ts = peak_ts - 1.0
+            self._pre_shot_snapshot_source = "scene_reference"
+            self._pre_shot_snapshot_timestamp_semantics = "SYNTHETIC_RELATIVE_VALUE_NOT_FRAME_TIME"
             print("[PRE-SHOT] Using scene_reference (reliable)")
             return
 
@@ -415,6 +479,8 @@ class HitScanner:
         if not ring:
             self.pre_shot_snapshot = None
             self.pre_shot_snapshot_ts = 0.0
+            self._pre_shot_snapshot_source = "UNAVAILABLE"
+            self._pre_shot_snapshot_timestamp_semantics = "UNAVAILABLE"
             return
 
         target_ts = peak_ts - 0.50
@@ -431,6 +497,8 @@ class HitScanner:
 
         self.pre_shot_snapshot = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
         self.pre_shot_snapshot_ts = best.timestamp
+        self._pre_shot_snapshot_source = "camera_ring"
+        self._pre_shot_snapshot_timestamp_semantics = "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"
         print(f"[PRE-SHOT] ring fallback, age={(time.time() - best.timestamp) * 1000:.0f}ms")
 
     def _has_open_events(self) -> bool:
@@ -442,6 +510,8 @@ class HitScanner:
             if event.state != "pending":
                 continue
 
+            if "SKJUTBANA_BEST_READY_TOPK" in os.environ:
+                self._wsf_resolve_now_ts = float(now_ts)   # H8b readiness clock
             track = self._best_track_for_event(event)
             if track is not None:
                 event.matched_track_id = track.track_id
@@ -464,6 +534,7 @@ class HitScanner:
 
             if now_ts - event.peak_ts >= self.event_timeout_s:
                 event.state = "missed"
+                event.lifecycle_state = "EXPIRED"
                 event.note = "timeout"
                 # Always log miss (compact)
                 n_tracks = len(self._active_tracks)
@@ -485,6 +556,9 @@ class HitScanner:
         self.audio_events = deque(keep, maxlen=self.audio_events.maxlen)
 
     def _best_track_for_event(self, event: AudioShotEvent) -> HoleTrack | None:
+        from src.engine import winner_selection_flags as wsf
+        if wsf.active_flags():
+            return self._best_track_for_event_flagged(event)
         best: HoleTrack | None = None
         best_metric: tuple[float, float] | None = None
         for track in self._active_tracks.values():
@@ -504,6 +578,93 @@ class HitScanner:
         record_selection(self, event, best)
         return best
 
+    def _best_track_for_event_flagged(self, event: AudioShotEvent) -> HoleTrack | None:
+        """Opt-in H6/H7a/H7b/H8a/H8b selector (src/engine/winner_selection_flags.py).
+
+        Eligibility (producer shot, association window, emitted) is identical
+        to the default selector and is applied before any ranking.
+        """
+        from src.engine import winner_selection_flags as wsf
+        eligible: list[tuple[HoleTrack, float]] = []
+        for track in self._active_tracks.values():
+            producer_sid = (getattr(track, "last_candidate", {}) or {}).get("v2224_producer_shot_id")
+            if producer_sid is not None and int(producer_sid) != int(event.shot_id):
+                continue
+            onset_dt = track.first_seen_ts - event.peak_ts
+            if onset_dt < -self.association_lead_s or onset_dt > self.association_lag_s:
+                continue
+            if track.emitted and event.matched_track_id != track.track_id:
+                continue
+            eligible.append((track, float(onset_dt)))
+
+        # min() keeps the first of equal keys, matching the default loop.
+        def default_key(item):
+            return (abs(item[1]), -item[0].best_score)
+
+        evidence = wsf.evidence_over_timing()
+
+        def key(item):
+            track, onset = item
+            rank = wsf.track_rank_value(track)
+            if evidence:   # H8a
+                return (-rank, -int(track.hits), float(track.first_seen_ts), int(track.track_id))
+            return (abs(onset), -rank)   # H6/H7a/H7b: rank as the tie-break part
+
+        baseline = min(eligible, key=default_key)[0] if eligible else None
+        ranked_pool = eligible
+        slack = wsf.h11_onset_slack_s()
+        if slack is not None and eligible:
+            # H11: hole-likeness decides among tracks of the EARLIEST onset (same proposal
+            # frame +- slack); later-appearing tracks keep the default timing order.
+            earliest = min(abs(onset) for _t, onset in eligible)
+            ranked_pool = [item for item in eligible if abs(item[1]) <= earliest + slack]
+        h11_unmeasured = slack is not None and any(
+            getattr(t, "rank_value", None) is None for t, _o in ranked_pool)
+        if slack is not None:
+            # H11: measured tracks first (by hole-likeness), then UNMEASURED ones (sources
+            # without the measurement: v24 tile probe / legacy) in the default timing order.
+            # SKJUTBANA_H11_DIAG_RANK_BY_SCORE=1 (diagnostic arm): same split, measured ranked
+            # by best_score instead -> isolates the matched filter from the source split.
+            by_score = os.environ.get("SKJUTBANA_H11_DIAG_RANK_BY_SCORE") == "1"
+            measured = [it for it in ranked_pool if getattr(it[0], "rank_value", None) is not None]
+            unmeasured = [it for it in ranked_pool if getattr(it[0], "rank_value", None) is None]
+            mkey = default_key if by_score else key
+            ordered = sorted(measured, key=mkey) + sorted(unmeasured, key=default_key)
+        else:
+            ordered = sorted(ranked_pool, key=key)   # stable: equal keys keep loop order
+        best = ordered[0][0] if ordered else None
+        ranked_winner = best
+        k = wsf.best_ready_topk()
+        now_ts = getattr(self, "_wsf_resolve_now_ts", None)
+        if k and best is not None and now_ts is not None:   # H8b
+            for track, _onset in ordered[:k]:
+                if self._track_is_ready(track, float(now_ts), event):
+                    best = track
+                    break
+        changed_by = []
+        if ranked_winner is not baseline:
+            changed_by.append("H8a" if evidence else "rank")
+        if best is not ranked_winner:
+            changed_by.append("H8b")
+        diag = {
+            "flags": wsf.active_flags(),
+            "baseline_track_id": None if baseline is None else int(baseline.track_id),
+            "ranked_track_id": None if ranked_winner is None else int(ranked_winner.track_id),
+            "selected_track_id": None if best is None else int(best.track_id),
+            "changed_by": changed_by,
+            "h11_unmeasured_fallback": bool(h11_unmeasured),
+        }
+        try:
+            event.audio_trigger["winner_selection_flags"] = diag
+        except Exception:
+            pass
+        from src.engine.track_audit import record_selection
+        record_selection(self, event, best)
+        snapshot = (getattr(self, "_audit_selections", None) or {}).get(event.shot_id)
+        if isinstance(snapshot, dict):
+            snapshot["winner_selection_flags"] = diag
+        return best
+
     def _track_is_ready(self, track: HoleTrack, now_ts: float, event: AudioShotEvent) -> bool:
         age = track.last_seen_ts - track.first_seen_ts
         if track.hits >= self.track_confirm_frames and age >= self.track_confirm_span_s:
@@ -513,7 +674,35 @@ class HitScanner:
         return False
 
     def _emit_track_result(self, track: HoleTrack, event: AudioShotEvent) -> bool:
+        timing = event.audio_trigger.setdefault("timing", {})
+        timing["physical_decision_monotonic"] = time.monotonic()
+
+        def emit_camera_hit(x: float, y: float) -> None:
+            timing["hit_input_call_start_monotonic"] = time.monotonic()
+            if getattr(self, "physical_decision_trace_v1_enabled", False):
+                # Capture the event-owned arguments at the exact authority
+                # boundary. last_best_candidate is only a mutable debug view.
+                timing["physical_decision_trace_push_camera_xy"] = [float(x), float(y)]
+            try:
+                hit_input.push_camera_hit(x, y)
+            except Exception as exc:
+                if getattr(self, "physical_decision_trace_v1_enabled", False):
+                    timing["physical_decision_trace_push_call_state"] = "RAISED"
+                    timing["physical_decision_trace_push_exception_type"] = type(exc).__name__
+                raise
+            else:
+                if getattr(self, "physical_decision_trace_v1_enabled", False):
+                    timing["physical_decision_trace_push_call_state"] = "RETURNED"
+            finally:
+                timing["hit_input_call_return_monotonic"] = time.monotonic()
+
         near = self._is_near_known_hole(track.camera_x, track.camera_y)
+        if near is not None:
+            from src.engine.winner_selection_flags import suppress_old_hole_snap
+            if suppress_old_hole_snap(track, near[1]):   # H9a (opt-in)
+                timing["winner_selection_no_old_hole_snap"] = {
+                    "hole_id": int(near[0].get("hole_id", 0)), "dist_px": float(near[1])}
+                near = None
         if near is not None:
             hole, dist = near
             required = float(hole.get("score", 0.0)) + self.rehit_gain_required
@@ -521,8 +710,15 @@ class HitScanner:
                 hole["hit_count"] = float(hole.get("hit_count", 1.0) + 1.0)
                 hole["timestamp"] = time.time()
                 hole["last_score"] = float(track.best_score)
-                hit_input.push_camera_hit(hole["camera_x"], hole["camera_y"])
+                if getattr(self, "physical_decision_trace_v1_enabled", False):
+                    # Copy scalar provenance before mutable hole state can change.
+                    timing["physical_decision_trace_matched_hole"] = {
+                        "hole_id": int(hole.get("hole_id", 0)),
+                        "camera_xy": [float(hole["camera_x"]), float(hole["camera_y"])],
+                    }
+                emit_camera_hit(hole["camera_x"], hole["camera_y"])
                 event.state = "rehit"
+                event.lifecycle_state = "COMPLETED"
                 event.emitted = True
                 event.matched_hole_id = int(hole.get("hole_id", 0))
                 track.emitted = True
@@ -537,8 +733,9 @@ class HitScanner:
                 return True
 
         hole = self._remember_known_hole(track)
-        hit_input.push_camera_hit(track.camera_x, track.camera_y)
+        emit_camera_hit(track.camera_x, track.camera_y)
         event.state = "matched"
+        event.lifecycle_state = "COMPLETED"
         event.emitted = True
         event.matched_hole_id = int(hole.get("hole_id", 0))
         track.emitted = True
@@ -655,14 +852,7 @@ class HitScanner:
         # Ring buffer: find frame ~500ms before peak
         ring = camera_manager.get_ring_snapshot()
         if ring and len(ring) >= 5:
-            target_ts = earliest_peak_ts - 0.50
-            best = None
-            best_delta = float("inf")
-            for cf in ring:
-                delta = abs(cf.timestamp - target_ts)
-                if delta < best_delta:
-                    best_delta = delta
-                    best = cf
+            best = select_pre_background_frame_v1(ring, earliest_peak_ts)
             if best is not None:
                 return cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
 
@@ -956,12 +1146,12 @@ class HitScanner:
                 _hole, dist = near
                 # Hard penalty: candidates within duplicate_radius get score halved.
                 # Candidates just outside get a softer penalty.
-                if dist <= self.duplicate_radius_px * 0.5:
-                    candidate["score"] *= 0.15  # Very close to known hole — almost certainly old
-                elif dist <= self.duplicate_radius_px:
-                    candidate["score"] *= 0.4   # Near known hole — probably old
-                elif dist <= self.duplicate_radius_px * 1.5:
-                    candidate["score"] *= 0.7   # Somewhat near — mild penalty
+                # 0.15 very close (almost certainly old), 0.4 near, 0.7 somewhat
+                # near; H9b (SKJUTBANA_SOFT_KNOWN_HOLE_PENALTY, opt-in) softens.
+                from src.engine.winner_selection_flags import known_hole_factor
+                factor = known_hole_factor(float(dist), float(self.duplicate_radius_px))
+                if factor != 1.0:
+                    candidate["score"] *= factor
                 candidate["near_known_hole_dist"] = float(dist)
 
         candidates.sort(key=lambda c: c.get("score", 0.0), reverse=True)

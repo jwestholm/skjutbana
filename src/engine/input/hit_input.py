@@ -103,6 +103,11 @@ class HitInput:
             except Exception:
                 self.inverse = None
 
+        # Optional lens model (absent = plain homography). When present, the
+        # homography maps UNDISTORTED camera px; raw camera XY stays canonical.
+        from src.engine import lens_model
+        self.lens = lens_model.parse(self.calibration_data)
+
     def reload_calibration(self):
         self._load_calibration()
 
@@ -215,6 +220,10 @@ class HitInput:
         return screen_x, screen_y
 
     def _camera_to_screen_via_homography(self, camera_x: float, camera_y: float):
+        lens = getattr(self, "lens", None)
+        if lens is not None:
+            from src.engine import lens_model
+            return lens_model.camera_to_screen(lens, camera_x, camera_y)
         return self._transform(self.homography, camera_x, camera_y)
 
     def frozen_camera_to_screen(self, method: str):
@@ -225,7 +234,15 @@ class HitInput:
         """
         if method.startswith('homography') and self.homography is not None:
             matrix = self.homography.copy()
-            return lambda x, y: self._transform(matrix, x, y)
+            lens = ({k: (v.copy() if hasattr(v, "copy") else v) for k, v in self.lens.items()}
+                    if getattr(self, "lens", None) is not None else None)
+            if lens is None:
+                return lambda x, y: self._transform(matrix, x, y)
+            from src.engine import lens_model
+
+            def frozen(x, y):   # freeze the full lens-aware mapper, not only H
+                return lens_model.camera_to_screen(lens, x, y)
+            return frozen
         if method == 'scanport':
             scanport, viewport = load_scanport_rect(), load_viewport_rect()
             if scanport is not None and viewport is not None and scanport.w > 0 and scanport.h > 0:
@@ -248,7 +265,19 @@ class HitInput:
         return camera_x, camera_y
 
     def _screen_to_camera_via_homography(self, screen_x: float, screen_y: float):
+        lens = getattr(self, "lens", None)
+        if lens is not None:
+            from src.engine import lens_model
+            return lens_model.screen_to_camera(lens, screen_x, screen_y)
         return self._transform(self.inverse, screen_x, screen_y)
+
+    def camera_to_screen(self, camera_x: float, camera_y: float):
+        """Public canonical camera->screen mapping (lens model aware)."""
+        return self._canonical_camera_to_screen(camera_x, camera_y)
+
+    def screen_to_camera(self, screen_x: float, screen_y: float):
+        """Public canonical screen->camera mapping (lens model aware)."""
+        return self._canonical_screen_to_camera(screen_x, screen_y)
 
     def _canonical_camera_to_screen(self, camera_x: float, camera_y: float):
         if self._prefers_homography():

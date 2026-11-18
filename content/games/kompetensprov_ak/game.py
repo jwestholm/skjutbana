@@ -112,6 +112,13 @@ class CommandState:
 
 
 class KompetensprovAKGame:
+    # Engine precision level (ROADMAP.md): zone scoring; one precision flash at
+    # ceasefire measures the whole series (src/engine/precision_flash.py). Hits are
+    # still delivered live; the series measurement is recorded alongside (scoring
+    # unchanged until it is validated physically).
+    hit_precision = "ZONE"
+    hit_aggregation = "series"
+
     def __init__(self, game_root: str, viewport: pygame.Rect) -> None:
         self.game_root = Path(game_root)
         self.viewport = viewport.copy()
@@ -132,6 +139,7 @@ class KompetensprovAKGame:
         self._subscribed = False
         self._show_zone_overlay = True
         self.target_offset_cm = 0.0
+        self.series_measurement = None
 
         # Post-fire human verification is deliberately separate from automatic
         # physical-hit output. It is allowed to drive the displayed verified
@@ -393,12 +401,25 @@ class KompetensprovAKGame:
         self._play("eld")
         print("[KOMPETENSPROV] ELD t=0.000")
 
+    def on_precision_series(self, result: dict) -> None:
+        """Engine callback: holes measured by the ceasefire flash (camera XY)."""
+        self.series_measurement = dict(valid=bool(result.get("valid")), shots=len(result.get("peaks") or []),
+                                       holes=[dict(camera_x=h["camera_x"], camera_y=h["camera_y"],
+                                                   strength=h.get("peak")) for h in result.get("holes") or []])
+        print(f"[KOMPETENSPROV] series measurement valid={self.series_measurement['valid']} "
+              f"holes={len(self.series_measurement['holes'])} shots={self.series_measurement['shots']}")
+
     def _begin_ceasefire(self) -> None:
         if self.state != "firing":
             return
         now = time.monotonic()
         self.state = "ceasefire"
         self.ceasefire_started = now
+        try:
+            from src.engine import precision_flash
+            precision_flash.flush_series()
+        except Exception as exc:
+            print(f"[KOMPETENSPROV] series flash unavailable: {exc}")
         self._play("upphor")
         self._capture_review_snapshot()
         result = evaluate_result(self.shots, self.profile)
@@ -809,6 +830,7 @@ class KompetensprovAKGame:
                 "automatic_result": asdict(auto_result),
                 "manual_verified_hits": [asdict(m) for m in self.manual_marks],
                 "manual_result": None if manual_result is None else asdict(manual_result),
+                "precision_series_measurement": self.series_measurement,
             }
             root = REVIEW_DATA_ROOT
             try:

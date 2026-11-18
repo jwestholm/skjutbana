@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import os
 import subprocess
 import threading
 import time
@@ -69,6 +70,15 @@ class AudioPeakDetector:
         self.peak_ratio = 3.2
         self.crest_factor_required = 1.7
         self.cooldown_s = 0.08
+        # Hypothesis (default off): CO2 shots give a second peak 66-94 ms after the
+        # muzzle peak (impact/echo, physical AR15 round 2026-11-18) which 0.08 s lets
+        # through as a phantom shot.  SKJUTBANA_AUDIO_COOLDOWN_S overrides the cooldown.
+        try:
+            _cd = os.environ.get('SKJUTBANA_AUDIO_COOLDOWN_S')
+            if _cd:
+                self.cooldown_s = max(0.02, min(0.5, float(_cd)))
+        except ValueError:
+            pass
 
         self._events: deque[AudioPeakEvent] = deque(maxlen=200)
         self._pending_dispatch: deque[AudioPeakEvent] = deque()
@@ -96,6 +106,19 @@ class AudioPeakDetector:
             return [(dict(meta), pcm) for meta, pcm in self._pcm_blocks
                     if meta['sequence'] > sequence]
 
+    def acquisition_metadata_window(self, first_sequence: int, last_sequence: int,
+                                    *, limit: int = 129) -> list[dict]:
+        """Copy bounded block metadata only; never copies or exposes PCM samples."""
+        first, last = int(first_sequence), int(last_sequence)
+        maximum = max(0, min(161, int(limit)))
+        if maximum == 0 or last < first:
+            return []
+        with self._lock:
+            selected = [meta for meta, _pcm in self._pcm_blocks
+                        if first <= int(meta.get('sequence', -1)) <= last]
+            selected = selected[-maximum:]
+            return [dict(meta) for meta in selected]
+
     def _read_pcm_block(self, stream) -> tuple[bytes, dict]:
         # A pipe may return fewer bytes than requested. Preserve partial samples
         # across reads instead of silently discarding PCM and losing chronology.
@@ -114,6 +137,25 @@ class AudioPeakDetector:
             read_complete_monotonic=received, receive_wall_ts=time.time(),
             read_calls=reads, complete_block=len(parts)==needed)
 
+    def _source_recorder(self):
+        """Opt-in continuous PCM recording (SKJUTBANA_SOURCE_RECORD=1)."""
+        cached = getattr(self, "_source_recorder_cache", False)
+        if cached is not False:
+            return cached
+        recorder = None
+        try:
+            from src.engine.source_recording import get_source_recorder
+            recorder = get_source_recorder()
+            if recorder is not None and not recorder.start(dict(audio=dict(
+                    backend=self.backend_name, sample_rate=self.sample_rate, channels=self.channels,
+                    chunk_samples=self.chunk_samples))):
+                recorder = None
+        except Exception as exc:
+            print(f"[SOURCE-RECORD] audio hook unavailable: {type(exc).__name__}: {exc}")
+            recorder = None
+        self._source_recorder_cache = recorder
+        return recorder
+
     def _deliver_pcm_block(self, chunk: bytes, receipt: dict) -> None:
         n = len(chunk)//(2*self.channels)
         end = receipt['read_complete_monotonic']
@@ -131,6 +173,9 @@ class AudioPeakDetector:
         self._sample_index += n
         with self._lock:
             self._pcm_blocks.append((meta, chunk))
+        recorder = self._source_recorder()
+        if recorder is not None:
+            recorder.record_audio(chunk, meta)
         self._current_acquisition = meta
         try:
             self._process_chunk(chunk)
@@ -153,6 +198,29 @@ class AudioPeakDetector:
                 -(len(samples)-1-offset)/self.sample_rate,
             detection_monotonic=time.monotonic())
         return meta
+
+    def inject_synthetic_event(self, timestamp: float, peak: float | None = None) -> AudioPeakEvent | None:
+        """Queue a synthetic shot exactly like a detected one (test tools only).
+
+        Same queue, cooldown rule and main-thread dispatch (update()) as a real
+        peak, so everything downstream (shot-critical controller, HitScanner,
+        precision flash) sees an ordinary audio event.  Only the microphone DSP
+        is skipped.  Returns None when the cooldown rejects it, like a real peak.
+        """
+        ts = float(timestamp)
+        if ts - self.last_peak_ts < self.cooldown_s:
+            return None
+        amplitude = float(peak) if peak is not None else max(1.0, float(self.min_abs_peak) * 1.5)
+        ev = AudioPeakEvent(timestamp=ts, peak=amplitude, rms=0.0)
+        # No microphone acquisition exists; None is what downstream code already
+        # handles (it only reads acquisition fields when present).
+        ev.acquisition = None
+        ev.diagnostics = {'synthetic': True, 'source': 'inject_synthetic_event'}
+        with self._lock:
+            self.last_peak_ts = ts
+            self._events.append(ev)
+            self._pending_dispatch.append(ev)
+        return ev
 
     def pending_events_snapshot(self) -> tuple[AudioPeakEvent, ...]:
         with self._lock:
@@ -265,16 +333,36 @@ class AudioPeakDetector:
             self._pending_dispatch.clear()
             subscribers = list(self._subscribers)
 
-        for ev in pending_events:
+        batch_size = len(pending_events)
+        for batch_index, ev in enumerate(pending_events):
             if ev.acquisition is not None:
-                ev.acquisition['dispatch_monotonic'] = time.monotonic()
+                dispatch_started = time.monotonic()
+                ev.acquisition['dispatch_monotonic'] = dispatch_started
+                enqueued = ev.acquisition.get('event_enqueued_monotonic')
+                ev.acquisition['dispatch_queue_age_ms'] = (
+                    max(0.0, (dispatch_started - float(enqueued)) * 1000.0)
+                    if enqueued is not None else None
+                )
+                ev.acquisition['dispatch_batch_size'] = batch_size
+                ev.acquisition['dispatch_batch_index'] = batch_index
             self._annotate_engine_playback(ev)
             for callback in subscribers:
+                callback_started = time.monotonic()
+                if ev.acquisition is not None:
+                    # First subscriber's start survives so the duration spans all subscribers.
+                    ev.acquisition.setdefault('callback_start_monotonic', callback_started)
                 try:
                     callback(ev)
                 except Exception:
                     # Låt aldrig en trasig subscriber stoppa resten av systemet.
                     pass
+                finally:
+                    if ev.acquisition is not None:
+                        callback_finished = time.monotonic()
+                        ev.acquisition['callback_end_monotonic'] = callback_finished
+                        ev.acquisition['callback_duration_ms'] = max(
+                            0.0, (callback_finished - float(ev.acquisition['callback_start_monotonic'])) * 1000.0
+                        )
 
     def subscribe(self, callback: Callable[[AudioPeakEvent], None]) -> None:
         with self._lock:
@@ -345,6 +433,21 @@ class AudioPeakDetector:
 
     def _thread_main(self) -> None:
         backends = [
+            # parec delivers PCM continuously (~16 ms blocks). The ffmpeg pulse
+            # path below was measured to deliver audio in ~1.5 s bursts, which
+            # made processing-time peak timestamps 0.35-1.8 s late, so PRE
+            # frames already contained the new hole.
+            (
+                "parec",
+                [
+                    "parec",
+                    "--raw",
+                    "--format=s16le",
+                    f"--rate={self.sample_rate}",
+                    f"--channels={self.channels}",
+                    "--latency-msec=10",
+                ],
+            ),
             (
                 "pulse",
                 [
@@ -480,19 +583,31 @@ class AudioPeakDetector:
         with self._lock:
             self._sample_history.extend(float(x) for x in data.tolist())
 
+        # Receipt anchoring is research-only until a comparable timing study
+        # validates its use. Keep the legacy processing-time default for direct
+        # base-method consumers, matching the installed V2.22.6 override.
         now = time.time()
+        event_anchor = now
+        if (os.environ.get('SKJUTBANA_AUDIO_RECEIPT_ANCHOR') == '1'
+                and self._current_acquisition is not None):
+            try:
+                receipt_wall = float(self._current_acquisition.get('receive_wall_ts'))
+                if np.isfinite(receipt_wall):
+                    event_anchor = receipt_wall
+            except (TypeError, ValueError):
+                pass
         trigger_threshold = max(self.min_abs_peak, self.noise_floor * self.peak_ratio)
         crest_ok = peak >= max(self.min_abs_peak, rms * self.crest_factor_required)
         is_peak = (
             peak >= trigger_threshold
             and crest_ok
-            and (now - self.last_peak_ts) >= self.cooldown_s
+            and (event_anchor - self.last_peak_ts) >= self.cooldown_s
         )
 
         if is_peak:
             event_ts = self._estimate_event_timestamp(
                 samples=data,
-                chunk_end_ts=now,
+                chunk_end_ts=event_anchor,
                 trigger_threshold=max(self.min_abs_peak, trigger_threshold * 0.85),
             )
             self.last_peak_ts = event_ts
@@ -500,6 +615,9 @@ class AudioPeakDetector:
             ev.acquisition = self._peak_acquisition(data, max(self.min_abs_peak, trigger_threshold * 0.85))
             ev.diagnostics = {'acquisition': ev.acquisition}
             with self._lock:
+                if ev.acquisition is not None:
+                    ev.acquisition['event_enqueued_monotonic'] = time.monotonic()
+                    ev.acquisition['pending_depth_at_enqueue'] = len(self._pending_dispatch) + 1
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)
 

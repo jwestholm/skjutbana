@@ -127,6 +127,8 @@ def apply_novelty_cleanup_v2222(
                 factor = 0.55
         if factor < 0.999:
             item["score"] = _finite(item.get("score", 0.0)) * factor
+            if "v26_rank_excess" in item:   # H6 (opt-in) ranking field, same factor
+                item["v26_rank_excess"] = _finite(item.get("v26_rank_excess", 0.0)) * factor
             item["v2222_novelty_factor"] = float(factor)
             demoted += 1
         else:

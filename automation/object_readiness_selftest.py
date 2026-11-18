@@ -168,9 +168,9 @@ class Sequences(unittest.TestCase):
         self.assertEqual(snap.object_gameplay['duplicate_object_callbacks'],1)
         self.sounds['rubber_duck'].play.assert_called_once()
 
-    def test_miss_near_exact_shape_consumes_without_sound(self):
+    def test_unconfirmed_miss_near_exact_shape_abstains_without_sound(self):
         obj=self.target('soda_can');b=self.shoot(xy=(obj.geometry.x-8,obj.geometry.y-8))
-        self.assertEqual(b.object_query.result['status'],'PHYSICAL_HIT')
+        self.assertEqual(b.object_query.result['status'],'UNCERTAIN')
         self.assertEqual((self.game.shots_used[1],self.game.hits[1]),(1,0))
         self.assertTrue(all(s.play.call_count==0 for s in self.sounds.values()))
 
@@ -211,6 +211,10 @@ class Sequences(unittest.TestCase):
         q.observe(fixture.frame(post,self.now+.033),delivered_ts=self.now+.04)
         r=q.observe(fixture.frame(post,self.now+.066),delivered_ts=self.now+.07)
         self.assertGreaterEqual(len(r['hypotheses']),2)
+        self.assertFalse(r['final'])
+        self.assertNotIn('object_decision',r)
+        r=q.finish_deadline(self.now+.20)
+        self.assertTrue(r['final'])
         self.game._on_object_event(dict(event='physical.object_result',data=r))
         self.assertEqual(r['object_decision']['state'],'UNKNOWN')
         self.assertEqual(self.game.hits[1],0)

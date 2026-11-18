@@ -1,0 +1,293 @@
+# Audit findings — 2026-11-18 (autonomous review session)
+
+Status legend: **FIXED** (changed + tested), **OPEN** (needs decision/work),
+**INFO** (documented, no action). All detector changes are default-off; nothing is committed.
+
+## 1. Winner selection hypotheses H6–H9 (measured, default off)
+
+Offline evidence: synthetic real-hole stamps at CO2 scale, pilot flags as base, 3 backgrounds,
+4 seeds, scenarios single/double/string3/echo/false_audio (48 cases), paired compare
+(`/data/skjutbana/evaluation_runs/winner_selection_ab_20261118`), plus replay of three recorded
+optical sessions (89 shots, `/data/skjutbana/evaluation_runs/winner_selection_replay_ab_20261118`).
+
+| Flag | Synthetic | Replay | Verdict |
+|---|---|---|---|
+| base | 41/48, impacts 28/28, false 7 | 28/89 | — |
+| H8a evidence over timing | identical | identical | no effect |
+| H8b best ready top-k | identical | identical | no effect |
+| H6 uncapped rank | identical | identical | no effect |
+| H7a hole shape prior | identical | 28/89 (+4/−4) | mixed |
+| H7b signed darkening | identical | 27/89 (−1) | slightly worse |
+| H9a no old-hole snap | identical | identical | no effect |
+| H9b soft known-hole penalty | 39/48 (+1 false) | 27/89 (−1) | rejected |
+
+**Why (funnel on exported candidates):** the wrong outputs are not decided at the final track
+selection. Realistic CO2-contrast projected holes: the true hole is **not among the candidates in
+38/41** shots (recall). Photo background: missing 9/24, rank 1 7/24, rank >5 8/24 (ranking).
+Moving: rank 1 13/24, rank 2–5 3, >5 4, missing 4. In synthetic stamps every impact is already
+correct; the remaining synthetic failures are **false emissions on echo/false-audio** (7/48).
+
+Next: (a) recall for small faint holes in candidate generation, (b) hole-likeness ranking on
+textured backgrounds, (c) IMPACT/no-hole rejection for echoes/claps.
+
+## 2. Long-failing selftests — FIXED (tests were stale, code correct)
+
+- `automation/object_hit_selftest.py`: since b59caa4 OBJECT_HIT waits for later causal frames when
+  zero or several objects are supported (`_await_object_disambiguation`,
+  `object_disambiguation_selftest` asserts this). The fixture fed frames only to peak+0.065 s.
+  Fix: feed one more frame at the 0.20 s deadline in `damage()`.
+- `automation/v2231_selftest.py`: V2.23.2 (2a0f6d0) added fresh-domain requirements to
+  `research_promotion_gate`; the old `good` fixture lacked them (`v2232_selftest` asserts that).
+  Fix: fixture mirrors v2232 (baseline eligible_ranked_shots + domain metrics).
+- `automation/object_physical_query_selftest.py`: made independent of the local calibration's
+  lens model (`h.lens=None`).
+
+
+## 3. Recall: the true hole is usually never proposed — mostly a TIMING problem (OPEN, experiment H10 running)
+
+Measured from camera.bin of the AI-test recording (in-game, realistic CO2-contrast projected holes):
+- the first global FAST proposal frame is 0.11–0.21 s after the shot (median ~0.136 s);
+- the hole first becomes visible 0.17–0.33 s after the shot in that rig (render + projector latency);
+- later frames only LOCALLY CONFIRM the first frame's proposals (`shot_fast_v2225.py` ~1083–1151);
+- the FULL rescue extraction runs only when there are zero proposals or none confirm, which never
+  happens (130–200 noise proposals per shot).
+So the hole (8–42 grey darkening on bright backgrounds, the strongest change in the ROI) is
+never proposed. ~15/41 shots had no recoverable signal at all (dark backgrounds: a projector
+cannot darken dark content — rig artefact, not a CO2 property). Real holes can also appear late
+(impact ~30 ms after audio + exposure + ~66 ms receive latency), so this is a real design risk.
+Git history: no detector/matched filter was ever removed; `rescue_blob` (built for tiny plateaus)
+runs only in FULL rescue since 0898b5e (v2.22.5).
+Experiment: H10 `SKJUTBANA_LATE_REPROPOSE_S` = one extra global extraction on a frame ≥ peak+X,
+evaluated alone and with H8a (the selector ranks onset time before score).
+
+Projected contrast sweep (gray / photo, `--hole-factor-range 0.5,0.95`, 30 shots each,
+`/data/skjutbana/evaluation_runs/recall_contrast_20261118`): on gray, holes with ≥30 % projected
+darkening are emitted ~70 %, 20–30 % about half, <20 % almost never; on the photo the hit rate
+stays low even for strong holes (ranking/texture). Small samples.
+
+### 3b. Results (2026-11-18 afternoon)
+- **H10 late global re-proposal** (`SKJUTBANA_LATE_REPROPOSE_S` 0.22 / 0.32, alone and with H8a):
+  replay 46→47/149 (5 sessions), synthetic identical (41/48, no new false emissions). Essentially no
+  effect: a wrong track from the early proposals is usually already READY and emitted (~0.33–0.37 s)
+  before the late candidates can win. Kept default off ("no effect").
+- **Waiting longer before the first global proposal works** (`SKJUTBANA_MIN_POST_AGE_S`):
+
+  | MIN_POST_AGE_S | AI-test session (41) | gray contrast session (30) |
+  |---|---|---|
+  | 0.11 (pilot) | 6 correct, 34 wrong | 15 correct, 14 wrong |
+  | 0.20 | 10 correct, 26 wrong | 15 correct, 13 wrong |
+  | 0.30 | 14 correct, 21 wrong | 18 correct, 6 wrong |
+
+  The 0.11 s pilot value was tuned on the 2026-11-17 optical session (onset 0.12–0.156 s). Physical
+  onset = impact (~15–25 ms after the audio peak for CO2: the muzzle blast reaches the board mic
+  before the slower pellet) + exposure + ~66 ms receive latency, i.e. roughly 0.10–0.15 s, so
+  0.11 s is borderline. **Tonight's recordings decide the value**: record once, replay with 0.11 /
+  0.20 / 0.30 offline. Latency cost of 0.2–0.3 s stays inside the ~1 s budget.
+- **Test-tool artefact fixed:** the AI-test F2 progress text ("Headless: i/N") was drawn on the board
+  and changed between rounds; 5/30 wrong emissions in the AI-test replay sat exactly on it. The
+  counter now goes to stdout.
+
+### 3c. AI-test rig timing fixed (test tool only)
+The in-game AI test stamped the synthetic audio event BEFORE the hole was drawn; with reveal delay,
+frame and projector latency the hole appeared 0.17–0.33 s after the peak (physical: ~0.10–0.15 s).
+Now synthetic events are stamped `now + synthetic_audio_align_s` (runtime setting, default 0.06 s),
+used consistently for ground truth and `synthetic_audio.jsonl`. Limitation (Codex): only for the test
+tool; a real shot inside the same 60 ms window during a test run could be reordered; results from
+the rig are optical/projected evidence, not physical accuracy.
+
+New F2 recording with the fix (36 rounds, 55 holes, CO2-calibrated projected stamps,
+`/data/skjutbana/source_sessions/20261118T123405Z_76d489ed`), offline replay with funnel
+(`/data/skjutbana/evaluation_runs/aitest_timing_fix_20261118`): MIN_POST_AGE 0.11 → 11/55,
+0.20 → 14/55. Per background (0.20): white + white_grid **7/8 correct**, coord_grid 3/7 (text in
+every cell), gray 1/4, black/dark 0/9 (projector cannot show holes on dark content), checker /
+bubbles / scrolling / moving targets 1–2 each (candidates missing AND hole ranked >1).
+Conclusion: with realistic CO2 contrast and physical timing the chain works on clean bright
+surfaces; textured and moving game content is the real weakness (recall and ranking), dark content
+cannot be judged with a projector rig.
+
+Synthetic check of a longer fixed wait: MIN_POST_AGE 0.30 drops doubles 12→8/12; 0.20 impacts
+28→26/28 (false 7→5). Decision (with Codex): keep 0.11 as pilot; replay tonight's physical
+recordings at 0.11 / 0.15 / 0.20 and decide per measured onset; an adaptive onset-triggered first
+proposal is a later hypothesis.
+
+## 4. Calibration saves silently dropped the lens model — FIXED
+
+Menu "Kalibrera viewport via kamera", AI-test auto-calibration and `bench calibration-check --save`
+replaced the whole calibration (menu path without backup) and dropped `camera_distortion`.
+Now (reviewed with Codex): `save_camera_calibration` always writes a unique backup first
+(`/data/skjutbana/backups`, override `SKJUTBANA_BACKUP_DIR`) and raises instead of overwriting
+if the backup fails; `ArucoCalibrator.save_and_apply` fits the lens model in a background thread
+(fit only, ~8 s) and the live loop applies it on the main thread (`lens_model.apply_pending`)
+only if the saved calibration still has the same fingerprint; `calibration-check --save` always
+evaluates the lens model synchronously; the AI-test auto-calibration never replaces a lens-model
+calibration. Test: `automation/calibration_save_selftest.py`.
+
+## 5. Other fixes
+- `src/engine/scenes/loading.py`: bootstrap failures are logged with traceback instead of `pass`
+  (a silent failure made later patch layers wrap unpatched methods).
+- Docs: stale flash numbers/claims in CURRENT_STATE, bench README calibration semantics, README
+  (calibration backup, parec, F2 matrix), new "CURRENT capture method" section at the top of
+  PHYSICAL_CAPTURE_RUNBOOK.md, status note in ROADMAP "NOW".
+
+## 6. Needs the user's decision (OPEN)
+- **Security:** `src/engine/output/led_test.py` (tracked in git, never imported) hard-codes a Tuya
+  device id, IP and LOCAL_KEY (lines ~11–13). Treat the key as exposed if the repo was ever shared;
+  recommend rotating it in the Tuya app and removing the literals (history still contains them).
+  Not changed (credentials).
+- Stray git-ignored backups: `src/engine/settings.py.v253r2-broken.bak`,
+  `src/engine/camera/__init__.py.bak_v27_1`, `src/engine/ai/bootstrap.py.bak_v27_1` — delete?
+- Never-imported modules: `ai/ranker_v5_extension.py`, `ai/training_data.py`,
+  `offline/replay_context.py`, `output/led_test.py`.
+
+## 7. Information (no action taken)
+- Import graph: 204 modules under src/: 143 live, 57 automation/offline-only, 4 never imported.
+- Superseded patch layers: v244 wraps v243's *previous* ROI so `frame_roi_v243` never runs;
+  v241's extract wrapper is installed then removed by v243; v25 detector features are all off in
+  `detector_v25.json` (telemetry only); v2221 fully replaces the base `_resolve_audio_events`.
+- `camera/object_physical_query.py:21` imports a private helper from the diagnostic
+  `demo_object_zone_extension` module.
+- Duplicated helpers (`_safe_float` ×30, `_runtime_settings` ×11); ~31 never-referenced functions.
+- Unread settings keys: top-level `visual_hits_enabled`/`visual_hits_mode` in content/settings.json
+  (code reads nested `visual_hits.*`); seven V1 keys in content/ai/settings.json (never staged —
+  documented only).
+- 40 `SKJUTBANA_*` env vars, 16 undocumented (capture plumbing etc.); full table in the audit notes.
+- Docs still missing: ARCHITECTURE.md stops at 2026-10-18 (no shot_path_step/virtual runtime/
+  source recording/lens model/precision levels/parec); nightly holdout session 98e68fe9 is not
+  untouched any more and should be replaced by a fresh physical session.
+
+## 8. Recommended next steps (priority)
+1. Tonight: record physical shots (per weapon), label GT, replay at MIN_POST_AGE 0.11/0.15/0.20 →
+   choose the value from measured onset; measure real CO2 hole contrast vs the stamp model.
+2. Textured/moving backgrounds: hole-likeness ranking (real-stamp template / learned scorer) and
+   recall on textured content — evaluate on the AI-test recordings with the funnel.
+3. IMPACT/no-hole rejection for echo/false audio (synthetic: 7/48 false emissions in every arm).
+4. Replace the nightly holdout session with a fresh physical one.
+5. User decisions in section 6 (Tuya key, stray .bak files, never-imported modules).
+
+## 9. First physical CO2 AR15 round on the capture target (2026-11-18 ~15:00)
+
+Target: new static `content/games/physical_capture_target.py` (menu "Fysisk inspelning – tavla").
+Recording `/data/skjutbana/source_sessions/20261118T135339Z_da06f87a` (window copy `_ar15cut`,
+GT in `ground_truth.jsonl`), analysis `/data/skjutbana/evaluation_runs/physical_ar15_20261118`.
+17 pellets (5 singles, 3 doubles, 2 triples) + 6 empty-magazine shots; operator photos in
+`/data/skjutbana/skott18nov1500/`.
+- **Visibility:** only 7/17 holes are visible to the camera (clean white paper 15–19 grey, others
+  4–9); holes in the tape patches are invisible (also in photos). Board needs fresh paper.
+- **Onset (physical, receive timestamps):** 0.139 / 0.147 / 0.153 / 0.162 s after the audio peak.
+- **Live:** 9 emissions, 4 correct (2,3,4,7), 0 on empty magazine.
+- **Two audio peaks per shot**, 66–94 ms apart (muzzle + impact/echo): 45 audio events for 23 shots.
+- **Replay** (visible holes, 30 px): age 0.11 → 6/7, 18 false; **0.15 → 6/7, 14 false**;
+  0.20 → 5/7, 12 false. New default-off flag `SKJUTBANA_AUDIO_COOLDOWN_S` (0.12/0.15) brings
+  audio events to 23–24 (= real shots) but emissions rise to 23 (5/7 correct): the engine emits for
+  every shot even when no hole is visible — false emissions come from missing no-hole/IMPACT
+  rejection, not from the double peaks alone. Flag kept off.
+- Suggested: MIN_POST_AGE 0.15 (confirm on airgun/pistol); next hypothesis = no-hole rejection.
+
+## 10. Board wear map (2026-11-18 ~16:00, after removing ~150 g of tape)
+New `python3 -m automation.bench board-snapshot` (white projection, camera, hole blobs → screen
+coords, heatmap; `--compare` lists new blobs). Result in
+`/data/skjutbana/evaluation_runs/board_wear_20261118/`: 55 % of holes in the central 25 % of the
+area. Uses agreed with Codex → ROADMAP "Game design rule: spread the aim points". The capture
+target now moves its cross grid randomly per sequence.
+
+## 11. Physical CO2 AR15 round 2 on fresh paper (2026-11-18 ~17:00)
+Session `/data/skjutbana/source_sessions/20261118T155321Z_04f1be81` (GT from camera diff + operator
+photos `/data/skjutbana/skott18nov1700/`): 16 pellets (row 1 singles, row 2 doubles, row 3 triple on
+9, one shot on 10) + 6 empty-magazine shots; 15 GT positions (aim 6 double = one shared hole).
+On fresh paper 12/15 holes are clearly visible (12–31 grey); aims 1, 3, 9 weak (4–8).
+| | correct /15 | false (other) | emissions on empty magazine |
+|---|---|---|---|
+| live (age 0.11) | 5 (+aim 3 at 1.6 s, outside window) | 4 (3 on the board label text) | 0 |
+| replay age 0.11 | 10 | 6 | 7 |
+| **replay age 0.15** | **12** | **3** | 7 |
+Second physical session agreeing with section 9: **MIN_POST_AGE 0.15 is better** (runbook updated).
+Live is far below replay: worker 400–600 ms per shot, latency up to 1.6 s, each shot spawns two
+audio shots (66–94 ms second peak) — live CPU budget is the next big item. Empty-magazine shots
+still emit in replay (no-hole rejection missing). Capture target: board label text now shown only
+3 s after a key press; numpad keys accepted. First real AR15 stamps:
+`/data/skjutbana/hole_library/ar15_co2_20261118/`.
+
+## 12. Real AR15 vs airgun holes; real stamps used as synthetic holes
+Same camera, same method: airgun core area 40 px / depth 0.28 (38 grey), AR15 22 px / 0.05-0.19
+(10-39 grey) → AR15 diameter ~0.74x and about half as dark, ~1/4 the integrated darkening (the old
+"50-80 % smaller" proxy was in the right range). Both real sets are now synthetic holes "as they
+are": AI test F8 `co2` = AR15 library (true size), offline preset `AR15_REAL_STAMPS`.
+Projector check (`evaluation_runs/stamp_projection_20261118`, white, gain 3): camera sees airgun
+39.5 px/0.20 (real 36.5/0.21, match) and AR15 24.5 px/0.056 (real 22/0.095) → size right, AR15 gain
+raised to 4.5-6. Operator: airgun holes look slightly too big by eye → footprint scale random 0.95-1.0 for both, random 0-360 deg rotation + mirror; weak AR15 stamps (low gas, barely through) kept on purpose. Selftest ai_training_content OK.
+
+## 13. AI-test F2 with real AR15 stamps (projected, 48 rounds, MIN_POST_AGE 0.15)
+Run `/data/skjutbana/ai_test_runs/ai_test_20261118T172714.json`, recording
+`/data/skjutbana/source_sessions/20261118T162349Z_66d659ce`. Live path ±5 mm: **14/78 (18 %)**,
+40 false; white 3/6, white_grid 5/7, coord_grid 3/9, gray 1/5, checker_anim 1/7, images 1/5, all
+dark/textured/moving 0. Median error of correct hits 1.8 mm. Bright plain surfaces ≈ physical
+fresh-paper live result (5–6/15); textured/moving/dark content stays the weakness (recall+ranking),
+false emissions dominate there. (A first attempt scored 0/76 because the stamp-projection script
+still held the camera — invalid, deleted. AI-test auto-calibration failing silently when there is
+no camera frame now logs the reason.)
+
+## 14. Hole recognition on textured backgrounds — H11 hole-likeness ranking (default OFF)
+Measurement first (`automation/bench/hole_likeness.py`: `hole-likeness`, `-dense`, `-emissions`):
+re-ranking exported candidates by a matched filter of the change image with the mean radial
+profile of the REAL stamps (59 airgun + 8 AR15) put the GT first more often on every session
+(AI-test 19→25 of 36 with GT present, morning AI-test 9→12/21, physical 11→12/13).
+New independent validation data: `optical-holes --hole-style stamps_ar15` (real AR15 stamps exactly as
+the AI test projects them) on pattern, moving, three photos — 5×24 shots, recorded 2026-11-18 18:01–18:05
+(sessions 20261118T1701..1704*), never used for design.
+**H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1`** (winner_selection_flags.py; FAST + FULL extractors attach
+`h11_hole_snr`; selector ranks by it among eligible tracks within earliest onset + 0.06 s):
+
+| session (paired replay, age 0.15 + causal) | base | H11 v3 |
+|---|---|---|
+| AI-test real AR15 stamps (78) | 20 (53 false) | **29** (44) |
+| morning AI-test, shrunk stamps (55) | 11 (42) | **19** (34) |
+| validation moving (24) | 3 | **9** |
+| validation photo testtavla (24) | 2 | **9** |
+| validation photo woods (24) | 1 | 3 |
+| validation photo building (24) | 0 | 0 |
+| validation sinusoid pattern (24) | 11 | 9 |
+| physical AR15 fresh paper (22 incl. 7 empty-mag) | 15 (4 false) | 15 (4) |
+
+Total projected 48 → 78 correct of 253, fewer false emissions, physical unchanged. Version history:
+v1 without onset window (pattern 11→7); v2 SNR normalised by a local RMS that included the blob itself
+(every isolated blob saturated at ~13–14, faint true holes lost); v3 = annulus noise (61×61 minus 21×21).
+Remaining: recall (GT not among candidates in ~half the textured shots), pattern −2, abstention
+(emission study: SNR<6 would drop 13/43 false emissions, 0/18 correct). Evidence level: optical
+projected + one physical session — not physical validation.
+
+### 14b. H11 review fixes and the decisive control (v4–v6)
+Codex review: tracks whose candidates lack `h11_hole_snr` were ranked 0 (missing evidence treated as a
+bad hole). Debug showed those are the v24 tile-probe/accumulator candidates (detector_v2=1 but no
+extractor fields) — not legacy. v4 (fallback to default order when any unmeasured track is in the pool)
+and v5 (also measuring merged V1+V2 candidates) were identical to base because such a track is almost
+always present. **v6 (final)**: within the earliest-onset pool, measured tracks are ordered by
+hole-likeness, unmeasured ones follow in the default timing order. v6 reproduces v3 exactly.
+**Control arm** `SKJUTBANA_H11_DIAG_RANK_BY_SCORE=1` (same measured/unmeasured split, measured ranked
+by the old best_score): AI-test 21/78 (H11 29), moving 3 (9), testtavla 5 (9), pattern 11 (9),
+physical 14/22 (15) → the gain comes from the matched filter, not from demoting the v24 source.
+TODO (proper fix): measure every candidate uniformly at the tracking seam (PRE-by-shot + current frame
+patch), then drop the measured/unmeasured split. Pattern background (−2) remains open.
+
+### 14c. H11 v6 final numbers + LIVE projector test
+Paired replay (base → H11 v6): AI-test 20→29/78, morning AI-test 11→18/55, moving 3→9, testtavla 2→9,
+woods 1→3, pattern 11→9, building 0→0 (/24), physical AR15 15→15/22. Projected total 48→77.
+**Live F2 AI-test with H11 on** (real AR15 stamps, 48 rounds, `/data/skjutbana/ai_test_runs/ai_test_20261118T191433.json`,
+recording 20261118T181112Z_6cb18ae7): **30/79 (38 %)**, 32 false, median error 1.3 mm — previous live run
+without H11: 14/78 (18 %), 40 false (different random holes, not paired). white 8/9, white_grid 7/9,
+coord_grid 4/5, gray 5/7; dark/photo/scroll/moving still ≤ 1.
+Latency: hit median 1056 ms (p90 1857) vs 976 (1759) without H11; FAST extract +38 ms. NOTE: the live
+hit latency is ~1 s even without H11 — above the game budget; CPU/latency is the next structural item.
+Status: H11 stays DEFAULT OFF (optical/projected evidence + one physical session; needs physical
+validation on game-like content before default-on). H12 (matched-filter proposals): no effect in the
+two sessions measured (identical to H11), kept off.
+
+### 14d. H11 as an evidence family (v7–v9) + code study
+- v7/v8 (per-candidate PATCH source on raw PRE/CUR, ±local gain/offset, ±3×3 shift search): AI-test
+  22–23/78, moving 5, testtavla 5–7 — far below the V2-map source (29/9/9); shift search costs ~9×
+  (186 ms/200 candidates). Cause: a single noisy PRE frame vs V2's registered, photometric, multi-frame
+  reference. Patch source kept as SHADOW evidence (`SKJUTBANA_HOLE_EVIDENCE=1`, fields ev_hole_morph_patch_*).
+- v9 (final structure): H11 ranks by `ev_hole_morph_snr` from the V2-map source (attach_h11), with the
+  evidence contract (valid/version; cost in `last_window_debug['hole_morph_v2map_ms']`). Verified
+  identical to v6: AI-test 29/78, moving 9, testtavla 9, physical 15/22.
+- Code study of the whole evidence chain → new `EVIDENCE_CHAIN.md` (26 items, status, context maps,
+  plan agreed with Codex).

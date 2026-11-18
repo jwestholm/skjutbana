@@ -151,6 +151,17 @@ def _load_config_from_runtime() -> None:
 # ---------------------------------------------------------------------------
 
 
+# H10 (opt-in): the worker thread marks the one late global re-proposal job of
+# a shot here. Inside that job the shot reads as "FULL rescue requested", so
+# every object-local/region wrapper takes its existing global rescue path
+# without touching the shared router state seen by the main thread.
+_LATE_TLS = threading.local()
+
+
+def _late_job_shot_id() -> int:
+    return int(getattr(_LATE_TLS, "shot_id", 0) or 0)
+
+
 class RescueRouterV2225:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -177,6 +188,9 @@ class RescueRouterV2225:
             return True
 
     def requested(self, shot_id: int) -> bool:
+        late_sid = _late_job_shot_id()
+        if late_sid > 0 and late_sid == int(shot_id or 0):
+            return True
         with self._lock:
             return int(shot_id or 0) in self._requested
 
@@ -452,6 +466,19 @@ def fast_extract_candidates_v2225(
     )
     shift_by_xy = {(x, y): shift for _s, x, y, _src, shift in refined}
 
+    from src.engine import winner_selection_flags as _wsf
+    _h11_snr = None
+    _h12_n = _wsf.hole_mf_proposals()
+    if _h12_n or _wsf.hole_likeness_rank() or os.environ.get("SKJUTBANA_H11_FULL_ROI_MAP") == "1":
+        _t_h11 = time.perf_counter()
+        _h11_snr = _wsf._cached_snr(darkening, absdiff)
+        scanner.last_window_debug["hole_morph_v2map_ms"] = (time.perf_counter() - _t_h11) * 1000.0
+    if _h12_n:
+        # H12 (opt-in): matched-filter peaks as extra proposals (recall for faint holes).
+        existing = [(x, y) for _s, x, y, _src in chosen_simple]
+        for _snr, px, py in _wsf.h12_peaks(_h11_snr, existing, _h12_n, valid):
+            chosen_simple.append((float(saliency[py, px]), px, py, {"h12_mf"}))
+
     candidates: list[dict[str, float]] = []
     for peak_saliency, px, py, sources in chosen_simple:
         try:
@@ -488,12 +515,16 @@ def fast_extract_candidates_v2225(
             "v2_refine_shift_px": float(shift_by_xy.get((px, py), 0.0)),
             "v2225_fast_extract": 1.0,
         }
+        if "h12_mf" in sources:
+            candidate["h12_mf_proposal"] = 1.0
         try:
             generator._apply_known_hole_penalty(scanner, candidate)
         except Exception:
             pass
         candidates.append(candidate)
 
+    from src.engine import winner_selection_flags as _wsf
+    _wsf.attach_h11(candidates, darkening, absdiff, x0, y0, snr=_h11_snr)   # H11 (opt-in), ranking-only
     candidates.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
     elapsed = (time.perf_counter() - started) * 1000.0
     scanner.last_window_debug["v2225_fast_extract_ms"] = float(elapsed)
@@ -680,7 +711,7 @@ class LocalConfirmManagerV2225:
             self.states[sid] = ShotConfirmStateV2225(
                 shot_id=sid,
                 first_result_ts=float(frame_ts),
-                candidates=[dict(c) for c in candidates],
+                candidates=[_stamp_origin(c, frame_ts) for c in candidates],
                 pre_gray=pre_gray,
                 rounds=0,
                 rescue_round=bool(rescue_round),
@@ -720,7 +751,13 @@ class LocalConfirmManagerV2225:
             )
             for sid, st in ((st.shot_id, st) for st in waiting)
         }
-        waiting = [st for st in waiting if float(frame_ts) < next_peak_by_event.get(st.shot_id, float("inf"))]
+        # Opt-in H3 (causal ownership): the newer shot's hole cannot be visible
+        # before next_peak + min_post_age, and the candidates confirmed here
+        # come from the older shot's own pre-boundary proposals, so the older
+        # shot may keep confirming for a bounded extra window (rapid fire).
+        extension = _causal_ownership_confirm_extension_s()
+        waiting = [st for st in waiting
+                   if float(frame_ts) < next_peak_by_event.get(st.shot_id, float("inf")) + extension]
         if not waiting:
             return None
         waiting.sort(key=lambda st: st.first_result_ts)
@@ -804,6 +841,15 @@ def _install_fast_extractor_patch() -> None:
         live_worker = threading.current_thread().name.startswith("shot-cv-v2224")
         if not live_worker or not _CONFIG.fast_extract_enabled:
             return previous_extract(self, *args, **kwargs)
+        if sid > 0 and _late_job_shot_id() == sid:
+            # H10 late re-proposal: the same high-recall FULL extractor as the
+            # rescue, without consuming this shot's rescue request.
+            result = previous_extract(self, *args, **kwargs)
+            try:
+                scanner.last_window_debug["v2225_extract_mode"] = 3.0
+            except Exception:
+                pass
+            return result
         if sid > 0 and rescue_router_v2225.consume(sid):
             if _CONFIG.fast_log:
                 print(f"[V2.22.5 FULL-RESCUE] shot={sid} using high-recall extractor")
@@ -867,6 +913,10 @@ def _install_result_marker_patch() -> None:
 
     def apply_result_v2225(scanner: Any, result: Any) -> None:
         previous_apply(scanner, result)
+        if getattr(result, "v26_late_repropose", False):
+            _record_late_result(scanner, result)
+        elif getattr(scanner, "_v26_late_result_shot_id", 0):
+            scanner._v26_late_result_shot_id = 0
         scanner._v2225_result_shot_id = int(getattr(result, "shot_id", 0) or 0)
         scanner._v2225_result_frame_ts = float(getattr(result, "frame_ts", 0.0) or 0.0)
         debug = dict(getattr(result, "window_debug", {}) or {})
@@ -906,6 +956,225 @@ def _cancel_queued_for_shot(shot_id: int) -> int:
     return cancelled
 
 
+def _causal_ownership_enabled() -> bool:
+    return os.environ.get("SKJUTBANA_CAUSAL_OWNERSHIP") == "1"
+
+
+def _causal_ownership_evidence_extension_s() -> float:
+    """Frames earlier than next_peak + min_post_age cannot show the next hole."""
+    if not _causal_ownership_enabled():
+        return 0.0
+    from src.engine.shot_async_v2224 import _min_post_age_s
+    return _min_post_age_s()
+
+
+def _causal_ownership_confirm_extension_s() -> float:
+    if not _causal_ownership_enabled():
+        return 0.0
+    try:
+        extra = float(os.environ.get("SKJUTBANA_CAUSAL_OWNERSHIP_CONFIRM_S", "0.4"))
+    except ValueError:
+        extra = 0.4
+    return _causal_ownership_evidence_extension_s() + max(0.0, min(extra, 1.0))
+
+
+def _stamp_origin(candidate: dict[str, Any], frame_ts: float) -> dict[str, Any]:
+    """Copy a proposal and preserve its ORIGINATING evidence (never overwritten)."""
+    c = dict(candidate)
+    c.setdefault("v2225_origin_frame_ts", float(frame_ts))
+    c.setdefault("v2225_origin_pre_shot_change", c.get("pre_shot_change"))
+    c.setdefault("v2225_origin_xy", [c.get("camera_x"), c.get("camera_y")])
+    return c
+
+
+def _causally_confirmable(scanner: Any, state: Any, frame_ts: float) -> list[dict[str, Any]]:
+    """H3' (opt-in): after the newer shot's causal boundary, only proposals whose
+    originating pre-boundary evidence already showed PRE->POST change may still
+    be confirmed for the older shot. Before the boundary, or with H3 off, the
+    proposal list is unchanged."""
+    candidates = list(state.candidates)
+    if not _causal_ownership_enabled():
+        return candidates
+    sid = int(state.shot_id)
+    next_peak = min((float(getattr(ev, "peak_ts", float("inf"))) for ev in list(getattr(scanner, "audio_events", []) or [])
+                     if int(getattr(ev, "shot_id", 0) or 0) > sid), default=float("inf"))
+    if float(frame_ts) < next_peak + _causal_ownership_evidence_extension_s():
+        return candidates
+    try:
+        floor = float(os.environ.get("SKJUTBANA_CAUSAL_OWNERSHIP_MIN_CHANGE", "3.0"))
+    except ValueError:
+        floor = 3.0
+    kept = []
+    for c in candidates:
+        origin = c.get("v2225_origin_pre_shot_change")
+        try:
+            if origin is not None and float(origin) >= floor and float(c.get("v2225_origin_frame_ts", float("inf"))) < next_peak + _causal_ownership_evidence_extension_s():
+                kept.append(c)
+        except (TypeError, ValueError):
+            continue
+    return kept
+
+
+def _drain_completed_before_timeout(scanner: Any, detector: Any, consume_result: Callable) -> dict[str, int]:
+    """Integrate only already-finished, shot-owned jobs at the deadline boundary.
+
+    This opt-in handoff does not wait for the worker, extend a deadline, or
+    accept evidence outside the existing event association window.
+    """
+    # Only events actually at/past their original deadline, and never shots
+    # waiting for FULL rescue: draining earlier would consume results with
+    # allow_rescue=False and steal them from the normal detect/rescue path.
+    now_mono = time.monotonic()
+    all_pending = [ev for ev in list(getattr(scanner, "audio_events", []) or [])
+                   if str(getattr(ev, "state", "")) == "pending"]
+    pending = [ev for ev in all_pending
+               if 0.0 < float(getattr(ev, "decision_deadline_monotonic", 0.0) or 0.0) <= now_mono
+               and not rescue_router_v2225.requested(int(getattr(ev, "shot_id", 0) or 0))]
+    event_by_id = {int(getattr(ev, "shot_id", 0) or 0): ev for ev in pending}
+    if not event_by_id:
+        return {"ready": 0, "integrated": 0, "late_or_stale": 0, "orphaned": 0}
+    # Results of other still-pending shots must stay queued for the normal path.
+    others = {int(getattr(ev, "shot_id", 0) or 0) for ev in all_pending} - set(event_by_id)
+    ready = detector.take_ready_for_active(set(event_by_id), keep_shot_ids=others)
+    counts = {"ready": len(ready), "integrated": 0, "late_or_stale": 0, "orphaned": 0}
+    for result in ready:
+        sid = int(getattr(result, "shot_id", 0) or 0)
+        event = event_by_id.get(sid)
+        if event is None:
+            counts["orphaned"] += 1
+            continue
+        deadline = float(getattr(event, "decision_deadline_monotonic", 0.0) or 0.0)
+        finished = float(getattr(result, "finished_mono", 0.0) or 0.0)
+        frame_ts = float(getattr(result, "frame_ts", float("inf")))
+        peak_ts = float(getattr(event, "peak_ts", 0.0) or 0.0)
+        lag = float(getattr(scanner, "association_lag_s", 0.0) or 0.0)
+        lead = float(getattr(scanner, "association_lead_s", 0.0) or 0.0)
+        if (deadline <= 0.0 or finished > deadline
+                or frame_ts < peak_ts - lead or frame_ts > peak_ts + lag):
+            event.note = ("worker_result_after_original_deadline_discarded"
+                          if deadline > 0.0 and finished > deadline
+                          else "worker_result_outside_causal_window_discarded")
+            counts["late_or_stale"] += 1
+            continue
+        detector.apply_result(scanner, result)
+        candidates = consume_result(scanner, result.candidates)
+        if candidates:
+            scanner._update_tracks(candidates, frame_ts)
+        counts["integrated"] += 1
+    return counts
+
+
+# ---------------------------------------------------------------------------
+# H10 (opt-in, default OFF): SKJUTBANA_LATE_REPROPOSE_S=<seconds>
+# One extra global FULL extraction per shot on the first frame with
+# frame_ts >= peak_ts + value. Same worker queue, producer-shot ownership,
+# next-peak evidence cutoff and event timeout as every other worker job.
+# ---------------------------------------------------------------------------
+
+
+def late_repropose_s() -> float:
+    try:
+        value = float(os.environ.get("SKJUTBANA_LATE_REPROPOSE_S", "0") or 0.0)
+    except ValueError:
+        return 0.0
+    return value if math.isfinite(value) and 0.0 < value < 2.0 else 0.0
+
+
+def _late_diag(event: Any, **fields: Any) -> None:
+    trigger = getattr(event, "audio_trigger", None)
+    if not isinstance(trigger, dict):
+        trigger = {}
+        event.audio_trigger = trigger
+    diag = trigger.setdefault("v26_late_repropose", {})
+    diag.update(fields)
+
+
+def _next_peak_cutoff(scanner: Any, sid: int) -> float:
+    """Same rule as consume_result_v2225's evidence cutoff."""
+    newer = [float(getattr(ev, "peak_ts", float("inf")))
+             for ev in list(getattr(scanner, "audio_events", []) or [])
+             if int(getattr(ev, "shot_id", 0) or 0) > sid
+             and str(getattr(ev, "state", "")) in {"pending", "matched", "missed"}]
+    if not newer:
+        return float("inf")
+    return min(newer) + _causal_ownership_evidence_extension_s()
+
+
+def _maybe_submit_late_repropose(scanner: Any, gray: np.ndarray, frame_ts: float) -> int:
+    """Submit at most one late FULL job (for one shot) on this frame.
+
+    Returns the shot id submitted for, else 0. Never blocks the game thread.
+    """
+    delay = late_repropose_s()
+    if delay <= 0.0 or getattr(scanner, "_v2224_worker_clone", False):
+        return 0
+    from src.engine.shot_async_v2224 import async_detector_v2224 as det, _setting_bool as async_bool
+    if not async_bool("async_detector_enabled_v2224", True) or det._shutdown or det._sync_detect is None:
+        return 0
+    pending = sorted(
+        (ev for ev in list(getattr(scanner, "audio_events", []) or [])
+         if str(getattr(ev, "state", "")) == "pending"
+         and not getattr(ev, "_v26_late_repropose_done", False)
+         and int(getattr(ev, "shot_id", 0) or 0) > 0),
+        key=lambda ev: float(getattr(ev, "peak_ts", 0.0) or 0.0))
+    ts = float(frame_ts)
+    for event in pending:
+        sid = int(event.shot_id)
+        peak_ts = float(getattr(event, "peak_ts", 0.0) or 0.0)
+        if ts < peak_ts + delay:
+            continue
+        event._v26_late_repropose_done = True
+        if ts >= _next_peak_cutoff(scanner, sid):
+            _late_diag(event, status="skipped_next_peak_cutoff", frame_ts=ts, delay_s=delay)
+            continue
+        if ts > peak_ts + float(getattr(scanner, "association_lag_s", float("inf")) or float("inf")):
+            _late_diag(event, status="skipped_outside_association_window", frame_ts=ts, delay_s=delay)
+            continue
+        clone = det._clone_scanner(scanner, event)
+        gray_job = np.asarray(gray).copy()
+        submitted = time.monotonic()
+
+        def late_job(clone=clone, gray_job=gray_job, sid=sid, peak_ts=peak_ts, submitted=submitted):
+            _LATE_TLS.shot_id = sid
+            try:
+                result = det._run_job(clone, gray_job, ts, sid, peak_ts, submitted)
+            finally:
+                _LATE_TLS.shot_id = 0
+            # Attribute, not window_debug: last_window_debug is copied into the
+            # next job's clone and must not mark normal jobs as late.
+            result.v26_late_repropose = True
+            return result
+
+        try:
+            future = det._executor.submit(late_job)
+        except Exception as exc:
+            _late_diag(event, status="submit_failed", frame_ts=ts, delay_s=delay,
+                       error=f"{type(exc).__name__}: {exc}")
+            continue
+        with det._lock:
+            det._futures[future] = (sid, ts)
+        # A normal FAST job on this same frame would be dropped as a duplicate
+        # frame_ts by take_ready_*; keep the existing spacing from this frame.
+        det._submitted_frame_ts[sid] = max(ts, float(det._submitted_frame_ts.get(sid, 0.0) or 0.0))
+        _late_diag(event, status="submitted", frame_ts=ts, peak_ts=peak_ts, delay_s=delay,
+                   frame_age_s=ts - peak_ts, n_candidates=None)
+        if _CONFIG.fast_log:
+            print(f"[H10 LATE-REPROPOSE] shot={sid} age={(ts - peak_ts) * 1000.0:.0f}ms -> FULL extraction queued")
+        return sid
+    return 0
+
+
+def _record_late_result(scanner: Any, result: Any) -> None:
+    sid = int(getattr(result, "shot_id", 0) or 0)
+    for event in list(getattr(scanner, "audio_events", []) or []):
+        if int(getattr(event, "shot_id", 0) or 0) == sid:
+            _late_diag(event, status="delivered", n_candidates=len(getattr(result, "candidates", []) or []),
+                       worker_ms=float(getattr(result, "worker_ms", 0.0) or 0.0),
+                       queue_ms=float(getattr(result, "queue_ms", 0.0) or 0.0))
+            break
+    scanner._v26_late_result_shot_id = sid
+
+
 def _install_local_confirmation_patch() -> None:
     from src.engine.camera.hit_scanner import HitScanner
     if getattr(HitScanner, "_v2225_local_confirmation_patch", False):
@@ -913,7 +1182,72 @@ def _install_local_confirmation_patch() -> None:
     previous_detect = HitScanner._detect_frame_candidates  # V2.22.4 async wrapper
     previous_resolve = HitScanner._resolve_audio_events
 
+    def consume_result_v2225(scanner: Any, candidates, *, allow_rescue: bool = True):
+        result_sid = int(getattr(scanner, "_v2225_result_shot_id", 0) or 0)
+        result_ts = float(getattr(scanner, "_v2225_result_frame_ts", 0.0) or 0.0)
+        if result_sid <= 0 or result_ts <= 0.0:
+            return candidates
+
+        # Consume marker once; it identifies a completed worker result even if
+        # that result contained zero candidates.
+        scanner._v2225_result_shot_id = 0
+        scanner._v2225_result_frame_ts = 0.0
+
+        pending_ids = {
+            int(getattr(ev, "shot_id", 0) or 0)
+            for ev in list(getattr(scanner, "audio_events", []) or [])
+            if str(getattr(ev, "state", "")) == "pending"
+        }
+        if result_sid not in pending_ids:
+            from src.engine.track_audit import record_not_consumed
+            record_not_consumed(scanner, candidates, result_ts, result_sid, "producer_event_not_pending")
+            return []
+
+        newer_peaks = [
+            float(getattr(ev, "peak_ts", float("inf")))
+            for ev in list(getattr(scanner, "audio_events", []) or [])
+            if int(getattr(ev, "shot_id", 0) or 0) > result_sid
+            and str(getattr(ev, "state", "")) in {"pending", "matched", "missed"}
+        ]
+        if newer_peaks and result_ts >= min(newer_peaks) + _causal_ownership_evidence_extension_s():
+            from src.engine.track_audit import record_not_consumed
+            record_not_consumed(scanner, candidates, result_ts, result_sid, "evidence_frame_at_or_after_next_audio_peak")
+            return []
+
+        old_state = local_confirm_manager_v2225.get(result_sid)
+        if int(getattr(scanner, "_v26_late_result_shot_id", 0) or 0) == result_sid:
+            # H10 late result: its candidates join this shot's local
+            # confirmation pool; it never requests/consumes a rescue.
+            scanner._v26_late_result_shot_id = 0
+            if not candidates:
+                return candidates
+            if old_state is not None and old_state.phase in {"await_confirm", "rescue_queued"}:
+                with local_confirm_manager_v2225._lock:
+                    old_state.candidates.extend(_stamp_origin(c, result_ts) for c in candidates)
+                return candidates
+        rescue_round = bool(old_state is not None and old_state.phase == "rescue_queued") or rescue_router_v2225.was_consumed(result_sid)
+        pre_by_shot = getattr(scanner, "_v2225_pre_by_shot", {}) or {}
+        pre = pre_by_shot.get(result_sid)
+        if pre is None:
+            pre = getattr(scanner, "pre_shot_snapshot", None)
+
+        if candidates:
+            local_confirm_manager_v2225.start(result_sid, result_ts, list(candidates), pre,
+                rescue_round=rescue_round)
+        else:
+            scanner._v2224_result_frame_ts = 0.0
+            if allow_rescue and _CONFIG.rescue_enabled and not rescue_round and rescue_router_v2225.request(result_sid):
+                local_confirm_manager_v2225.start(result_sid, result_ts, [], pre, rescue_round=False)
+                local_confirm_manager_v2225.mark_rescue_queued(result_sid)
+                if _CONFIG.local_log:
+                    print(f"[V2.22.5 FAST] shot={result_sid} zero proposals -> queue FULL rescue")
+            else:
+                local_confirm_manager_v2225.mark_exhausted(result_sid)
+        return candidates
+
     def detect_v2225(self, gray: np.ndarray, frame_ts: float):
+        if os.environ.get("SKJUTBANA_LATE_REPROPOSE_S"):
+            _maybe_submit_late_repropose(self, gray, frame_ts)
         if not _CONFIG.local_confirm_enabled:
             return previous_detect(self, gray, frame_ts)
 
@@ -921,12 +1255,17 @@ def _install_local_confirmation_patch() -> None:
         # already seeded ordinary HitScanner tracks. This bypasses V2.22.4's
         # second full detector submission entirely.
         state = local_confirm_manager_v2225.active_waiting(self, frame_ts)
+        confirm_pool = None
+        if state is not None:
+            confirm_pool = _causally_confirmable(self, state, frame_ts)
+            if not confirm_pool:
+                state = None
         if state is not None:
             state.rounds += 1
             confirmed, diag = local_confirm_candidates_v2225(
                 state.pre_gray,
                 gray,
-                state.candidates,
+                confirm_pool,
                 frame_ts=float(frame_ts),
             )
             if os.environ.get('SKJUTBANA_OBJECT_MATURE_CAPTURE') == '1':
@@ -976,71 +1315,24 @@ def _install_local_confirmation_patch() -> None:
                 self._v2224_async_waiting = False
                 return []
 
-        candidates = previous_detect(self, gray, frame_ts)
-        result_sid = int(getattr(self, "_v2225_result_shot_id", 0) or 0)
-        result_ts = float(getattr(self, "_v2225_result_frame_ts", 0.0) or 0.0)
-        if result_sid <= 0 or result_ts <= 0.0:
-            return candidates
-
-        # Consume marker once; it identifies a completed worker result even if
-        # that result contained zero candidates.
-        self._v2225_result_shot_id = 0
-        self._v2225_result_frame_ts = 0.0
-
-        pending_ids = {
-            int(getattr(ev, "shot_id", 0) or 0)
-            for ev in list(getattr(self, "audio_events", []) or [])
-            if str(getattr(ev, "state", "")) == "pending"
-        }
-        if result_sid not in pending_ids:
-            from src.engine.track_audit import record_not_consumed
-            record_not_consumed(self, candidates, result_ts, result_sid, "producer_event_not_pending")
-            return []
-
-        # A completed worker result remains valid after a newer peak only when
-        # its own camera frame was captured before that newer event. This keeps
-        # delayed asynchronous delivery working while preventing cross-event
-        # evidence from becoming an older event's proposal.
-        newer_peaks = [
-            float(getattr(ev, "peak_ts", float("inf")))
-            for ev in list(getattr(self, "audio_events", []) or [])
-            if int(getattr(ev, "shot_id", 0) or 0) > result_sid
-            and str(getattr(ev, "state", "")) in {"pending", "matched", "missed"}
-        ]
-        if newer_peaks and result_ts >= min(newer_peaks):
-            from src.engine.track_audit import record_not_consumed
-            record_not_consumed(self, candidates, result_ts, result_sid, "evidence_frame_at_or_after_next_audio_peak")
-            return []
-
-        old_state = local_confirm_manager_v2225.get(result_sid)
-        rescue_round = bool(old_state is not None and old_state.phase == "rescue_queued") or rescue_router_v2225.was_consumed(result_sid)
-        pre_by_shot = getattr(self, "_v2225_pre_by_shot", {}) or {}
-        pre = pre_by_shot.get(result_sid)
-        if pre is None:
-            pre = getattr(self, "pre_shot_snapshot", None)
-
-        if candidates:
-            local_confirm_manager_v2225.start(
-                result_sid,
-                result_ts,
-                list(candidates),
-                pre,
-                rescue_round=rescue_round,
-            )
-        else:
-            # Completed FAST result with zero proposals: do not run the same fast
-            # global path forever. Move immediately to the one permitted rescue.
-            self._v2224_result_frame_ts = 0.0
-            if _CONFIG.rescue_enabled and not rescue_round and rescue_router_v2225.request(result_sid):
-                local_confirm_manager_v2225.start(result_sid, result_ts, [], pre, rescue_round=False)
-                local_confirm_manager_v2225.mark_rescue_queued(result_sid)
-                if _CONFIG.local_log:
-                    print(f"[V2.22.5 FAST] shot={result_sid} zero proposals -> queue FULL rescue")
-            else:
-                local_confirm_manager_v2225.mark_exhausted(result_sid)
-        return candidates
+        return consume_result_v2225(self, previous_detect(self, gray, frame_ts))
 
     def resolve_v2225(self, now_ts: float):
+        # Optional deadline-boundary drain. It only integrates worker jobs that
+        # actually finished before the original event deadline, and only from
+        # frames inside the existing association window. It does not wait for a
+        # worker or extend the deadline; late results remain rejected.
+        if os.environ.get("SKJUTBANA_DRAIN_READY_BEFORE_TIMEOUT") == "1":
+            try:
+                from src.engine.shot_async_v2224 import async_detector_v2224
+                _drain_completed_before_timeout(
+                    self, async_detector_v2224,
+                    lambda scanner, candidates: consume_result_v2225(scanner, candidates, allow_rescue=False),
+                )
+            except Exception as exc:
+                if _CONFIG.local_log:
+                    print(f"[V2.22.5 DEADLINE-DRAIN] unavailable={type(exc).__name__}")
+
         # Only shots explicitly waiting for full rescue get a longer timeout.
         old_timeout = float(getattr(self, "event_timeout_s", 2.0))
         needs_rescue_time = any(
@@ -1061,6 +1353,10 @@ def _install_local_confirmation_patch() -> None:
             state = str(getattr(ev, "state", "pending") or "pending")
             if state == "pending":
                 continue
+            if state == "missed":
+                ev.lifecycle_state = "EXPIRED"
+            elif state in {"matched", "rehit"}:
+                ev.lifecycle_state = "COMPLETED"
             sid = int(getattr(ev, "shot_id", 0) or 0)
             if local_confirm_manager_v2225.get(sid) is not None or rescue_router_v2225.requested(sid) or rescue_router_v2225.was_consumed(sid):
                 cancelled = _cancel_queued_for_shot(sid)

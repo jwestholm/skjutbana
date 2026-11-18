@@ -308,6 +308,23 @@ class ArucoCalibrator:
         }
         cal_dict['foundation_fit_quality'] = calibration_fit_quality(cal_dict)
 
+        # Research-only guard: exercise the stricter, all-marker camera-space
+        # fit contract without changing the default calibration workflow.
+        if (os.environ.get('SKJUTBANA_REQUIRE_FOUNDATION_FIT', '').strip() == '1'
+                and cal_dict['foundation_fit_quality'].get('status') != 'PASS'):
+            return CalibrationResult(
+                success=False,
+                marker_count=len(camera_points),
+                inliers=inliers,
+                reprojection_error_px=reproj,
+                per_marker_errors=per_marker_errors,
+                matched_ids=matched_ids,
+                calibration_dict=cal_dict,
+                message='Foundation fit quality rejected calibration: '
+                        + str(cal_dict['foundation_fit_quality'].get('reason',
+                            cal_dict['foundation_fit_quality'].get('status'))),
+            )
+
         return CalibrationResult(
             success=True,
             marker_count=len(camera_points),
@@ -323,12 +340,17 @@ class ArucoCalibrator:
     # Save / apply
     # ------------------------------------------------------------------
 
-    def save_and_apply(self, result: CalibrationResult) -> None:
+    def save_and_apply(self, result: CalibrationResult, *, refit_lens: bool = True) -> None:
         """Save calibration to settings and reload hit_input."""
         if not result.success or not result.calibration_dict:
             return
         save_camera_calibration(result.calibration_dict)
         hit_input.reload_calibration()
+        if refit_lens:
+            # The plain fit is live immediately; the lens model (better at the
+            # board edges) is fitted in the background and added if it wins.
+            from src.engine import lens_model
+            lens_model.refit_saved_calibration_async(result.calibration_dict)
 
     # ------------------------------------------------------------------
     # Rendering helpers (pygame)

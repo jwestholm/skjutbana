@@ -1,5 +1,423 @@
 # Current project state
 
+## Hole recognition on textured backgrounds — 2026-11-18 (evening)
+- H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp
+  profile ranks candidates. Paired replay projected 48→77 correct (8 sessions), physical AR15 unchanged;
+  live F2 AI-test 30/79 vs 14/78 earlier. Details: AUDIT_FINDINGS_2026-11-18.md §14.
+- Live hit latency median ~1.0 s already without H11 (+80 ms with) — next structural item.
+- Real AR15 stamps (`/data/skjutbana/hole_library/ar15_co2_20261118/`) are now the AI test's `co2` holes;
+  `optical-holes --hole-style stamps_ar15`; `board-snapshot` wear map; capture target game.
+
+## Audit + recall/timing findings — 2026-11-18 (afternoon)
+
+Full report: `AUDIT_FINDINGS_2026-11-18.md`. Highlights:
+- All 140 selftests pass (two long-failing tests were stale fixtures; fixed test-side).
+- Winner-selection flags H6–H9 and H10 late re-proposal: no meaningful effect (kept default off).
+  The wrong outputs come from candidate recall + ranking, not from the final track choice.
+- The AI-test rig showed holes 60+ ms later than physics (audio stamped before the hole was drawn);
+  fixed with `synthetic_audio_align_s` (0.06). With realistic CO2 contrast the chain is 7/8 on white
+  backgrounds; textured/moving content is the weakness; dark content cannot be judged with a projector.
+- MIN_POST_AGE 0.30 helps late-onset rigs but breaks doubles; keep 0.11 until physical recordings are
+  replayed at 0.11/0.15/0.20.
+- Calibration saves now always back up and never silently drop the lens model (background refit,
+  main-thread apply). Bootstrap failures are logged.
+
+## Precision levels, faster flash, real-hole stamps, AI test upgrades — 2026-11-18 (day)
+
+- **Levels** (`ROADMAP.md` top): `hit_precision` = SHOT | HIT_MISS | OBJECT | ZONE | EXACT
+  (aliases shot_only/exact/region), `hit_aggregation` = per_burst | series. Flash by
+  default only for EXACT (per burst) and ZONE/EXACT+series (one flash at
+  `precision_flash.flush_series()`, result via `on_precision_series`).
+  Kompetensprov: ZONE + series flash at ceasefire; the series measurement is saved in
+  the review record, scoring unchanged. Skyttegrav stays SHOT_ONLY (shadow OBJECT trial
+  first). Decided with Codex.
+- **Flash latency** ~0.95 s median shot->hit (settle 0.35, flash 0.18, adaptive
+  capture 0.22 s after flash end, exposure-based cutoff, a flash cut by a new shot is
+  merged into the next). Projector, varied holes: dark 7/12, moving 7/12, 0 false
+  (long-flash config was 8/12; misses = weakest projected holes). Flash hits carry a
+  unique `shot_id` + `shot_peak_ts` (games debounce hits without shot_id).
+- **Calibration** re-saved with the lens model (backup in /data/skjutbana/backups):
+  marker error median 1.35 px, max 3.1 px (was 3.7 / 18.7). The AI test scene's
+  automatic ArUco calibration no longer overwrites a lens-model calibration and backs
+  up settings before any save.
+- **Real-hole stamps**: `src/engine/offline/hole_stamps.py` cleans the 71 library
+  patches into 59 background-free stamps (`/data/skjutbana/hole_library/clean_stamps.npz`,
+  transparent PNGs in `stamps_png/`). Synthetic bench: `PhysicsAssumptions.hole_model =
+  "stamps"` (multiplicative, scale 0.2-0.5 = CO2 AR15/pistol, 50-80 % smaller than
+  airgun); nightly adds `stamps` train + holdout variants. Synthetic stamps, pilot
+  flags: 36/36 and 34/36 (1 false) on two backgrounds.
+- **AI test scene**: synthetic shots go through the real audio queue
+  (`audio_peak_detector.inject_synthetic_event`), AR15 doubles/strings, live-path
+  scoring of what the game receives (`push_camera_hit`, ±5 mm) per background, F2 =
+  matrix over all backgrounds, run artefacts in /data/skjutbana/ai_test_runs, ground
+  truth + synthetic audio appended to an active source recording (replayable). New
+  backgrounds (images, dark_scene, scroll_landscape, moving_targets), F6 freeze, F7
+  shot effects, F8 hole profile (co2 default / airgun / legacy).
+- **Projector limit (measured)**: projector + camera re-imaging loses ~6x of a stamp's
+  darkening, and CO2-size stamps are below one projector pixel. Projected profiles use
+  a calibrated footprint + optical gain (co2: scale 0.55-0.65, gain 2.5-4 -> camera
+  depth 0.06-0.17 = modelled real CO2; airgun: gain 2.5-3.5 -> 0.23 = real).
+- **Finding**: with realistic CO2-contrast projected holes the live detector gets
+  2/41 (offline replay of the same recording 6/41); candidates contain the hole in
+  12/20 rounds but the wrong winner is chosen. Same "wrong winner" problem as before,
+  now reproducible in-game. Real CO2 hole contrast is still unmeasured (physical
+  session tonight).
+
+## Opt-in precision flash for exact hit XY — 2026-11-18
+
+`src/engine/precision_flash.py` (engine mechanics; games only declare needs):
+
+- Game/scene attributes, read live every frame (proxied by `GameScene`/`OverlayScene`):
+  `hit_precision = "exact" | "region" | "shot_only"` and
+  `precision_flash = "auto" | "off" | "on"`. Only `"exact"` flashes by default;
+  `"off"` always wins and may be toggled by the game at any time.
+  Env `SKJUTBANA_PRECISION_FLASH=off` disables globally, `=on` forces (testing).
+  (Superseded later on 2026-11-18, see the top section: five levels, Kompetensprov uses
+  ZONE + series, and the timing values below were shortened: settle 0.35 s, flash 0.18 s,
+  min interval 0.5 s, reference retry 1 s, max_wait 0.9 s, latency ~0.95 s.)
+- When enabled: one reference flash when the range is quiet (failed reference:
+  retry after 10 s, max 3, never flicker); after a shot burst, wait until 0.6 s
+  without a new peak (doubles/strings share ONE flash), then one 0.2 s white flash
+  over the whole window, at most every 0.8 s. Flash frames are selected by a
+  full-frame brightness plateau (rolling-shutter transitions rejected), averaged,
+  divided by the previous flash (cancels projector profile and old holes), and
+  new dark blobs inside the eroded lit area are the new holes (max = shots in the
+  burst). That flash becomes the next reference. Frames after a peak that arrives
+  during the flash are excluded so that shot gets its own flash.
+- While a reference exists, ordinary camera hits are held and the flash XY is
+  delivered through the normal `hit_input.push_camera_hit`; an invalid flash
+  releases the held ordinary hits unchanged. Latency shot -> hit ~1.3 s.
+- Tunables: `settings.json` key `precision_flash` (fields of `FlashConfig`).
+
+Evidence (RECORDED_SOURCE optical, projected 3 mm dots, 12 shots each in singles/
+doubles/strings, `bench optical-holes --flash`, `bench flash-score`):
+
+| Background | Flash | Without flash (pilot flags H1+H3′, replay) |
+|---|---|---|
+| gray | 12/12, 0 false | 24/24 (2026-11-17) |
+| dark (35 grey) | 12/12, 0 false | 0/12 |
+| photo (sniper_woods) | 12/12, 0 false | 7/24 (2026-11-17) |
+| moving (no freeze) | 12/12, 0 false | 12/24 (2026-11-17; 15/24 with game freeze) |
+
+8 flashes per 12 shots (1 reference + 1 per burst). Error after removing the common
+calibration shift: median 1.6-2.1 px (~1.5 mm), max 6-7.5 px. The common shift
+(-4..-5.6 px x) is calibration drift since 2026-11-17 (`calibration-check`:
+viewport centre shift -3.2 px, marker median 3.7 px); the ordinary detector shows
+the same offset on the same session. Not yet validated with real projectile holes.
+
+Harder projected holes (`--hole-style varied`: 0.8-1.5x size, some elongated, hole
+darkens the projected light to 55-85 % instead of black, also under the flash): 8/12
+on gray, dark, photo and moving, 0 false, residual 1.9-2.3 px. Misses are the
+smallest/weakest holes (~20 % darkening on ~1.5 screen px), which produce no
+candidate. `bench flash-replay` (offline re-run of the measurement on recorded
+frames, reproduces 8/12 exactly) shows that lowering `min_darkening` to 0.03/0.02
+mostly adds false candidates (structured flash-to-flash differences, not sensor
+noise), so the default stays 0.06 until the synthetic holes are calibrated against
+real hole appearance (real-hole library in progress, `/data/skjutbana/hole_library/`).
+
+Caveat on the "dark without flash 0/12" row: a projector cannot darken ambient
+light, so a projected dot on a dark scene is far weaker than a real hole. Real
+holes photographed under projector BLACK (2026-10-13 GT capture) still darkened
+~24 grey on a ~96 grey board (ambient light), so the optical dark test is
+pessimistic for the ordinary detector.
+
+Real-hole library (`/data/skjutbana/hole_library/`, 71 stamps from labelled physical
+traces + the 2026-10-13 uniform-light GT capture; README/stats.json/contact sheet,
+`extract.py` reproducible): real holes are NOT black dots. Relative depth median 0.28
+(IQR 0.18-0.37), roughly multiplicative (~0.7-0.8x local brightness), also on dark
+content (98-120 grey: depth ~0.30, SNR ~23) and under projector black (depth
+0.20-0.56); core diameter ~7 camera px (4.5 mm airgun era; AR15 holes are smaller and
+not yet measured), aspect ~1.23, ~6 % tears/streaks, no bright rim (faint dark halo).
+The varied projected holes (depth 0.15-0.45) are therefore a fair-to-hard model;
+the black-dot rows above are easier than reality. In 55/63 old traces the hole is
+already visible ~1.4 s before the audio trigger: consistent with the ffmpeg audio
+burst lateness root cause fixed 2026-11-17 (parec), so those traces' PRE/POST pairs
+are not usable without re-timing.
+
+Codex review 2026-11-18 (all fixed): peaks are registered before the shot step
+(`pre_step`, from the audio queue) so no ordinary hit escapes the hold; a valid flash
+with fewer holes than shots releases unmatched held ordinary hits; flash frames
+(receive time in [on, off+0.25 s]) are hidden from ordinary detection
+(`get_ring_snapshot`/`get_new_frames_since_last_pickup` filtered, the flash reads
+the unfiltered ring); the worker gets snapshots, and peaks during a flash form the
+next burst with their own flash. All wrapping is lazy: nothing is installed until a
+scene enables the flash. Reference retries (max 3, 10 s apart) are extra flashes.
+
+Selftest: `python3 -m automation.precision_flash_selftest` (16 tests).
+
+## Live-path bench, source recording, calibration and timing hypotheses — 2026-11-17 (evening)
+
+**OFFLINE + OPTICAL EVIDENCE ONLY; NO PHYSICAL ACCURACY CLAIM. All detector
+hypotheses are opt-in (default OFF).** Reviewed with Codex (rounds 1–7).
+
+*Infrastructure (portable live ↔ offline, same code):*
+- `shot_path_step()` extracted from `run_v2224`; live loop and offline runtime
+  call the identical shot path. `automation/bench_fidelity_selftest.py` proves
+  the offline runtime installs the same 87 patched methods as `main.py`
+  (incl. `apply_bootstrap`, which runs at `src.engine.app` import).
+- `src/engine/offline/virtual_runtime.py` (virtual wall/monotonic clock,
+  single-worker virtual executor with Future contract, AI shadow disabled,
+  trace writing disabled), `ar15_scenarios.py` (camera-space hole model at
+  calibrated px/mm, muzzle/impact/echo audio, 25 fps, receive latency),
+  `paired_stats.py` (exact McNemar + paired bootstrap).
+- `automation/bench`: `synth`, `ab`, `compare`, `replay` (recorded source
+  sessions with their own recorded settings), `optical-holes` (projected dots,
+  real optics), `calibration-check [--save]`. Guide: `automation/bench/README.md`.
+- Opt-in continuous source recording (`SKJUTBANA_SOURCE_RECORD=1`): raw MJPG
+  bytes + PCM + metadata to `/data/skjutbana/source_sessions`; replay decode is
+  bit-exact; disk guard 4 GB start / 2 GB stop; ~24 fps in recording mode.
+
+*Measured hardware findings:*
+- Projector banding: exposure 15.7 ms vs 60 Hz projector gave frame-to-frame
+  banding p99 13 grey; 16.7 ms gives 6. Now opt-in setting
+  `camera.exposure_time_absolute` (set to 167 in the local settings file).
+- Calibration was physically shifted ~25 camera px (~1.7 cm) vs 2026-09-24;
+  re-done: median 2.5 px, edges up to 16 px (lens distortion, homography only).
+  Backup: `/data/skjutbana/backups/settings.backup_20261117T221929.json`.
+- Optical lab `response_measure` used a whole-image centroid (reported 80–480
+  px); now a local half-max centroid (25 selftests pass).
+- Playfield resolution only ~1.0–1.6 px/mm: a 2–3 mm AR-15 hole is 2–4 px.
+
+*Detector finding (synthetic live path and recorded projected dots):* with
+correct audio time the first FAST job used a frame received before the hole
+could be visible; static old holes were then confirmed and emitted
+(`pre_shot_change=0`). Doubles < ~0.3 s always lost shot 1 because evidence and
+confirmation stopped hard at the next audio peak. Hypotheses:
+H1 `SKJUTBANA_MIN_POST_AGE_S=0.11`, H3′ `SKJUTBANA_CAUSAL_OWNERSHIP=1`
+(evidence until next_peak+min_post_age; later confirmation only for proposals
+with originating change), H2 `SKJUTBANA_REQUIRE_NOVELTY=<grey>` (min of
+originating change and confirmation darkening; confirmation alone is
+noise-max biased). Synthetic 65-case stepwise A/B (before final H2/H3′
+revisions): base 32 → H1 50 (p=0.005) → H1+H3 58 (p=0.04) → +H2 no change.
+Recorded real-optics projected-dot sessions (24 × 3 mm dots each, 25 fps,
+replayed through the live path; RECORDED_SOURCE_LIVE_PATH, not physical hits):
+gray background base 11/24 (12 unmatched emissions) → H1 18/24 → H1+H3′
+**24/24, 0 unmatched**; moving background base 7/24 → H1+H3′ 12/24 (11
+unmatched) → +H2 9/24. Sessions: `/data/skjutbana/source_sessions/20261117T220813Z_2842f9a5`
+(gray) and `…T220854Z_e1f8a9b4` (moving).
+
+Agreed next steps (Claude + Codex): physical pilot with H1+H3′ as an explicit
+arm while recording sources (replay same recordings flags-off as paired
+baseline); keep defaults OFF; do not enable H2; moving backgrounds are the main
+blocker (Skyttegrav is a separate ModernGL process, the engine scene freeze does
+not apply) → first try an opt-in engine shot-freeze command via the game bridge,
+then render-aware PRE; measure echo/false-audio from recorded PCM before
+touching the audio cooldown. Real app with recording: 25.1 fps, 0 gaps. Live
+camera ring = 300 × 4K BGR ≈ 7.5 GB RAM (replay caps it at 100 frames).
+
+*Night 2026-11-17/18 additions (offline; projector used until ~23:30):*
+- Optional lens model (`src/engine/lens_model.py`, calibration field
+  `camera_distortion`; plain top-level homography unchanged so crop/ROI keep
+  today's behaviour). Leave-one-out on the 24 saved markers: homography median
+  3.4 mm / max 12.2 mm → lens model 1.4 mm / 4.4 mm. (Saved 2026-11-18; see top section.) Originally not saved:
+  `python3 -m automation.bench calibration-check --distortion --save` with the
+  projector on validates and stores it only if it beats the homography.
+- Optical rig now paces at 60 Hz (recordings 25 fps, 0–2 gaps; the real app
+  with recording also 25.1 fps, 0 gaps). New sessions: moving+freeze
+  (`…T222725Z_a5735418`, models Skyttegrav's pause on SHOT), textured photo
+  (`…T222812Z_98e68fe9`). H1+H3′: moving+freeze 10→15/24, photo 0→7/24.
+  Hole visibility depends on projected brightness (dot darkening 8–17 grey in
+  dark regions vs 30–50 bright) → dark/textured scenes are a physics limit;
+  an opt-in engine flash would address it (gameplay decision for the user).
+- H4 (PRE averaging) verified active, no effect anywhere → off. H5 (local
+  contrast preference) REJECTED: synthetic WORSE (33→27/39, p=0.03).
+- Nightly bench installed (cron 02:30): first run clean; logistic candidate
+  scorer `OFFLINE_REPLAY_ONLY_UNVALIDATED` holdout top-1 88/108 vs live score
+  87/108 (AUC 0.98 vs 0.89; not significant). The textured holdout session was
+  inspected for H5 and must be replaced by a fresh session.
+
+## Audio lateness and camera frame-rate root causes — 2026-11-17
+
+**LIVE ACQUISITION FIXED; PHYSICAL RE-VALIDATION PENDING; NO ACCURACY CLAIM.**
+
+1. *Audio timestamps were 0.35–1.8 s late.* Measured over 39 labeled physical
+   shots (all sessions with GT where the hole localizes ≤15 px): the hole's
+   step change appears a median 1.2 s **before** `peak_ts`; 38/39 PRE snapshots
+   already contained ≥87 % of the final hole signal. Camera latency can only
+   make holes appear later, so the audio anchor was late. Live measurement: the
+   `ffmpeg -f pulse … -f s16le -` pipe delivers PCM in ~1.5 s bursts (also with
+   `-fflags nobuffer -flush_packets 1 -fragment_size`). `parec --latency-msec=10`
+   delivers 256-sample blocks every ~16 ms (p99 21 ms). `_thread_main` now tries
+   `parec` first; ffmpeg pulse/alsa remain fallbacks. This explains the unexplained
+   1.42–1.57 s offset in the 2026-10-18 D02 deep dive.
+2. *Camera ran at ~12.4 fps instead of 25.* `CAP_PROP_BUFFERSIZE=1` makes V4L2
+   drop every other 4K MJPG frame (V4L2 `POS_MSEC` spacing 80 ms, no app sequence
+   gaps). Standalone: BUFFERSIZE 1 → 11 fps, 2 → 24.2 fps (frame age 63 vs 82 ms).
+   CameraManager now requests 2; measured 24.8 fps in-app idle.
+3. Opt-in `SKJUTBANA_DRAIN_READY_BEFORE_TIMEOUT` drain ran every update and could
+   consume zero-proposal results with `allow_rescue=False` (blocking FULL rescue)
+   and discard post-deadline rescue results. It now only drains events at/after
+   their deadline and not awaiting rescue; `take_ready_for_active(keep_shot_ids=…)`
+   keeps other pending shots' results queued. Behavioral selftests added.
+
+**Consequence:** every physical trace and every PRE/POST-, onset- or
+`peak_ts`-relative feature, threshold, learned weight and negative conclusion
+derived from them (v2222 novelty factors, v2225 confirm thresholds, v252/v253
+freshness/waits, confirmation-selection shadow formula, canonical challenger,
+ranker_v3/v5/v6 statistics, temporal-impact AUCs, D02 "penalty removal still
+loses") was measured with contaminated PRE and must be re-measured on new
+captures before being trusted or tuned. Known pre-existing selftest failures:
+`object_hit_selftest` (3) and `v2231_selftest` (1), both also failing at `b59caa4`.
+
+## Audio dispatch queue timing — 2026-10-18
+
+The installed V2.22.6 audio override now stamps provenance-backed events with
+`event_enqueued_monotonic` and `pending_depth_at_enqueue`, matching the base
+detector contract used by main-thread dispatch to compute `dispatch_queue_age_ms`.
+Direct synthetic chunks without acquisition metadata remain supported and report
+queue age as unavailable. Deterministic selftests reproduce the missing metadata
+and pass with the fix. This improves scheduling observability only; it does not
+change trigger decisions or establish selected-XY accuracy.
+
+## Audio event timestamp anchoring — 2026-10-18
+
+The base `AudioPeakDetector._process_chunk` uses the PCM block's recorded
+wall-clock receipt when available. Normal app startup installs the V2.22.6
+override, which previously kept using processing time and therefore bypassed that
+base-path correction. The override now has an explicit OFF-by-default
+`SKJUTBANA_AUDIO_RECEIPT_ANCHOR=1` research option; it uses receipt time for both
+event timestamping and cooldown comparisons, with processing time still recorded
+in diagnostics. Synthetic regression separates receipt time 100 s from
+processing time 200 s. Receipt is not ADC time or physical impact time, and no
+selected-XY accuracy claim follows. Normal runtime remains on processing time
+unless the option is explicitly set.
+
+## ArUco fit-quality research guard — 2026-10-18
+
+The calibrator can fit four marker centers with zero client-space reprojection
+error and return `success=True`, while its stricter all-marker camera-space
+foundation check records `CALIBRATION_FIT_POOR` because the sample is insufficient.
+`SKJUTBANA_REQUIRE_FOUNDATION_FIT=1` now provides an OFF-by-default research guard
+that returns an unsuccessful result while preserving the calibration diagnostics;
+normal calibration behavior is unchanged when unset. A deterministic synthetic
+regression demonstrates both paths. No measured calibration setup, selected XY,
+or physical accuracy improvement was evaluated.
+
+## Physical root-cause deep dive — 2026-10-18
+
+**OFFLINE INVESTIGATION COMPLETE; NO ACCURACY PROMOTION.** D02 shots 1 and 3 have
+independently labeled impacts. Their saved camera sequences show persistent local
+change about 1.42–1.57 s before the associated receipt-anchored audio event; the
+selected PRE frame is about 0.37–0.38 s before that event and already contains
+the hole. Camera exposure time and audio device/sample time are unavailable, so
+the cause of the offset is not proven.
+
+A bounded PRE-background fallback defect was reproduced: it could choose the
+nearest ring frame even when all candidates were newer than the shot cutoff. The
+fallback now refuses frames newer than audio peak−200 ms and reuses the existing
+scene/history fallback. This affects only the fallback path; D02 shots 1/3 did not
+use it, so it does not explain their failures and no accuracy gain is claimed.
+
+D02 event 3 had a 2.10 px candidate that survived through confirmation but lost
+final ranking after a 10x PRE-novelty penalty. Event 1's nearest pre-limit proposal
+was 9.67 px from GT and was removed by the candidate cap; none of the nine
+proposals within 42 px had supported local onset. Current D02 emissions were 0/2
+within all tested tolerances, with 4/4 independently labeled no-impact events
+emitting. No selector was changed. Full report and reproducible audit: `/data/skjutbana/evaluation_runs/physical_root_cause_deep_dive_20261018_01/REPORT.md`.
+
+A broad text-search command accidentally used the evaluation-runs root and may have
+traversed S03. No S03 result was intentionally analyzed or modified, but this
+session cannot certify S03 as untouched in the read/access sense.
+
+
+## Opt-in physical decision trace v1 — 2026-10-18
+
+**IMPLEMENTED / SYNTHETICALLY VERIFIED; PHYSICAL CAPTURE VERIFICATION PENDING.**
+The existing `PhysicalTraceRecorder` now emits an optional `decision_trace_v1`
+projection inside each ordinary physical `trace.json`. It reuses the existing
+complete track audit for candidate identity/XY, evidence references, selector
+eligibility/rejection/rank and V2.52/V2.53 branch hops; the same bounded writer
+persists it after the event. AI mode/apply status and the actual HitScanner output
+coordinate are captured around the existing chooser/emitter hooks. Rescue requested
+and consumed status comes from `RescueRouterV2225`.
+
+Opt-in is separate from ordinary capture: `physical_decision_trace_enabled` or
+`SKJUTBANA_PHYSICAL_DECISION_TRACE=1`, and the existing physical trace capture must
+also be enabled. Default remains off. Source-frame identity is exposed only when
+the candidate timestamp exactly joins a saved frame's acquisition stream/sequence;
+unmatched IDs remain `UNRECORDED`.
+Application receipt/observation times are not exposure or impact timestamps.
+
+The 2026-10-19 diagnostic extension snapshots the matched known-hole ID/XY and
+the selected track candidate separately from the arguments supplied to
+`HitInput.push_camera_hit`. When decision tracing is enabled, `outcome.final_camera_xy`
+now uses those event-owned push arguments instead of the mutable scanner debug
+cache. A failed push call is recorded as an attempted XY with `call_state=RAISED`
+and an exception type; it is not reported as emitted. `RETURNED` means only that
+the call returned, not that downstream gameplay handled the event. These are
+synthetic diagnostic-contract checks only; selected physical accuracy remains
+unmeasured and live selection/emission behavior is unchanged.
+Candidate XY and evidence values are referenced from the existing audit, not
+rewritten. No detector, selector, AI authority, gameplay or OBJECT_HIT behavior
+changed.
+
+Seven new synthetic tests and the existing recorder, track-audit, V2.52/V2.53 and
+selection regression sets pass. A synthetic 32-track finalizer projection took
+median1.51ms/P95-of-batch-means1.56ms off the shot path and produced about67KB of
+decision-view JSON with about654KB synthetic `tracemalloc` peak scratch allocation. A bounded selector-path append measured about0.82µs incremental
+per recorded hop over the disabled hook in a microbenchmark. These are software
+microbenchmarks, not physical latency. One unrelated `object_hit_selftest` run has
+three failures (1 assertion, 2 missing `object_decision` keys); the same failures
+recurred on all three runs. The object-query/gameplay path was not modified.
+
+Run details and schema example:
+`/data/skjutbana/evaluation_runs/physical_decision_trace_v1_20261018_01/REPORT.md`.
+
+## Integrated checkpoint and generic physical evidence — 2026-10-17
+
+Operator update: development work was integrated into dev and pushed; this session
+started with a clean `codex/physical-ai-lab-foundation` at `b59caa4`. Skyttegrav 3D
+uses SHOT_ONLY and one real shot has been observed to pause the game. That verifies
+the shot-trigger/game connection, **not object-hit or exact-coordinate accuracy**.
+Game integration remains unchanged. General physical detection is the active work;
+the safe offline selector remains23/24/25/26, candidate oracle32/33/34/36.
+
+The documented render-provenance gap now has an opt-in foundation:
+`play-can --object-crops --render-history` records immutable Pygame presentation
+history, bound to existing shot IDs, frozen geometry and saved calibration. It
+reuses the main render/flip/shot-freeze hooks and PhysicalTraceRecorder writer.
+Audio dispatch binds references only; hashing, image deduplication and writes are
+background work. Read-only `automation.physical_render_history --capture CAPTURE`
+validates hashes and recovers completed sidecars after interrupted finalization.
+No saved render is chosen as physical impact truth or fed into a detector.
+
+**External/SHOT_ONLY rendering is UNAVAILABLE.** In particular, the parent Pygame
+launcher is not Skyttegrav 3D's projected scene. No game/process bridge was changed.
+CPU flip time is not projector photon time, and receipt-anchored audio is not
+physical impact time. Missing/evicted history, oversized surfaces, backlog and
+write failures remain explicit. Render pixels are separate from camera/GT roles.
+
+Synthetic cost at800x600 /1920x1080: copy-hook median0.516/1.506ms and
+P950.588/5.842ms; shot binding median0.021/0.027ms. This is an opt-in main-thread
+copy cost, **not zero and not measured gameplay latency**. The initial strided
+copy cost7.12/34.45ms was replaced by pixel-identical native Pygame/CV conversion.
+One deduplicated image write costs7.56/32.65ms on the background writer; static
+history hashing/drain costs161/181ms. Bounds and commands are in the runbook.
+
+**IMPLEMENTED / OFFLINE VERIFIED; PHYSICAL VALIDATION PENDING.** No camera,
+projector, shooting or model search was started. Projector explainability remains
+UNAVAILABLE without measured optical transfer and physical timing/GT; the separate
+three-shot GT acceptance remains pending. Relevant merged capture/render/optical/
+replay/trace suite:237 tests total,236 pass and1 sandbox socket skip. Separate
+V2.22.4/V2.25 checks:57 pass. Reports, synthetic artifacts and tests:
+`/data/skjutbana/evaluation_runs/render_history_foundation_20261017_191146/`.
+
+**Optical transfer falsification (2026-10-18):** the existing three neutral
+WHITE/BLACK/MID_GRAY triplets now have a read-only, hash checked audit via
+`physical_optical_lab transfer`. Fixed per-channel endpoint interpolation misses
+held gray by about8 DN mean absolute error in responsive camera pixels; a
+two-other-triplet coefficient improves some mean errors while worsening blue P95
+from17–18 to42–44 DN. Endpoint response also varies strongly by B/G/R, with median
+channel spans2/9/17 DN. Same-capture samples are not session validation and contain
+no repeated neutral state for identifying flicker or cause. Synthetic gamma and
+1px-misalignment controls leave larger off-target residual than an injected8 DN
+local perturbation; fitting the evaluated pair itself erases it entirely. This
+rejects immediate pixelwise transfer subtraction as a safe ranking feature. It
+does not explain existing wrong selected coordinates, change emitter accuracy, or
+justify a mask/veto. Full paired results and seed/source hashes:
+`/data/skjutbana/evaluation_runs/optical_transfer_research_20261017_180104/REPORT.md`.
+No model, selector or live authority changed.
+
 ## One enemy / one frozen hitbox research foundation — 2026-10-14
 
 **IMPLEMENTED / OFFLINE VERIFIED. PHYSICAL SINGLE-REGION ACCEPTANCE PENDING.**
@@ -2491,6 +2909,15 @@ retained and upgraded with faster movement plus frozen/current motion distance.
 Next action: repeat the short physical Hit Context Test matrix. Only after clean
 local-ROI results should development proceed to V2.25.0 reusable objects.
 
+**Stage 03 software regression (2026-10-18):** The V2.24.3 calibration-refresh
+wrapper had retained the earlier positional-only `snapshot()` signature, while
+V2.22.3 now supplies pose provenance, capture monotonic time and queued batch
+size as keyword arguments. Both callers could swallow the resulting `TypeError`,
+leaving shot-time object geometry unfrozen. The wrapper now forwards positional
+and keyword arguments unchanged; `automation.v243_selftest` covers the path.
+This repairs metadata/snapshot integration only and does not establish physical
+ROI acceptance or selected-XY accuracy. Physical acceptance remains pending.
+
 <!-- V2.24.4 DETECTOR_WORKING_SPACE_ROI -->
 ## V2.24.4 checkpoint — detector working-space ROI mapping
 
@@ -2713,3 +3140,119 @@ acceptance remains pending; historical traces are not rewritten or claimed fixed
 ## Physical S01 recovery
 
 The 2026-09-09 S01 run was written into the historical biathlon5 root because the old settings trace root remained active. A separate recovered copy was created at `content/ai/physical_traces/session_20260909_S01_recovered_20260909`; it contains 11 timestamped runtime events and complete PRE/POST frame references. It has since been manually labeled: ten physical shots and nonphysical event 4. Event 11 has incomplete terminal persistence, so only nine physical decisions support final-selection metrics. The contaminated historical directory is preserved and must not be used as a clean session. `physical_collection start` reserves a unique root, configures runtime settings, records a byte-for-byte settings backup, and preflight verifies the actual configured root.
+
+
+## Shot-critical reliability status (2026-10-18)
+
+- Audio callback queue age, dispatch batch, callback duration, worker monotonic
+  timing, result integration and HitInput call boundaries are now available in
+  opt-in physical traces. This measures software boundaries only; it does not
+  establish ADC, exposure or external-display timing.
+- `SKJUTBANA_DRAIN_READY_BEFORE_TIMEOUT=1` is an opt-in bounded path that drains
+  only already-completed detector results whose worker finish preceded the
+  original deadline and whose source frame remains within the existing
+  association window. It does not wait, extend the deadline or start rescue.
+  It is offline-verified and not physically accepted; default behavior remains
+  unchanged.
+- Batched object snapshots record current-pose provenance and batch size.
+  Historical event-time pose remains unavailable when the scene pose history
+  was not captured. See `/data/skjutbana/evaluation_runs/
+  shot_critical_reliability_fix_20261018_01/REPORT.md`.
+
+## PRE snapshot provenance in V2.22.3 — 2026-10-18
+
+The installed recent-PRE wrapper now records whether its snapshot came from a
+camera-ring frame, a static scene reference, or no source, with timestamp semantics
+that distinguish camera receive time from a synthetic relative value. Physical
+trace capture only attaches camera acquisition identity to the camera-ring case;
+a synthetic `peak_ts - 1s` scene-reference timestamp cannot accidentally join an
+unrelated camera frame with the same numeric timestamp. This is metadata-only:
+PRE choice, detector behavior and selected XY are unchanged. Synthetic regression
+tests pass; no selected-XY accuracy or physical timing claim follows.
+
+## Pending shot frame freshness diagnostic — 2026-10-18
+
+`SKJUTBANA_REPORT_NO_FRESH_PENDING_FRAME=1` makes HitScanner report
+`pending_shot_no_fresh_camera_frame` when an event is pending but the current
+update has no new frame timestamp. This is diagnostic only: it does not redetect
+a stale image or change event timeout, hit/miss resolution, candidate selection or
+emitted XY. OFF by default. Deterministic fake-camera coverage is in
+`automation/shot_frame_status_selftest.py`; no physical accuracy claim follows.
+
+## Audio receipt timestamp guard consistency — 2026-10-18
+
+The base `AudioPeakDetector._process_chunk` now follows the installed V2.22.6
+contract: `SKJUTBANA_AUDIO_RECEIPT_ANCHOR=1` is required before block receipt
+wall time can anchor event timestamps. Direct/base-method consumers therefore
+retain processing-wall-time behavior by default. This only aligns the scope of
+the research timing option; it does not establish ADC/acoustic impact time or
+change hit selection. `physical_foundation_selftest.py` covers both modes.
+
+## Stage 08 addendum — end-to-end latency and load faults (2026-10-18)
+
+`AsyncDetectorV2224.submit_if_needed` now contains executor submission exceptions, records `worker_submit_error`, leaves the event retryable as PENDING, and does not reserve its frame timestamp. This prevents a resource failure from escaping the main update loop after falsely marking detector work PROCESSING. The opt-in stale-frame status also now covers the no-current-frame branch. These are load/status reliability fixes; they do not change detector evidence, XY, or hit authority. Deterministic selftests pass. No comparable selected-XY evaluation or physical validation was performed.
+
+## Camera absence and worker retry lifecycle — 2026-10-18
+
+`HitScanner.update()` can service pending shot resolution against already
+observed tracks when no current camera frame exists, enabled only by
+`SKJUTBANA_RESOLVE_WITHOUT_CAMERA=1`. The default remains unchanged because this
+path can emit an already ready stale track. It creates no candidates or new image
+observations. Deterministic regressions cover opt-in overdue expiry, a recent
+event remaining pending, and the default-off contract. A fail-once executor
+regression also verifies a later async submission is harvested and consumed once
+with its original shot ID, frame time, and candidate XY. These are
+lifecycle/reliability corrections only; selected-XY accuracy and physical
+validation remain unmeasured.
+
+### Opt-in emission XY provenance correction — 2026-10-19
+
+The existing `physical_decision_trace_v1` emission row now captures the exact
+arguments passed to `HitInput.push_camera_hit` at the call boundary and reports
+UNRECORDED if that boundary was not observed. It no longer labels the mutable
+`last_best_candidate` debug cache as the actual emitted coordinate. Diagnostic
+capture remains gated by physical trace + decision trace opt-in; hit selection,
+re-hit substitution and default emission behavior are unchanged. A synthetic
+regression exercises a 10 px candidate re-hit at stored old-hole XY and then
+mutates the global debug cache before serialization. This verifies provenance
+semantics only; selected physical XY accuracy is INTE MÄTT.
+
+### Re-hit-hole provenance completion — 2026-10-19
+
+The same opt-in emission row now also carries the selected track XY and a copied
+matched-hole ID/XY for re-hit substitutions. Non-re-hit rows report
+NOT_APPLICABLE; a re-hit without the capture is UNRECORDED. A deterministic
+synthetic regression verifies candidate `(106,108)`, old-hole/push `(100,100)`
+and hole ID `9` in one event-owned record. The re-hit rule and emitted XY are
+unchanged; physical accuracy remains INTE MÄTT.
+
+### Opt-in emission outcome and push failure provenance — 2026-10-19
+
+Decision-trace opt-in now records push arguments and whether
+`HitInput.push_camera_hit` returned or raised. The bootstrap wrapper invokes the
+trace hook in `finally`, so a failed push is recorded before the original
+exception is re-raised. Opt-in `outcome.final_camera_xy` is based on the same
+push arguments, never the mutable scanner debug cache; an attempted-but-failed
+push is not marked emitted. `RETURNED` does not prove downstream subscriber or
+gameplay handling. Synthetic tests verify the direct emitter and bootstrap path;
+selected physical XY accuracy and physical validation remain unmeasured.
+
+### Decision-trace audit-fallback reference correction — 2026-10-19
+
+When the opt-in decision trace falls back from `decision_input.complete_track_audit`
+to `terminal_track_audit_v1`, its evidence references and source label now name
+the ledger actually used. A synthetic regression failed before the correction and
+passes after it. This changes trace interpretation only; it does not change
+selection, emitted XY or defaults. Physical accuracy remains INTE MÄTT.
+
+- **AI Team V6 steg 09 (2026-10-19):** opt-in decision trace klassar nu källframe-identitet som `AMBIGUOUS` när flera olika sparade stream/sequence-par delar samma source timestamp; den tidigare timestamp-only overwrite kunde annars felaktigt ange sista ramen som `AVAILABLE`. Syntetiskt regressionstest reproducerade felet före ändring och fokuserade trace-/provenienssvit passerade efteråt. Ingen selector/emission eller fysisk accuracy påverkas/verifieras; runtime-frekvens för duplicerade timestamps är okänd. Se RUN_DIR `STAGE_09_REPORT.md`.
+
+## Decision-trace timestamp field contract — 2026-10-19
+
+`candidate_ledger.tracks[].source_observation_timestamp` preserves the raw
+candidate `timestamp` field state. `source_frame_ids` may use `source_frame_ts`
+only as a fallback for the exact saved-frame identity join; that fallback does
+not rewrite the observation timestamp. The opt-in trace labels this distinction
+explicitly. A synthetic regression test covers null raw timestamp plus available
+fallback timestamp. This is diagnostic provenance only; no XY, selection or
+emission behavior changes, and no physical accuracy was measured.

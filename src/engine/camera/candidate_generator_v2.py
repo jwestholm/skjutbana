@@ -645,6 +645,8 @@ class CandidateGeneratorV2:
             v2=frame_v2_candidates,
             cfg=cfg,
         )
+        from src.engine import winner_selection_flags as _wsf
+        _wsf.attach_h11(frame_merged, darkening, absdiff, x0, y0)   # H11 (opt-in): legacy too
 
         # The bank is now preservation-only: every current candidate survives;
         # confirmed earlier candidates may fill UNUSED slots until F2 evaluates.
@@ -1722,8 +1724,16 @@ class CandidateGeneratorV2:
                 "v2_refine_shift_px": float(refine_shift),
             }
 
+            if "rank_raw" in features:
+                # H6 (opt-in): rank = score + excess; score itself unchanged.
+                candidate["v26_rank_raw"] = float(features["rank_raw"])
+                candidate["v26_rank_excess"] = max(0.0, float(features["rank_raw"]) - float(features["score"]))
+
             self._apply_known_hole_penalty(scanner, candidate)
             candidates.append(candidate)
+
+        from src.engine import winner_selection_flags as _wsf
+        _wsf.attach_h11(candidates, darkening, absdiff, x0, y0)   # H11 (opt-in), ranking-only
 
         candidates.sort(key=lambda c: float(c.get("score", 0.0)), reverse=True)
         return candidates
@@ -1892,9 +1902,10 @@ class CandidateGeneratorV2:
             + 0.11 * dog_value
             + 0.06 * min(z, 25.0)
         )
+        raw_score = float(score)
         score = float(np.clip(score, 3.6, 35.0))
 
-        return {
+        features = {
             "area": area,
             "radius": radius,
             "circularity": circularity,
@@ -1907,6 +1918,11 @@ class CandidateGeneratorV2:
             "dog_value": dog_value,
             "patch_saliency_max": float(np.max(patch_sal)) if patch_sal.size else peak_sal,
         }
+        from src.engine.winner_selection_flags import uncapped_rank, v2_rank_raw
+        if uncapped_rank():
+            # H6 (opt-in): ranking-only value without the 35 clip.
+            features["rank_raw"] = v2_rank_raw(raw_score)
+        return features
 
     @staticmethod
     def _apply_known_hole_penalty(scanner: Any, candidate: dict[str, float]) -> None:
@@ -1924,12 +1940,15 @@ class CandidateGeneratorV2:
         _hole, dist = near
         duplicate = max(1.0, float(getattr(scanner, "duplicate_radius_px", 18.0)))
 
-        if dist <= duplicate * 0.5:
-            candidate["score"] *= 0.15
-        elif dist <= duplicate:
-            candidate["score"] *= 0.4
-        elif dist <= duplicate * 1.5:
-            candidate["score"] *= 0.7
+        # Default factors 0.15/0.4/0.7; H9b (opt-in) softens them.
+        from src.engine.winner_selection_flags import known_hole_factor
+        factor = known_hole_factor(float(dist), duplicate)
+        if factor != 1.0:
+            candidate["score"] *= factor
+            # H6 ranking fields carry the same penalty (absent when H6 is off).
+            for key in ("v26_rank_raw", "v26_rank_excess"):
+                if key in candidate:
+                    candidate[key] *= factor
 
         candidate["near_known_hole_dist"] = float(dist)
 
@@ -2402,6 +2421,11 @@ class CandidateGeneratorV2:
             combined["detector_agreement"] = 1.0
             combined["detector_agreement_distance"] = float(best_dist)
             combined["score"] = max(old_score, new_score) + agreement_bonus
+            if "v26_rank_excess" in old or "v26_rank_excess" in v2_candidate:
+                # H6 (opt-in): uncapped merge rank = max(uncapped inputs) + bonus.
+                old_rank = old_score + max(0.0, _safe_float(old.get("v26_rank_excess", 0.0), 0.0))
+                new_rank = new_score + max(0.0, _safe_float(v2_candidate.get("v26_rank_excess", 0.0), 0.0))
+                combined["v26_rank_excess"] = max(0.0, max(old_rank, new_rank) - max(old_score, new_score))
             merged[best_index] = combined
             if tracing:
                 inputs = lineage[best_index] + [len(legacy) + v2_index]

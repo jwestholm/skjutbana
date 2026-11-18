@@ -24,6 +24,25 @@ class CameraFrame:
     acquisition: dict | None = None
 
 
+def apply_frame_transform(frame_bgr: np.ndarray, rotation: int, mirror_horizontal: bool,
+                          mirror_vertical: bool) -> np.ndarray:
+    """Shared by live acquisition and offline source replay (same pixels)."""
+    frame = frame_bgr
+    if rotation == 90:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation == 180:
+        frame = cv2.rotate(frame, cv2.ROTATE_180)
+    elif rotation == 270:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if mirror_horizontal and mirror_vertical:
+        frame = cv2.flip(frame, -1)
+    elif mirror_horizontal:
+        frame = cv2.flip(frame, 1)
+    elif mirror_vertical:
+        frame = cv2.flip(frame, 0)
+    return frame
+
+
 class CameraManager:
     """
     Camera manager with a dedicated reader thread.
@@ -76,8 +95,10 @@ class CameraManager:
         self._frame_sequence = 0
         self._stream_id = uuid.uuid4().hex
         self.buffer_request = {}
+        self._source_recorder = None
+        self._raw_mjpg = False
 
-    def _timestamped_frame(self, pixels, started, completed, wall_ts, kind='read'):
+    def _timestamped_frame(self, pixels, started, completed, wall_ts, kind='read', decode_mode='cap_read'):
         self._frame_sequence += 1
         backend = {}
         for name in ('CAP_PROP_POS_MSEC', 'CAP_PROP_POS_FRAMES', 'CAP_PROP_PTS'):
@@ -92,7 +113,7 @@ class CameraManager:
             camera_index=self.camera_index,
             backend_name=self.capabilities.backend_name if self.capabilities else None,
             read_start_monotonic=started, read_complete_monotonic=completed,
-            receive_wall_ts=wall_ts, capture_kind=kind, backend_timestamps_raw=backend,
+            receive_wall_ts=wall_ts, capture_kind=kind, decode_mode=decode_mode, backend_timestamps_raw=backend,
             backend_timestamp_semantics='UNVERIFIED_BACKEND_UNITS_NOT_EXPOSURE',
             exposure_monotonic=None, device_buffer_age_s=None,
             rotation=self.rotation, mirror_horizontal=self.mirror_horizontal,
@@ -117,25 +138,14 @@ class CameraManager:
         self.rotation = int(settings.get("rotation", 0))
         self.mirror_horizontal = bool(settings.get("mirror_horizontal", False))
         self.mirror_vertical = bool(settings.get("mirror_vertical", False))
+        # Opt-in: camera.exposure_time_absolute (units of 100 us). 167 = 16.7 ms
+        # = one 60 Hz projector period, which removes rolling-shutter banding.
+        # Unset keeps whatever exposure the device currently has.
+        exposure = settings.get("exposure_time_absolute")
+        self.exposure_time_absolute = None if exposure is None else int(exposure)
 
     def _apply_frame_transform(self, frame_bgr: np.ndarray) -> np.ndarray:
-        frame = frame_bgr
-
-        if self.rotation == 90:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-        elif self.rotation == 180:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-        elif self.rotation == 270:
-            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        if self.mirror_horizontal and self.mirror_vertical:
-            frame = cv2.flip(frame, -1)
-        elif self.mirror_horizontal:
-            frame = cv2.flip(frame, 1)
-        elif self.mirror_vertical:
-            frame = cv2.flip(frame, 0)
-
-        return frame
+        return apply_frame_transform(frame_bgr, self.rotation, self.mirror_horizontal, self.mirror_vertical)
 
     def _transform_description(self) -> str:
         parts: list[str] = [f"rotation={self.rotation}°"]
@@ -162,20 +172,56 @@ class CameraManager:
         self.running = True
 
         try:
-            accepted = bool(self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1))
-            self.buffer_request = dict(requested=1, accepted=accepted,
+            # BUFFERSIZE=1 measured to drop every other 4K frame (25 -> ~12 fps):
+            # the single V4L2 buffer is dequeued while the next frame arrives.
+            # Two buffers gave 24 fps and fresher frames (63 vs 82 ms age).
+            accepted = bool(self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 2))
+            self.buffer_request = dict(requested=2, accepted=accepted,
                 reported=float(self.cap.get(cv2.CAP_PROP_BUFFERSIZE)),
                 semantics='DRIVER_REPORT_NOT_PROOF_OF_ZERO_BACKLOG')
         except Exception:
-            self.buffer_request = dict(requested=1, accepted=False, reported=None)
+            self.buffer_request = dict(requested=2, accepted=False, reported=None)
 
         self.property_apply_result = apply_preferred_camera_settings(
             self.cap,
             preferred_width=self.preferred_width,
             preferred_height=self.preferred_height,
             preferred_fps=self.preferred_fps,
+            exposure_time_absolute=self.exposure_time_absolute,
         )
         self.capabilities = probe_camera_capabilities(self.cap)
+
+        # Opt-in source recording: receive raw MJPG bytes and decode them here
+        # with cv2.imdecode, so the exact bytes can be replayed offline through
+        # the same decode + transform. Ordinary runs keep cap.read() decoding.
+        self._source_recorder = None
+        self._raw_mjpg = False
+        try:
+            from src.engine.source_recording import get_source_recorder
+            recorder = get_source_recorder()
+            if recorder is not None:
+                self._raw_mjpg = bool(self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 0))
+                # One extra driver buffer of headroom for the recording writer.
+                if self._raw_mjpg:
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
+                    self.buffer_request = dict(self.buffer_request, requested=3,
+                                               reported=float(self.cap.get(cv2.CAP_PROP_BUFFERSIZE)))
+                caps = self.capabilities
+                started = recorder.start(dict(
+                    camera=dict(index=self.camera_index, backend=getattr(caps, "backend_name", None),
+                                width=getattr(caps, "width", None), height=getattr(caps, "height", None),
+                                fps=getattr(caps, "fps", None), fourcc=getattr(caps, "fourcc", None),
+                                capabilities=repr(caps), property_apply_result=self.property_apply_result,
+                                buffer_request=self.buffer_request, convert_rgb_0_accepted=self._raw_mjpg),
+                    transform=dict(rotation=self.rotation, mirror_horizontal=self.mirror_horizontal,
+                                   mirror_vertical=self.mirror_vertical)))
+                if started:
+                    self._source_recorder = recorder
+                elif self._raw_mjpg:
+                    self.cap.set(cv2.CAP_PROP_CONVERT_RGB, 1)
+                    self._raw_mjpg = False
+        except Exception as exc:
+            print(f"[SOURCE-RECORD] camera hook unavailable: {type(exc).__name__}: {exc}")
 
         # Start reader thread
         with self._lock:
@@ -215,11 +261,14 @@ class CameraManager:
                     started = time.monotonic()
                     for _ in range(3):
                         self.cap.grab()
-                    ok, frame_bgr = self.cap.retrieve()
+                    ok, raw = self.cap.retrieve()
                     completed = time.monotonic()
+                    frame_bgr, payload, decode_mode = self._decode_buffer(raw) if ok else (None, None, None)
                     if ok and frame_bgr is not None:
                         ts = time.time()
-                        self._fresh_frame = self._timestamped_frame(frame_bgr, started, completed, ts, 'grab3_retrieve')
+                        self._fresh_frame = self._timestamped_frame(frame_bgr, started, completed, ts, 'grab3_retrieve',
+                                                                    decode_mode=decode_mode)
+                        self._record_source(payload, self._fresh_frame)
                     else:
                         self._fresh_frame = None
                 except Exception:
@@ -229,21 +278,50 @@ class CameraManager:
 
             try:
                 started = time.monotonic()
-                ok, frame_bgr = self.cap.read()
+                ok, raw = self.cap.read()
                 completed = time.monotonic()
             except Exception:
                 break
 
+            frame_bgr, payload, decode_mode = self._decode_buffer(raw) if ok else (None, None, None)
             if not ok or frame_bgr is None:
                 time.sleep(0.001)
                 continue
 
             ts = time.time()
-            cf = self._timestamped_frame(frame_bgr, started, completed, ts)
+            cf = self._timestamped_frame(frame_bgr, started, completed, ts, decode_mode=decode_mode)
+            self._record_source(payload, cf)
+            self.inject_frame(cf)
 
-            with self._lock:
-                self._ring.append(cf)
-                self._read_count += 1
+    def _decode_buffer(self, raw):
+        """Return (pixels, mjpg_payload_or_None, decode_mode)."""
+        if raw is None:
+            return None, None, None
+        if self._raw_mjpg:
+            from src.engine.source_recording import looks_like_mjpg
+            if looks_like_mjpg(raw):
+                pixels = cv2.imdecode(raw.reshape(-1), cv2.IMREAD_COLOR)
+                return pixels, raw, 'imdecode_color_from_mjpg'
+            # Backend ignored CONVERT_RGB=0 for this frame: pixels, not bytes.
+            return raw, None, 'backend_decoded_pixels'
+        return raw, None, 'cap_read'
+
+    def _record_source(self, payload, cf) -> None:
+        recorder = getattr(self, '_source_recorder', None)
+        if recorder is not None and cf is not None:
+            if payload is not None:
+                recorder.record_camera(payload, cf.acquisition or {})
+            else:
+                recorder.record_camera(cf.frame_bgr, cf.acquisition or {})  # logged as not-MJPG
+
+    def inject_frame(self, cf: CameraFrame) -> None:
+        """Publish a timestamped frame exactly as the reader thread does.
+
+        Live acquisition and offline source replay share this entry point.
+        """
+        with self._lock:
+            self._ring.append(cf)
+            self._read_count += 1
 
     def update(self) -> None:
         """Main thread: pick up the latest frame from the ring buffer."""

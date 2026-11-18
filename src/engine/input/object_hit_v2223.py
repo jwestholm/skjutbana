@@ -306,6 +306,12 @@ class ObjectShotSnapshotV2223:
     created_ts: float
     # Legacy, screen-space geometry retained for V2.22.3 shadow evaluator/AI.
     regions: tuple[HitRegionV2223, ...]
+    created_monotonic: float = 0.0
+    pose_provenance: str = "CURRENT_SCENE_AT_SNAPSHOT_EVENT_TIME_UNVERIFIED"
+    pose_capture_monotonic: float | None = None
+    event_dispatch_monotonic: float | None = None
+    pose_age_at_dispatch_ms: float | None = None
+    queued_audio_batch_size: int | None = None
     results: dict[str, ObjectHitResultV2223] = field(default_factory=dict)
     # V2.24 canonical game-ready geometry.
     game_regions: tuple[GameHitRegionV240, ...] = ()
@@ -640,6 +646,10 @@ class ObjectHitRegistryV2223:
         shot_id: int,
         peak_ts: float,
         scene: Any = None,
+        *,
+        pose_provenance: str = "CURRENT_SCENE_AT_SNAPSHOT_EVENT_TIME_UNVERIFIED",
+        pose_capture_monotonic: float | None = None,
+        queued_audio_batch_size: int | None = None,
     ) -> ObjectShotSnapshotV2223:
         with self._lock:
             merged_legacy = dict(self._regions)
@@ -711,6 +721,12 @@ class ObjectHitRegistryV2223:
             shot_id=int(shot_id),
             peak_ts=float(peak_ts),
             created_ts=time.time(),
+            created_monotonic=time.monotonic(),
+            pose_provenance=str(pose_provenance),
+            pose_capture_monotonic=(float(pose_capture_monotonic)
+                if pose_capture_monotonic is not None else None),
+            queued_audio_batch_size=(int(queued_audio_batch_size)
+                if queued_audio_batch_size is not None else None),
             regions=legacy_regions,
             game_regions=tuple(game_regions),
             camera_regions=tuple(camera_regions),
@@ -956,6 +972,11 @@ class ObjectHitRegistryV2223:
             "game_hit_context_schema": SCHEMA_VERSION,
             "shot_id": snap.shot_id,
             "peak_ts": snap.peak_ts,
+            "pose_provenance": snap.pose_provenance,
+            "pose_capture_monotonic": snap.pose_capture_monotonic,
+            "event_dispatch_monotonic": snap.event_dispatch_monotonic,
+            "pose_age_at_dispatch_ms": snap.pose_age_at_dispatch_ms,
+            "queued_audio_batch_size": snap.queued_audio_batch_size,
             "transform_available": snap.transform_available,
             "transform_method": snap.transform_method,
             "viewport_xywh": list(snap.viewport_xywh) if snap.viewport_xywh else None,

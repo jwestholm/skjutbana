@@ -75,6 +75,32 @@ class FoundationTests(unittest.TestCase):
         np.testing.assert_allclose(h@inv/(h@inv)[2,2],np.eye(3),atol=1e-10)
         self.assertEqual(result.calibration_dict['render_correspondence'],'integer_blit_pixel_centers')
 
+    def test_four_marker_fit_is_flagged_and_opt_in_guard_rejects_it(self):
+        # Four exact corners can define a homography with zero residual but do
+        # not meet the foundation check's eight-point support requirement.
+        points=self.cal.rendered_marker_positions();ids_list=[0,1,2,3]
+        h=np.array([[.5,0,-500],[0,.5,-250],[0,0,1.]],float);inv=np.linalg.inv(h)
+        corners=[]
+        for mid in ids_list:
+            p=project(inv,points[mid])
+            corners.append(np.array([[np.array(p)+d for d in
+                ((-10,-10),(10,-10),(10,10),(-10,10))]],np.float32))
+        ids=np.array(ids_list,np.int32).reshape(-1,1)
+        with patch.object(self.cal,'detect_markers',return_value=(corners,ids,[])), \
+             patch.dict(os.environ,{'SKJUTBANA_REQUIRE_FOUNDATION_FIT':'0'}):
+            legacy=self.cal.detect_and_calibrate(np.zeros((800,1280,3),np.uint8))
+        self.assertTrue(legacy.success)
+        self.assertAlmostEqual(legacy.reprojection_error_px,0.0,places=5)
+        self.assertEqual(legacy.calibration_dict['foundation_fit_quality']['status'],
+            'CALIBRATION_FIT_POOR')
+        with patch.object(self.cal,'detect_markers',return_value=(corners,ids,[])), \
+             patch.dict(os.environ,{'SKJUTBANA_REQUIRE_FOUNDATION_FIT':'1'}):
+            guarded=self.cal.detect_and_calibrate(np.zeros((800,1280,3),np.uint8))
+        self.assertFalse(guarded.success)
+        self.assertIn('Foundation fit quality rejected',guarded.message)
+        self.assertEqual(guarded.calibration_dict['foundation_fit_quality']['status'],
+            'CALIBRATION_FIT_POOR')
+
     def test_rendered_pixel_center_is_actual_integer_blit(self):
         for mid,p in self.cal.marker_positions().items():
             size=self.cal.marker_size_px();r=pygame.Rect(0,0,size,size);r.center=tuple(map(int,p))
@@ -107,16 +133,53 @@ class FoundationTests(unittest.TestCase):
         partial,meta=audio._read_pcm_block(io.BytesIO(payload[:31]))
         self.assertFalse(meta['complete_block']);self.assertEqual(len(partial),31)
 
-    def test_buffered_receipt_is_not_rewritten_as_acquisition(self):
+    def test_base_event_timestamp_keeps_processing_time_default(self):
         audio=AudioPeakDetector();audio.min_abs_peak=.5
+        # Keep this base-method contract independent of test order: another
+        # suite may already have installed the V2.22.6 runtime override.
+        from src.engine.audio.audio_peak_detector import AudioPeakDetector as Detector
+        base_process=getattr(Detector,'_v2226_process_chunk_original',Detector._process_chunk)
+        audio._process_chunk=base_process.__get__(audio,Detector)
         data=np.zeros(256,np.int16);data[10]=30000
         receipt=dict(read_start_monotonic=10.,read_complete_monotonic=10.01,receive_wall_ts=100.,read_calls=1,complete_block=True)
-        with patch('time.time',return_value=200.):audio._deliver_pcm_block(data.tobytes(),receipt)
+        with patch.dict(os.environ,{},clear=True), patch('time.time',return_value=200.):
+            audio._deliver_pcm_block(data.tobytes(),receipt)
         event=audio.get_latest_event();self.assertAlmostEqual(event.timestamp,200.-245/16000)
         self.assertEqual(event.acquisition['sample_start_index'],0)
         self.assertEqual(event.acquisition['trigger_sample_offset'],10)
         self.assertAlmostEqual(event.acquisition['trigger_receipt_estimate_monotonic'],10.01-245/16000)
         self.assertIsNone(event.acquisition['upstream_buffer_age_s'])
+
+    def test_base_event_receipt_anchor_is_explicitly_opt_in(self):
+        audio=AudioPeakDetector();audio.min_abs_peak=.5
+        from src.engine.audio.audio_peak_detector import AudioPeakDetector as Detector
+        base_process=getattr(Detector,'_v2226_process_chunk_original',Detector._process_chunk)
+        audio._process_chunk=base_process.__get__(audio,Detector)
+        data=np.zeros(256,np.int16);data[10]=30000
+        receipt=dict(read_start_monotonic=10.,read_complete_monotonic=10.01,receive_wall_ts=100.,read_calls=1,complete_block=True)
+        with patch.dict(os.environ,{'SKJUTBANA_AUDIO_RECEIPT_ANCHOR':'1'}), \
+             patch('time.time',return_value=200.):
+            audio._deliver_pcm_block(data.tobytes(),receipt)
+        event=audio.get_latest_event();self.assertAlmostEqual(event.timestamp,100.-245/16000)
+        self.assertEqual(event.acquisition['sample_start_index'],0)
+        self.assertEqual(event.acquisition['trigger_sample_offset'],10)
+        self.assertAlmostEqual(event.acquisition['trigger_receipt_estimate_monotonic'],10.01-245/16000)
+        self.assertIsNone(event.acquisition['upstream_buffer_age_s'])
+
+    def test_base_receipt_anchor_cooldown_uses_same_clock_as_event_time(self):
+        from src.engine.audio.audio_peak_detector import AudioPeakDetector as Detector
+        base_process=getattr(Detector,'_v2226_process_chunk_original',Detector._process_chunk)
+        audio=AudioPeakDetector();audio.min_abs_peak=.1
+        audio._process_chunk=base_process.__get__(audio,Detector)
+        data=np.zeros(256,np.int16);data[128]=30000
+        with patch.dict(os.environ,{'SKJUTBANA_AUDIO_RECEIPT_ANCHOR':'1'}), \
+             patch('time.time',side_effect=(200.,200.05)):
+            for receipt_ts in (100.,100.05):
+                receipt=dict(read_start_monotonic=10.,read_complete_monotonic=10.01,
+                    receive_wall_ts=receipt_ts,read_calls=1,complete_block=True)
+                audio._deliver_pcm_block(data.tobytes(),receipt)
+        self.assertEqual(len(audio._events),1)
+        self.assertAlmostEqual(audio.get_latest_event().timestamp,100.-127/16000)
 
     def test_installed_audio_patch_keeps_acquisition_before_dispatch(self):
         from src.engine.shot_track_v2226 import _install_audio_telemetry_patch
@@ -127,13 +190,63 @@ class FoundationTests(unittest.TestCase):
         audio._deliver_pcm_block(data.tobytes(),receipt)
         event=audio.pending_events_snapshot()[0]
         self.assertEqual(event.diagnostics['acquisition']['trigger_sample_offset'],9)
-        audio.update();self.assertIn('dispatch_monotonic',event.acquisition)
+        self.assertIn('event_enqueued_monotonic', event.acquisition)
+        self.assertEqual(event.acquisition['pending_depth_at_enqueue'], 1)
+        audio.update()
+        self.assertIn('dispatch_monotonic',event.acquisition)
+        self.assertIsNotNone(event.acquisition['dispatch_queue_age_ms'])
+        self.assertGreaterEqual(event.acquisition['dispatch_queue_age_ms'], 0.0)
+
+        direct=AudioPeakDetector();direct.min_abs_peak=.5
+        direct._process_chunk(data.tobytes())
+        direct_event=direct.pending_events_snapshot()[0]
+        self.assertIsNone(direct_event.acquisition)
+        direct.update()  # direct chunks remain queueable without provenance
+
+    def test_installed_audio_patch_receipt_anchor_is_opt_in_and_cooldown_aligned(self):
+        from src.engine.shot_track_v2226 import _install_audio_telemetry_patch
+        _install_audio_telemetry_patch()
+        data=np.zeros(256,np.int16);data[128]=30000
+
+        def deliver_pair(audio):
+            for receipt_ts in (100.0,100.05):
+                receipt=dict(read_start_monotonic=10.,read_complete_monotonic=10.01,
+                    receive_wall_ts=receipt_ts,read_calls=1,complete_block=True)
+                audio._deliver_pcm_block(data.tobytes(),receipt)
+
+        default=AudioPeakDetector();default.min_abs_peak=.1
+        with patch.dict(os.environ,{},clear=True), \
+             patch('src.engine.shot_track_v2226.time.time',side_effect=(200.,200.05)):
+            deliver_pair(default)
+        default_event=default.get_latest_event()
+        self.assertAlmostEqual(default_event.timestamp,200.-127/16000)
+        self.assertEqual(default_event.diagnostics['timestamp_anchor'],'PROCESSING_WALL_TIME')
+        self.assertEqual(len(default._events),1)
+
+        anchored=AudioPeakDetector();anchored.min_abs_peak=.1
+        with patch.dict(os.environ,{'SKJUTBANA_AUDIO_RECEIPT_ANCHOR':'1'}), \
+             patch('src.engine.shot_track_v2226.time.time',side_effect=(200.,200.05)):
+            deliver_pair(anchored)
+        anchored_event=anchored.get_latest_event()
+        self.assertAlmostEqual(anchored_event.timestamp,100.-127/16000)
+        self.assertEqual(anchored_event.diagnostics['timestamp_anchor'],'PCM_BLOCK_WALL_RECEIPT')
+        self.assertAlmostEqual(anchored_event.diagnostics['processing_wall_ts'],200.)
+        self.assertEqual(len(anchored._events),1)
+        self.assertEqual(anchored.v2226_last_audio_decision['kind'],'near_miss')
+        self.assertIn('cooldown',anchored.v2226_last_audio_decision['reasons'])
 
     def test_pcm_sequence_gaps_and_stream_reset_are_visible(self):
         audio=AudioPeakDetector();audio._process_chunk=Mock()
         for i in range(514):audio._deliver_pcm_block(bytes(512),dict(read_start_monotonic=10+i*.016,read_complete_monotonic=10.01+i*.016))
         blocks=audio.acquisition_blocks_since();self.assertEqual(len(blocks),512)
         self.assertEqual(blocks[0][0]['sequence'],3);self.assertEqual(blocks[-1][0]['sample_end_index_exclusive'],514*256)
+        metadata=audio.acquisition_metadata_window(1,514,limit=65)
+        self.assertEqual(len(metadata),65);self.assertEqual(metadata[0]['sequence'],450)
+        self.assertEqual(metadata[-1]['sequence'],514)
+        self.assertTrue(all('read_start_monotonic' in item for item in metadata))
+        self.assertTrue(all('pcm' not in item and 'samples' not in item for item in metadata))
+        wider=audio.acquisition_metadata_window(1,514,limit=999)
+        self.assertEqual(len(wider),161);self.assertEqual(wider[0]['sequence'],354)
         sid=audio._stream_id;audio._reset_acquisition();self.assertNotEqual(sid,audio._stream_id)
 
     def test_camera_provenance_and_public_timestamp(self):
@@ -272,6 +385,25 @@ class FoundationTests(unittest.TestCase):
         result=calibration_fit_quality(c)
         self.assertEqual(result['status'],'CALIBRATION_FIT_POOR');self.assertAlmostEqual(result['max_camera_px'],4)
         self.assertTrue(result['evaluated_all_markers'])
+
+    def test_fit_audit_rejects_inconsistent_saved_inverse(self):
+        from copy import deepcopy
+        from src.engine.input.hit_input import HitInput
+        c=deepcopy(self.geometry_fixture()['calibration'])
+        self.assertEqual(calibration_fit_quality(c)['status'],'PASS')
+        # Runtime loads both matrices independently; prove that a stale inverse
+        # changes mapping while the existing offline audit catches it.
+        c['inverse_homography'][0][2] += 120
+        audit=calibration_fit_quality(c)
+        self.assertEqual(audit['status'],'CALIBRATION_FIT_POOR')
+        self.assertGreater(audit['max_roundtrip_client_px'],.05)
+        with patch('src.engine.input.hit_input.load_camera_calibration',return_value=c):
+            mapper=HitInput()
+        self.assertEqual(mapper._canonical_camera_to_screen(1200,900),
+                         tuple(cv2.perspectiveTransform(np.array([[[1200.,900.]]],np.float32),
+                                                        np.asarray(c['homography'],np.float32))[0,0]))
+        stale=mapper._canonical_screen_to_camera(*mapper._canonical_camera_to_screen(1200,900))
+        self.assertGreater(np.linalg.norm(np.asarray(stale)-[1200,900]),1.)
 
     def test_main_loop_never_accesses_capture_backend(self):
         from src.engine.camera.camera_manager import CameraFrame

@@ -15,6 +15,27 @@ from src.engine.physical_trace import PhysicalTraceRecorder, TRACE_SCHEMA, valid
 
 
 class TraceTests(unittest.TestCase):
+    def test_scene_reference_timestamp_cannot_gain_camera_acquisition_identity(self):
+        from unittest.mock import patch
+        from src.engine.camera.camera_manager import camera_manager
+        with tempfile.TemporaryDirectory() as directory:
+            recorder=PhysicalTraceRecorder(directory,enabled=True)
+            scanner=self.scanner()
+            scanner._pre_shot_snapshot_source='scene_reference'
+            scanner._pre_shot_snapshot_timestamp_semantics='SYNTHETIC_RELATIVE_VALUE_NOT_FRAME_TIME'
+            event=SimpleNamespace(shot_id=1,peak_ts=2.,state='pending',emitted=False)
+            # Deliberate exact collision with the synthetic peak-1 timestamp.
+            scanner.pre_shot_snapshot_ts=event.peak_ts-1.0
+            self.assertEqual(scanner.pre_shot_snapshot_ts,scanner.frame_history[0].timestamp)
+            with patch.object(camera_manager,'provenance_for_timestamp',return_value={'stream_id':'fixture','sequence':99}):
+                recorder.start_from_scanner(scanner,event)
+                self.assertTrue(recorder.flush())
+            trace=json.loads((Path(directory)/'shots/shot_00000001/trace.json').read_text())
+            pre=next(frame for frame in trace['frames'] if frame['kind']=='pre_snapshot')
+            history=next(frame for frame in trace['frames'] if frame['kind']=='pre_history')
+            self.assertIsNone(pre['acquisition'])
+            self.assertEqual(history['acquisition'],{'stream_id':'fixture','sequence':99})
+
     def test_six_completed_windows_checkpoint_without_shutdown_or_atexit(self):
         # Reproduce the observed failure shape: all detector events and all raw
         # writes complete, then the process exits without running finalizers.

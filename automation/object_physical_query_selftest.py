@@ -274,7 +274,8 @@ class QueryTests(unittest.TestCase):
 
 class IntegrationTests(unittest.TestCase):
     def test_frozen_homography_and_scanport(self):
-        h=HitInput();h.homography=np.array([[2,0,10],[0,3,20],[0,0,1]],float)
+        h=HitInput();h.lens=None  # independent of the local calibration's lens model
+        h.homography=np.array([[2,0,10],[0,3,20],[0,0,1]],float)
         frozen=h.frozen_camera_to_screen('homography');h.homography[:]=np.eye(3)
         self.assertEqual(frozen(4,5),(18.,35.))
         with patch('src.engine.input.hit_input.load_scanport_rect',return_value=pygame.Rect(100,200,400,200)),patch('src.engine.input.hit_input.load_viewport_rect',return_value=pygame.Rect(10,20,800,400)):

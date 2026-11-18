@@ -1,5 +1,66 @@
 # Physical capture runbook
 
+## CURRENT capture method — 2026-11-18 (read this first)
+
+1. Game window on the projector, nothing else using the camera. Optional calibration check:
+   `python3 -m automation.bench calibration-check` (validate) / `--save` (recalibrate with
+   backup + lens model).
+2. Start with source recording and the pilot flags:
+   `SKJUTBANA_SOURCE_RECORD=1 SKJUTBANA_MIN_POST_AGE_S=0.15 SKJUTBANA_CAUSAL_OWNERSHIP=1 ./start.sh`
+   (0.15 chosen 2026-11-18 from two physical AR15 replays; 0.11 was the optical pilot)
+   Raw MJPG + PCM go to `/data/skjutbana/source_sessions/<UTC>_<id>/` (~14 GB/h; refuses below
+   4 GB free, stops at 2 GB).
+3. Shoot ONE weapon per sequence (airgun 4.5 mm / CO2 AR15 / CO2 pistol) and note which; mix
+   singles, doubles, strings; add some claps and quiet periods (no-impact controls).
+4. Afterwards add `ground_truth.jsonl` to the session directory: one line per shot
+   `{"wall_ts": .., "camera_x": .., "camera_y": .., "weapon": ".."}` or
+   `{"wall_ts": .., "kind": "no_impact"}`. Then `python3 -m automation.bench replay SESSION_DIR`.
+5. Kompetensprov now declares `hit_precision="ZONE"` + `hit_aggregation="series"`: it projects
+   one white reference flash and one flash at ceasefire (series measurement saved in the review
+   record; scoring unchanged). Disable globally with `SKJUTBANA_PRECISION_FLASH=off`.
+
+Caveat: PRE/POST evidence captured before 2026-11-17 is contaminated by late audio (ffmpeg
+delivered PCM in ~1.5 s bursts; fixed with `parec`): in the older traces the hole is already
+visible ~1.4 s before the recorded audio peak.
+
+
+## Optional engine render history — research only
+
+This records **engine CPU presentations**, not certified projector photons, camera
+exposures or projectile truth. It changes no hit rule and is disabled by default.
+Use only with engine-rendered games; external/SHOT_ONLY games (including Skyttegrav
+3D) are explicitly UNAVAILABLE. The parent launcher cannot stand in for that game.
+No new physical test is required to audit the supplied synthetic fixture below.
+
+When a later paired capture is appropriate, opt in through the existing launcher:
+
+```bash
+CAPTURE="/data/skjutbana/evaluation_runs/render_paired_$(date +%Y%m%d_%H%M%S)"
+python3 -m automation.physical_collection play-can --object-crops --mature-candidates \
+  --render-history --output-dir "$CAPTURE"
+python3 -m automation.physical_render_history --capture "$CAPTURE"
+```
+
+`render_history/config.json`, `manifest.json`, `shot_NNNNNNNN.json` and deduplicated
+`frames/<pixel_hash>.npy` + JSON retain source hashes, immutable pixels, CPU timing,
+audio binding, frozen geometry/calibration, missingness and write costs. Completed
+shot sidecars survive interruption before the final manifest. Original camera
+crops and mature sidecars keep their existing ownership. Render-history images
+are never physical GT/label sources. Keep GT neutral capture in a separate
+run: `--gt-review` and `--render-history` cannot be combined.
+
+Limits: maximum1920x1080 engine surface,64MiB/120-image rolling history,
+64MiB/120 images per bound event, two image jobs and20 events. No resizing fallback.
+At1080p this retains about10 presentations; at800x600 about46. Later context up to
+350ms after dispatch is best-effort and marks INCOMPLETE when the event bound is
+full. Retention is a byte/frame bound, not a guaranteed time window. Peak pinned
+image memory can approach192MiB plus conversion/writer temporaries; total raw
+event storage is bounded around1.25GiB before metadata, often less with dedup.
+Copy-hook synthetic median/P95 is1.51/5.84ms at1080p; binding~0.027ms, background
+single-image write~32.65ms. These are not measured live latency. Ordinary runs do
+not pay this copying cost. Share the render sidecars/config/manifest together with
+the referenced images and the normal capture logs when diagnosing provenance.
+
 ## Optical/HIL lab v0.1 — no shooting
 
 **OPTICAL/HIL TEST != PROJECTILE VALIDATION. SYNTHETIC != PHYSICAL.**
@@ -1049,6 +1110,34 @@ integrity; it does not establish perfect physical truth, all missing source
 proposals, or the live timing of an offline verifier.
 
 ## Before shooting
+
+### Optional end-to-end selector decision trace v1
+
+To persist the actual selected/emitted physical-coordinate lineage, use an existing
+full PhysicalTraceRecorder capture binding and opt in for that process only:
+
+```bash
+SKJUTBANA_PHYSICAL_DECISION_TRACE=1 python3 -m automation.physical_collection launch-d02 \
+  --plan "$D02_PACKAGE/plan.json" --output-dir "$D02_RUN" \
+  --trace-root /data/skjutbana/physical_traces
+```
+
+The environment flag does not enable capture on its own; the normal full physical
+trace binding is still required. The option is off by default. Each completed
+shot's existing `trace.json` gains `decision_trace_v1`, with explicit
+`AVAILABLE`, `MISSING`, `UNRECORDED` and `NOT_APPLICABLE` states. Candidate XY,
+producer and evidence values link to the existing complete track audit; V2.52 /
+V2.53 path hops, rescue state, AI mode/apply decision and actual emitted XY are
+recorded there. A candidate source-frame ID is attached only by exact timestamp
+join to a saved frame acquisition record with stream/sequence identity; unmatched
+frames remain `UNRECORDED`. Times are application observations/receipt values,
+not proven exposure or impact times. Projection is finalized through the existing
+background writer; no detector work or authority changes.
+
+The process-only `play-can --object-crops` capture intentionally disables the
+global physical trace and records its separate object-query artifacts, so it does
+not produce this exact-coordinate decision trace. Do not enable `--verbose-console`
+to get the decision ledger; it belongs in the shot trace file.
 
 Choose a fresh report directory. Close the application before binding a session:
 

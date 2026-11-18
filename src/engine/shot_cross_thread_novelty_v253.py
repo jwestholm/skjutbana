@@ -604,10 +604,20 @@ def _install_authority_selector_patch() -> None:
     def best_track_v253(self, event):
         sid = int(getattr(event, "shot_id", 0) or 0)
         snap = object_hit_registry_v2223.snapshot_for_shot(sid) if sid > 0 else None
+        def audit_path(branch, reason=None, fallback_to=None):
+            if not getattr(self, "physical_decision_trace_v1_enabled", False):
+                return
+            from src.engine.track_audit import record_selector_path
+            record_selector_path(self, event, owner="V253", branch=branch,
+                                 reason=reason, fallback_to=fallback_to)
         if not _enabled() or snap is None or not tuple(getattr(snap, "camera_regions", ()) or ()):
-            return previous_best(self, event)
+            best = previous_best(self, event)
+            audit_path("DELEGATE_PREVIOUS_SELECTOR", "region_authority_not_applicable", "V252_or_base")
+            return best
         if rescue_router_v2225.was_consumed(sid):
-            return base_physical_best(self, event)
+            best = base_physical_best(self, event)
+            audit_path("DELEGATE_AFTER_FULL_RESCUE", "full_rescue_consumed", "base_physical_selector")
+            return best
 
         peak_ts = _finite(getattr(event, "peak_ts", 0.0))
         age = max(0.0, time.time() - (peak_ts or time.time()))
@@ -623,18 +633,23 @@ def _install_authority_selector_patch() -> None:
                     print(f"[V2.25.3 AUTHORITY-WAIT] shot={sid} age={age*1000.0:.0f}ms reason=worker_not_ready")
                 from src.engine.track_audit import record_selection
                 record_selection(self, event, None, "V253", gate="await_registered_authority")
+                audit_path("WAIT_WORKER_NOT_READY", "await_registered_authority")
                 return None
             if rescue_router_v2225.request(sid):
                 if _log_enabled():
                     print(f"[V2.25.3 RESCUE-REQUEST] shot={sid} age={age*1000.0:.0f}ms reason=no_shared_registered_frame")
                 from src.engine.track_audit import record_selection
                 record_selection(self, event, None, "V253", gate="await_registered_authority")
+                audit_path("REQUEST_FULL_RESCUE", "no_shared_registered_frame")
                 return None
             if age < 3.5:
                 from src.engine.track_audit import record_selection
                 record_selection(self, event, None, "V253", gate="await_registered_authority")
+                audit_path("WAIT_RESCUE_OR_REGISTERED_FRAME", "authority_wait_window")
                 return None
-            return base_physical_best(self, event)
+            best = base_physical_best(self, event)
+            audit_path("FAIL_OPEN_TO_BASE", "authority_wait_elapsed", "base_physical_selector")
+            return best
 
         eligible: list[tuple[Any, dict[str, Any], float]] = []
         for track in getattr(self, "_active_tracks", {}).values():
@@ -659,6 +674,8 @@ def _install_authority_selector_patch() -> None:
                     print(f"[V2.25.3 RESCUE-REQUEST] shot={sid} age={age*1000.0:.0f}ms reason=no_novel_confirmed_track")
             from src.engine.track_audit import record_selection
             record_selection(self, event, None, "V253")
+            audit_path("REGISTERED_NO_ELIGIBLE_TRACK", "no_novel_confirmed_track",
+                       "full_rescue_requested" if rescue_router_v2225.requested(sid) else None)
             return None
 
         best, cand, onset = max(
@@ -688,6 +705,7 @@ def _install_authority_selector_patch() -> None:
             )
         from src.engine.track_audit import record_selection
         record_selection(self, event, best, "V253")
+        audit_path("REGISTERED_NOVELTY_SELECTED")
         return best
 
     HitScanner._best_track_for_event = best_track_v253

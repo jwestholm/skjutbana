@@ -390,6 +390,8 @@ class ShotCandidateVault:
             best["v26_vault_last_frame"] = float(entry.get("last_frame", 1))
             best["v26_vault_quality"] = float(entry.get("quality", 0.0))
             best["score"] = score_decay * _safe_float(best.get("score"), 0.0)
+            if "v26_rank_excess" in best:   # H6 (opt-in) ranking field, same decay
+                best["v26_rank_excess"] = score_decay * _safe_float(best.get("v26_rank_excess"), 0.0)
             output.append(best)
             current_positions.append((cx, cy))
             carried += 1

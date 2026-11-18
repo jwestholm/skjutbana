@@ -21,6 +21,11 @@ def enabled(scanner):
     return bool(getattr(scanner, 'physical_trace_capture_enabled', False))
 
 
+def decision_trace_enabled(scanner):
+    """V1 branch annotations are separately opt-in from ordinary trace capture."""
+    return enabled(scanner) and bool(getattr(scanner, 'physical_decision_trace_v1_enabled', False))
+
+
 def track_state(t):
     c = dict(t.last_candidate or {})
     return dict(track_id=t.track_id, camera_x=t.camera_x, camera_y=t.camera_y,
@@ -145,6 +150,22 @@ def record_selection(scanner, event, selected, policy='BASE', gate=None):
     snapshots[event.shot_id]=dict(schema=SCHEMA, complete=True, policy=policy, gate=gate,
         event=ev, association_lead_s=scanner.association_lead_s, association_lag_s=scanner.association_lag_s,
         decision_observed_at=observed_at, pool_semantics='all active tracks; eligibility precedes readiness; causal ownership is separate', tracks=rows, selected_track_id=None if selected is None else selected.track_id)
+
+
+def record_selector_path(scanner, event, *, owner, branch, reason=None, fallback_to=None):
+    """Append observational wrapper-path provenance; never influences selection."""
+    if not decision_trace_enabled(scanner):
+        return
+    snapshot = getattr(scanner, '_audit_selections', {}).get(getattr(event, 'shot_id', None))
+    if not isinstance(snapshot, dict):
+        return
+    hops = snapshot.setdefault('selector_path_hops', [])
+    # One entry per wrapper evaluation; bounded to avoid a noisy repeated wait loop.
+    if len(hops) >= 64:
+        snapshot['selector_path_hops_truncated'] = True
+        return
+    hops.append(dict(owner=str(owner), branch=str(branch), reason=reason,
+                     fallback_to=fallback_to, observed_at=time.time()))
 
 
 def capture(scanner,event,track=None):

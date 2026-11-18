@@ -17,6 +17,25 @@ class GameScene(Scene):
         return self.shot_input_mode != "SHOT_ONLY"
 
     @property
+    def hit_precision(self):
+        # "exact" | "region" | "shot_only"; read live so a game may change it.
+        return getattr(self.game, "hit_precision", None)
+
+    @property
+    def hit_aggregation(self):
+        return getattr(self.game, "hit_aggregation", "per_burst")
+
+    def on_precision_series(self, result):
+        callback = getattr(self.game, "on_precision_series", None)
+        if callable(callback):
+            callback(result)
+
+    @property
+    def precision_flash(self):
+        # "auto" | "off" | "on"; "off" always wins (see src/engine/precision_flash.py).
+        return getattr(self.game, "precision_flash", "auto")
+
+    @property
     def wants_mouse_simulated_hits(self):
         return self.shot_input_mode != "SHOT_ONLY"
 

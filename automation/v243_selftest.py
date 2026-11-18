@@ -4,6 +4,7 @@ import ast
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -30,6 +31,9 @@ def main() -> None:
     check("implicit content rect starts at local origin", "pygame.Rect(0, 0" in source)
     check("HitInput bound content loader is patched", "hit_input_module.load_content_rect = load_content_rect_v243" in source)
     check("shot snapshot refreshes calibration", "hit_input.reload_calibration()" in source)
+    check("calibration-refresh wrapper forwards snapshot arguments",
+          "scene: Any = None, *args: Any, **kwargs: Any" in source
+          and "previous(self, shot_id, peak_ts, scene, *args, **kwargs)" in source)
     check("V2.24.1 candidate-only hook is explicitly superseded", "_v241_previous_extract" in source)
 
     # Exercise the pure camera-region mask helper.
@@ -39,6 +43,48 @@ def main() -> None:
     check("region mask has expected shape", mask.shape == (100, 120))
     check("region mask contains requested AABB", int(np.count_nonzero(mask)) == 20 * 30)
     check("region mask excludes outside pixels", mask[0, 0] == 0 and mask[25, 15] == 255)
+
+    # Reproduce the current shot-critical metadata call through the installed
+    # wrapper. The original method is a capture stub so this never snapshots a
+    # live scene or touches settings/calibration.
+    from src.engine.input.object_hit_v2223 import ObjectHitRegistryV2223
+    original_snapshot = ObjectHitRegistryV2223.snapshot
+    original_flag = getattr(ObjectHitRegistryV2223, "_v243_calibration_refresh", None)
+    had_flag = hasattr(ObjectHitRegistryV2223, "_v243_calibration_refresh")
+    original_previous = getattr(ObjectHitRegistryV2223, "_v243_previous_snapshot", None)
+    had_previous = hasattr(ObjectHitRegistryV2223, "_v243_previous_snapshot")
+    calls = []
+
+    def capture_snapshot(self, *args, **kwargs):
+        calls.append((args, kwargs))
+        return "fixture-snapshot"
+
+    try:
+        ObjectHitRegistryV2223.snapshot = capture_snapshot
+        ObjectHitRegistryV2223._v243_calibration_refresh = False
+        v243._install_calibration_refresh()
+        with patch("src.engine.input.hit_input.hit_input.reload_calibration"):
+            result = ObjectHitRegistryV2223().snapshot(
+                101, 1.0, scene=None, pose_provenance="fixture",
+                pose_capture_monotonic=1.0, queued_audio_batch_size=1,
+            )
+        check("shot pose metadata reaches the wrapped snapshot",
+              result == "fixture-snapshot" and len(calls) == 1
+              and calls[0][1] == {
+                  "pose_provenance": "fixture",
+                  "pose_capture_monotonic": 1.0,
+                  "queued_audio_batch_size": 1,
+              })
+    finally:
+        ObjectHitRegistryV2223.snapshot = original_snapshot
+        if had_flag:
+            ObjectHitRegistryV2223._v243_calibration_refresh = original_flag
+        else:
+            delattr(ObjectHitRegistryV2223, "_v243_calibration_refresh")
+        if had_previous:
+            ObjectHitRegistryV2223._v243_previous_snapshot = original_previous
+        elif hasattr(ObjectHitRegistryV2223, "_v243_previous_snapshot"):
+            delattr(ObjectHitRegistryV2223, "_v243_previous_snapshot")
 
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
     check("main imports V2.24.3 installer", "install_v243_runtime" in main_source)

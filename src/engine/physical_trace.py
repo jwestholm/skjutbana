@@ -23,6 +23,7 @@ import numpy as np
 
 TRACE_SCHEMA = "physical-shot-trace-1"
 DEFAULT_ROOT = Path("content/ai/physical_traces")
+DECISION_TRACE_SCHEMA = "physical-decision-trace-1"
 
 
 def validate_capture_history(value):
@@ -68,6 +69,85 @@ def _copy_candidates(values: Any) -> list[dict[str, Any]]:
     return [_safe(dict(v)) for v in values if isinstance(v, Mapping)]
 
 
+_AUDIO_BLOCK_TRACE_FIELDS = (
+    "stream_id", "sequence", "sample_start_index", "sample_end_index_exclusive",
+    "sample_count", "sample_rate", "channels", "backend", "read_start_monotonic",
+    "read_complete_monotonic", "receive_wall_ts", "read_calls", "complete_block",
+    "first_sample_receipt_estimate_monotonic", "last_sample_receipt_estimate_monotonic",
+    "receipt_minus_stream_elapsed_s", "timestamp_semantics", "device_timestamp",
+    "upstream_buffer_age_s",
+)
+
+
+def _audio_block_trace_fields(meta: Mapping[str, Any], *, trigger: bool = False) -> dict[str, Any]:
+    fields = list(_AUDIO_BLOCK_TRACE_FIELDS)
+    if trigger:
+        fields.extend(("trigger_sample_offset", "maximum_sample_offset", "trigger_sample_index",
+                       "trigger_receipt_estimate_monotonic", "detection_monotonic", "event_enqueued_monotonic",
+                       "pending_depth_at_enqueue", "dispatch_monotonic", "dispatch_queue_age_ms",
+                       "dispatch_batch_size", "dispatch_batch_index", "callback_start_monotonic",
+                       "callback_end_monotonic", "callback_duration_ms", "shot_id_assigned_monotonic",
+                       "pre_source_selected_monotonic", "shot_created_monotonic",
+                       "deadline_monotonic"))
+    return {key: _safe(meta.get(key)) for key in fields if key in meta}
+
+
+def _audio_pipe_timing_snapshot(event: Any) -> dict[str, Any]:
+    """Return a bounded metadata-only PCM neighborhood for opt-in audit traces."""
+    trigger = getattr(event, "audio_trigger", None)
+    trigger = trigger if isinstance(trigger, Mapping) else {}
+    diagnostics = trigger.get("diagnostics", {})
+    diagnostics = diagnostics if isinstance(diagnostics, Mapping) else {}
+    acquisition = diagnostics.get("acquisition")
+    acquisition = acquisition if isinstance(acquisition, Mapping) else None
+    if acquisition is None or acquisition.get("sequence") is None:
+        return {
+            "state": "UNRECORDED",
+            "reason": "audio_event_has_no_block_acquisition_identity",
+            "device_timestamp": None,
+            "upstream_buffer_age_s": None,
+        }
+    sequence = int(acquisition["sequence"])
+    stream_id = acquisition.get("stream_id")
+    requested_first = max(1, sequence - 160)
+    try:
+        from src.engine.audio.audio_peak_detector import audio_peak_detector
+        preceding = [_audio_block_trace_fields(row) for row in audio_peak_detector.acquisition_metadata_window(
+            requested_first, sequence, limit=161) if row.get("stream_id") == stream_id]
+    except Exception as exc:
+        return {
+            "state": "UNRECORDED",
+            "reason": f"metadata_snapshot_failed:{type(exc).__name__}",
+            "trigger_sequence": sequence,
+            "device_timestamp": None,
+            "upstream_buffer_age_s": None,
+        }
+    return {
+        "state": "AVAILABLE" if acquisition else "UNRECORDED",
+        "semantics": "APP_PIPE_READ_METADATA_ONLY_NOT_ADC_OR_ACOUSTIC_IMPACT_TIME",
+        "trigger_sequence": sequence,
+        "stream_id": stream_id,
+        "trigger_block": _audio_block_trace_fields(acquisition, trigger=True),
+        "preceding_and_trigger_blocks": preceding,
+        "pre_window": {
+            "requested_first_sequence": requested_first,
+            "requested_last_sequence": sequence,
+            "expected_blocks": sequence - requested_first + 1,
+            "observed_blocks": len(preceding),
+            "first_observed_sequence": preceding[0].get("sequence") if preceding else None,
+            "last_observed_sequence": preceding[-1].get("sequence") if preceding else None,
+            "complete": ([row.get("sequence") for row in preceding]
+                         == list(range(requested_first, sequence + 1))),
+        },
+        "post_blocks": [],
+        "limits": {"pre_including_trigger_max_blocks": 161, "post_max_blocks": 64,
+                   "pre_history_nominal_seconds": 2.56, "block_duration_seconds": 0.016},
+        "post_capture_state": "PENDING_FINALIZATION",
+        "device_timestamp": None,
+        "upstream_buffer_age_s": None,
+    }
+
+
 def _diagnostic_source(candidate: Mapping[str, Any]) -> str:
     if candidate.get("v2225_fast_extract"): return "FAST_V2225"
     if candidate.get("v2_rescue_temporal") or candidate.get("v2_rescue_blob"): return "V2_RESCUE"
@@ -101,6 +181,201 @@ def _annotate_score_diagnostics(trace: dict[str, Any]) -> None:
             candidate["diagnostic_score_formula"] = formula
             candidate["diagnostic_score_saturated"] = bool(score >= 35.0 - 1e-9)
             candidate["diagnostic_source_percentile"] = (rank / (len(values) - 1)) if len(values) > 1 else 1.0
+
+
+def _decision_field_state(container: Mapping[str, Any], key: str) -> dict[str, Any]:
+    if key not in container:
+        return {"state": "UNRECORDED", "value": None}
+    value = container.get(key)
+    if value is None:
+        return {"state": "MISSING", "value": None}
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"state": "MISSING", "value": None}
+    return {"state": "AVAILABLE", "value": _safe(value)}
+
+
+def _build_decision_trace_v1(trace: Mapping[str, Any]) -> dict[str, Any]:
+    """Project already-captured authority ledgers into a versioned, explicit view.
+
+    Called by the existing background trace finalizer. Candidate evidence values
+    remain in the canonical track audit and are referenced, not duplicated.
+    """
+    decision = trace.get("decision_input", {})
+    if not isinstance(decision, Mapping):
+        decision = {}
+    audit = decision.get("complete_track_audit")
+    audit_source = "decision_input/complete_track_audit"
+    if not isinstance(audit, Mapping):
+        audit = trace.get("terminal_track_audit_v1")
+        audit_source = "terminal_track_audit_v1"
+    if not isinstance(audit, Mapping):
+        audit = {}
+    tracks = audit.get("tracks", [])
+    if not isinstance(tracks, list):
+        tracks = []
+    frame_identity_by_ts = {}
+    saved_frames = trace.get("frames", [])
+    if not isinstance(saved_frames, list):
+        saved_frames = []
+    for frame in saved_frames:
+        if not isinstance(frame, Mapping) or frame.get("timestamp") is None:
+            continue
+        acquisition = frame.get("acquisition")
+        if isinstance(acquisition, Mapping) and acquisition.get("stream_id") is not None and acquisition.get("sequence") is not None:
+            try:
+                timestamp_key = float(frame["timestamp"])
+                identity = {
+                    "stream_id": acquisition["stream_id"], "sequence": acquisition["sequence"],
+                    "timestamp": frame["timestamp"],
+                }
+                previous = frame_identity_by_ts.get(timestamp_key)
+                if previous is None:
+                    frame_identity_by_ts[timestamp_key] = identity
+                elif previous != identity:
+                    frame_identity_by_ts[timestamp_key] = "AMBIGUOUS"
+            except (TypeError, ValueError):
+                continue
+    evidence_fields = (
+        "score", "timestamp", "center_darkening", "local_contrast_gain", "blackhat_value",
+        "v2_zscore", "v2_saliency", "area", "radius", "circularity",
+        "v2225_local_confirm", "v2225_confirm_score", "v252_fresh_physical",
+        "v252_confirm_score", "v252_authority_score", "v253_authority_ok",
+        "v253_novelty_score", "v253_confirm_score", "v253_distance_novelty",
+        "v251_region_evidence",
+    )
+    candidate_rows = []
+    rejected = []
+    for index, track in enumerate(tracks):
+        if not isinstance(track, Mapping):
+            continue
+        candidate = track.get("last_candidate")
+        if not isinstance(candidate, Mapping):
+            candidate = {}
+        tid = track.get("track_id")
+        oid = track.get("observation_id")
+        source_ts = candidate.get("timestamp")
+        if source_ts is None:
+            source_ts = candidate.get("source_frame_ts")
+        frame_identity = None
+        try:
+            frame_identity = frame_identity_by_ts.get(float(source_ts))
+        except (TypeError, ValueError):
+            pass
+        track_xy_present = track.get("camera_x") is not None and track.get("camera_y") is not None
+        candidate_xy_present = candidate.get("camera_x") is not None and candidate.get("camera_y") is not None
+        candidate_ref = f"/{audit_source}/tracks/{index}/last_candidate"
+        frame_identity_state = ("AMBIGUOUS" if frame_identity == "AMBIGUOUS" else
+                                "AVAILABLE" if frame_identity is not None else "UNRECORDED")
+        frame_identity_reason = (
+            "multiple saved frame identities share the source timestamp"
+            if frame_identity_state == "AMBIGUOUS" else
+            None if frame_identity_state == "AVAILABLE" else
+            "no saved frame with matching source timestamp and acquisition identity"
+        )
+        row = {
+            "track_id": {"state": "AVAILABLE" if tid is not None else "UNRECORDED", "value": tid},
+            "candidate_identity": {"state": "AVAILABLE" if oid is not None else "UNRECORDED", "value": oid},
+            "track_camera_xy": {"state": "AVAILABLE" if track_xy_present else "UNRECORDED",
+                                 "value": [track.get("camera_x"), track.get("camera_y")] if track_xy_present else None},
+            "candidate_camera_xy": {"state": "AVAILABLE" if candidate_xy_present else "UNRECORDED",
+                                     "value": [candidate.get("camera_x"), candidate.get("camera_y")] if candidate_xy_present else None,
+                                     "semantics": "unchanged coordinate from the recorded last candidate"},
+            "producer": {"state": "AVAILABLE" if track.get("source") not in (None, "UNKNOWN") else "UNRECORDED",
+                         "value": track.get("source")},
+            "producer_shot_id": _decision_field_state(candidate, "v2224_producer_shot_id"),
+            "source_frame_ids": {"state": frame_identity_state,
+                                 "value": frame_identity if frame_identity_state == "AVAILABLE" else None,
+                                 "reason": frame_identity_reason},
+            "source_observation_timestamp": {
+                **_decision_field_state(candidate, "timestamp"),
+                "semantics": "raw candidate timestamp; source_frame_ts fallback is used only for source-frame identity join",
+            },
+            "source_frame_timestamp": {
+                **_decision_field_state(candidate, "source_frame_ts"),
+                "semantics": "raw candidate source_frame_ts; does not override timestamp for source-frame identity join",
+            },
+            "evidence_values_ref": {"state": "AVAILABLE" if candidate else "UNRECORDED", "path": candidate_ref},
+            "evidence_field_states": {key: _decision_field_state(candidate, key) for key in evidence_fields},
+            "eligibility": {"state": "AVAILABLE" if "eligible" in track else "UNRECORDED",
+                            "value": track.get("eligible")},
+            "causal_ownership": {"state": "AVAILABLE" if track.get("causal_ownership") is not None else "UNRECORDED",
+                                 "value": track.get("causal_ownership")},
+            "readiness": {"state": "AVAILABLE" if isinstance(track.get("readiness_inputs"), Mapping) else "UNRECORDED",
+                          "value": _safe(track.get("readiness_inputs")) if isinstance(track.get("readiness_inputs"), Mapping) else None},
+            "local_confirmation": {
+                "state": ("AVAILABLE" if isinstance(track.get("local_confirmation"), Mapping) and track.get("local_confirmation")
+                          else "MISSING" if isinstance(track.get("local_confirmation"), Mapping) else "UNRECORDED"),
+                "value": _safe(track.get("local_confirmation")) if isinstance(track.get("local_confirmation"), Mapping) else None},
+            "rejection_reason": {"state": "AVAILABLE" if track.get("rejection_reason") is not None else "NOT_APPLICABLE",
+                                 "value": track.get("rejection_reason")},
+            "rank": {"state": "AVAILABLE" if track.get("final_rank") is not None else "NOT_APPLICABLE",
+                     "value": track.get("final_rank")},
+            "selected": {"state": "AVAILABLE" if "selected" in track else "UNRECORDED",
+                         "value": track.get("selected")},
+        }
+        candidate_rows.append(row)
+        if track.get("eligible") is False:
+            rejected.append({"track_id": row["track_id"], "candidate_identity": row["candidate_identity"],
+                             "reason": row["rejection_reason"], "candidate_ref": candidate_ref})
+
+    selected_id = audit.get("selected_track_id")
+    selected_track = next((row for row in candidate_rows
+                           if row["track_id"].get("value") == selected_id and selected_id is not None), None)
+    runtime = trace.get("decision_trace_runtime_v1")
+    if not isinstance(runtime, Mapping):
+        runtime = {}
+    policy = audit.get("policy")
+    selection_available = bool(audit.get("complete"))
+    outcome = trace.get("outcome", {})
+    if not isinstance(outcome, Mapping):
+        outcome = {}
+    return {
+        "schema": DECISION_TRACE_SCHEMA,
+        "shot_id": {"state": "AVAILABLE" if trace.get("shot_id") is not None else "UNRECORDED", "value": trace.get("shot_id")},
+        "selector": {
+            "state": "AVAILABLE" if selection_available else "UNRECORDED",
+            "owner": {"state": "AVAILABLE" if policy is not None else "UNRECORDED", "value": policy},
+            "gate": ({"state": "NOT_APPLICABLE", "value": None}
+                     if "gate" in audit and audit.get("gate") is None
+                     else _decision_field_state(audit, "gate")),
+            "path_hops": {"state": "AVAILABLE" if "selector_path_hops" in audit else "UNRECORDED",
+                          "value": audit.get("selector_path_hops", []),
+                          "truncated": bool(audit.get("selector_path_hops_truncated", False))},
+            "decision_observed_at": _decision_field_state(audit, "decision_observed_at"),
+            "selected_track_id": {"state": "AVAILABLE" if selected_id is not None else "NOT_APPLICABLE", "value": selected_id},
+            "selected_candidate_ref": selected_track["evidence_values_ref"] if selected_track else {"state": "NOT_APPLICABLE", "path": None},
+            "causal_window": {
+                "audio_peak": _decision_field_state(trace, "peak_ts"),
+                "association_lead_s": _decision_field_state(audit, "association_lead_s"),
+                "association_lag_s": _decision_field_state(audit, "association_lag_s"),
+                "semantics": "track ownership and onset are source ledger values; camera timestamps are receipt/observation timing, not exposure proof",
+            },
+        },
+        "candidate_ledger": {
+            "state": "AVAILABLE" if selection_available else "UNRECORDED",
+            "source": audit_source,
+            "tracks": candidate_rows,
+            "selector_rejections": rejected,
+            "upstream_dropped_proposals": {"state": "UNRECORDED", "reason": "not part of track audit candidate pool"},
+        },
+        "fallback_rescue": runtime.get("rescue", {"state": "UNRECORDED"}),
+        "ai": runtime.get("ai_decision", {"state": "UNRECORDED"}),
+        "emission": runtime.get("emission", {
+            "state": "AVAILABLE" if outcome else "UNRECORDED",
+            "emitted": outcome.get("emitted"),
+            "camera_xy": {"state": "NOT_APPLICABLE" if outcome and not outcome.get("emitted") else "UNRECORDED",
+                          "value": None},
+            "result_state": outcome.get("status"),
+        }),
+        "timestamps": {
+            "audio_peak": _decision_field_state(trace, "peak_ts"),
+            "selector_cutoff": _decision_field_state(decision, "timestamp"),
+            "selector_observed_at": _decision_field_state(runtime, "selector_observed_at"),
+            "ai_observed_at": _decision_field_state(runtime.get("ai_decision", {}) if isinstance(runtime.get("ai_decision"), Mapping) else {}, "observed_at"),
+            "emission_observed_at": _decision_field_state(runtime.get("emission", {}) if isinstance(runtime.get("emission"), Mapping) else {}, "observed_at"),
+            "clock_semantics": "application wall-clock timestamps; not camera exposure or projectile impact time",
+        },
+    }
 
 
 def selector_snapshot(trace: Mapping[str, Any], canonical_manifest: str | None = None) -> dict[str, Any]:
@@ -163,6 +438,7 @@ class PhysicalTraceRecorder:
         self.root = Path(root)
         self.repo_root = Path(repo_root or Path.cwd())
         self.enabled = bool(enabled)
+        self.decision_trace_enabled = False
         self.object_only = bool(object_only)
         self.capture_history = validate_capture_history(capture_history)
         self._history_environment = None
@@ -213,9 +489,15 @@ class PhysicalTraceRecorder:
             if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
                 raise ValueError('Explicit full capture and trace-disable are mutually exclusive')
             self.enabled=False
+            self.decision_trace_enabled=False
             return  # process-only gameplay; never write into saved historical roots
         values = settings if isinstance(settings, Mapping) else {}
         self.enabled = bool(values.get("physical_trace_capture_enabled", False))
+        # V1 decision details are a separate, opt-in layer. The existing trace
+        # remains disabled by default and must also be enabled for persistence.
+        self.decision_trace_enabled = bool(self.enabled and (
+            values.get("physical_decision_trace_enabled", False)
+            or os.environ.get("SKJUTBANA_PHYSICAL_DECISION_TRACE") == "1"))
         if values.get("physical_trace_root"):
             self.root = Path(str(values["physical_trace_root"]))
         if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
@@ -223,6 +505,9 @@ class PhysicalTraceRecorder:
             root=os.environ.get('SKJUTBANA_PHYSICAL_TRACE_ROOT')
             if not root:raise ValueError('capture binding has not passed startup preflight')
             self.root=Path(root);self.enabled=True
+            self.decision_trace_enabled = bool(
+                values.get("physical_decision_trace_enabled", False)
+                or os.environ.get("SKJUTBANA_PHYSICAL_DECISION_TRACE") == "1")
             encoded = os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_HISTORY', 'null')
             if encoded != self._history_environment:
                 self.capture_history = validate_capture_history(json.loads(encoded))
@@ -384,7 +669,18 @@ class PhysicalTraceRecorder:
             raise ValueError('explicit non-authoritative optical frame contract required')
         return self._enqueue_inspection_frame(path, pixels, metadata)
 
-    def _enqueue_inspection_frame(self, path, pixels, metadata):
+    def enqueue_render_frame(self, path, pixels, metadata):
+        """Immutable engine image, SCREEN pixels; never camera evidence or GT."""
+        if (metadata.get('schema') != 'physical_render_content_v1'
+                or metadata.get('live_authority') is not False
+                or metadata.get('projectile_truth') is not False
+                or metadata.get('shot_id') is not None
+                or metadata.get('role') != 'ENGINE_RENDER_CONTENT'
+                or metadata.get('coordinate_space') != 'PYGAME_CLIENT_PIXELS'):
+            raise ValueError('explicit non-authoritative screen image contract required')
+        return self._enqueue_inspection_frame(path, pixels, metadata, camera=False)
+
+    def _enqueue_inspection_frame(self, path, pixels, metadata, *, camera=True):
         """Shared bounded native image writer; callers validate separate roles."""
         path = Path(path)
         if (not path.resolve().is_relative_to(self.root.resolve()) or path.exists()
@@ -397,10 +693,10 @@ class PhysicalTraceRecorder:
         started = time.perf_counter()
         frozen = np.asarray(pixels).copy()
         if frozen.dtype != np.uint8 or frozen.ndim != 3 or frozen.shape[2] != 3:
-            raise ValueError('native full camera BGR uint8 required')
+            raise ValueError('native BGR uint8 image required')
         meta = dict(metadata, shape=list(frozen.shape), dtype=str(frozen.dtype), color_space='BGR',
-                    full_camera_size=[frozen.shape[1],frozen.shape[0]],
                     copy_ms=(time.perf_counter()-started)*1000.)
+        meta['full_camera_size' if camera else 'render_size'] = [frozen.shape[1],frozen.shape[0]]
         return self._enqueue(dict(kind='review_frame', path=path, value=frozen,
                                   nbytes=frozen.nbytes, shot_id=metadata['shot_id'], meta=meta))
 
@@ -512,6 +808,10 @@ class PhysicalTraceRecorder:
                         "scanner_config": {"candidate_limit": getattr(scanner, "candidate_limit", None), "event_timeout_s": getattr(scanner, "event_timeout_s", None), "track_confirm_frames": getattr(scanner, "track_confirm_frames", None), "track_confirm_span_s": getattr(scanner, "track_confirm_span_s", None), "diff_mode": getattr(scanner, "diff_mode", None)}},
                     "frames": [], "stages": [], "outcome": {"status": "pending", "emitted": False, "ground_truth": None},
                     "writer_errors": 0, "capture_control": {"enabled": True, "writer": "asynchronous_bounded_queue"}}
+                if self.decision_trace_enabled:
+                    # A small metadata-only copy from the existing audio ring.
+                    # PCM bytes, disk I/O and event decisions are not touched.
+                    trace['audio_pipe_timing_v1'] = _audio_pipe_timing_snapshot(event)
                 from src.engine.camera.aruco_calibrator import geometry_context
                 trace['context']['runtime_geometry'] = geometry_context()
                 # Reuse the authoritative PANG snapshot, not scanner debug fields.
@@ -559,7 +859,13 @@ class PhysicalTraceRecorder:
             pre_snapshot = getattr(scanner, "pre_shot_snapshot", None)
             pre_ts = float(getattr(scanner, "pre_shot_snapshot_ts", 0.0) or 0.0)
             if isinstance(pre_snapshot, np.ndarray):
-                self._save_frame(shot_id, "pre_snapshot", pre_ts, pre_snapshot)
+                is_camera_receive_time = (
+                    getattr(scanner, "_pre_shot_snapshot_source", None) == "camera_ring"
+                    and getattr(scanner, "_pre_shot_snapshot_timestamp_semantics", None)
+                    == "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"
+                )
+                self._save_frame(shot_id, "pre_snapshot", pre_ts, pre_snapshot,
+                                 acquisition_eligible=is_camera_receive_time)
                 with self._lock:
                     trace["context"]["frame_shape"] = list(pre_snapshot.shape)
             eligible = [(float(getattr(frame, "timestamp", 0.0)), getattr(frame, "gray", None)) for frame in history]
@@ -635,7 +941,8 @@ class PhysicalTraceRecorder:
                 active['post_window_closed'] = True
         return new_post
 
-    def _save_frame(self, shot_id: int, kind: str, timestamp: float, frame: np.ndarray) -> None:
+    def _save_frame(self, shot_id: int, kind: str, timestamp: float, frame: np.ndarray,
+                    *, acquisition_eligible: bool = True) -> None:
         if self.object_only:return
         started = time.perf_counter()
         with self._lock:
@@ -650,7 +957,7 @@ class PhysicalTraceRecorder:
             order = active["artifact_order"]; active["artifact_order"] += 1
             meta = {"artifact": "frame", "kind": kind, "timestamp": float(timestamp), "shape": list(frame.shape), "dtype": str(frame.dtype), "seq": seq, "order": order}
             from src.engine.camera.camera_manager import camera_manager
-            meta['acquisition'] = camera_manager.provenance_for_timestamp(timestamp)
+            meta['acquisition'] = camera_manager.provenance_for_timestamp(timestamp) if acquisition_eligible else None
             directory = active["directory"]
             frozen = np.asarray(frame).copy()
         copy_finished = time.perf_counter()
@@ -779,6 +1086,117 @@ class PhysicalTraceRecorder:
                         if (getattr(scanner, "last_trace_confirmation", None) or {}).get('shot_id') == int(event.shot_id) else None),
                     "semantics": "retained proposal pool at emission boundary; not all candidates passed local confirmation",
                 }
+                if self.decision_trace_enabled:
+                    scanner.physical_decision_trace_v1_enabled = True
+                    active["trace"]["decision_trace_runtime_v1"] = {
+                        "schema": DECISION_TRACE_SCHEMA,
+                        "shot_id": int(event.shot_id),
+                        "selector_observed_at": time.time(),
+                        "ai_decision": {"state": "UNRECORDED"},
+                        "emission": {"state": "UNRECORDED"},
+                        "rescue": self._rescue_state(int(event.shot_id)),
+                    }
+
+    @staticmethod
+    def _rescue_state(shot_id: int) -> dict[str, Any]:
+        try:
+            from src.engine.shot_fast_v2225 import rescue_router_v2225
+            return {
+                "state": "AVAILABLE",
+                "requested": bool(rescue_router_v2225.requested(shot_id)),
+                "consumed": bool(rescue_router_v2225.was_consumed(shot_id)),
+                "source": "V2.22.5 RescueRouterV2225",
+            }
+        except Exception as exc:
+            return {"state": "UNRECORDED", "reason": type(exc).__name__}
+
+    def record_ai_decision(self, scanner: Any, event: Any, *, mode: str, decision: Mapping[str, Any] | None) -> None:
+        """Store chooser observation only; does not apply or interpret authority."""
+        if not self.decision_trace_enabled:
+            return
+        with self._lock:
+            active = self._active.get(int(getattr(event, "shot_id", 0) or 0))
+            if active is None:
+                return
+            runtime = active["trace"].setdefault("decision_trace_runtime_v1", {
+                "schema": DECISION_TRACE_SCHEMA, "shot_id": int(event.shot_id),
+                "selector_observed_at": None, "rescue": self._rescue_state(int(event.shot_id))})
+            value = dict(decision or {})
+            proposed_xy = None
+            xy_state = "NOT_APPLICABLE"
+            if value.get("camera_x") is not None and value.get("camera_y") is not None:
+                proposed_xy = [float(value["camera_x"]), float(value["camera_y"])]
+                xy_state = "AVAILABLE"
+            runtime["ai_decision"] = {
+                "state": "AVAILABLE" if decision is not None else "UNRECORDED",
+                "mode": str(mode) if mode is not None else None,
+                "apply": bool(value.get("apply", False)) if decision is not None else None,
+                "reason": value.get("reason"),
+                "proposed_camera_xy": {"state": xy_state, "value": proposed_xy},
+                "confidence": {"state": "AVAILABLE" if value.get("confidence") is not None else "UNRECORDED",
+                               "value": value.get("confidence")},
+                "observed_at": time.time(),
+            }
+            runtime["rescue"] = self._rescue_state(int(event.shot_id))
+
+    def record_emission_decision(self, scanner: Any, event: Any, track: Any) -> None:
+        """Record actual HitInput result after the unchanged emitter returns."""
+        if not self.decision_trace_enabled:
+            return
+        sid = int(getattr(event, "shot_id", 0) or 0)
+        emitted = bool(getattr(event, "emitted", False))
+        timing = getattr(event, "audio_trigger", {}).get("timing", {})
+        push_xy = timing.get("physical_decision_trace_push_camera_xy") if isinstance(timing, Mapping) else None
+        push_attempt = {
+            "state": "AVAILABLE" if isinstance(push_xy, (list, tuple)) and len(push_xy) == 2 else "UNRECORDED",
+            "camera_xy": ([float(push_xy[0]), float(push_xy[1])]
+                          if isinstance(push_xy, (list, tuple)) and len(push_xy) == 2 else None),
+            "call_state": (timing.get("physical_decision_trace_push_call_state", "UNRECORDED")
+                           if isinstance(timing, Mapping) else "UNRECORDED"),
+            "exception_type": (timing.get("physical_decision_trace_push_exception_type")
+                               if isinstance(timing, Mapping) else None),
+            "semantics": "arguments supplied to HitInput.push_camera_hit; RETURNED is a successful function return, not proof of downstream gameplay handling",
+        }
+        xy = ([float(push_xy[0]), float(push_xy[1])]
+              if emitted and isinstance(push_xy, (list, tuple)) and len(push_xy) == 2 else None)
+        matched_hole = timing.get("physical_decision_trace_matched_hole") if isinstance(timing, Mapping) else None
+        if isinstance(matched_hole, Mapping):
+            matched_hole_value = {"hole_id": matched_hole.get("hole_id"),
+                                  "camera_xy": _safe(matched_hole.get("camera_xy"))}
+            matched_hole_state = "AVAILABLE"
+        else:
+            matched_hole_value = None
+            matched_hole_state = "NOT_APPLICABLE" if getattr(event, "state", None) != "rehit" else "UNRECORDED"
+        candidate_xy = None
+        if track is not None and getattr(track, "camera_x", None) is not None and getattr(track, "camera_y", None) is not None:
+            candidate_xy = [float(track.camera_x), float(track.camera_y)]
+        with self._lock:
+            active = self._active.get(sid)
+            if active is None:
+                return
+            runtime = active["trace"].setdefault("decision_trace_runtime_v1", {
+                "schema": DECISION_TRACE_SCHEMA, "shot_id": sid, "ai_decision": {"state": "UNRECORDED"},
+                "rescue": self._rescue_state(sid)})
+            runtime["emission"] = {
+                "state": "AVAILABLE", "emitted": emitted,
+                "selected_track_id": {"state": "AVAILABLE" if track is not None else "UNRECORDED",
+                                      "value": getattr(track, "track_id", None)},
+                "matched_track_id": {"state": "AVAILABLE" if getattr(event, "matched_track_id", None) is not None else "NOT_APPLICABLE",
+                                     "value": getattr(event, "matched_track_id", None)},
+                "camera_xy": {"state": "AVAILABLE" if xy is not None else ("NOT_APPLICABLE" if not emitted else "UNRECORDED"),
+                              "value": xy},
+                "push_attempt": push_attempt,
+                "candidate_camera_xy": {"state": "AVAILABLE" if candidate_xy is not None else "UNRECORDED",
+                                        "value": candidate_xy,
+                                        "semantics": "selected track XY before emission substitution"},
+                "matched_hole": {"state": matched_hole_state, "value": matched_hole_value,
+                                 "semantics": "copied known-hole identity and XY used by re-hit branch"},
+                "result_state": str(getattr(event, "state", "UNAVAILABLE")),
+                "observed_at": time.time(),
+                "xy_semantics": ("arguments passed to HitInput.push_camera_hit" if xy is not None
+                                 else "actual push arguments not recorded"),
+            }
+            runtime["rescue"] = self._rescue_state(sid)
 
     def finish(self, shot_id: int, scanner: Any, event: Any) -> None:
         if self.object_only:return
@@ -805,14 +1223,80 @@ class PhysicalTraceRecorder:
                             if isinstance(debug, Mapping) and (debug_shot is None or int(debug_shot) == int(shot_id))
                             else None)
             trace_completion = max(0.0, (time.time() - float(trace["peak_ts"])) * 1000.0)
-            trace["outcome"] = {"status": str(getattr(event, "state", "finished")), "emitted": bool(getattr(event, "emitted", False)),
+            current_trigger = _safe(getattr(event, "audio_trigger", None))
+            if isinstance(current_trigger, Mapping):
+                # Refresh only bounded metadata: AudioPeakDetector mutates this
+                # acquisition record through callback completion on the main thread.
+                trace["audio_trigger"] = current_trigger
+                acquisition = ((current_trigger.get("diagnostics") or {}).get("acquisition")
+                               if isinstance(current_trigger.get("diagnostics"), Mapping) else None)
+                trace["event_timing_v1"] = {
+                    "state": "AVAILABLE" if isinstance(acquisition, Mapping) else "UNRECORDED",
+                    "clock": "monotonic software boundaries; no device/exposure time",
+                    "audio": _safe(acquisition) if isinstance(acquisition, Mapping) else None,
+                    "shot": _safe(current_trigger.get("timing", {})),
+                    "shot_id": int(shot_id),
+                    "created_monotonic": getattr(event, "created_monotonic", None),
+                    "decision_deadline_monotonic": getattr(event, "decision_deadline_monotonic", None),
+                    "lifecycle_state": getattr(event, "lifecycle_state", "UNRECORDED"),
+                    "pre_source": current_trigger.get("pre_source", "UNRECORDED"),
+                    "pre_timestamp": current_trigger.get("pre_timestamp"),
+                    "pre_timestamp_semantics": current_trigger.get("pre_timestamp_semantics", "UNRECORDED"),
+                }
+                if self.decision_trace_enabled:
+                    trace["audio_pipe_timing_v1"] = _audio_pipe_timing_snapshot(event)
+            emitted = bool(getattr(event, "emitted", False))
+            if self.decision_trace_enabled:
+                event_timing = ((current_trigger.get("timing") or {})
+                                if isinstance(current_trigger, Mapping) else {})
+                push_xy = event_timing.get("physical_decision_trace_push_camera_xy") \
+                    if isinstance(event_timing, Mapping) else None
+                final_camera_xy = ({"camera_x": float(push_xy[0]), "camera_y": float(push_xy[1])}
+                                   if emitted and isinstance(push_xy, (list, tuple)) and len(push_xy) == 2
+                                   else None)
+            else:
+                final_camera_xy = (_safe(getattr(scanner, "last_best_candidate", None))
+                                   if emitted and (debug_shot is None or int(debug_shot) == int(shot_id)) else None)
+            trace["outcome"] = {"status": str(getattr(event, "state", "finished")), "emitted": emitted,
+                "lifecycle_state": getattr(event, "lifecycle_state", "UNRECORDED"),
                 "matched_track_id": getattr(event, "matched_track_id", None), "matched_hole_id": getattr(event, "matched_hole_id", None),
                 "confidence": getattr(event, "confidence", None), "note": str(getattr(event, "note", "")),
-                "final_camera_xy": (_safe(getattr(scanner, "last_best_candidate", None))
-                    if bool(getattr(event, "emitted", False)) and (debug_shot is None or int(debug_shot) == int(shot_id)) else None),
+                "final_camera_xy": final_camera_xy,
+                "final_camera_xy_semantics": ("HitInput.push_camera_hit arguments" if self.decision_trace_enabled
+                                               else "legacy scanner debug cache"),
                 "rescue_used": bool(getattr(scanner, "last_window_debug", {}).get("rescue_used", False)),
                 "detector_e2e_latency_ms": detector_e2e, "trace_completion_latency_ms": trace_completion,
                 "runtime_event_debug": debug, "timeout": str(getattr(event, "state", "")) == "missed", "ground_truth": None}
+            if self.decision_trace_enabled:
+                runtime = trace.setdefault("decision_trace_runtime_v1", {
+                    "schema": DECISION_TRACE_SCHEMA,
+                    "shot_id": int(shot_id),
+                    "ai_decision": {"state": "UNRECORDED"},
+                    "rescue": self._rescue_state(int(shot_id)),
+                })
+                if "emission" not in runtime:
+                    emitted = bool(getattr(event, "emitted", False))
+                    runtime["emission"] = {
+                        "state": "AVAILABLE",
+                        "emitted": emitted,
+                        "selected_track_id": {"state": "UNRECORDED", "value": None},
+                        "camera_xy": {"state": "UNRECORDED" if emitted else "NOT_APPLICABLE", "value": None},
+                        "push_attempt": {
+                            "state": "AVAILABLE" if isinstance(current_trigger, Mapping) and isinstance(
+                                (current_trigger.get("timing") or {}).get("physical_decision_trace_push_camera_xy"), (list, tuple)) else "UNRECORDED",
+                            "camera_xy": ((current_trigger.get("timing") or {}).get("physical_decision_trace_push_camera_xy")
+                                          if isinstance(current_trigger, Mapping) else None),
+                            "call_state": ((current_trigger.get("timing") or {}).get("physical_decision_trace_push_call_state", "UNRECORDED")
+                                           if isinstance(current_trigger, Mapping) else "UNRECORDED"),
+                            "exception_type": ((current_trigger.get("timing") or {}).get("physical_decision_trace_push_exception_type")
+                                               if isinstance(current_trigger, Mapping) else None),
+                            "semantics": "arguments supplied to HitInput.push_camera_hit; RETURNED is a successful function return, not proof of downstream gameplay handling",
+                        },
+                        "result_state": str(getattr(event, "state", "finished")),
+                        "observed_at": time.time(),
+                        "reason": "emission_hook_not_observed" if emitted else "no_emission_observed",
+                    }
+                runtime["rescue"] = self._rescue_state(int(shot_id))
             active["finished"] = True
 
     def finish_object_query(self, shot_id, result):
@@ -894,6 +1378,35 @@ class PhysicalTraceRecorder:
                             and not any(c['frame_limit_drops'] for c in coverage.values()))
                 trace['capture_history']['requested_boundaries_observed_without_frame_cap_loss'] = bool(observed)
                 complete = complete and observed
+            audio_timing = trace.get('audio_pipe_timing_v1')
+            if self.decision_trace_enabled and isinstance(audio_timing, dict):
+                trigger_sequence = audio_timing.get('trigger_sequence')
+                if isinstance(trigger_sequence, int):
+                    try:
+                        from src.engine.audio.audio_peak_detector import audio_peak_detector
+                        post_blocks = [_audio_block_trace_fields(row) for row in audio_peak_detector.acquisition_metadata_window(
+                            trigger_sequence + 1, trigger_sequence + 64, limit=64)
+                            if row.get('stream_id') == audio_timing.get('stream_id')]
+                        audio_timing['post_blocks'] = post_blocks
+                        observed_sequences = [row.get('sequence') for row in post_blocks]
+                        audio_timing['post_window'] = {
+                            'requested_first_sequence': trigger_sequence + 1,
+                            'requested_last_sequence': trigger_sequence + 64,
+                            'observed_blocks': len(post_blocks),
+                            'first_observed_sequence': observed_sequences[0] if observed_sequences else None,
+                            'last_observed_sequence': observed_sequences[-1] if observed_sequences else None,
+                            'complete': observed_sequences == list(range(trigger_sequence + 1, trigger_sequence + 65)),
+                        }
+                        audio_timing['post_capture_state'] = (
+                            'COMPLETE' if audio_timing['post_window']['complete'] else
+                            'PARTIAL' if post_blocks else 'MISSING')
+                        audio_timing['post_capture_reason'] = (
+                            None if post_blocks else 'no_later_block_available_at_trace_finalization')
+                    except Exception as exc:
+                        audio_timing['post_capture_state'] = 'UNRECORDED'
+                        audio_timing['post_capture_reason'] = f'metadata_snapshot_failed:{type(exc).__name__}'
+                elif audio_timing.get('state') == 'UNRECORDED':
+                    audio_timing['post_capture_state'] = 'UNRECORDED'
             manifest = active["settings"].get("canonical_challenger_manifest")
             # Diagnostic sidecar only: never changes decision_input, selectors,
             # ground truth, candidate pools or persistent physical state.
@@ -926,6 +1439,9 @@ class PhysicalTraceRecorder:
             # Keep the historical top-level key while exposing the frozen
             # selector beside it for consumers that understand the new schema.
             trace["confirmation_selection_shadow"] = trace["selectors"]["CONFIRMATION_SELECTION_SHADOW"]
+            if self.decision_trace_enabled:
+                trace["decision_trace_v1"] = _build_decision_trace_v1(trace)
+                trace.pop("decision_trace_runtime_v1", None)
             trace["frames"].sort(key=lambda f: f.get("order", 0))
             trace["writer_errors"] = active["writer_errors"]
             trace["completeness"] = {"pre_frames_expected": expected["pre"], "pre_frames_persisted": persisted["pre"], "post_frames_expected": expected["post"], "post_frames_persisted": persisted["post"], "evidence_artifacts_expected": expected["evidence"], "evidence_artifacts_persisted": persisted["evidence"], "writer_errors": active["writer_errors"], "queue_drops": active["queue_drops"], "post_frame_limit_drops": active["post_limit_drops"], "trace_complete": complete, "completion_reason": "complete" if complete else ("flush_timeout" if timed_out else "incomplete_persistence"), "errors": list(active["errors"])}

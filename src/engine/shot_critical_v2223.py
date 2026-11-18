@@ -78,6 +78,7 @@ class ShotCriticalControllerV2223:
         self._cursor_wait_active = False
         self._ack_ts_by_peak: dict[float, float] = {}
         self._prepared_object_shots: set[int] = set()
+        self._audio_batch_size_by_peak: dict[float, int] = {}
 
     def pending_audio(self, detector: Any) -> bool:
         return float(getattr(detector, "last_peak_ts", 0.0) or 0.0) > self.last_seen_peak_ts + 1e-9
@@ -134,6 +135,9 @@ class ShotCriticalControllerV2223:
         pending = detector.pending_events_snapshot() if hasattr(detector, 'pending_events_snapshot') else ()
         if pending:
             peak_ts = float(pending[0].timestamp)
+            batch_size = len(pending)
+            for queued_event in pending:
+                self._audio_batch_size_by_peak[float(queued_event.timestamp)] = batch_size
         now = time.time()
         self._ack_ts_by_peak[peak_ts] = now
         delay_ms = max(0.0, (now - peak_ts) * 1000.0)
@@ -157,7 +161,12 @@ class ShotCriticalControllerV2223:
             sid = int(getattr(scanner, "_next_shot_id", 0) or 0)
             if sid <= 0 or sid in self._prepared_object_shots:
                 return
-            object_hit_registry_v2223.snapshot(sid, float(peak_ts), scene=scene)
+            batch_size = int(self._audio_batch_size_by_peak.get(float(peak_ts), 1))
+            object_hit_registry_v2223.snapshot(
+                sid, float(peak_ts), scene=scene,
+                pose_provenance="CURRENT_SCENE_BEFORE_AUDIO_CALLBACK_EVENT_TIME_UNVERIFIED",
+                pose_capture_monotonic=time.monotonic(), queued_audio_batch_size=batch_size,
+            )
             self._prepared_object_shots.add(sid)
         except Exception:
             pass
@@ -177,7 +186,22 @@ class ShotCriticalControllerV2223:
             # exact frozen geometry. Otherwise fall back to snapshotting now.
             snap = object_hit_registry_v2223.snapshot_for_shot(sid)
             if snap is None:
-                snap = object_hit_registry_v2223.snapshot(sid, peak_ts, scene=scene)
+                batch_size = int(self._audio_batch_size_by_peak.get(peak_ts, 1))
+                snap = object_hit_registry_v2223.snapshot(
+                    sid, peak_ts, scene=scene,
+                    pose_provenance="CURRENT_SCENE_AFTER_AUDIO_CALLBACK_EVENT_TIME_UNAVAILABLE",
+                    pose_capture_monotonic=time.monotonic(), queued_audio_batch_size=batch_size,
+                )
+            try:
+                diagnostics = (getattr(event, "audio_trigger", {}) or {}).get("diagnostics", {})
+                acquisition = diagnostics.get("acquisition", {}) if isinstance(diagnostics, dict) else {}
+                dispatch_mono = acquisition.get("dispatch_monotonic") if isinstance(acquisition, dict) else None
+                snap.event_dispatch_monotonic = float(dispatch_mono) if dispatch_mono is not None else None
+                delta = (float(dispatch_mono) - float(snap.pose_capture_monotonic)
+                         if dispatch_mono is not None and snap.pose_capture_monotonic is not None else None)
+                snap.pose_age_at_dispatch_ms = delta * 1000.0 if delta is not None and delta >= 0.0 else None
+            except (TypeError, ValueError):
+                pass
             from src.engine.camera.camera_manager import camera_manager
             object_hit_registry_v2223.begin_object_query(sid, scanner, camera_manager)
             ack_ts = float(self._ack_ts_by_peak.pop(peak_ts, now))
@@ -188,6 +212,7 @@ class ShotCriticalControllerV2223:
                 dispatch_delay_ms=max(0.0, (ack_ts - peak_ts) * 1000.0),
                 region_count=len(snap.regions),
             )
+            self._audio_batch_size_by_peak.pop(peak_ts, None)
             self.last_scanner_shot_id = max(self.last_scanner_shot_id, sid)
             print(
                 f"[V2.22.3 SHOT] shot={sid} dispatch={self.timings[sid].dispatch_delay_ms:.1f}ms "
@@ -367,6 +392,41 @@ def _install_camera_manager_fast_update() -> None:
     CameraManager._v2223_fast_update_patch = True
 
 
+def _averaged_pre_v2223(scanner: Any, ring: Sequence[Any], best: Any, peak_ts: float):
+    """Opt-in H4 (SKJUTBANA_PRE_AVERAGE_FRAMES=N): mean of up to N PRE frames.
+
+    Ends at the normally selected PRE frame (same target time) and extends
+    backwards only over frames that cannot predate the previous shot's hole
+    (previous peak + SKJUTBANA_MIN_POST_AGE_S or 0.11 s), so PRE never mixes
+    frames with and without an earlier hole. Returns None when off or < 2 frames.
+    """
+    import os
+    try:
+        n = int(os.environ.get("SKJUTBANA_PRE_AVERAGE_FRAMES", "0") or 0)
+    except ValueError:
+        n = 0
+    if n < 2:
+        return None
+    try:
+        min_age = float(os.environ.get("SKJUTBANA_MIN_POST_AGE_S", "0.11") or 0.11)
+    except ValueError:
+        min_age = 0.11
+    previous = [float(getattr(ev, "peak_ts", 0.0)) for ev in list(getattr(scanner, "audio_events", []) or [])
+                if float(getattr(ev, "peak_ts", 0.0)) < peak_ts - 1e-6]
+    earliest = (max(previous) + min_age) if previous else float("-inf")
+    end_ts = float(best.timestamp)
+    frames = [cf for cf in ring if earliest <= float(cf.timestamp) <= end_ts + 1e-9]
+    frames = sorted(frames, key=lambda cf: float(cf.timestamp))[-n:]
+    if len(frames) < 2:
+        return None
+    acc = None
+    for cf in frames:
+        g = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        acc = g if acc is None else acc + g
+    scanner._pre_shot_average_frames = len(frames)
+    return np.clip(acc / len(frames) + 0.5, 0, 255).astype(np.uint8)
+
+
 def _install_recent_pre_snapshot() -> None:
     """Make diagnostic/AI PRE mean 'what existed before THIS shot'."""
     from src.engine.camera.hit_scanner import HitScanner, camera_manager
@@ -379,8 +439,12 @@ def _install_recent_pre_snapshot() -> None:
         best = select_recent_pre_frame_v2223(ring, float(peak_ts))
         if best is not None:
             try:
-                self.pre_shot_snapshot = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
+                averaged = _averaged_pre_v2223(self, ring, best, float(peak_ts))
+                self.pre_shot_snapshot = (averaged if averaged is not None
+                                          else cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY))
                 self.pre_shot_snapshot_ts = float(best.timestamp)
+                self._pre_shot_snapshot_source = "camera_ring"
+                self._pre_shot_snapshot_timestamp_semantics = "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"
                 age_ms = max(0.0, (float(peak_ts) - float(best.timestamp)) * 1000.0)
                 print(f"[PRE-SHOT] recent ring frame age={age_ms:.1f}ms (V2.22.3)")
                 return
@@ -391,10 +455,14 @@ def _install_recent_pre_snapshot() -> None:
         if getattr(self, "scene_reference_gray", None) is not None:
             self.pre_shot_snapshot = self.scene_reference_gray.copy()
             self.pre_shot_snapshot_ts = float(peak_ts) - 1.0
+            self._pre_shot_snapshot_source = "scene_reference"
+            self._pre_shot_snapshot_timestamp_semantics = "SYNTHETIC_RELATIVE_VALUE_NOT_FRAME_TIME"
             print("[PRE-SHOT] static scene_reference fallback (V2.22.3)")
             return
         self.pre_shot_snapshot = None
         self.pre_shot_snapshot_ts = 0.0
+        self._pre_shot_snapshot_source = "UNAVAILABLE"
+        self._pre_shot_snapshot_timestamp_semantics = "UNAVAILABLE"
 
     HitScanner._capture_pre_shot_snapshot = patched_capture_pre_shot_snapshot
     HitScanner._v2223_recent_pre_patch = True

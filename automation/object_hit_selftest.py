@@ -31,7 +31,10 @@ class ObjectHitTests(unittest.TestCase):
     def damage(self,q,pre,points):
         post=pre.copy()
         for x,y in points:post[y-2:y+3,x-2:x+3]=30
-        return fx.hit_result(q,post)
+        r=fx.hit_result(q,post)
+        if not r['final']:  # OBJECT_HIT ambiguity waits for later causal frames (b59caa4)
+            r=q.observe(fx.frame(post,2.21),delivered_ts=2.212)
+        return r
 
     def test_one_object_and_actual_observed_xy(self):
         q,pre,m=self.setup_query();r=self.damage(q,pre,[(123,93)])

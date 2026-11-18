@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import math
+import os
 import random
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -11,6 +13,63 @@ import numpy as np
 
 
 Color = Tuple[int, int, int]
+
+# ----------------------------------------------------------------------
+# Real-hole stamps ("real_stamp" kind)
+# ----------------------------------------------------------------------
+# Clean darkening maps D (0..1) cut from 59 labelled real airgun holes, see
+# /data/skjutbana/hole_library/README.md and src/engine/offline/hole_stamps.py.
+# Each stamp is 41x41 in CAMERA pixels, centred on the hole (pixel 20,20).
+# Measured: core equivalent diameter ~7.1 camera px, relative depth median
+# 0.28 (IQR 0.18-0.37), soft slightly elliptical blob, no bright rim.
+STAMP_LIBRARY_DIR = Path(os.environ.get("SKJUTBANA_HOLE_LIBRARY", "/data/skjutbana/hole_library"))
+STAMP_NOMINAL_RADIUS_CAM_PX = 3.55  # half the measured core diameter (7.1 px)
+REAL_STAMP_KIND = "real_stamp"
+# Real CO2 AR15 holes at their true size (same ceiling camera, same 41x41 D format),
+# extracted 2026-11-18 from a physical session on fresh paper; see
+# /data/skjutbana/hole_library/ar15_co2_20261118/stamps.json.
+AR15_STAMP_LIBRARY_DIR = Path(os.environ.get("SKJUTBANA_AR15_HOLE_LIBRARY",
+                                             str(STAMP_LIBRARY_DIR / "ar15_co2_20261118")))
+REAL_STAMP_AR15_KIND = "real_stamp_ar15"
+# kind -> stamp library directory (None = default airgun library)
+REAL_STAMP_LIBRARIES: Dict[str, Optional[Path]] = {REAL_STAMP_KIND: None,
+                                                   REAL_STAMP_AR15_KIND: AR15_STAMP_LIBRARY_DIR}
+
+_STAMP_CACHE: Dict[str, Optional[List[np.ndarray]]] = {}
+
+
+def load_real_hole_stamps(library_dir: Optional[Path] = None) -> Optional[List[np.ndarray]]:
+    """Return the list of float32 darkening maps, or None when unavailable.
+
+    Prefers ``stamps_png/*.png`` (black RGBA, alpha = D) and falls back to
+    ``clean_stamps.npz``. Cached per directory; never raises.
+    """
+    root = Path(library_dir) if library_dir is not None else STAMP_LIBRARY_DIR
+    key = str(root)
+    if key in _STAMP_CACHE:
+        return _STAMP_CACHE[key]
+    stamps: List[np.ndarray] = []
+    try:
+        for path in sorted((root / "stamps_png").glob("*.png")):
+            img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            if img is None or img.ndim != 3 or img.shape[2] != 4:
+                continue
+            stamps.append(img[..., 3].astype(np.float32) / 255.0)
+    except Exception:
+        stamps = []
+    if not stamps:
+        try:
+            data = np.load(root / "clean_stamps.npz", allow_pickle=False)
+            stamps = [np.asarray(s, dtype=np.float32) for s in data["stamps"]]
+        except Exception:
+            stamps = []
+    stamps = [s for s in stamps if s.ndim == 2 and float(s.max()) > 0.0]
+    _STAMP_CACHE[key] = stamps or None
+    return _STAMP_CACHE[key]
+
+
+def real_stamps_available(library_dir: Optional[Path] = None) -> bool:
+    return load_real_hole_stamps(library_dir) is not None
 
 
 @dataclass
@@ -116,14 +175,21 @@ class SyntheticHoleOverlay:
         self._holes.clear()
         self._dirty = True
 
-    def render_overlay_bgra(self) -> np.ndarray:
+    def _ensure_cached_overlay(self) -> np.ndarray:
         if self._dirty or self._cached_overlay_bgra is None:
             overlay = np.zeros((self.height, self.width, 4), dtype=np.uint8)
             for hole in self._holes.values():
                 self._draw_hole_to_overlay(overlay, hole)
             self._cached_overlay_bgra = overlay
+            ys, xs = np.nonzero(overlay[..., 3])
+            self._cached_alpha_bbox = (
+                None if len(ys) == 0 else (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1)
+            )
             self._dirty = False
-        return self._cached_overlay_bgra.copy()
+        return self._cached_overlay_bgra
+
+    def render_overlay_bgra(self) -> np.ndarray:
+        return self._ensure_cached_overlay().copy()
 
     def composite_on(self, frame_bgr: np.ndarray) -> np.ndarray:
         if frame_bgr.shape[0] != self.height or frame_bgr.shape[1] != self.width:
@@ -131,8 +197,16 @@ class SyntheticHoleOverlay:
                 f"Frame size {frame_bgr.shape[1]}x{frame_bgr.shape[0]} does not match overlay "
                 f"size {self.width}x{self.height}."
             )
-        overlay = self.render_overlay_bgra()
-        return self._alpha_blend_bgra_on_bgr(frame_bgr, overlay)
+        overlay = self._ensure_cached_overlay()
+        out = np.array(frame_bgr, dtype=np.uint8, copy=True)
+        bbox = getattr(self, "_cached_alpha_bbox", None)
+        if bbox is None:
+            return out  # alpha is 0 everywhere: identical to a full blend
+        # Blend only where the overlay has alpha (same result, ~20x cheaper
+        # than a full-screen float blend every frame).
+        x0, y0, x1, y1 = bbox
+        out[y0:y1, x0:x1] = self._alpha_blend_bgra_on_bgr(frame_bgr[y0:y1, x0:x1], overlay[y0:y1, x0:x1])
+        return out
 
     def _draw_hole_to_overlay(self, overlay_bgra: np.ndarray, hole: SyntheticHole) -> None:
         sprite = self._build_hole_sprite(hole)
@@ -164,7 +238,65 @@ class SyntheticHoleOverlay:
         dst = overlay_bgra[dst_y0:dst_y1, dst_x0:dst_x1]
         overlay_bgra[dst_y0:dst_y1, dst_x0:dst_x1] = self._alpha_over(dst, src)
 
+    def _build_real_stamp_sprite(self, hole: SyntheticHole) -> Optional[np.ndarray]:
+        """Real measured hole, rendered multiplicatively.
+
+        ``radius_px`` is the equivalent SCREEN radius of the hole core; the
+        camera-px stamp is resampled by ``radius_px / STAMP_NOMINAL_RADIUS_CAM_PX``
+        (callers fold the size profile and camera-px-per-screen-px into it).
+        The sprite is BLACK with alpha = D, so the overlay's normal alpha blend
+        gives ``out = bg * (1 - D)``: the hole darkens whatever is projected by
+        the measured relative factor (~0.63-0.82x), never paints it black.
+        Overlapping stamps compose as (1-D1)(1-D2). ``strength`` is the optical
+        gain (alpha = D * strength) that makes the camera see the real depth
+        after projection; ``opacity`` is ignored.
+
+        Limitations (documented, not modelled):
+        - A projector cannot darken ambient light. On dark content a real hole
+          also shadows the ambient-lit paper; here only projected light is
+          reduced, so on near-black backgrounds the synthetic hole is weaker
+          than a real one.
+        - Stamps already contain the camera's blur. Resampling to screen px and
+          re-imaging through projector + camera blurs again, so the observed
+          camera contrast is somewhat lower than D (worse for tiny scales).
+        - Downscaling is area-preserving (integrated darkening ~ area), so very
+          small holes (CO2 profile) become shallower, as the camera would see.
+        """
+        stamps = load_real_hole_stamps(REAL_STAMP_LIBRARIES.get(hole.kind))
+        if not stamps:
+            return None
+        rng = random.Random(hole.seed)
+        d = stamps[rng.randrange(len(stamps))]
+        if rng.random() < 0.5:
+            d = d[:, ::-1]
+        h, w = d.shape
+        f = max(0.02, float(hole.radius_px) / STAMP_NOMINAL_RADIUS_CAM_PX)
+        if f < 1.0:
+            # Anti-alias prefilter (approximates box/area averaging of 1/f px).
+            sigma = 0.3 / f
+            d = cv2.GaussianBlur(np.ascontiguousarray(d), (0, 0), sigmaX=sigma, sigmaY=sigma)
+        cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
+        half = int(math.ceil(max(h, w) / 2.0 * f * 1.42)) + 1  # covers any rotation
+        n = 2 * half + 1
+        m = cv2.getRotationMatrix2D((cx, cy), float(hole.rotation_deg), f)
+        m[0, 2] += half - cx
+        m[1, 2] += half - cy
+        out = cv2.warpAffine(np.ascontiguousarray(d, dtype=np.float32), m, (n, n), flags=cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_CONSTANT, borderValue=0.0)
+        # strength = optical gain compensating projector+camera re-imaging loss
+        # (calibrated per projected profile in ai_training_content.PROJECTED_PROFILE)
+        alpha = np.clip(out * max(0.0, float(hole.strength)), 0.0, 0.95)
+        sprite = np.zeros((n, n, 4), dtype=np.uint8)
+        sprite[..., 3] = np.round(alpha * 255.0).astype(np.uint8)
+        return sprite
+
     def _build_hole_sprite(self, hole: SyntheticHole) -> Optional[np.ndarray]:
+        if hole.kind in REAL_STAMP_LIBRARIES:
+            sprite = self._build_real_stamp_sprite(hole)
+            if sprite is not None:
+                return sprite
+            # Graceful fallback when the stamp library is missing.
+            hole.kind = "clean_hole"
         local_rng = random.Random(hole.seed)
         r = max(0.85, hole.radius_px)
         canvas_radius = int(math.ceil(r * 3.0))
@@ -324,7 +456,10 @@ class SyntheticHoleOverlay:
             bgr[..., c] = np.maximum(bgr[..., c], darkness)
 
     def _estimate_bbox(self, hole: SyntheticHole) -> Tuple[int, int, int, int]:
-        pad = int(math.ceil(hole.radius_px * 3.0))
+        if hole.kind in REAL_STAMP_LIBRARIES:
+            pad = int(math.ceil(20.5 * 1.42 * hole.radius_px / STAMP_NOMINAL_RADIUS_CAM_PX)) + 1
+        else:
+            pad = int(math.ceil(hole.radius_px * 3.0))
         x0 = int(math.floor(hole.x - pad))
         y0 = int(math.floor(hole.y - pad))
         x1 = int(math.ceil(hole.x + pad))

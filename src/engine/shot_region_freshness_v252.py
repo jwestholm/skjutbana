@@ -579,13 +579,23 @@ def _install_authority_selector_patch() -> None:
     def best_track_v252(self, event):
         sid = int(getattr(event, "shot_id", 0) or 0)
         snap = object_hit_registry_v2223.snapshot_for_shot(sid) if sid > 0 else None
+        def audit_path(branch, reason=None, fallback_to=None):
+            if not getattr(self, "physical_decision_trace_v1_enabled", False):
+                return
+            from src.engine.track_audit import record_selector_path
+            record_selector_path(self, event, owner="V252", branch=branch,
+                                 reason=reason, fallback_to=fallback_to)
         if not _enabled() or snap is None or not tuple(getattr(snap, "camera_regions", ()) or ()):
-            return previous_best(self, event)
+            best = previous_best(self, event)
+            audit_path("DELEGATE_BASE_SELECTOR", "region_authority_not_applicable", "base_physical_selector")
+            return best
 
         # Once the explicit global rescue has actually run, V2.22.5 owns the
         # fallback authority exactly as before V2.25.x.
         if rescue_router_v2225.was_consumed(sid):
-            return base_physical_best(self, event)
+            best = base_physical_best(self, event)
+            audit_path("DELEGATE_AFTER_FULL_RESCUE", "full_rescue_consumed", "base_physical_selector")
+            return best
 
         age = max(0.0, time.time() - float(getattr(event, "peak_ts", time.time()) or time.time()))
         ready = _is_ready(self, sid)
@@ -600,11 +610,14 @@ def _install_authority_selector_patch() -> None:
                     print(f"[V2.25.2 EARLY-GATE] shot={sid} age={age*1000.0:.0f}ms reason=await_registered_frame")
                 from src.engine.track_audit import record_selection
                 record_selection(self, event, None, "V252", gate="await_registered_authority")
+                audit_path("WAIT_REGISTERED_FRAME", "await_registered_authority")
                 return None
             if _log_enabled() and (sid, "failopen") not in gate_log:
                 gate_log.add((sid, "failopen"))
                 print(f"[V2.25.2 EARLY-GATE] shot={sid} age={age*1000.0:.0f}ms fail_open=1 reason=no_registered_frame")
-            return base_physical_best(self, event)
+            best = base_physical_best(self, event)
+            audit_path("FAIL_OPEN_NO_REGISTERED_FRAME", "authority_fail_open_elapsed", "base_physical_selector")
+            return best
 
         eligible: list[tuple[Any, dict[str, Any], float]] = []
         for track in getattr(self, "_active_tracks", {}).values():
@@ -628,11 +641,14 @@ def _install_authority_selector_patch() -> None:
             if age < _authority_fail_open_s():
                 from src.engine.track_audit import record_selection
                 record_selection(self, event, None, "V252", gate="await_registered_authority")
+                audit_path("WAIT_FRESH_CANDIDATE", "await_registered_authority")
                 return None
             if _log_enabled() and (sid, "fresh_failopen") not in gate_log:
                 gate_log.add((sid, "fresh_failopen"))
                 print(f"[V2.25.2 AUTHORITY] shot={sid} fresh_tracks=0 age={age*1000.0:.0f}ms fail_open=1")
-            return base_physical_best(self, event)
+            best = base_physical_best(self, event)
+            audit_path("FAIL_OPEN_NO_FRESH_TRACK", "authority_fail_open_elapsed", "base_physical_selector")
+            return best
 
         best, cand, onset = max(
             eligible,
@@ -659,6 +675,7 @@ def _install_authority_selector_patch() -> None:
             )
         from src.engine.track_audit import record_selection
         record_selection(self, event, best, "V252")
+        audit_path("REGISTERED_FRESH_SELECTED")
         return best
 
     HitScanner._best_track_for_event = best_track_v252

@@ -177,10 +177,12 @@ def launch_can(output,trace_root,foundation_report=None):
  return _run_capture(binding,env)
 
 def prepare_can_play(output, *, object_crops=False, mature_candidates=False, verbose_console=False,
-                     gt_review=False, gt_shots=3):
+                     gt_review=False, gt_shots=3, render_history=False):
  """Compact gameplay acceptance, not a full research-capture binding."""
  output=_development_path(output)
  if mature_candidates and not object_crops:raise ValueError('Mature candidate diagnostics require --object-crops')
+ if render_history and (not object_crops or gt_review):
+  raise ValueError('Render history requires --object-crops and a separate run from --gt-review')
  if not output.resolve().is_relative_to(Path('/data/skjutbana')):
   raise ValueError('Gameplay diagnostics must be under /data/skjutbana')
  output.mkdir(parents=True,exist_ok=False)
@@ -201,6 +203,7 @@ def prepare_can_play(output, *, object_crops=False, mature_candidates=False, ver
      payload_policy='Complete original stream in runtime.log; compact index references byte ranges and canonical shot artifacts'),
    head=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
    mature_candidates=bool(mature_candidates),
+   render_history=bool(render_history),
    gt_review=bool(gt_review),gt_review_full_frame_capture=bool(gt_review),
    gt_review_event_limit=gt_shots if gt_review else None,
    mature_candidate_limits=dict(pools_per_event=32,candidates_per_pool=1024,bytes_per_event=8*1024*1024) if mature_candidates else None,
@@ -224,7 +227,7 @@ def prepare_can_play(output, *, object_crops=False, mature_candidates=False, ver
  env=dict(os.environ)
  for key in ('SKJUTBANA_PHYSICAL_CAPTURE_BINDING','SKJUTBANA_PHYSICAL_TRACE_ROOT',
              'SKJUTBANA_PHYSICAL_CAPTURE_HISTORY','SKJUTBANA_KOMPETENSPROV_TEST','SKJUTBANA_OBJECT_CROP_ROOT',
-             'SKJUTBANA_OBJECT_MATURE_CAPTURE','SKJUTBANA_GT_CAPTURE_ROOT'):
+             'SKJUTBANA_OBJECT_MATURE_CAPTURE','SKJUTBANA_GT_CAPTURE_ROOT','SKJUTBANA_RENDER_HISTORY_ROOT'):
   env.pop(key,None)
  env.update(SKJUTBANA_PHYSICAL_TRACE_DISABLE='1',SKJUTBANA_CAN_SFX='0',SKJUTBANA_OBJECT_COMPARE='0')
  if object_crops:env['SKJUTBANA_OBJECT_CROP_ROOT']=str(output/'object_crops')
@@ -232,12 +235,15 @@ def prepare_can_play(output, *, object_crops=False, mature_candidates=False, ver
  if gt_review:
   from automation.physical_gt_capture import prepare
   env['SKJUTBANA_GT_CAPTURE_ROOT']=str(prepare(output,gt_shots))
+ if render_history:
+  from automation.physical_render_history import prepare
+  env['SKJUTBANA_RENDER_HISTORY_ROOT']=str(prepare(output))
  return path,env
 
 def play_can(output, *, object_crops=False, mature_candidates=False, verbose_console=False,
-             gt_review=False, gt_shots=3):
+             gt_review=False, gt_shots=3, render_history=False):
  manifest,env=prepare_can_play(output,object_crops=object_crops,mature_candidates=mature_candidates,
-   verbose_console=verbose_console,gt_review=gt_review,gt_shots=gt_shots)
+   verbose_console=verbose_console,gt_review=gt_review,gt_shots=gt_shots,render_history=render_history)
  if gt_review:
   print(f'GT REVIEW: select Spel > Skjutprylar. First {gt_shots} audio events receive post-decision full-frame review.\n'
         '3-shot plan: clean surface; near old damage/tape; dark/projected detail.\n'
@@ -365,6 +371,7 @@ def main():
  play=sub.add_parser('play-can',help='Existing Skjutprylar gameplay; compact 15-shot notes, no full traces/settings writes')
  play.add_argument('--object-crops',action='store_true',help='Save bounded query PRE/POST crops, never full frames; max 20 events')
  play.add_argument('--mature-candidates',action='store_true',help='Add bounded native mature candidate delivery/confirmation sidecars; requires --object-crops')
+ play.add_argument('--render-history',action='store_true',help='Research only: bounded immutable engine presentation history; requires --object-crops; excludes external/SHOT_ONLY rendering')
  play.add_argument('--verbose-console',action='store_true',help='Echo full diagnostics to terminal as well as runtime.log (default: compact operator status)')
  play.add_argument('--gt-review',action='store_true',help='Research only: pause AFTER all live work for full-frame WHITE/BLACK/MID_GRAY human inspection')
  play.add_argument('--gt-shots',type=int,default=3,help='Bound GT review to first N audio events (default 3; not physical truth)')
@@ -388,7 +395,7 @@ def main():
  add_reset_arguments(sub.add_parser('reset-labels',help='Preview or archive/reset labels; preserve captured evidence'))
  a=p.parse_args()
  if a.cmd=='play-can':
-  try:raise SystemExit(play_can(a.output_dir,object_crops=a.object_crops,mature_candidates=a.mature_candidates,verbose_console=a.verbose_console,gt_review=a.gt_review,gt_shots=a.gt_shots))
+  try:raise SystemExit(play_can(a.output_dir,object_crops=a.object_crops,mature_candidates=a.mature_candidates,verbose_console=a.verbose_console,gt_review=a.gt_review,gt_shots=a.gt_shots,render_history=a.render_history))
   except (ValueError,OSError,KeyError) as exc:p.exit(2,f'CAN GAMEPLAY LAUNCH REFUSED: {exc}\n')
  elif a.cmd=='launch-kompetensprov':
   try:raise SystemExit(launch_kompetensprov(a.output_dir,a.trace_root))

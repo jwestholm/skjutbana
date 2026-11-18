@@ -1,5 +1,42 @@
 # Architecture
 
+## Opt-in engine presentation provenance — 2026-10-17
+
+`physical_render_history` is a research adapter, not a new renderer or hit owner.
+The existing main-thread flip hook copies owned Pygame pixels into a bounded
+immutable BGR ring. Existing audio dispatch binds references plus ObjectHitRegistry
+frozen geometry and saved HitInput calibration; it performs no image copy, hash or
+disk write. Later CPU presentations may supply explicitly marked diagnostic
+context only. One background worker hashes/deduplicates images and uses the
+existing PhysicalTraceRecorder queue/atomic writer. Camera images and GT roles
+are never mixed with `ENGINE_RENDER_CONTENT` in `PYGAME_CLIENT_PIXELS`.
+
+Shot sidecars retain CPU flip calls/returns, receipt-anchored audio deltas, owner
+generation, frozen viewport/mapping and missing-history reasons. No unique image
+is claimed to be the projection at physical impact. Homography is recorded but
+not assumed active when the frozen mapper used scanport; no new coordinate mapper
+or radiometric model is created. External renderer/SHOT_ONLY owners abstain rather
+than saving the parent's launcher as game content. The normal loop has no capture
+instance unless explicitly enabled; no authority consumes these artifacts.
+
+## Optical transfer audit boundary — 2026-10-18
+
+`automation.physical_optical_transfer` reuses the GT native-image hash/role
+validator and Optical Lab report/writer helpers. BLACK/WHITE endpoints predict
+held MID_GRAY without fitting on gray; an explicitly same-run descriptive arm
+uses only the other two complete triplets and matches camera stream, dimensions
+and orientation. It is not session validation. `GT_SETTLED` is post-decision human
+review material, not a causal per-shot nuisance feature. The audit has no physical
+labels, detector output, camera reload, score or live consumer. Its UNKNOWN images
+remain UNKNOWN for impact.
+
+The measured channel response variation and synthetic gamma/one-pixel mismatch
+reject immediate per-pixel subtraction as a trustworthy selector feature. The
+current architecture gains no projector mask, veto, score or hit authority from
+these values. Reconsider only after independently timed repeated probe/recovery and
+neutral-state observations characterize transfer stability; exact physical GT
+remains separately required to test the emitted coordinate.
+
 ## Single frozen region: research extension, not another authority — 2026-10-14
 
 `object_hit_regions([region])` and `ObjectPhysicalQuery` already support one exact
@@ -971,3 +1008,51 @@ track produced by another audio event. This protects accumulated XY, frame hits
 and best_score even if an older frame arrives after newer event activity.
 Same-event spatial association and untagged legacy inputs preserve their existing
 rules. The trace records nearby tracks excluded by the producer predicate.
+
+## 2026-11 additions (bench, recording, lens model, precision levels) — 2026-11-18
+
+- **Shared shot path:** `shot_async_v2224.shot_path_step()` is the one main-thread shot-path
+  iteration used by the live loop (`run_v2224`) and by offline replay. Live loop order per frame:
+  `precision_flash.pre_step` → `lens_model.apply_pending` → `shot_path_step` →
+  `precision_flash.frame_hook` → events/scene update → `scene.render` →
+  `precision_flash.render_hook` → flip.
+- **Offline runtime:** `src/engine/offline/virtual_runtime.py` installs exactly the live patch
+  chain (bootstrap + main.py installers; parity checked by `automation/bench_fidelity_selftest.py`)
+  with a virtual clock and recorded/synthetic sources. Bench CLI: `python3 -m automation.bench`
+  (synth, ab, compare, replay, calibration-check, optical-holes, flash-score, flash-replay, train,
+  nightly); see `automation/bench/README.md`.
+- **Source recording:** `src/engine/source_recording.py` (`SKJUTBANA_SOURCE_RECORD=1`) stores raw
+  MJPG + PCM with indices; camera (`camera_manager.inject_frame`) and audio
+  (`_deliver_pcm_block`) feed it. Replays re-inject the same bytes.
+- **Audio:** `parec` (10 ms latency, 16 ms blocks) first, ffmpeg fallback; event timestamps from
+  sample position. Camera: BUFFERSIZE 2, optional `exposure_time_absolute` (167 = one 60 Hz
+  projector period).
+- **Lens model:** `src/engine/lens_model.py` (`camera_distortion` inside the calibration; top-level
+  homography stays the plain fit for crop/ROI). Exact mappers in `hit_input` are lens-aware. Every
+  calibration save backs up first; the lens model is fitted in the background and applied on the
+  main thread only if the calibration fingerprint is unchanged.
+- **Precision levels and flash:** `src/engine/precision_flash.py`; games declare
+  `hit_precision` (SHOT/HIT_MISS/OBJECT/ZONE/EXACT) and `hit_aggregation` (per_burst/series);
+  see ROADMAP.md top. Flash frames are hidden from ordinary detection.
+- **Real-hole stamps:** `src/engine/offline/hole_stamps.py` + `/data/skjutbana/hole_library/`
+  (offline bench `hole_model="stamps"`, AI test scene projected holes).
+- **Winner-selection experiments:** `src/engine/winner_selection_flags.py` (all default off).
+
+### Environment variables (`SKJUTBANA_*`)
+
+Experiment flags (default OFF; detector hypotheses, one at a time, see bench README):
+`MIN_POST_AGE_S`, `CAUSAL_OWNERSHIP` (+ `CAUSAL_OWNERSHIP_CONFIRM_S`,
+`CAUSAL_OWNERSHIP_MIN_CHANGE`), `REQUIRE_NOVELTY`, `PRE_AVERAGE_FRAMES`, `PREFER_LOCAL_CONTRAST`,
+`EVIDENCE_OVER_TIMING`, `BEST_READY_TOPK`, `UNCAPPED_RANK`, `HOLE_SHAPE_PRIOR` (+ `HOLE_RADIUS_PX`),
+`SIGNED_DARKENING_PRIOR`, `NO_OLD_HOLE_SNAP` (+ `_MIN_DIST_PX`, `_MIN_CHANGE`),
+`SOFT_KNOWN_HOLE_PENALTY`, `LATE_REPROPOSE_S`, `DRAIN_READY_BEFORE_TIMEOUT`,
+`AUDIO_RECEIPT_ANCHOR`, `REPORT_NO_FRESH_PENDING_FRAME`, `RESOLVE_WITHOUT_CAMERA`,
+`REQUIRE_FOUNDATION_FIT`.
+
+Features/tools set by hand: `SOURCE_RECORD` (+ `SOURCE_RECORD_ROOT`), `PRECISION_FLASH`
+(`off`/`on`), `PHYSICAL_DECISION_TRACE`, `PHYSICAL_TRACE_DISABLE`, `OPTICAL_LAB`, `OBJECT_COMPARE`,
+`CAN_SFX`, `HOLE_LIBRARY`, `BACKUP_DIR`, `REPLAY_RING_FRAMES` (offline).
+
+Capture plumbing set by automation (do not set by hand): `PHYSICAL_CAPTURE_BINDING`,
+`PHYSICAL_TRACE_ROOT`, `PHYSICAL_CAPTURE_HISTORY`, `KOMPETENSPROV_TEST`, `GT_CAPTURE_ROOT`,
+`OBJECT_CROP_ROOT`, `OBJECT_MATURE_CAPTURE`, `RENDER_HISTORY_ROOT`.

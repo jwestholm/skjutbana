@@ -34,7 +34,7 @@ except Exception:
 from src.engine.ai.runtime import get_ai_runtime
 from src.engine.ai.diagnostics import RoundRecord
 from src.engine.ai.space_mapper import project_screen_point
-from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
+from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.camera.hit_scanner import hit_scanner
 from src.engine.input.hit_input import hit_input
@@ -149,12 +149,23 @@ class AITrainingScene(Scene):
         """Suppress HUD/overlays during auto-calibration."""
         return self._auto_cal_phase is not None
 
-    MODE_NAMES = ["white", "white_grid", "coord_grid", "gray", "black", "checker", "checker_anim", "bubbles"]
+    MODE_NAMES = [
+        "white", "white_grid", "coord_grid", "gray", "black", "checker", "checker_anim", "bubbles",
+        # Game-like content (src/engine/scenes/ai_training_content.py); append only.
+        "images", "dark_scene", "scroll_landscape", "moving_targets",
+    ]
 
     def __init__(self, bg_color=None, **kwargs) -> None:
         super().__init__()
         self.runtime = get_ai_runtime()
         self._bubbles: list[dict] = []
+        # Test content: hole profile (F8), shot effects (F7), freeze at shot (F6),
+        # extra background modes. Defaults: co2 real stamps, effects off, freeze on.
+        from src.engine.scenes.ai_training_content import AITrainingContent
+        self._content = AITrainingContent(
+            hole_profile=str(self.runtime.settings.get("ai_synthetic_hole_profile", "co2"))
+            if isinstance(getattr(self.runtime, "settings", None), dict) else "co2"
+        )
 
         if isinstance(bg_color, (tuple, list)) and len(bg_color) >= 3:
             brightness = sum(int(c) for c in bg_color[:3]) / 3.0
@@ -308,6 +319,7 @@ class AITrainingScene(Scene):
             self._auto_cal_phase = None
 
     def on_exit(self) -> None:
+        self._live_unsubscribe()
         self._set_cursor_visible(True)
         # Clear visual markers so they don't persist to next scene
         hit_visualizer.clear_all()
@@ -380,10 +392,14 @@ class AITrainingScene(Scene):
     def _try_auto_calibrate(self) -> bool:
         """Try to detect markers and compute homography. Returns True if successful."""
         if self._calibrator is None or not self._calibrator.available:
+            print(f"[AUTO-CAL] attempt {self._auto_cal_attempts}: calibrator unavailable")
             return False
 
         frame_bgr = camera_manager.get_latest_frame()
         if frame_bgr is None:
+            # Was silent; 2026-11-18 all 8 attempts failed this way in the live async loop.
+            print(f"[AUTO-CAL] attempt {self._auto_cal_attempts}: no camera frame "
+                  f"(running={getattr(camera_manager, 'running', None)})")
             return False
 
         result = self._calibrator.detect_and_calibrate(frame_bgr)
@@ -391,6 +407,28 @@ class AITrainingScene(Scene):
             print(f"[AUTO-CAL] attempt {self._auto_cal_attempts}: {result.message}")
             return False
 
+        # Never silently replace a validated lens-model calibration (saved by
+        # `bench calibration-check --distortion --save`): the fresh plain fit
+        # would drop it.  Otherwise back up settings before overwriting.
+        from src.engine.settings import load_camera_calibration
+        current = load_camera_calibration() or {}
+        if current.get("camera_distortion"):
+            print(f"[AUTO-CAL] fresh fit OK ({result.message}) but NOT saved: existing calibration has a "
+                  "validated lens model; recalibrate with `python3 -m automation.bench calibration-check "
+                  "--distortion --save`")
+            self._auto_cal_result = "Kalibrering behållen (linsmodell skyddad)"
+            return True
+        try:
+            import shutil
+            from pathlib import Path
+            backup_dir = Path("/data/skjutbana/backups")
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2("content/settings.json",
+                         backup_dir / f"settings.backup_{time.strftime('%Y%m%dT%H%M%S')}_ai_autocal.json")
+        except Exception as exc:
+            print(f"[AUTO-CAL] backup failed ({exc}); calibration NOT saved")
+            self._auto_cal_result = "Kalibrering ej sparad (backup misslyckades)"
+            return True
         self._calibrator.save_and_apply(result)
         print(f"[AUTO-CAL] SUCCESS: {result.message}")
         self._auto_cal_result = f"Kalibrering klar: {result.message}"
@@ -913,7 +951,8 @@ class AITrainingScene(Scene):
 
         lines: list[str] = [
             f"Autoträning klar — {time.strftime('%Y-%m-%d %H:%M')}",
-            f"Bakgrund: {self.MODE_NAMES[self.bg_mode_index]} | Sampling: {self.runtime.sampling_mode} | {total} rundor",
+            f"Bakgrund: {self.MODE_NAMES[self.bg_mode_index]} | Sampling: {self.runtime.sampling_mode} | {total} rundor"
+            f" | {self._content.status_text()}",
             "",
             f"Iterationer: {total}",
             f"Hittade hålet: {found}/{total} ({100.0 * found / total:.1f}%)",
@@ -979,6 +1018,11 @@ class AITrainingScene(Scene):
                 lines.append(f"  {block_label:<8} {b_found:>4}  {b_top1:>4}  {b_top3:>4}  {b_ai:>7}  {b_avg:>7.1f}")
 
         # Funnel diagnostics summary
+        lines += self._live_report_lines()
+        artefact = self._live_write_artifacts()
+        if artefact:
+            lines.append(f"Körning sparad: {artefact}")
+
         funnel_lines = self.runtime.funnel.format_summary_lines()
         lines += ["", "--- Funnel-diagnostik ---"] + funnel_lines
 
@@ -1014,6 +1058,15 @@ class AITrainingScene(Scene):
             self.auto_training_enabled = True
             self.auto_headless = headless
             self.auto_iteration = 0
+            # live-emission scoring and AR15 bursts for every auto run
+            self._live = None
+            self._live_subscribe()
+            # F2 = matrix run: the same number of rounds on every background
+            # (total rounds stay auto_target_iterations, e.g. from startAITraining)
+            self._matrix_modes = list(range(len(self.MODE_NAMES))) if headless else None
+            if headless:
+                per_bg = max(1, int(self.auto_target_iterations) // len(self.MODE_NAMES))
+                self.auto_target_iterations = per_bg * len(self.MODE_NAMES)
             self.auto_phase = "waiting_next"
             self.auto_next_iteration_ts = time.time() + 0.2
             mode_label = "headless" if headless else "visuell"
@@ -1039,7 +1092,16 @@ class AITrainingScene(Scene):
             self._build_auto_report()
             return
 
+        matrix = getattr(self, "_matrix_modes", None)
+        if matrix:
+            per_bg = max(1, self.auto_target_iterations // len(matrix))
+            wanted = matrix[min(self.auto_iteration // per_bg, len(matrix) - 1)]
+            if wanted != self.bg_mode_index:
+                # switch background between rounds and let the camera settle
+                self.bg_mode_index = wanted
+                self.background_settle_until_ts = time.time() + max(self.background_settle_delay_s, 0.6)
         self._log_round_state(self.current_round_id + 1, "round_started")
+        self._live_round_start()
         vp = self.viewport or pygame.Rect(0, 0, screen.get_width(), screen.get_height())
         target_xy = self._choose_auto_screen_point(vp)
         if self._trigger_synthetic_shot_at(screen, target_xy, batch_mode=True):
@@ -1069,12 +1131,10 @@ class AITrainingScene(Scene):
             self.single_synth_round_active = True
             self.single_target_screen_xy = (sx, sy)
 
-        hole_kind = random.choices(
-            ["clean_hole", "torn_hole", "ragged_hole", "dent_ring", "weak_indent"],
-            weights=[66, 16, 10, 6, 2],
-            k=1,
-        )[0]
-        radius_px = random.uniform(1.7, 2.9)
+        # Hole profile (F8): co2/airgun = measured real-hole stamp (multiplicative
+        # darkening, radius = equivalent screen-px core radius); legacy = old
+        # procedural kinds. Falls back to legacy when the stamp library is missing.
+        hole_kind, radius_px = self._content.choose_hole(random)
 
         # Store the hole, but do NOT render it yet. The real-world sequence is:
         # audio peak / pre-shot snapshot first, then the physical hole appears
@@ -1086,7 +1146,7 @@ class AITrainingScene(Scene):
             "y": sy,
             "kind": hole_kind,
             "radius_px": radius_px,
-            "strength": random.uniform(0.90, 1.18),
+            "strength": self._content.hole_strength(random),
             "opacity": random.uniform(0.94, 1.0),
         }
 
@@ -1120,24 +1180,23 @@ class AITrainingScene(Scene):
         batch_mode = self.synthetic_trigger_batch_mode
         event_ts = time.time()
 
-        audio_peak_detector.last_peak_ts = event_ts
-        try:
-            hit_scanner._on_audio_peak(
-                AudioPeakEvent(
-                    timestamp=event_ts,
-                    peak=max(1.0, float(getattr(audio_peak_detector, "min_abs_peak", 0.2)) * 1.5),
-                    rms=0.0,
-                )
-            )
-        except Exception as exc:
-            self.status_message = f"Syntetiskt skott misslyckades: {exc}"
-            self.auto_training_enabled = False
-            self.auto_phase = "idle"
-            self.synthetic_trigger_pending = False
-            self.synthetic_pending_hole_spec = None
-            self._clear_synthetic_holes()
-            self._set_cursor_visible(True)
+        # Same path as a real shot: the event is queued in the audio detector and
+        # dispatched by the live loop (shot-critical controller -> HitScanner ->
+        # emission / precision flash).  Previously HitScanner was called directly,
+        # bypassing audio dispatch timing and double-shot handling.
+        # Rig timing realism: here the hole becomes visible ~reveal delay + one frame +
+        # projector latency (~40 ms) AFTER this call, while a real pellet hole appears
+        # ~15-25 ms after the audio peak.  Stamp the audio event later by the difference
+        # so PRE/POST timing relative to the peak matches physics (measured 2026-11-18:
+        # without it the hole first showed 0.17-0.33 s after the peak vs ~0.10-0.15 s
+        # physically).  PRE (>= 0.08 s before the peak) still cannot contain the hole.
+        peak_ts = event_ts + self._audio_align_s()
+        if audio_peak_detector.inject_synthetic_event(peak_ts) is None:
+            # rejected by the audio cooldown, exactly like a real peak: retry next frame
+            self.synthetic_trigger_ready_ts = event_ts + 0.02
             return False
+        self._live_round_shot(peak_ts, self.synthetic_trigger_screen_xy)
+        self._schedule_burst(event_ts)
 
         self.synthetic_trigger_pending = False
         self._animation_frozen = True
@@ -1154,7 +1213,7 @@ class AITrainingScene(Scene):
         self.synthetic_camera_frames_after_reveal = 0
         self.synthetic_last_counted_camera_ts = self.synthetic_reveal_camera_ts
 
-        self._last_peak_ts = event_ts
+        self._last_peak_ts = peak_ts
         self.auto_last_trigger_ts = event_ts
 
         if batch_mode:
@@ -1198,6 +1257,8 @@ class AITrainingScene(Scene):
             strength=float(spec["strength"]),
             opacity=float(spec["opacity"]),
         )
+        # Optional game shot reactions (F7, default off).
+        self._content.on_hole_revealed(int(spec["x"]), int(spec["y"]))
         batch_mode = self.synthetic_trigger_batch_mode
         if batch_mode:
             self._log_round_state(self.current_round_id + 1, "hole_revealed_after_peak")
@@ -1242,6 +1303,187 @@ class AITrainingScene(Scene):
         # Timeout is independent of runtime.has_new_shot. Otherwise a scanner
         # timeout could make the training scene wait forever.
         return now - self.synthetic_reveal_ts >= self.synthetic_detection_timeout_s
+
+    # ------------------------------------------------------------------
+    # Shot bursts (AR15 doubles/strings) and live-emission scoring
+    # ------------------------------------------------------------------
+    # The game receives hits through hit_input (push_camera_hit, or the precision
+    # flash).  These helpers record exactly those deliveries and score them
+    # against the synthetic ground truth in millimetres, separately from the AI
+    # candidate-ranking statistics above.
+    BURST_GAPS_S = {"double": (0.15, 0.30), "string3": (0.25, 0.50)}
+
+    def _live_state(self) -> dict:
+        state = getattr(self, "_live", None)
+        if state is None:
+            state = self._live = dict(rounds=[], hits=[], burst_queue=[], subscribed=False)
+        return state
+
+    def _live_subscribe(self) -> None:
+        state = self._live_state()
+        if not state["subscribed"]:
+            hit_input.subscribe(self._on_live_hit)
+            state["subscribed"] = True
+
+    def _live_unsubscribe(self) -> None:
+        state = self._live_state()
+        if state["subscribed"]:
+            hit_input.unsubscribe(self._on_live_hit)
+            state["subscribed"] = False
+
+    def _on_live_hit(self, event) -> None:
+        if getattr(event, "source", None) != "camera":
+            return
+        self._live_state()["hits"].append(dict(
+            ts=float(getattr(event, "timestamp", time.time())),
+            peak_ts=getattr(event, "shot_peak_ts", None),
+            shot_id=getattr(event, "shot_id", None),
+            scanner_state=getattr(event, "shot_scanner_state", None),
+            screen_x=float(event.screen_x), screen_y=float(event.screen_y),
+            camera_x=float(event.camera_x), camera_y=float(event.camera_y)))
+
+    def _live_round_start(self) -> None:
+        if not self.auto_training_enabled:
+            return
+        self._live_state()["rounds"].append(dict(start=time.time(), shots=[],
+                                                 background=self.MODE_NAMES[self.bg_mode_index]))
+
+    def _live_round_shot(self, fire_ts: float, screen_xy) -> None:
+        state = self._live_state()
+        if not self.auto_training_enabled or not state["rounds"] or screen_xy is None:
+            return
+        projected = project_screen_point(float(screen_xy[0]), float(screen_xy[1]))
+        state["rounds"][-1]["shots"].append(dict(
+            fire_ts=float(fire_ts), screen_x=float(screen_xy[0]), screen_y=float(screen_xy[1]),
+            camera_x=float(projected.camera_x), camera_y=float(projected.camera_y)))
+
+    def _schedule_burst(self, first_ts: float) -> None:
+        """Plan extra shots of a double/string after the first one (auto rounds only)."""
+        state = self._live_state()
+        state["burst_queue"] = []
+        if not (self.auto_training_enabled and self.synthetic_trigger_batch_mode):
+            return
+        mix = self.runtime.settings.get("burst_mix", {"single": 0.5, "double": 0.3, "string3": 0.2})
+        kinds, weights = zip(*[(k, float(v)) for k, v in mix.items() if k in ("single", "double", "string3")])
+        kind = random.choices(kinds, weights=weights, k=1)[0]
+        extra = {"single": 0, "double": 1, "string3": 2}[kind]
+        spec = dict(self.synthetic_pending_hole_spec or {})
+        vp = self.viewport or pygame.Rect(0, 0, 800, 600)
+        t = first_ts
+        for _ in range(extra):
+            t += random.uniform(*self.BURST_GAPS_S[kind])
+            x, y = self._choose_auto_screen_point(vp)
+            state["burst_queue"].append(dict(fire_ts=t, xy=(int(x), int(y)), spec=dict(spec, x=int(x), y=int(y)),
+                                             fired=False, revealed=False, reveal_ts=None))
+        if state["rounds"]:
+            state["rounds"][-1]["burst"] = kind
+
+    def _audio_align_s(self) -> float:
+        """Synthetic audio timestamp offset (s) aligning the projected hole with physics."""
+        try:
+            return float(self.runtime.settings.get("synthetic_audio_align_s", 0.06))
+        except Exception:
+            return 0.06
+
+    def _burst_busy(self) -> bool:
+        return any(not item["revealed"] for item in self._live_state()["burst_queue"])
+
+    def _process_burst_queue(self, now: float) -> None:
+        for item in self._live_state()["burst_queue"]:
+            if not item["fired"] and now >= item["fire_ts"]:
+                peak_ts = now + self._audio_align_s()     # same rig-latency alignment as the first shot
+                if audio_peak_detector.inject_synthetic_event(peak_ts) is None:
+                    continue                      # audio cooldown, retry next frame (as for a real shot)
+                item["fired"], item["reveal_ts"] = True, now + self.synthetic_hole_delay_s
+                self._last_peak_ts = peak_ts
+                self._live_round_shot(peak_ts, item["xy"])
+            if item["fired"] and not item["revealed"] and now >= item["reveal_ts"] and not self.synthetic_reveal_pending:
+                item["revealed"] = True
+                self.synthetic_pending_hole_spec = item["spec"]
+                self.synthetic_reveal_pending = True
+                self._reveal_pending_synthetic_hole()
+
+    def _live_score(self) -> dict:
+        """Match game-delivered camera hits to synthetic holes per round (screen space, mm)."""
+        state = self._live_state()
+        rounds = state["rounds"]
+        vp = self.viewport or pygame.Rect(0, 0, 800, 600)
+        try:
+            from src.engine.settings import load_viewport_physical_width_cm
+            px_per_mm = vp.w / (float(load_viewport_physical_width_cm()) * 10.0)
+        except Exception:
+            px_per_mm = vp.w / 1000.0
+        radius_mm = float(self.runtime.settings.get("live_match_radius_mm", 5.0))
+        holes = hits_ok = false_hits = 0
+        errors_mm, by_bg = [], {}
+        for i, rnd in enumerate(rounds):
+            start = rnd["start"]
+            end = rounds[i + 1]["start"] if i + 1 < len(rounds) else float("inf")
+            # assign by shot time (peak) when known, else by arrival time
+            mine = [h for h in state["hits"]
+                    if start <= float(h["peak_ts"] if h["peak_ts"] is not None else h["ts"]) < end]
+            used = set()
+            pairs = sorted((math.hypot(h["screen_x"] - s["screen_x"], h["screen_y"] - s["screen_y"]) / px_per_mm, hi, si)
+                           for hi, h in enumerate(mine) for si, s in enumerate(rnd["shots"]))
+            matched = {}
+            for dist, hi, si in pairs:
+                if dist > radius_mm or hi in used or si in matched:
+                    continue
+                used.add(hi); matched[si] = dist
+            bg = by_bg.setdefault(rnd["background"], dict(holes=0, hits=0, false=0))
+            holes += len(rnd["shots"]); hits_ok += len(matched); false_hits += len(mine) - len(used)
+            bg["holes"] += len(rnd["shots"]); bg["hits"] += len(matched); bg["false"] += len(mine) - len(used)
+            errors_mm += list(matched.values())
+        errors_mm.sort()
+        return dict(holes=holes, hits=hits_ok, false=false_hits, radius_mm=radius_mm,
+                    median_error_mm=errors_mm[len(errors_mm) // 2] if errors_mm else None, by_background=by_bg)
+
+    def _live_report_lines(self) -> list[str]:
+        s = self._live_score()
+        if not s["holes"]:
+            return []
+        pct = 100.0 * s["hits"] / s["holes"]
+        lines = ["", f"--- Spelets träffar (live-väg, ±{s['radius_mm']:.0f} mm) ---",
+                 f"Rätt: {s['hits']}/{s['holes']} ({pct:.1f}%) | Missade: {s['holes'] - s['hits']} | "
+                 f"Falska/extra: {s['false']}",
+                 f"Medianfel: {s['median_error_mm']:.1f} mm" if s["median_error_mm"] is not None else "Medianfel: n/a"]
+        if len(s["by_background"]) > 1:
+            for bg, v in s["by_background"].items():
+                lines.append(f"  {bg:<16} {v['hits']:>3}/{v['holes']:<3} falska {v['false']}")
+        return lines
+
+    def _live_write_artifacts(self) -> str | None:
+        """Write rounds/hits (and GT for an active source recording) outside the repo."""
+        import json
+        from pathlib import Path
+        state = self._live_state()
+        if not state["rounds"]:
+            return None
+        root = Path("/data/skjutbana/ai_test_runs")
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            path = root / f"ai_test_{time.strftime('%Y%m%dT%H%M%S')}.json"
+            path.write_text(json.dumps(dict(score=self._live_score(), rounds=state["rounds"], hits=state["hits"],
+                                            evidence_level="OPTICAL_PROJECTED_SYNTHETIC_HOLES_LIVE_PATH"), indent=1))
+        except Exception as exc:
+            print(f"[AI-TEST] could not write run artefacts: {exc}")
+            return None
+        try:   # make an active source recording replayable with ground truth
+            from src.engine.source_recording import get_source_recorder
+            recorder = get_source_recorder()
+            directory = getattr(recorder, "directory", None) if recorder is not None else None
+            if directory is not None:
+                with open(Path(directory) / "ground_truth.jsonl", "a") as gt, \
+                        open(Path(directory) / "synthetic_audio.jsonl", "a") as audio:
+                    for rnd in state["rounds"]:
+                        for shot in rnd["shots"]:
+                            gt.write(json.dumps(dict(wall_ts=shot["fire_ts"], camera_x=shot["camera_x"],
+                                                     camera_y=shot["camera_y"], background=rnd["background"],
+                                                     truth_source="AI_TEST_PROJECTED_SYNTHETIC_HOLE")) + "\n")
+                            audio.write(json.dumps(dict(wall_ts=shot["fire_ts"], amplitude=0.85)) + "\n")
+        except Exception as exc:
+            print(f"[AI-TEST] could not append ground truth to the recording: {exc}")
+        return str(path)
 
     # ------------------------------------------------------------------
     # Scene events
@@ -1291,6 +1533,21 @@ class AITrainingScene(Scene):
                 self.bg_mode_index = (self.bg_mode_index + 1) % len(self.MODE_NAMES)
                 self.background_settle_until_ts = time.time() + self.background_settle_delay_s
                 self.status_message = "Bakgrund bytt – vänta ett ögonblick innan skott."
+                return None
+
+            # Test-content toggles (F3/F4 are taken by the v2223 cursor patch).
+            if event.key == pygame.K_F6:
+                on = self._content.toggle_freeze()
+                self.status_message = f"Frys vid skott: {'PÅ' if on else 'AV'} (F6)"
+                return None
+
+            if event.key == pygame.K_F7:
+                self.status_message = f"Skotteffekter: {self._content.cycle_effects()} (F7)"
+                return None
+
+            if event.key == pygame.K_F8:
+                self._content.cycle_hole_profile()
+                self.status_message = f"Hålprofil: {self._content.effective_hole_profile()} (F8)"
                 return None
 
             if event.key == pygame.K_r:
@@ -1396,6 +1653,8 @@ class AITrainingScene(Scene):
         if self.synthetic_reveal_pending and now >= self.synthetic_reveal_ready_ts:
             self._reveal_pending_synthetic_hole()
 
+        self._process_burst_queue(now)
+
         # Synthetic rounds must advance even if HitScanner has already closed
         # its shot context. Previously this logic lived behind
         # runtime.has_new_shot, so a scanner timeout could leave the UI stuck on
@@ -1406,6 +1665,7 @@ class AITrainingScene(Scene):
             and not self.awaiting_click
             and not self._reviewing
             and (self.auto_phase == "waiting_detection" or self.single_synth_round_active)
+            and not self._burst_busy()          # all shots of a double/string fired and visible
         )
         if synthetic_waiting and self._synthetic_camera_window_ready(now):
             if audio_peak_detector.last_peak_ts > self._handled_shot_peak_ts:
@@ -1743,10 +2003,13 @@ class AITrainingScene(Scene):
 
         # Headless mode: only show progress counter, no candidates/review/HUD
         if self.auto_headless and self.auto_training_enabled:
-            if self.tiny:
-                progress = f"Headless: {self.auto_iteration}/{self.auto_target_iterations}"
-                surf = self.tiny.render(progress, True, (180, 180, 180))
-                screen.blit(surf, (vp.x + 8, vp.y + 8))
+            # No on-board progress text: a counter that changes between rounds is
+            # projected onto the board and was detected as a "new hole" (5/30 wrong
+            # emissions in the 2026-11-18 AI-test replay).  Progress goes to stdout.
+            if self.auto_iteration != getattr(self, "_last_progress_print", -1):
+                self._last_progress_print = self.auto_iteration
+                if self.auto_iteration % 10 == 0:
+                    print(f"[AI-TEST] headless {self.auto_iteration}/{self.auto_target_iterations}", flush=True)
             if self.auto_report_visible:
                 self._render_auto_report(screen, vp)
             return
@@ -1856,7 +2119,11 @@ class AITrainingScene(Scene):
             screen.blit(hint, hint_rect)
 
     def _render_background(self, screen: pygame.Surface, mode: str, vp: pygame.Rect) -> None:
-        if mode == "black":
+        # Content clock: stops at the shot only while "freeze at shot" (F6) is on.
+        self._content.tick(self._animation_frozen)
+        if self._content.render_background(self, screen, mode, vp):
+            pass
+        elif mode == "black":
             pygame.draw.rect(screen, BG_BLACK, vp)
         elif mode == "gray":
             pygame.draw.rect(screen, (128, 128, 128), vp)
@@ -1876,6 +2143,11 @@ class AITrainingScene(Scene):
             self._draw_bubbles(screen, vp)
         else:
             pygame.draw.rect(screen, BG_WHITE, vp)
+
+        # Shot reactions (F7) are projected content: drawn here, BEFORE the hole
+        # overlay is composited in render(), so holes darken them like real holes
+        # and screen shake never moves a (physical) hole.
+        self._content.draw_projected_effects(screen, vp, self.small)
 
         pygame.draw.rect(screen, (0, 180, 0), vp, 2)
 
@@ -1917,8 +2189,9 @@ class AITrainingScene(Scene):
     def _draw_checker_anim(self, screen: pygame.Surface, vp: pygame.Rect) -> None:
         cell = 40
         colors = [(220, 220, 220), (60, 60, 60)]
-        if not self._animation_frozen:
-            offset = int(self.t * 60) % (cell * 2)
+        if not self._content.is_frozen(self._animation_frozen):
+            # Content clock instead of self.t so "freeze at shot: off" keeps moving.
+            offset = int(self._content.clock * 60) % (cell * 2)
             self._checker_frozen_offset = offset
         else:
             offset = getattr(self, "_checker_frozen_offset", 0)
@@ -1957,7 +2230,7 @@ class AITrainingScene(Scene):
                     }
                 )
 
-        if not self._animation_frozen:
+        if not self._content.is_frozen(self._animation_frozen):
             dt = 1.0 / 60.0
             for b in self._bubbles:
                 b["x"] += b["dx"] * dt
@@ -2077,6 +2350,10 @@ class AITrainingScene(Scene):
             "checker": "Rutmönster",
             "checker_anim": "Rutmönster (video)",
             "bubbles": "Bubblor",
+            "images": "Bildspel",
+            "dark_scene": "Mörk scen",
+            "scroll_landscape": "Rullande landskap",
+            "moving_targets": "Rörliga mål",
         }.get(mode, mode)
 
         summary = self.runtime.memory.summary()
@@ -2085,6 +2362,8 @@ class AITrainingScene(Scene):
             f"{summary['positive_count']} pos / {summary['negative_count']} neg"
         )
         screen.blit(self.small.render(header, True, WHITE), (12, 8))
+        content_surf = self.tiny.render(self._content.status_text(), True, WHITE, (0, 0, 0))
+        screen.blit(content_surf, (12, 40))
 
         if self.awaiting_click:
             status_text = "KLICKA var du träffade"
@@ -2105,7 +2384,10 @@ class AITrainingScene(Scene):
             screen.blit(bot_bar, (0, sh - 28))
             screen.blit(self.tiny.render(self.status_message, True, WHITE), (12, sh - 24))
 
-        help_text = "TAB=bakgrund HÖGERKLICK=syntetisk runda SPACE=manuellt skott F1=autoträna R=nollställ ESC=tillbaka"
+        help_text = (
+            "TAB=bakgr. HÖGERKL=synt. runda SPACE=skott F1=auto "
+            "F6=frys F7=effekter F8=hålprofil R=nollst. ESC=tillbaka"
+        )
         help_surf = self.tiny.render(
             help_text,
             True,

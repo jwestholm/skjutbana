@@ -166,6 +166,15 @@ class DetectorStageProfilerV2224:
         CandidateGeneratorV2._v2224_stage_profiler = True
 
 
+def _min_post_age_s() -> float:
+    """SKJUTBANA_MIN_POST_AGE_S (seconds, default 0 = off)."""
+    try:
+        value = float(os.environ.get("SKJUTBANA_MIN_POST_AGE_S", "0") or 0.0)
+    except ValueError:
+        return 0.0
+    return value if np.isfinite(value) and 0.0 < value < 1.0 else 0.0
+
+
 class AsyncDetectorV2224:
     """Single-owner detector worker.
 
@@ -285,6 +294,14 @@ class AsyncDetectorV2224:
         sid = int(getattr(event, "shot_id", 0) or 0)
         if sid <= 0:
             return
+        # Opt-in causal gate (hypothesis H1, measure before promoting): a frame
+        # received earlier than peak + min_post_age cannot show the new hole
+        # (bullet flight + camera receive latency), so FAST must not spend its
+        # single worker slot on it and its static candidates must not become
+        # tracks that confirmation then emits.
+        min_post_age = _min_post_age_s()
+        if min_post_age > 0.0 and float(frame_ts) < float(getattr(event, "peak_ts", frame_ts)) + min_post_age:
+            return
 
         max_queued = self._max_queued_per_shot
         spacing_s = self._frame_spacing_s
@@ -296,18 +313,44 @@ class AsyncDetectorV2224:
 
         clone = self._clone_scanner(scanner, event)
         gray_job = np.asarray(gray).copy()  # immutable job ownership
-        submitted = time.perf_counter()
+        submitted = time.monotonic()
         peak_ts = float(getattr(event, "peak_ts", frame_ts))
+        try:
+            future = self._executor.submit(
+                self._run_job,
+                clone,
+                gray_job,
+                float(frame_ts),
+                sid,
+                peak_ts,
+                submitted,
+            )
+        except Exception as exc:
+            # Resource/executor faults must not escape into the Pygame loop or
+            # leave a shot looking as though detector work is in flight.
+            trigger = getattr(event, "audio_trigger", None)
+            if not isinstance(trigger, dict):
+                trigger = {}
+                event.audio_trigger = trigger
+            timing = trigger.setdefault("timing", {})
+            timing.pop("worker_submit_monotonic", None)
+            timing.pop("worker_submit_frame_timestamp", None)
+            timing["worker_submit_error"] = f"{type(exc).__name__}: {exc}"
+            event.note = "worker_submit_failed"
+            return
         self._submitted_frame_ts[sid] = float(frame_ts)
-        future = self._executor.submit(
-            self._run_job,
-            clone,
-            gray_job,
-            float(frame_ts),
-            sid,
-            peak_ts,
-            submitted,
-        )
+        for pending_event in list(getattr(scanner, "audio_events", []) or []):
+            if int(getattr(pending_event, "shot_id", 0) or 0) == sid:
+                if getattr(pending_event, "lifecycle_state", None) == "PENDING":
+                    pending_event.lifecycle_state = "PROCESSING"
+                trigger = getattr(pending_event, "audio_trigger", None)
+                if not isinstance(trigger, dict):
+                    trigger = {}
+                    pending_event.audio_trigger = trigger
+                timing = trigger.setdefault("timing", {})
+                timing["worker_submit_monotonic"] = submitted
+                timing["worker_submit_frame_timestamp"] = float(frame_ts)
+                break
         with self._lock:
             self._futures[future] = (sid, float(frame_ts))
 
@@ -320,18 +363,24 @@ class AsyncDetectorV2224:
         peak_ts: float,
         submitted_mono: float,
     ) -> DetectorJobResultV2224:
-        started = time.perf_counter()
+        started = time.monotonic()
         stages: dict[str, float] = {}
         _PROFILE_TLS.stages = stages
         error = ""
         candidates: list[dict[str, Any]] = []
         try:
             candidates = [dict(c) for c in list(self._sync_detect(clone, gray, frame_ts) or [])]
+            from src.engine import hole_morphology_evidence as _hme
+            if candidates and _hme.enabled():
+                # Hole-morphology evidence family: every candidate source, in the worker.
+                cur = gray if getattr(gray, "ndim", 0) == 2 else None
+                info = _hme.measure(_hme.pre_for_shot(clone, shot_id), cur, candidates)
+                stages["hole_morph_evidence"] = float(info["ms"])
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
         finally:
             _PROFILE_TLS.stages = None
-        finished = time.perf_counter()
+        finished = time.monotonic()
         return DetectorJobResultV2224(
             shot_id=int(shot_id),
             frame_ts=float(frame_ts),
@@ -362,7 +411,7 @@ class AsyncDetectorV2224:
                 result = future.result()
             except Exception as exc:
                 sid, frame_ts = self._futures.get(future, (0, 0.0))
-                now = time.perf_counter()
+                now = time.monotonic()
                 result = DetectorJobResultV2224(
                     shot_id=int(sid), frame_ts=float(frame_ts), peak_ts=0.0,
                     submitted_mono=now, started_mono=now, finished_mono=now,
@@ -393,7 +442,9 @@ class AsyncDetectorV2224:
             self._last_applied_frame_ts[int(shot_id)] = selected[-1].frame_ts
         return selected
 
-    def take_ready_for_active(self, active_shot_ids: set[int]) -> list[DetectorJobResultV2224]:
+    def take_ready_for_active(self, active_shot_ids: set[int], *,
+                              keep_shot_ids: set[int] | frozenset[int] = frozenset()
+                              ) -> list[DetectorJobResultV2224]:
         """Return completed results for *all* currently pending shots.
 
         A newer PANG may arrive while shot N is still on the worker. Once shot
@@ -404,17 +455,23 @@ class AsyncDetectorV2224:
         """
         self.harvest()
         active = {int(sid) for sid in active_shot_ids if int(sid) > 0}
+        keep = {int(sid) for sid in keep_shot_ids}
         selected: list[DetectorJobResultV2224] = []
+        kept: list[DetectorJobResultV2224] = []
         with self._lock:
             while self._ready:
                 item = self._ready.popleft()
                 sid = int(item.shot_id)
                 if sid not in active:
+                    # Still-pending shots handled by another path stay queued.
+                    if sid in keep:
+                        kept.append(item)
                     continue
                 last_applied = float(self._last_applied_frame_ts.get(sid, 0.0) or 0.0)
                 if item.frame_ts <= last_applied + 1e-6:
                     continue
                 selected.append(item)
+            self._ready.extend(kept)
             selected.sort(key=lambda item: item.frame_ts)
             for item in selected:
                 self._last_applied_frame_ts[int(item.shot_id)] = float(item.frame_ts)
@@ -437,6 +494,20 @@ class AsyncDetectorV2224:
             {**dict(c), "v2224_producer_shot_id": int(result.shot_id)}
             for c in result.candidates
         ]
+        for event in list(getattr(scanner, "audio_events", []) or []):
+            if int(getattr(event, "shot_id", 0) or 0) != int(result.shot_id):
+                continue
+            trigger = getattr(event, "audio_trigger", None)
+            if not isinstance(trigger, dict):
+                trigger = {}
+                event.audio_trigger = trigger
+            timing = trigger.setdefault("timing", {})
+            timing.update(worker_started_monotonic=float(result.started_mono),
+                          worker_finished_monotonic=float(result.finished_mono),
+                          worker_queue_ms=float(result.queue_ms), worker_duration_ms=float(result.worker_ms),
+                          result_integrated_monotonic=time.monotonic(),
+                          result_frame_timestamp=float(result.frame_ts))
+            break
         scanner.last_candidates = [dict(c) for c in result.candidates]
         if getattr(scanner, "physical_trace_capture_enabled", False):
             scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
@@ -856,6 +927,61 @@ def _shutdown_workers() -> None:
     ai_shadow_worker_v2224.shutdown()
 
 
+def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review: Any = None) -> dict[str, Any]:
+    """One main-thread shot-path iteration, shared by the live loop and offline replay.
+
+    Order is the live order and must not change: audio dispatch + object
+    snapshot, audio update, event discovery, optional capture hooks, camera
+    pickup, object-query advance, HitScanner update, controller bookkeeping.
+    Collaborators are resolved at call time so installed patches (and test
+    doubles) are honoured exactly as in the loop that previously inlined this.
+    """
+    from src.engine.audio.audio_peak_detector import audio_peak_detector
+    from src.engine.camera.camera_manager import camera_manager
+    from src.engine.camera.hit_scanner import hit_scanner
+    from src.engine.shot_critical_v2223 import shot_critical_controller_v2223 as controller
+
+    new_peak = controller.begin_pending_audio(app, audio_peak_detector)
+    controller.prepare_object_snapshot(hit_scanner, app.scene, new_peak)
+
+    t0 = time.perf_counter()
+    audio_peak_detector.update()
+    audio_ms = (time.perf_counter() - t0) * 1000.0
+    controller.discover_scanner_events(hit_scanner, app.scene)
+    if render_history is not None:
+        from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+        from src.engine.input.hit_input import hit_input
+        render_history.call('observe', hit_scanner, object_hit_registry_v2223, hit_input, app.scene)
+    if gt_review is not None:
+        # Research reference only: no image copy, hash, disk I/O or
+        # changed live inputs. Pin before the camera ring can age out.
+        gt_review.freeze_pre(hit_scanner, camera_manager)
+
+    t0 = time.perf_counter()
+    camera_manager.update()
+    camera_ms = (time.perf_counter() - t0) * 1000.0
+
+    from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
+    object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
+
+    # HitScanner.update is cheap on the main thread: frame bookkeeping +
+    # result integration. _detect_frame_candidates() submits/harvests the
+    # real CV work asynchronously.
+    t0 = time.perf_counter()
+    hit_scanner.update(dt)
+    scanner_main_ms = (time.perf_counter() - t0) * 1000.0
+    controller.discover_scanner_events(hit_scanner, app.scene)
+    controller.note_stage(
+        audio_dispatch_ms=audio_ms if new_peak is not None else 0.0,
+        camera_update_ms=camera_ms,
+        scanner_update_ms=scanner_main_ms,
+    )
+    controller.enrich_spatial_context(hit_scanner)
+    controller.evaluate_object_shadow(hit_scanner)
+    controller.update_finished(hit_scanner)
+    return dict(new_peak=new_peak, audio_ms=audio_ms, camera_ms=camera_ms, scanner_ms=scanner_main_ms)
+
+
 def install_v2224_runtime(AppClass: Any) -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -886,10 +1012,13 @@ def install_v2224_runtime(AppClass: Any) -> None:
         from src.engine.shot_critical_v2223 import shot_critical_controller_v2223 as controller
 
         controller.last_seen_peak_ts = float(getattr(audio_peak_detector, "last_peak_ts", 0.0) or 0.0)
+        from src.engine import lens_model, precision_flash
+        precision_flash.install(self)
 
         # Explicit research launcher only. No capture work/default import in the
         # ordinary live path; the adapter waits for BOTH authorities to finish.
         gt_review = None
+        render_history = None
 
         try:
             if os.environ.get('SKJUTBANA_OPTICAL_LAB') == '1':
@@ -898,6 +1027,11 @@ def install_v2224_runtime(AppClass: Any) -> None:
             if os.environ.get('SKJUTBANA_GT_CAPTURE_ROOT'):
                 from automation.physical_gt_capture import from_environment
                 gt_review = from_environment()
+            if os.environ.get('SKJUTBANA_RENDER_HISTORY_ROOT'):
+                if gt_review is not None or getattr(self, '_optical_lab', None) is not None:
+                    raise ValueError('Render-history capture requires a separate ordinary gameplay process')
+                from automation.physical_render_history import from_environment
+                render_history = from_environment()
             while self.running:
                 if getattr(self, '_optical_lab', None) is not None:
                     # Explicit research-only loop: no audio/scanner/game authority.
@@ -917,40 +1051,15 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 audio_pending = controller.pending_audio(audio_peak_detector)
                 dt = self.clock.tick(0 if audio_pending else FPS) / 1000.0
 
-                new_peak = controller.begin_pending_audio(self, audio_peak_detector)
-                controller.prepare_object_snapshot(hit_scanner, self.scene, new_peak)
-
-                t0 = time.perf_counter()
-                audio_peak_detector.update()
-                audio_ms = (time.perf_counter() - t0) * 1000.0
-                controller.discover_scanner_events(hit_scanner, self.scene)
-                if gt_review is not None:
-                    # Research reference only: no image copy, hash, disk I/O or
-                    # changed live inputs. Pin before the camera ring can age out.
-                    gt_review.freeze_pre(hit_scanner, camera_manager)
-
-                t0 = time.perf_counter()
-                camera_manager.update()
-                camera_ms = (time.perf_counter() - t0) * 1000.0
-
-                from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
-                object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
-
-                # HitScanner.update is now cheap on the main thread: frame
-                # bookkeeping + result integration. _detect_frame_candidates()
-                # submits/harvests the real CV work asynchronously.
-                t0 = time.perf_counter()
-                hit_scanner.update(dt)
-                scanner_main_ms = (time.perf_counter() - t0) * 1000.0
-                controller.discover_scanner_events(hit_scanner, self.scene)
-                controller.note_stage(
-                    audio_dispatch_ms=audio_ms if new_peak is not None else 0.0,
-                    camera_update_ms=camera_ms,
-                    scanner_update_ms=scanner_main_ms,
-                )
-                controller.enrich_spatial_context(hit_scanner)
-                controller.evaluate_object_shadow(hit_scanner)
-                controller.update_finished(hit_scanner)
+                # The complete shot path (audio dispatch -> camera pickup ->
+                # object queries -> HitScanner -> controller bookkeeping) is one
+                # shared step so offline replay runs exactly this code/order.
+                from src.engine.shot_async_v2224 import shot_path_step
+                precision_flash.pre_step(self)
+                lens_model.apply_pending()   # background lens fit -> saved on the main thread
+                step = shot_path_step(self, dt, render_history=render_history, gt_review=gt_review)
+                # Opt-in precision flash (no-op unless the scene asks for exact XY).
+                precision_flash.frame_hook(self, step.get('new_peak'))
 
                 # Always service OS/Pygame events while CV is running. This is
                 # the user-visible difference from V2.22.3: no one-second frozen
@@ -981,13 +1090,23 @@ def install_v2224_runtime(AppClass: Any) -> None:
 
                 self._update_window_caption()
                 self.scene.render(self.screen)
+                precision_flash.render_hook(self.screen)
+                if render_history is not None:
+                    render_flip_start=time.monotonic()
                 pygame.display.flip()
+                if render_history is not None:
+                    render_history.call('presented',self.screen,self.scene,
+                        render_flip_start,time.monotonic(),time.time())
                 controller.mark_visible_after_flip(self.scene)
                 if gt_review is not None:
+                    from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
                     gt_review.observe(self, hit_scanner, camera_manager, object_hit_registry_v2223,
                                       async_detector_v2224, audio_peak_detector, controller)
 
         finally:
+            if render_history is not None:
+                try:render_history.close()
+                except Exception as exc:print(f'[RENDER-CAPTURE ERROR] finalization failed: {exc}',flush=True)
             if getattr(self, '_optical_lab', None) is not None:
                 try:
                     self._optical_lab.close()

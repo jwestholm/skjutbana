@@ -68,6 +68,7 @@ def snapshot_mapping(mapper, viewport, content, screen_size):
         camera_to_screen=h.tolist() if valid else None,
         screen_to_camera=np.linalg.inv(h.astype(np.float64)).tolist() if valid else None,
         calibration=deepcopy(mapper.calibration_data),viewport=list(viewport),content=list(content),screen_size=list(screen_size),
+        camera_distortion=deepcopy((mapper.calibration_data or {}).get('camera_distortion')),
         game_space='VIEWPORT_LOCAL_PIXELS',window_position_semantics='DESKTOP_OFFSET_NOT_CAMERA_COORDINATE',
         physical_calibration_validated=False)
 
@@ -79,6 +80,28 @@ def transform(matrix, point):
     if h.shape!=(3,3) or not np.isfinite(h).all() or abs(float(h[2]@[*point,1]))<1e-12:return None
     p=cv2.perspectiveTransform(np.array([[point]],np.float64),h)[0,0]
     return p.tolist() if np.isfinite(p).all() else None
+
+
+def _lens(mapping):
+    from src.engine import lens_model
+    return lens_model.parse({'camera_distortion': mapping.get('camera_distortion')}) if mapping.get('camera_distortion') else None
+
+
+def map_screen_to_camera(mapping, point):
+    """Lens-aware when the frozen calibration carries camera_distortion."""
+    lens=_lens(mapping)
+    if lens is not None:
+        from src.engine import lens_model
+        return list(lens_model.screen_to_camera(lens,*point))
+    return transform(mapping['screen_to_camera'],point)
+
+
+def map_camera_to_screen(mapping, point):
+    lens=_lens(mapping)
+    if lens is not None:
+        from src.engine import lens_model
+        return list(lens_model.camera_to_screen(lens,*point))
+    return transform(mapping['camera_to_screen'],point)
 
 
 def plans(mapping):
@@ -95,7 +118,7 @@ def plans(mapping):
             result.append(dict(probe_id=f'{kind}_{i}',kind=kind,game_requested=[u*w,v*h],
                 normalized_requested=[u,v],screen_rect=[x,y,side,side],screen_center=center,
                 game_rendered_center=[center[0]-vx,center[1]-vy],
-                expected_camera_xy=transform(mapping['screen_to_camera'],center)))
+                expected_camera_xy=map_screen_to_camera(mapping,center) if mapping.get('screen_to_camera') else None))
     return result
 
 
@@ -184,12 +207,36 @@ def centroid(weights):
     return dict(camera_xy=[x,y],response_spread_px=math.sqrt(max(0,variance)),mass=total,central_80_percent_bbox=bounds)
 
 
+def local_peak_centroid(weights, radius=60, sigma=3.0):
+    """Centroid of the dominant response blob only.
+
+    A whole-image weighted centroid is pulled toward diffuse frame-wide change
+    (projector banding, MJPG noise): measured 2026-11-17 it reported 80-480
+    game px errors while the actual probe blob was within ~25 camera px. The
+    peak is still found over the whole image (no expected-location ROI).
+    """
+    smooth=cv2.GaussianBlur(weights.astype(np.float64),(0,0),sigma)
+    y,x=np.unravel_index(int(np.argmax(smooth)),smooth.shape)
+    peak=float(smooth[y,x])
+    if peak<=0:return None
+    y0,y1=max(0,y-radius),min(smooth.shape[0],y+radius+1);x0,x1=max(0,x-radius),min(smooth.shape[1],x+radius+1)
+    window=np.clip(smooth[y0:y1,x0:x1]-0.5*peak,0,None)
+    result=centroid(window)
+    if result is None:return None
+    result['camera_xy']=[result['camera_xy'][0]+x0,result['camera_xy'][1]+y0]
+    b=result['central_80_percent_bbox']
+    result['central_80_percent_bbox']=[int(b[0])+int(x0),int(b[1])+int(y0),int(b[2])+int(x0),int(b[3])+int(y0)]
+    result['method']='LOCAL_PEAK_HALF_MAX_CENTROID'
+    result['peak_response']=peak
+    return result
+
+
 def response_measure(baseline, probe, recovery, mapping, plan):
     a,b,c=(gray(p).astype(np.float32) for p in (baseline,probe,recovery))
     if a.shape!=b.shape or a.shape!=c.shape:raise ValueError('probe camera dimensions differ')
-    # Whole camera image, no expected-location ROI or candidate suggestions.
+    # Whole camera image search, no expected-location ROI or candidate suggestions.
     residual=np.abs(b-a);recovery_change=np.abs(c-a)
-    measured=centroid(np.maximum(residual-recovery_change,0))
+    measured=local_peak_centroid(np.maximum(residual-recovery_change,0))
     before=centroid(residual);after=centroid(np.abs(b-c))
     result=dict(category='PROJECTOR_RESPONSE',status='AVAILABLE' if measured else 'UNAVAILABLE',
         reason='WEIGHTED_OPTICAL_RESPONSE_NOT_CAUSAL_CERTIFICATION' if measured else 'NO_RESPONSE_ABOVE_RECOVERY_CHANGE',
@@ -197,10 +244,10 @@ def response_measure(baseline, probe, recovery, mapping, plan):
         centroid_reference_disagreement_px=None if not before or not after else float(np.linalg.norm(np.subtract(before['camera_xy'],after['camera_xy']))),
         geometry=dict(status='UNAVAILABLE',reason='MISSING_CALIBRATION_OR_RESPONSE'))
     if mapping['status']=='AVAILABLE' and measured:
-        screen=transform(mapping['camera_to_screen'],measured['camera_xy'])
-        expected=transform(mapping['screen_to_camera'],plan['screen_center'])
+        screen=map_camera_to_screen(mapping,measured['camera_xy'])
+        expected=map_screen_to_camera(mapping,plan['screen_center'])
         if screen is None or expected is None:return result
-        roundtrip=transform(mapping['camera_to_screen'],expected)
+        roundtrip=map_camera_to_screen(mapping,expected)
         if roundtrip is None:return result
         vx,vy,_,_=mapping['viewport']
         result['geometry']=dict(status='AVAILABLE',expected_camera_xy=expected,observed_game_xy=[screen[0]-vx,screen[1]-vy],
@@ -416,8 +463,15 @@ def main():
         p.add_argument('--duration',type=float,default=30);p.add_argument('--settle',type=float,default=.6)
         p.add_argument('--save-all-frames',action='store_true');p.add_argument('--seed',type=int,default=1729)
     p=sub.add_parser('geometry');p.add_argument('--input',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
+    p=sub.add_parser('transfer',help='Read-only neutral transfer falsification; never live calibration or hit evidence')
+    source=p.add_mutually_exclusive_group(required=True)
+    source.add_argument('--gt-capture',type=Path);source.add_argument('--synthetic',action='store_true')
+    p.add_argument('--output-dir',type=Path,required=True)
     args=parser.parse_args()
-    if args.mode=='geometry':
+    if args.mode=='transfer':
+        from automation.physical_optical_transfer import transfer_audit,synthetic_sensitivity
+        result=synthetic_sensitivity(args.output_dir) if args.synthetic else transfer_audit(args.gt_capture,args.output_dir)
+    elif args.mode=='geometry':
         result=geometry_audit(args.input,args.output_dir)
     else:
         c=configuration(args.mode,duration_s=args.duration,settle_s=args.settle,save_all_frames=args.save_all_frames,synthetic=args.synthetic,seed=args.seed)

@@ -9,8 +9,11 @@ from src.engine.scenes.video import VideoScene
 try:
     from src.engine.ai.bootstrap import apply_bootstrap
     apply_bootstrap()
-except Exception:
-    pass  # AI-modulen ska aldrig kunna krascha appen
+except Exception as exc:  # AI-modulen ska aldrig kunna krascha appen ...
+    # ... men ett tyst fel gör att senare patchlager lindar opatchade metoder.
+    import traceback
+    print(f"[BOOTSTRAP ERROR] apply_bootstrap failed: {exc!r}", flush=True)
+    traceback.print_exc()
 
 from src.engine.scenes.menu import MenuScene
 

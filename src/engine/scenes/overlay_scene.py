@@ -22,6 +22,27 @@ class OverlayScene(Scene):
         return bool(getattr(self.inner, "wants_camera_preview", False))
 
     @property
+    def hit_precision(self):
+        return getattr(self.inner, "hit_precision", None)
+
+    @property
+    def hit_aggregation(self):
+        return getattr(self.inner, "hit_aggregation", "per_burst")
+
+    def on_precision_series(self, result):
+        callback = getattr(self.inner, "on_precision_series", None)
+        if callable(callback):
+            callback(result)
+
+    @property
+    def precision_flash(self):
+        return getattr(self.inner, "precision_flash", "auto")
+
+    @property
+    def shot_input_mode(self):
+        return getattr(self.inner, "shot_input_mode", None)
+
+    @property
     def shot_critical_updates_required(self):
         return bool(getattr(self.inner, 'shot_critical_updates_required', False))
 

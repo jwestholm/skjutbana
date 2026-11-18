@@ -748,6 +748,8 @@ def _update_shot_accumulator(
             3.8,
             0.90 * _safe_float(best.get("score", 4.0)) + min(1.5, 0.25 * max(0, hits - 1)),
         )
+        if "v26_rank_excess" in best:   # H6 (opt-in) ranking field, same 0.90 scale
+            best["v26_rank_excess"] = 0.90 * _safe_float(best.get("v26_rank_excess"), 0.0)
         output.append(best)
 
     return output

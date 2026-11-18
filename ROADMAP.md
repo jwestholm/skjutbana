@@ -1,5 +1,103 @@
 # Roadmap
 
+## Proposal: hide decision latency with a "bullet-time" projectile animation — 2026-11-18 (user)
+When a game can wait for a sure answer (e.g. Skyttegrav 3D, up to ~3 s), it shows a short
+matrix-style animation of the projectile flying into the scene towards the target while the
+evidence chain finishes; the hit/miss reaction plays when the animation lands. Engine side: an
+opt-in "decision pending" callback with the expected remaining time from the evidence scheduler
+(EVIDENCE_CHAIN.md §3.3), so the game can time the animation. Caveat: everything projected changes
+the camera image — the animation must avoid the analysed region (or the region is frozen / known to
+the detector), same rule as HUD text and markers (AUDIT_FINDINGS §3b, §11). Fits "early gameplay
+decision + shadow analysis" and per-game latency classes.
+
+## Game design rule: spread the aim points over the whole board — 2026-11-18 (user)
+
+The physical board wears out where games put their targets. Photo 2026-11-18 (tape removed):
+the centre column is shot to pieces while the edges are almost untouched; patched/torn areas
+also hide new holes from the camera (only 7/17 AR15 holes were visible on taped areas).
+Rules for every new game, test and engine helper that places something to shoot at:
+- Do not always spawn targets in the same place, and do not centre by default. Spread spawn
+  positions over the whole usable board (e.g. random over the full viewport, rotating layouts,
+  random offset of fixed figures/zones between rounds).
+- Prefer under-used areas when possible (future engine feature: a per-board wear/hole-density map
+  from the real-hole library / known holes, offered to games as an opt-in spawn helper).
+- Fixed layouts (Kompetensprov figure, capture target crosses) should get an offset/rotation
+  option so the same paper spots are not hit every session.
+- Engine provides the mechanism (wear map, spawn helper); games choose whether to use it.
+
+Measured wear (2026-11-18, before re-papering; `python3 -m automation.bench board-snapshot`,
+`/data/skjutbana/evaluation_runs/board_wear_20261118/board_wear_heatmap.png`): 443 hole blobs in
+the viewport (torn centre undercounted); the central 50 %×50 % box (25 % of the area) holds
+**55 %** of the holes, the central 25 % box (6 % of the area) 18 %; the middle two column
+quarters hold 70 % and the middle row third 57 %.
+Uses agreed with Codex (in priority order):
+1. Opt-in spawn helper fed by a MEASURED wear map (board-snapshot), not by detector emissions
+   (the engine currently emits even without a visible hole).
+2. Maintenance/review: re-paper alert from a defined damaged-area measure (validate against the
+   operator first); session-start/end snapshots with `--compare` as review aid for labelling —
+   not automatic ground truth.
+3. Region quality may inform games/precision choice but never vetoes a hit (AGENTS rule).
+4. NOT as an aim/position prior in winner selection (reinforces centre bias, favours old damage).
+Snapshots only at session start/end, or in a pause the game explicitly owns that cannot overlap
+a shot.
+
+## Hit-detection precision levels — 2026-11-18 (decided with the user + Codex)
+
+Games declare the question they need answered; the engine picks the method.
+Levels (`hit_precision`): **SHOT** (a shot happened, audio), **HIT_MISS** (hit on
+the target or not, fast), **OBJECT** (which object incl. miss; e.g. cans, enemies,
+guard scenario with a drawn "warning shot" box / person / rest of board), **ZONE**
+(which scoring zone; Kompetensprov A/B/C, rings), **EXACT** (mm XY; darts).
+Separate choices, not levels: aggregation (`per_burst` | `series`: one precision
+flash at an explicit series end), latency class (realtime / normal / after),
+uncertainty policy (guess / UNKNOWN / request flash). IMPACT ("every real shot
+leaves a hole") is a background validity check that must be earned with image
+evidence, never an automatic veto. Legacy aliases: `shot_only`->SHOT,
+`exact`->EXACT, `region`->OBJECT (ambiguous, compatibility only).
+Decisions: Kompetensprov = ZONE + series flash at ceasefire. Skyttegrav stays
+SHOT_ONLY-authoritative until it publishes enemy regions in a SHADOW OBJECT trial
+that passes physical acceptance.
+
+TODO:
+- [ ] More detection levels may be added later as engine features. Every new level
+      MUST also get support in the AI training/test mode (in-game AI test scene and
+      the offline bench/nightly): its own synthetic test targeting (e.g. object edges,
+      zone borders), its own labelled AI data, its own frozen holdout and its own
+      acceptance criteria. A level without test + AI support is not done.
+- [ ] Per-level test driver for real games (synthetic shots + real-hole stamps
+      injected into a running game; score object/zone/exact/impact per level).
+- [ ] Per-level datasets and acceptance in the nightly (report per level).
+- [ ] Skyttegrav: publish per-frame enemy regions (SHADOW OBJECT trial).
+- [ ] Kompetensprov: use the series measurement for final scoring once validated
+      physically (today it is recorded alongside, scoring unchanged).
+
+## Real-hole library (where real holes live and how they are kept) — 2026-11-18
+
+Real bullet holes are measured data, never generated: keep and grow them.
+- **Location (outside the repo, not committed):** `/data/skjutbana/hole_library/`
+  - `stamps.npz` + `stats.json` + `contact_sheet.png` + `README.md`: raw ratio patches
+    (post/pre) around labelled real holes, extracted by `extract.py` from
+    `/data/skjutbana/physical_traces/` and the 2026-10-13 GT capture.
+  - `clean_stamps.npz`, `clean_stamps.json`, `clean_stamps.png`,
+    `clean_stamps_vs_source.png`, `stamps_png/NNN.png`: background-free stamps
+    (darkening map D, 0 outside the hole; PNG = black with alpha D), built by
+    `python3 -m src.engine.offline.hole_stamps`.
+- **Adding holes:** every physical session recorded with `SKJUTBANA_SOURCE_RECORD=1`
+  and labelled (`ground_truth.jsonl`) is a source. Record the WEAPON per sequence
+  (airgun 4.5 mm, CO2 AR15, CO2 pistol) so stamps can be grouped by weapon instead
+  of scaling airgun holes. Re-run extraction into a NEW versioned directory; never
+  overwrite or delete existing stamps (training data).
+- **Users of the library:** offline bench (`PhysicsAssumptions.hole_model="stamps"`),
+  nightly training data, the in-game AI test scene (projected holes, F8 profile).
+
+TODO:
+- [ ] Extraction from source sessions (`/data/skjutbana/source_sessions/*` with
+      `ground_truth.jsonl`) with weapon labels; per-weapon stamp sets.
+- [ ] IDEA (game feature, engine-provided): games may use real-hole stamps as
+      bullet-hole decals ("shot-up wall", damage on objects), so in-game damage looks
+      like the real holes. Engine provides a decal API over the library; games decide
+      where/when (engine mechanics, game rules).
+
 ## Practical gameplay + physical accuracy priorities — 2026-10-08
 
 **The long-term target remains 100% correct physical results; 95% is the minimum practical acceptance level.**
@@ -7,19 +105,50 @@ Exact physical coordinates remain a core capability, but they no longer block us
 
 The project must remain enjoyable to build and use. Near-term work therefore prioritizes playable physical games and reusable engine capabilities before more long-running exact-coordinate research.
 
+> **Status 2026-11-18:** the audio-lateness root cause discussed in this NOW section was
+> found and fixed on 2026-11-17 (ffmpeg PCM bursts -> `parec` 10 ms blocks; camera
+> BUFFERSIZE/exposure fixes). Physical shooting is requested again (pilot with source
+> recording, see PHYSICAL_CAPTURE_RUNBOOK.md top). Offline bench, source recording, lens
+> model, precision flash and levels: see CURRENT_STATE.md top sections.
+
 ### NOW — ONE ENEMY / ONE HITBOX / DID WE HIT IT?
 
+- **Physical root-cause finding (2026-10-18):** D02 exact-label frames show the
+  impact-site transition about1.4–1.6 s before its receipt-anchored audio event;
+  exposure/audio device clocks are absent, so cause is unresolved. A separate
+  future-frame PRE fallback bug is fixed with an audio−200 ms receive-time cutoff,
+  but historical D02 did not use that path. D02 event3's correct 2.10 px candidate
+  survived and lost final ranking; event1's closest pre-limit proposal was dropped
+  by cap. Do not tune/promote from these two shots. Highest-value next software
+  step is opt-in timestamp-domain instrumentation; highest-value offline step is a
+  bounded pre-limit retention replay. See `/data/skjutbana/evaluation_runs/physical_root_cause_deep_dive_20261018_01/NEXT_ACTIONS.md`.
+
+- **2026-10-17 checkpoint:** Skyttegrav 3D is integrated with SHOT_ONLY; the
+  operator verified one physical shot pauses it. Preserve this game integration.
+  It does not establish hit position. Continue generic physical evidence work on
+  `codex/physical-ai-lab-foundation`, with no new selector search or live promotion.
 - **Single-region foundation (2026-10-14):** prioritize one frozen exact enemy
   region over seven-object discrimination. Reuse `ObjectPhysicalQuery`; no separate
   single-region authority or game implementation. Offline replay now isolates one
   saved region and emits explicit family ledgers/spatial residuals.35 paired-data
   region runs show30 legacy supports, but no certified physical HIT. All actual
   truth remains UNKNOWN. Removing multi-object ambiguity is not damage detection.
-- **Next implementation boundary:** opt-in immutable engine render identity/image
-  linked through existing shot-freeze/mapping/recorder owners. Mutable screen
-  references and current calibration cannot reconstruct old projected content.
-  Projector explanation is UNAVAILABLE until scene and optical-response provenance
-  exist; do not substitute edge penalties. Keep region margin outside hit truth.
+- **Render provenance foundation implemented/offline verified (2026-10-17):**
+  opt-in immutable engine presentation history now binds existing shot-freeze,
+  mapping and recorder owners; it is never detector input. CPU flip timestamps do
+  not prove projection at impact. External SHOT_ONLY rendering remains UNAVAILABLE;
+  do not substitute the parent launcher's surface. Next measured boundary is
+  calibrated optical transfer + independent physical GT, not a new score formula.
+  Existing Optical/HIL and GT instruments support that work when hardware testing
+  is possible; no new physical capture is requested now. Projector explanation
+  stays UNAVAILABLE. Keep region margin outside hit truth.
+- **Transfer falsification (2026-10-18):** existing neutral physical frames do not
+  support dependable per-pixel WHITE/BLACK-to-gray prediction; a synthetic
+  gamma/geometry mismatch overwhelms a weak local change. Do not subtract raw
+  render pixels or add a residual score. Next discriminating measurement, when
+  optical hardware is available, is repeatable no-shot probe/recovery plus repeated
+  neutral states with camera sequence/timing provenance. Selected accuracy remains
+  unchanged and unavailable for that unlabeled capture.
 - Physical acceptance remains pending, with no shooting requested now. Preserve the
   separate3-shot GT observability gate. Later at most10 single-enemy shots:5 inside,
   5 just outside; record independent actual impact, frozen geometry, guarded PRE,

@@ -11,11 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 from src.engine.camera.analysis_geometry_v2221 import build_perspective_geometry_v2221
+from src.engine.camera.hit_scanner import HitScanner, camera_manager, select_pre_background_frame_v1
 
 
 def _check(condition: bool, message: str) -> None:
@@ -103,12 +106,42 @@ def test_runtime_defaults_present() -> None:
         _check(key in text, f"runtime default exists: {key}")
 
 
+def test_pre_background_never_uses_too_new_ring_frame() -> None:
+    peak = 100.0
+    old = SimpleNamespace(timestamp=99.55)
+    newer = SimpleNamespace(timestamp=100.03)
+    chosen = select_pre_background_frame_v1([old, newer], peak)
+    _check(chosen is old, "PRE background ignores a frame newer than the 200ms safety cutoff")
+    _check(select_pre_background_frame_v1([newer], peak) is None,
+           "PRE background is unavailable rather than using only too-new frames")
+    # The explicit cutoff is inclusive: a frame exactly at peak-200ms qualifies.
+    boundary = SimpleNamespace(timestamp=99.8)
+    _check(select_pre_background_frame_v1([boundary], peak) is boundary,
+           "PRE background cutoff boundary is deterministic and inclusive")
+
+    scanner = HitScanner()
+    scanner.audio_events = [SimpleNamespace(state="pending", peak_ts=peak)]
+    scanner.frame_history = []
+    scanner.scene_reference_gray = np.full((8, 8), 42, dtype=np.uint8)
+    future_frames = [SimpleNamespace(timestamp=100.01 + i * 0.01,
+                                     frame_bgr=np.full((8, 8, 3), 170, dtype=np.uint8))
+                     for i in range(5)]
+    legacy_choice = min(future_frames, key=lambda cf: abs(cf.timestamp - (peak - 0.50)))
+    _check(legacy_choice.timestamp > peak,
+           "regression fixture reproduces legacy nearest-frame PRE contamination")
+    with patch.object(camera_manager, "get_ring_snapshot", return_value=future_frames):
+        reference = scanner._build_pre_shot_background()
+    _check(np.array_equal(reference, scanner.scene_reference_gray),
+           "live base PRE fallback does not promote a too-new ring frame")
+
+
 def main() -> None:
     print("V2.22.1 ROI / AI RESULTS SELFTEST")
     print("=================================")
     test_perspective_crop_and_roundtrip()
     test_bootstrap_contains_v2221_and_ai_results()
     test_runtime_defaults_present()
+    test_pre_background_never_uses_too_new_ring_frame()
     print("\nAll V2.22.1 selftests passed.")
 
 

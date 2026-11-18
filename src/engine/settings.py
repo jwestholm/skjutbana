@@ -183,8 +183,18 @@ def load_camera_calibration() -> dict | None:
     return None
 
 
-def save_camera_calibration(calibration: dict) -> None:
+def save_camera_calibration(calibration: dict, *, backup: bool = True) -> None:
     data = _load_settings_dict()
+    if backup and data.get("camera_calibration"):
+        # Calibrations are measured state: keep the replaced one (outside the repo).
+        # No backup -> no overwrite (raises).
+        import os as _os
+        import time as _time
+        backup_dir = Path(_os.environ.get("SKJUTBANA_BACKUP_DIR", "/data/skjutbana/backups"))
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = _time.strftime('%Y%m%dT%H%M%S') + f"_{int(_time.time() * 1e6) % 1_000_000:06d}_{_os.getpid()}"
+        target = backup_dir / f"settings.backup_{stamp}_calibration.json"
+        target.write_text(json.dumps(data, indent=2), encoding="utf-8")
     data["camera_calibration"] = calibration
     _save_settings_dict(data)
 

@@ -99,8 +99,11 @@ def _patch_hit_scanner() -> None:
             trace = get_physical_trace_recorder()
             trace.configure(get_ai_runtime().settings)
             self.physical_trace_capture_enabled = bool(trace.enabled)
+            self.physical_decision_trace_v1_enabled = bool(
+                trace.enabled and trace.decision_trace_enabled)
         except Exception:
             self.physical_trace_capture_enabled = False
+            self.physical_decision_trace_v1_enabled = False
         result = original_update(self, dt)
         try:
             from src.engine.ai.runtime import get_ai_runtime
@@ -141,25 +144,42 @@ def _patch_hit_scanner() -> None:
                 track.camera_y,
                 shot_id=shot_id,
             )
+            if getattr(self, "physical_decision_trace_v1_enabled", False):
+                try:
+                    from src.engine.physical_trace import get_physical_trace_recorder
+                    get_physical_trace_recorder().record_ai_decision(
+                        self, event, mode=runtime.settings.get("mode", "train_only"), decision=chosen)
+                except Exception:
+                    pass
         except Exception:
             # Preserve the original detector result if the AI layer fails.
             chosen = {"apply": False}
-        if chosen.get("apply"):
-            old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
-            try:
-                track.camera_x = float(chosen["camera_x"])
-                track.camera_y = float(chosen["camera_y"])
-                track.best_score = max(
-                    track.best_score,
-                    float(chosen.get("confidence", 0.0)) * 10.0,
-                )
+        try:
+            if chosen.get("apply"):
+                old_x, old_y, old_score = track.camera_x, track.camera_y, track.best_score
+                try:
+                    track.camera_x = float(chosen["camera_x"])
+                    track.camera_y = float(chosen["camera_y"])
+                    track.best_score = max(
+                        track.best_score,
+                        float(chosen.get("confidence", 0.0)) * 10.0,
+                    )
+                    result = original_emit(self, track, event)
+                finally:
+                    track.camera_x = old_x
+                    track.camera_y = old_y
+                    track.best_score = old_score
+            else:
                 result = original_emit(self, track, event)
-            finally:
-                track.camera_x = old_x
-                track.camera_y = old_y
-                track.best_score = old_score
-        else:
-            result = original_emit(self, track, event)
+        finally:
+            # Diagnostic finalization must also observe failed push attempts;
+            # preserve any emitter exception by keeping this hook non-fatal.
+            if getattr(self, "physical_decision_trace_v1_enabled", False):
+                try:
+                    from src.engine.physical_trace import get_physical_trace_recorder
+                    get_physical_trace_recorder().record_emission_decision(self, event, track)
+                except Exception:
+                    pass
         if runtime is not None:
             try:
                 runtime.mark_shot_finished(

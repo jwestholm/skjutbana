@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 import math
+import os
 import threading
 import time
 from typing import Any
@@ -174,6 +175,9 @@ def update_tracks_frame_unique_v2226(
         reverse=True,
     )
 
+    from src.engine.winner_selection_flags import rank_flags_on, observe_track_rank
+    track_rank = rank_flags_on()   # H6/H7a/H7b (opt-in): ranking-only track.rank_value
+
     observed_this_call: set[int] = set()
     new_tracks = 0
     temporal_matches = 0
@@ -227,6 +231,8 @@ def update_tracks_frame_unique_v2226(
             track.v2226_same_frame_support = 1
             track.v2226_last_support_frame_ts = frame_ts
             track.v2226_unique_frame_hits = 1
+            if track_rank:
+                observe_track_rank(track, candidate)
             active[track.track_id] = track
             scanner._next_track_id = track.track_id + 1
             observed_this_call.add(track.track_id)
@@ -237,6 +243,8 @@ def update_tracks_frame_unique_v2226(
         same_physical_frame = abs(_finite(getattr(best_track, "last_seen_ts", 0.0)) - frame_ts) <= cfg.frame_epsilon_s
         if best_track.track_id in observed_this_call or same_physical_frame:
             _track_same_frame_support(best_track, candidate, frame_ts)
+            if track_rank:
+                observe_track_rank(best_track, candidate)
             support = int(getattr(best_track, "v2226_same_frame_support", 1) or 1)
             max_support = max(max_support, support)
             same_frame_support += 1
@@ -259,6 +267,8 @@ def update_tracks_frame_unique_v2226(
         enriched["v2226_frame_unique_observation"] = 1.0
         best_track.last_candidate = enriched
         best_track.missed_frames = 0
+        if track_rank:
+            observe_track_rank(best_track, candidate)
         if best_track.hits >= int(getattr(scanner, "track_confirm_frames", 3)):
             best_track.state = "stable"
         observed_this_call.add(best_track.track_id)
@@ -366,9 +376,20 @@ def _install_audio_telemetry_patch() -> None:
             self._sample_history.extend(float(x) for x in data.tolist())
 
         now = time.time()
+        event_anchor = now
+        anchor_kind = "PROCESSING_WALL_TIME"
+        if os.environ.get("SKJUTBANA_AUDIO_RECEIPT_ANCHOR") == "1":
+            acquisition = getattr(self, "_current_acquisition", None)
+            try:
+                receipt_wall = float(acquisition.get("receive_wall_ts")) if isinstance(acquisition, dict) else float("nan")
+                if np.isfinite(receipt_wall):
+                    event_anchor = receipt_wall
+                    anchor_kind = "PCM_BLOCK_WALL_RECEIPT"
+            except (TypeError, ValueError):
+                pass
         trigger_threshold = max(self.min_abs_peak, self.noise_floor * self.peak_ratio)
         crest_ok = peak >= max(self.min_abs_peak, rms * self.crest_factor_required)
-        cooldown_ok = (now - self.last_peak_ts) >= self.cooldown_s
+        cooldown_ok = (event_anchor - self.last_peak_ts) >= self.cooldown_s
         is_peak = peak >= trigger_threshold and crest_ok and cooldown_ok
 
         reasons, dyn_threshold, crest_threshold, required = _audio_reject_reasons(
@@ -385,7 +406,7 @@ def _install_audio_telemetry_patch() -> None:
         if is_peak:
             event_ts = self._estimate_event_timestamp(
                 samples=data,
-                chunk_end_ts=now,
+                chunk_end_ts=event_anchor,
                 trigger_threshold=max(self.min_abs_peak, trigger_threshold * 0.85),
             )
             previous_peak_ts = self.last_peak_ts
@@ -395,17 +416,26 @@ def _install_audio_telemetry_patch() -> None:
             # Bind evidence to this raw event, never the mutable latest decision.
             ev.diagnostics = {
                 "acquisition": ev.acquisition,
-                "chunk_end_ts": float(now), "previous_peak_ts": float(previous_peak_ts),
+                "chunk_end_ts": float(event_anchor), "processing_wall_ts": float(now),
+                "timestamp_anchor": anchor_kind, "previous_peak_ts": float(previous_peak_ts),
                 "event_interval_s": float(event_ts - previous_peak_ts) if previous_peak_ts else None,
-                "cooldown_s": float(self.cooldown_s), "cooldown_elapsed_at_chunk_end_s": float(now - previous_peak_ts),
+                "cooldown_s": float(self.cooldown_s), "cooldown_elapsed_at_chunk_end_s": float(event_anchor - previous_peak_ts),
                 "abs_threshold": float(self.min_abs_peak), "dynamic_threshold": float(dyn_threshold),
                 "crest_threshold": float(crest_threshold), "noise_floor": float(self.noise_floor),
                 "sample_rate": int(self.sample_rate), "chunk_samples": int(data.size),
                 "near_misses_before": list(getattr(self, "v2226_near_misses", [])),
             }
             with self._lock:
+                # Match the base detector's queue timing contract. The main
+                # thread computes dispatch_queue_age_ms from this monotonic
+                # timestamp; without it, installed-runtime queue delay is
+                # silently unavailable even though dispatch timing is logged.
+                if ev.acquisition is not None:
+                    ev.acquisition['event_enqueued_monotonic'] = time.monotonic()
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)
+                if ev.acquisition is not None:
+                    ev.acquisition['pending_depth_at_enqueue'] = len(self._pending_dispatch)
             self.v2226_last_audio_decision = {
                 "kind": "trigger",
                 "timestamp": float(event_ts),

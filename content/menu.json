@@ -403,6 +403,23 @@
             }
           },
           {
+            "id": "physical_capture_target",
+            "title": "Fysisk inspelning – tavla",
+            "type": "game",
+            "description": "Statisk ljus tavla med 12 numrerade siktkryss för fysiska testskott. 1/2/3 = luftgevär/AR15/pistol, C = klapp/kontroll, N = ny serie, H = visa träffar.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/physical_capture_target.py",
+            "path": "",
+            "led": {
+              "enabled": true,
+              "color": [
+                255,
+                255,
+                255
+              ]
+            }
+          },
+          {
             "id": "range_target_game",
             "title": "Skjutbana – Helfigur",
             "type": "game",

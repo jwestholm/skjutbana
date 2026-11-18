@@ -171,13 +171,19 @@ def _install_calibration_refresh() -> None:
         return
     previous = ObjectHitRegistryV2223.snapshot
 
-    def snapshot_v243(self, shot_id: int, peak_ts: float, scene: Any = None):
+    def snapshot_v243(
+        self, shot_id: int, peak_ts: float, scene: Any = None, *args: Any, **kwargs: Any
+    ):
         try:
             from src.engine.input.hit_input import hit_input
             hit_input.reload_calibration()
         except Exception:
             pass
-        return previous(self, shot_id, peak_ts, scene)
+        # Snapshot gained pose/acquisition metadata after this calibration
+        # refresh wrapper was introduced. Preserve the complete evolving API;
+        # dropping keyword arguments silently prevents shot-time geometry from
+        # being frozen in the callers that currently provide that metadata.
+        return previous(self, shot_id, peak_ts, scene, *args, **kwargs)
 
     ObjectHitRegistryV2223.snapshot = snapshot_v243
     ObjectHitRegistryV2223._v243_calibration_refresh = True

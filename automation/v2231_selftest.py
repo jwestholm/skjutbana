@@ -64,7 +64,10 @@ def main() -> None:
     good = {
         "metrics": {"shots": 20, "oracle20": 12, "oracle20_rate": 0.6, "conditional_top1_20_rate": 0.45, "mrr20": 0.55},
         "support": {"development_oracle20": 30},
-        "baseline_metrics": {"conditional_top1_20_rate": 0.30, "mrr20": 0.40},
+        "baseline_metrics": {"eligible_ranked_shots": 20, "conditional_top1_20_rate": 0.30, "mrr20": 0.40},
+        # V2.23.2 additionally requires fresh-domain support (see v2232_selftest).
+        "domain_metrics": {"shots": 60, "oracle20": 10, "oracle20_rate": 1 / 6, "conditional_top1_20_rate": 0.40, "mrr20": 0.50},
+        "domain_baseline_metrics": {"eligible_ranked_shots": 60, "conditional_top1_20_rate": 0.10, "mrr20": 0.20},
     }
     check(research_promotion_gate(good)["passed"], "support-gated challenger that beats baseline can become research champion")
 

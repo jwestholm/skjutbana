@@ -20,6 +20,8 @@ import time
 from typing import Any
 
 import cv2
+import os
+
 import numpy as np
 
 from src.engine.camera.analysis_geometry_v2221 import (
@@ -161,6 +163,103 @@ def _shift_known_holes_to_local(
     return shifted
 
 
+def _track_novelty(track) -> float | None:
+    """PRE->POST change of a track vs its shot PRE, if measured.
+
+    Uses the minimum of the proposal's ORIGINATING change at its own location
+    (unbiased) and the local confirmation darkening. The confirmation alone is
+    a max over a small search window and is biased upward on pure noise
+    (measured: noise-only track reached 3.3 grey while its origin was 1.5).
+    """
+    candidate = getattr(track, "last_candidate", None) or {}
+    values = []
+    for key in ("v2225_origin_pre_shot_change", "v2225_confirm_darkening"):
+        value = candidate.get(key)
+        try:
+            if value is not None:
+                values.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if values:
+        return min(values)
+    try:
+        value = candidate.get("pre_shot_change")
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _novelty_floor() -> float:
+    """SKJUTBANA_REQUIRE_NOVELTY=<grey levels> (opt-in H2; unset/0 = off)."""
+    try:
+        value = float(os.environ.get("SKJUTBANA_REQUIRE_NOVELTY", "0") or 0.0)
+    except ValueError:
+        return 0.0
+    return value if np.isfinite(value) and value > 0.0 else 0.0
+
+
+def _signed_local_contrast(track) -> float | None:
+    candidate = getattr(track, "last_candidate", None) or {}
+    try:
+        dark = candidate.get("v2225_confirm_darkening")
+        ring = candidate.get("v2225_confirm_ring_abs")
+        if dark is None or ring is None:
+            return None
+        value = float(dark) - float(ring)
+        return value if np.isfinite(value) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _local_contrast_margin() -> float:
+    """SKJUTBANA_PREFER_LOCAL_CONTRAST=<margin grey> (opt-in H5; unset/0 = off)."""
+    try:
+        value = float(os.environ.get("SKJUTBANA_PREFER_LOCAL_CONTRAST", "0") or 0.0)
+    except ValueError:
+        return 0.0
+    return value if np.isfinite(value) and value > 0.0 else 0.0
+
+
+def _best_novel_track_for_event(scanner, event):
+    """Installed selector over an optionally filtered view of the live tracks.
+
+    H2 (SKJUTBANA_REQUIRE_NOVELTY): a new hole must differ from the shot's PRE;
+    static dark spots are hidden so the best *changed* track can win.
+    H5 (SKJUTBANA_PREFER_LOCAL_CONTRAST): among THIS shot's tracks
+    (v2224_producer_shot_id == event.shot_id) with valid local-confirmation
+    measurements, only those whose signed local contrast (confirm darkening -
+    confirm ring change) is within the margin of the best are presented;
+    texture/compression changes that also alter the surrounding ring lose to a
+    compact local darkening. Without applicable measurements the installed
+    selector runs unchanged. The live mapping object is always restored.
+    """
+    floor = _novelty_floor()
+    margin = _local_contrast_margin()
+    if floor <= 0.0 and margin <= 0.0:
+        return scanner._best_track_for_event(event)
+    original = scanner._active_tracks
+    view = dict(original)
+    if floor > 0.0:
+        view = {tid: t for tid, t in view.items()
+                if _track_novelty(t) is not None and _track_novelty(t) >= floor}   # unmeasured does not qualify
+    if margin > 0.0:
+        sid = int(getattr(event, "shot_id", 0) or 0)
+        own = {}
+        for tid, t in view.items():
+            producer = (getattr(t, "last_candidate", None) or {}).get("v2224_producer_shot_id")
+            value = _signed_local_contrast(t)
+            if producer is not None and int(producer) == sid and value is not None:
+                own[tid] = value
+        if own:
+            best = max(own.values())
+            view = {tid: view[tid] for tid, value in own.items() if value >= best - margin}
+    scanner._active_tracks = view
+    try:
+        return scanner._best_track_for_event(event)
+    finally:
+        scanner._active_tracks = original
+
+
 def install_v2221_hit_scanner_patch() -> None:
     """Install V2.22.1 once; safe to call repeatedly."""
     global _INSTALLED
@@ -178,6 +277,7 @@ def install_v2221_hit_scanner_patch() -> None:
 
     HitScanner = hs_module.HitScanner
     camera_manager = hs_module.camera_manager
+    select_pre_background_frame_v1 = hs_module.select_pre_background_frame_v1
 
     original_update = HitScanner.update
     original_detect = HitScanner._detect_frame_candidates
@@ -229,8 +329,10 @@ def install_v2221_hit_scanner_patch() -> None:
         # performed only on the analysis ROI rather than on the whole 4K frame.
         ring = camera_manager.get_ring_snapshot()
         if ring and len(ring) >= 5:
-            target_ts = earliest_peak_ts - 0.50
-            best = min(ring, key=lambda cf: abs(float(cf.timestamp) - float(target_ts)))
+            best = select_pre_background_frame_v1(ring, earliest_peak_ts)
+            if best is None:
+                ring = []
+        if ring and len(ring) >= 5:
             try:
                 bgr_crop = best.frame_bgr[
                     geometry.crop_y0:geometry.crop_y1,
@@ -377,7 +479,9 @@ def install_v2221_hit_scanner_patch() -> None:
         for event in list(self.audio_events):
             if event.state != "pending":
                 continue
-            track = self._best_track_for_event(event)
+            if "SKJUTBANA_BEST_READY_TOPK" in os.environ:
+                self._wsf_resolve_now_ts = float(now_ts)   # H8b readiness clock (opt-in)
+            track = _best_novel_track_for_event(self, event)
             if track is not None:
                 event.matched_track_id = track.track_id
                 event.confidence = max(event.confidence, float(track.best_score))

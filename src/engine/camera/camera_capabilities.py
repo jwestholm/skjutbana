@@ -109,6 +109,7 @@ def apply_preferred_camera_settings(
     preferred_width: int = 3840,
     preferred_height: int = 2160,
     preferred_fps: int = 30,
+    exposure_time_absolute: int | None = None,
 ) -> dict[str, bool]:
     """
     Best effort.
@@ -141,5 +142,12 @@ def apply_preferred_camera_settings(
     ok_manual = _safe_set(cap, cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
     ok_manual_alt = _safe_set(cap, cv2.CAP_PROP_AUTO_EXPOSURE, 1.0)
     results["auto_exposure_manual"] = ok_manual or ok_manual_alt
+
+    # Explicit exposure time (V4L2 exposure_time_absolute, units of 100 us).
+    # A multiple of the projector refresh period removes rolling-shutter
+    # banding: measured 2026-11-17 with a 60 Hz projector, 157 -> 167 cut
+    # frame-to-frame banding change from p99 13 to 6 grey levels.
+    if exposure_time_absolute is not None:
+        results["exposure_time_absolute"] = _safe_set(cap, cv2.CAP_PROP_EXPOSURE, int(exposure_time_absolute))
 
     return results
