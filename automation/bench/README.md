@@ -1,10 +1,9 @@
 # Bench: offline verification on the live shot path
 
-Everything here runs the **same installed shot path as the game**
-(`shot_path_step` → audio dispatch → camera → HitScanner/FAST/confirm/rescue →
-emission). Only the *sources* (camera, microphone, clock) are swapped.
-`python3 -m automation.bench_fidelity_selftest` proves the offline runtime
-installs exactly the same patched methods as `main.py`.
+Recorded replay calls the shared `shot_path_step` with recorded inputs, a
+virtual clock and a virtual executor. `python3 -m automation.bench_fidelity_selftest`
+compares the installed scanner, camera and audio methods with game startup.
+The worker thread name also controls which branches execute (see Replay and compare).
 
 Evidence levels are never mixed:
 `SYNTHETIC_LIVE_PATH` (generated frames/audio), `RECORDED_SOURCE_LIVE_PATH`
@@ -68,6 +67,21 @@ python3 -m automation.bench flash-replay SESSION_DIR [...] --output DIR --set mi
 changed `FlashConfig` fields (flash timing is what was projected).
 
 ## Replay and compare
+
+Recorded replay advances a virtual clock using recorded input timestamps. It
+freezes `time.time`, `time.monotonic` and `time.perf_counter` at the modelled
+start while each worker job runs. This makes event ordering repeatable across
+machines. The internal `stages_ms` measurements read that frozen clock.
+
+`replay SESSION --output NEW_DIR --wall-clock-profile` additionally writes
+`wall_clock_profile.json`. Each submitted job has host monotonic timestamps
+in nanoseconds. Subtract start from finish for elapsed host time, including waits.
+Submit to start includes any input decoding and other replay-loop work before
+the virtual executor runs that job. A null start or finish means that endpoint
+was never observed. The timestamps are local to the machine and clock domain.
+The `thread` field is sampled inside the job. A `MainThread` job
+misses the runtime branches guarded by the `shot-cv-v2224` thread prefix.
+Matching the prefix alone does not establish full parity with the live runtime.
 
 ```bash
 python3 -m automation.bench replay SESSION_DIR --output /tmp/r1 [--pulse-offset-s 0.025]

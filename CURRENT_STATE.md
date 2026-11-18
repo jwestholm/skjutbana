@@ -1,5 +1,11 @@
 # Current project state
 
+## Offline replay timing — 2026-11-18
+
+Recorded replay accepts `--wall-clock-profile` to save host submission, start
+and finish timestamps for executor jobs. The replay schedule still uses virtual
+time. See `automation/bench/README.md` for the scope of each clock.
+
 ## Hole recognition on textured backgrounds — 2026-11-18 (evening)
 - H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp
   profile ranks candidates. Paired replay projected 48→77 correct (8 sessions), physical AR15 unchanged;

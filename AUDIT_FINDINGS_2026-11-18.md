@@ -343,3 +343,13 @@ All 140 selftest modules exited successfully in a fresh sequential run. The
 single skipped socket case passed with its full module on isolated loopback
 (25/25). The earlier missing-frame test also passed. Work package 1 remains
 open. This audit adds no paired replay or physical measurements.
+
+## 17. Offline bench maintenance
+
+**A.** The optional recorded-replay sidecar records job boundaries on the
+host monotonic clock. A synthetic 25 ms sleep must measure at least 25 ms,
+while the virtual job cost and event schedule stay fixed. Internal stage
+timers retain their original clock. This measures the offline executor.
+Each row records the observed thread name. At base 765580a, replay calls
+jobs on MainThread. Five runtime modules guard code with the worker name
+prefix, so method-installation parity alone overstates runtime coverage.
