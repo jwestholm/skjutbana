@@ -329,3 +329,11 @@ outputs and engine state); physical replay emissions identical (22 emissions, 14
 Profiled job: **474 → 304 ms (−36 %)**. Next candidates: `_refine_peak` (~63 ms/job, many tiny numpy
 calls — batching may change float32 rounding, needs an equivalence argument), v26 `build_output`.
 Live hit latency still has to be measured live (replay clock is virtual — Codex package A).
+**Live check of §18 (2026-11-18 ~21:40, F2 AI-test 48 rounds each, H11 off):** optimized worker median
+723 ms / hit median 1248 ms (p90 1887) vs reference implementations (`SKJUTBANA_V24_ACC_REFERENCE=1
+SKJUTBANA_V2_BANK_REFERENCE=1`) 742 ms / 1300 ms (p90 1789). Real gain only ~20–50 ms: cProfile
+overstated it (it inflates pure-Python loops). Both runs were CONTAMINATED by host load (load average
+~5 on 4 cores; a parallel Codex selftest run): worker 720–740 ms vs ~560 ms earlier, accuracy 4–6/80–89
+vs 14/78 earlier. Repeat on an idle host before drawing conclusions.
+**Shutdown bug:** in both runs `main.py` did not exit within 30 s of SIGINT (one earlier instance kept
+running at ~185 % CPU / 11.7 GB RSS and held the camera); TERM/KILL needed. Reproducible tonight.
