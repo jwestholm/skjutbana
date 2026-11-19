@@ -37,6 +37,8 @@ from typing import Any
 
 import numpy as np
 
+from src.engine.candidate_evidence import CandidateEvidence
+
 EVIDENCE_FAMILY = "hole_morphology"
 EVIDENCE_VERSION = "hole_morph_mf_v2"
 # Mean radial profile r = 0..14 camera px of the real stamps (59 airgun + 8 AR15), peak 1.
@@ -69,6 +71,13 @@ def _kernel() -> np.ndarray:
     return _KERNEL
 
 
+def _write_patch(candidate, value=None, *, missing_reason=None) -> None:
+    observation = CandidateEvidence(EVIDENCE_FAMILY, EVIDENCE_VERSION, value, missing_reason)
+    observation.write_fields(candidate, "ev_hole_morph_patch", "snr")
+    if observation.valid:
+        candidate.pop("ev_hole_morph_patch_missing", None)
+
+
 def measure(pre: np.ndarray | None, cur: np.ndarray | None, candidates: list[dict[str, Any]]) -> dict[str, float]:
     """Attach the evidence fields to every candidate in place; returns {"ms", "measured"}."""
     started = time.perf_counter()
@@ -78,25 +87,22 @@ def measure(pre: np.ndarray | None, cur: np.ndarray | None, candidates: list[dic
                  and pre.ndim == 2 and pre.shape == getattr(cur, "shape", None))
     h, w = (pre.shape if ok_frames else (0, 0))
     for cand in candidates or []:
+        # Patch rows serialize the version first, including on missing observations.
         cand["ev_hole_morph_patch_version"] = EVIDENCE_VERSION
         if not ok_frames:
-            cand["ev_hole_morph_patch_valid"] = 0.0
-            cand["ev_hole_morph_patch_missing"] = "no_pre" if not isinstance(pre, np.ndarray) else "shape"
+            _write_patch(cand, missing_reason="no_pre" if not isinstance(pre, np.ndarray) else "shape")
             continue
         try:
             x = int(round(float(cand["camera_x"])))
             y = int(round(float(cand["camera_y"])))
         except (KeyError, TypeError, ValueError):
-            cand["ev_hole_morph_patch_valid"] = 0.0
-            cand["ev_hole_morph_patch_missing"] = "no_xy"
+            _write_patch(cand, missing_reason="no_xy")
             continue
         if not (HALF <= x < w - HALF and HALF <= y < h - HALF):
-            cand["ev_hole_morph_patch_valid"] = 0.0
-            cand["ev_hole_morph_patch_missing"] = "border"
+            _write_patch(cand, missing_reason="border")
             continue
         if not (HALF + 1 <= x < w - HALF - 1 and HALF + 1 <= y < h - HALF - 1):
-            cand["ev_hole_morph_patch_valid"] = 0.0
-            cand["ev_hole_morph_patch_missing"] = "border"
+            _write_patch(cand, missing_reason="border")
             continue
         b = cur[y - HALF:y + HALF + 1, x - HALF:x + HALF + 1].astype(np.float32)
         bring = b[_ANNULUS]
@@ -119,9 +125,7 @@ def measure(pre: np.ndarray | None, cur: np.ndarray | None, candidates: list[dic
         mf = float((centre * kernel).sum())
         ring = signed[_ANNULUS]
         noise = 1.4826 * float(np.median(np.abs(ring - np.median(ring))))
-        cand["ev_hole_morph_patch_snr"] = mf / max(noise, 0.5)
-        cand["ev_hole_morph_patch_valid"] = 1.0
-        cand.pop("ev_hole_morph_patch_missing", None)
+        _write_patch(cand, mf / max(noise, 0.5))
         measured += 1
     return {"ms": (time.perf_counter() - started) * 1000.0, "measured": float(measured)}
 

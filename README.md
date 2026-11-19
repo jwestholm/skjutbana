@@ -49,6 +49,33 @@ assets/                  — Bilder, video, spel, tavlor
 ```
 
 
+## Självtester
+
+Kör hela sviten från repots rot på Linux med `bubblewrap` installerat.
+
+```bash
+python3 -m automation.run_selftests
+```
+
+Köraren hittar `automation/*selftest*.py` och kör upp till tre moduler parallellt
+med SDL:s dummy-drivrutiner. Varje modul får egen process- och nätverksnamnrymd
+med lokal loopback, privat `/dev`, `/tmp` och `/data` samt skrivskyddad åtkomst
+till repot och befintliga testbilder i `/data/skjutbana/hole_library`.
+Varje modulrad visar status och tid. Vid fel visas slutet av testutskriften.
+Körningen ger felkod om en modul fallerar eller överskrider sin tidsgräns.
+Standardgränsen är 600 sekunder per modul. Exempelvis kör
+`python3 -m automation.run_selftests --jobs 2 --timeout 300` två moduler åt gången.
+
+## Tidsbegränsad avstängning på Linux
+
+Sätt `SKJUTBANA_BOUNDED_SHUTDOWN=1` i startmiljön för att använda en
+övervakningsprocess. Flaggan är av som standard. Vid Ctrl+C eller SIGTERM
+begär övervakaren att spelet lämnar sin loop och stänger sina resurser. Den
+ger processen 15 sekunder för bland annat ljud, kamera och pågående skrivningar.
+Om processen fastnar avslutar övervakaren spelets egen processgrupp med
+SIGKILL och returnerar kod 124. Pågående skrivningar kan då vara ofullständiga.
+Samma tidsgräns gäller när fönstret stängs och resursstädningen börjar.
+
 ## Automation
 
 Starta spelet normalt och kör externa scripts från repositoryts rot. Exempel:

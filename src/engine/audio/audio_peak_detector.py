@@ -57,6 +57,7 @@ class AudioPeakDetector:
         self.running = False
         self.thread: threading.Thread | None = None
         self.proc: subprocess.Popen | None = None
+        self._exiting = False
 
         self.backend_name = "none"
         self.last_error = ""
@@ -279,6 +280,8 @@ class AudioPeakDetector:
                 peak=event.peak,context=diagnostics['engine_playback_context']),separators=(',',':')))
 
     def start(self) -> bool:
+        if self._exiting:
+            return False
         if self.running:
             return True
 
@@ -319,6 +322,32 @@ class AudioPeakDetector:
             self.thread.join(timeout=1.0)
             self.thread = None
 
+        with self._lock:
+            self._pending_dispatch.clear()
+
+    @staticmethod
+    def _reap_audio_child(proc: subprocess.Popen) -> None:
+        # Keep ownership of this Popen even if the reader clears self.proc.
+        proc.terminate()
+        try:
+            proc.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        if proc.stdout is not None:
+            proc.stdout.close()
+
+    def stop_for_exit(self) -> None:
+        """Stop capture permanently in the supervised application shutdown path."""
+        self._exiting = True
+        self.running = self.enabled = False
+        proc = self.proc
+        if proc is not None:
+            self._reap_audio_child(proc)
+        reader = self.thread
+        if reader is not None:
+            reader.join()
+        self.thread = self.proc = None
         with self._lock:
             self._pending_dispatch.clear()
 
@@ -506,6 +535,13 @@ class AudioPeakDetector:
                 self.last_error = f"Kunde inte starta {backend_name}: {exc}"
                 self.proc = None
                 continue
+
+            # A stop can arrive while Popen is spawning and before self.proc
+            # is published. In that case the reader owns reaping the late child.
+            if self._exiting:
+                self._reap_audio_child(self.proc)
+                self.proc = None
+                return
 
             try:
                 chunk, receipt = self._read_pcm_block(self.proc.stdout)

@@ -194,6 +194,7 @@ class AsyncDetectorV2224:
         self._last_applied_frame_ts: dict[int, float] = {}
         self._sync_detect: Callable[..., Any] | None = None
         self._shutdown = False
+        self._join_requested = False
         # Submission-path configuration is cached at install/startup.  Do not
         # perform lazy AIRuntime imports or settings lookups on the first PANG.
         self._max_queued_per_shot = 1
@@ -244,15 +245,16 @@ class AsyncDetectorV2224:
             self._submitted_frame_ts.clear()
             self._last_applied_frame_ts.clear()
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, wait: bool = True) -> None:
         with self._lock:
-            if self._shutdown:
+            if self._shutdown and (not wait or self._join_requested):
                 return
             self._shutdown = True
+            self._join_requested = wait
         try:
-            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor.shutdown(wait=wait, cancel_futures=True)
         except TypeError:
-            self._executor.shutdown(wait=True)
+            self._executor.shutdown(wait=wait)
         except Exception:
             pass
 
@@ -587,6 +589,7 @@ class AIShadowWorkerV2224:
         self._finish_states: dict[int, str] = {}
         self._finish_enqueued: set[int] = set()
         self._shutdown = False
+        self._join_requested = False
 
     def configure(self, observe, choose, mark) -> None:
         self._original_observe = observe
@@ -629,15 +632,16 @@ class AIShadowWorkerV2224:
             with self._lock:
                 self._finish_enqueued.discard(int(shot_id))
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, wait: bool = True) -> None:
         with self._lock:
-            if self._shutdown:
+            if self._shutdown and (not wait or self._join_requested):
                 return
             self._shutdown = True
+            self._join_requested = wait
         try:
-            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor.shutdown(wait=wait, cancel_futures=True)
         except TypeError:
-            self._executor.shutdown(wait=True)
+            self._executor.shutdown(wait=wait)
         except Exception:
             pass
 
@@ -923,6 +927,10 @@ def _install_settings_defaults() -> None:
 
 
 def _shutdown_workers() -> None:
+    if os.environ.get("SKJUTBANA_BOUNDED_SHUTDOWN") == "1":
+        # Cancel queued work on BOTH executors before waiting for a running job.
+        async_detector_v2224.shutdown(wait=False)
+        ai_shadow_worker_v2224.shutdown(wait=False)
     async_detector_v2224.shutdown()
     ai_shadow_worker_v2224.shutdown()
 
@@ -1019,6 +1027,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
         # ordinary live path; the adapter waits for BOTH authorities to finish.
         gt_review = None
         render_history = None
+        guard = getattr(self, "_exit_guard", None)
 
         try:
             if os.environ.get('SKJUTBANA_OPTICAL_LAB') == '1':
@@ -1032,7 +1041,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     raise ValueError('Render-history capture requires a separate ordinary gameplay process')
                 from automation.physical_render_history import from_environment
                 render_history = from_environment()
-            while self.running:
+            while self.running and (guard is None or not guard.requested):
                 if getattr(self, '_optical_lab', None) is not None:
                     # Explicit research-only loop: no audio/scanner/game authority.
                     self._optical_lab.tick(pygame, AUTOMATION_EVENT)
@@ -1104,6 +1113,8 @@ def install_v2224_runtime(AppClass: Any) -> None:
                                       async_detector_v2224, audio_peak_detector, controller)
 
         finally:
+            if guard is not None:
+                guard.begin_cleanup()
             if render_history is not None:
                 try:render_history.close()
                 except Exception as exc:print(f'[RENDER-CAPTURE ERROR] finalization failed: {exc}',flush=True)
@@ -1117,32 +1128,33 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     gt_review.close()
                 except Exception as exc:
                     print(f'[GT-CAPTURE ERROR] finalization failed: {exc}', flush=True)
-            _shutdown_workers()
-            try:
-                self.scene.on_exit()
-            except Exception:
-                pass
-            try:
-                hit_scanner.disable()
-            except Exception:
-                pass
-            try:
-                led_service.stop()
-            except Exception:
-                pass
-            try:
-                audio_peak_detector.stop()
-            except Exception:
-                pass
-            try:
-                camera_manager.stop()
-            except Exception:
-                pass
-            try:
-                self.communication_server.stop()
-            except Exception:
-                pass
-            pygame.quit()
+            if guard is None:
+                _shutdown_workers()
+                try:
+                    self.scene.on_exit()
+                except Exception:
+                    pass
+                try:
+                    hit_scanner.disable()
+                except Exception:
+                    pass
+                try:
+                    led_service.stop()
+                except Exception:
+                    pass
+                try:
+                    audio_peak_detector.stop()
+                except Exception:
+                    pass
+                try:
+                    camera_manager.stop()
+                except Exception:
+                    pass
+                try:
+                    self.communication_server.stop()
+                except Exception:
+                    pass
+                pygame.quit()
 
     AppClass.run = run_v2224
     AppClass._v2224_async_shot_patch = True

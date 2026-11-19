@@ -85,6 +85,10 @@ def main(argv=None) -> int:
     p_synth.add_argument("--export-candidates", action="store_true",
                          help="also write labelled candidates.jsonl (training data)")
 
+    p_latency = sub.add_parser("latency-report", help="show observed replay job intervals in milliseconds")
+    p_latency.add_argument("replay_dir", metavar="REPLAY_DIR", type=Path,
+                           help="output directory from replay --wall-clock-profile")
+
     p_cmp = sub.add_parser("compare", help="paired comparison of two synth runs")
     p_cmp.add_argument("baseline")
     p_cmp.add_argument("candidate")
@@ -133,6 +137,8 @@ def main(argv=None) -> int:
         rp.add_argument("--use-current-settings", action="store_true")
         rp.add_argument("--tolerance-px", type=float, default=8.0)
         rp.add_argument("--worker-cost-s", type=float, default=0.15)
+        rp.add_argument("--wall-clock-profile", action="store_true",
+                        help="save host-monotonic submission, start and finish times for offline jobs")
         rp.add_argument("--export-candidates", action="store_true")
         rp.add_argument("--pulse-offset-s", type=float, default=0.0,
                         help="shift synthetic_audio pulses (optical rig: ~+0.025)")
@@ -140,7 +146,8 @@ def main(argv=None) -> int:
         from automation.bench.session_replay import replay
         result = replay(Path(ra.session), Path(ra.output), use_current_settings=ra.use_current_settings,
                         worker_cost_s=ra.worker_cost_s, tolerance_px=ra.tolerance_px,
-                        pulse_offset_s=ra.pulse_offset_s, export_candidates=ra.export_candidates)
+                        pulse_offset_s=ra.pulse_offset_s, export_candidates=ra.export_candidates,
+                        wall_clock_profile=ra.wall_clock_profile)
         score = result.get("score")
         print(json.dumps(dict(frames=result["frames"], pcm_blocks=result["pcm_blocks"],
                               audio_events=result["audio_events"], emissions=len(result["emissions"]),
@@ -148,6 +155,13 @@ def main(argv=None) -> int:
                          indent=2))
         return 0
     args = parser.parse_args(argv)
+    if args.command == "latency-report":
+        from automation.bench.latency_report import format_report
+        try:
+            print(format_report(args.replay_dir))
+        except (OSError, ValueError) as exc:
+            p_latency.error(str(exc))
+        return 0
     if args.command == "synth":
         from automation.bench.synth_runner import run
         run(args)

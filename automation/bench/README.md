@@ -1,10 +1,9 @@
 # Bench: offline verification on the live shot path
 
-Everything here runs the **same installed shot path as the game**
-(`shot_path_step` → audio dispatch → camera → HitScanner/FAST/confirm/rescue →
-emission). Only the *sources* (camera, microphone, clock) are swapped.
-`python3 -m automation.bench_fidelity_selftest` proves the offline runtime
-installs exactly the same patched methods as `main.py`.
+Recorded replay calls the shared `shot_path_step` with recorded inputs, a
+virtual clock and a virtual executor. `python3 -m automation.bench_fidelity_selftest`
+compares the installed scanner, camera and audio methods with game startup.
+The worker thread name also controls which branches execute (see Replay and compare).
 
 Evidence levels are never mixed:
 `SYNTHETIC_LIVE_PATH` (generated frames/audio), `RECORDED_SOURCE_LIVE_PATH`
@@ -68,6 +67,43 @@ python3 -m automation.bench flash-replay SESSION_DIR [...] --output DIR --set mi
 changed `FlashConfig` fields (flash timing is what was projected).
 
 ## Replay and compare
+
+Recorded replay advances a virtual clock using recorded input timestamps. It
+freezes `time.time`, `time.monotonic` and `time.perf_counter` at the modelled
+start while each worker job runs. This makes event ordering repeatable across
+machines. The internal `stages_ms` measurements read that frozen clock.
+
+`replay SESSION --output NEW_DIR --wall-clock-profile` additionally writes
+`wall_clock_profile.json`. Each submitted job has host monotonic timestamps
+in nanoseconds. Subtract start from finish for elapsed host time, including waits.
+Submit to start includes any input decoding and other replay-loop work before
+the virtual executor runs that job. A null start or finish means that endpoint
+was never observed. The timestamps are local to the machine and clock domain.
+The `thread` field is sampled inside the job. A `MainThread` job
+misses the runtime branches guarded by the `shot-cv-v2224` thread prefix.
+Matching the prefix alone does not establish full parity with the live runtime.
+
+Run `python3 -m automation.bench latency-report REPLAY_DIR` on a profiled replay.
+It prints each submitted job's thread and the elapsed milliseconds from submission to start,
+start to finish, and submission to finish. Each sum is computed from
+integer nanoseconds and carries its observed/submitted count. `UNKNOWN` marks
+missing endpoints. Overlapping intervals contribute separately to the sums.
+The sidecar contains executor timestamps only. Attribution to stages, emissions
+or individual shots requires evidence outside these rows.
+
+### Inspect a PRE image
+
+`python3 -m automation.bench.image_context earlier.png pre.png --grid 4 6`
+prints a JSON grid for explicitly supplied images in chronological order.
+Each cell contains its pixel bounds (exclusive right and bottom), mean gray
+level and mean Sobel gradient magnitude in the last image. With two or more
+frames, `ctx_motion` is the mean within-cell temporal standard deviation
+of individual pixels. A single image yields `null` and the reason
+`single_frame`. The reported elapsed cost covers the in-memory calculation.
+The offline trainer excludes `ctx_brightness`, `ctx_texture` and `ctx_motion`
+from feature discovery when they appear in a supplied candidate export.
+
+### Run comparisons
 
 ```bash
 python3 -m automation.bench replay SESSION_DIR --output /tmp/r1 [--pulse-offset-s 0.025]

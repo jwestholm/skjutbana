@@ -77,6 +77,34 @@ def test_virtual_clock_and_executor():
     check(time.time is real, "real time functions are restored")
 
 
+def test_host_job_timings():
+    from automation.bench.session_replay import profile_executor
+    import threading
+
+    real_sleep = time.sleep
+    clock = VirtualClock()
+    executor = VirtualExecutor(clock)
+    timings = profile_executor(executor)
+    thread_seen = []
+    def job(*, delay):
+        thread_seen.append(threading.current_thread().name)
+        real_sleep(delay)
+        return 17
+    with clock.installed():
+        future = executor.submit(job, delay=0.025)
+        cancelled = executor.submit(lambda: None)
+        cancelled.cancel()
+        clock.advance_to(0.3)
+        executor.run_due()
+        check(future.result() == 17, "profiling preserves job results")
+    row, skipped = timings
+    check(row["submit_ns"] <= row["start_ns"], "host submission precedes job start")
+    check(row["finish_ns"] - row["start_ns"] >= 25_000_000, "25 ms sleep registers on the host clock")
+    check(row["thread"] == thread_seen[0], "profile records the executing thread name")
+    check(skipped["start_ns"] is None and skipped["finish_ns"] is None, "cancelled job has no duration")
+    check(clock.now() == 0.3, "host timings preserve the virtual schedule")
+
+
 def test_scenarios_and_renderer():
     geometry = ViewportGeometry(SETTINGS)
     phys = PhysicsAssumptions(jpeg_quality=None, sensor_noise_sigma=0.0)
@@ -125,6 +153,7 @@ def test_compare_refuses_different_experiments():
 def main():
     test_paired_stats()
     test_virtual_clock_and_executor()
+    test_host_job_timings()
     test_scenarios_and_renderer()
     test_compare_refuses_different_experiments()
     print("ALL BENCH SELFTESTS PASSED")

@@ -24,6 +24,30 @@ from automation.physical_capture_console import CaptureConsole
 from automation.physical_trace_label import _run_target_ui, _pygame_surface
 
 
+class CheckpointTests(unittest.TestCase):
+    def test_publication_at_queue_drain_preserves_review_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            review = g.ReviewCapture.__new__(g.ReviewCapture)
+            review.root = Path(tmp)
+            review.closed = False
+            frame = dict(path='pre.npy', status='QUEUED', role='PRE', projector_state=None)
+            row = dict(frames=[frame], missing=[], status='CAPTURING')
+            review.manifest = dict(shots=[row])
+            sidecar = review.root / 'pre.json'
+
+            def publish_and_report_idle():
+                if not sidecar.exists():
+                    sidecar.write_text('{"image_sha256": "fixture"}')
+                return dict(writer_errors=0, queue_drops=0, flush_pending=False)
+
+            review.writer = Mock()
+            review.writer.stats.side_effect = publish_and_report_idle
+            review.checkpoint()
+            self.assertEqual(frame['status'], 'SAVED')
+            self.assertEqual(frame['metadata'], 'pre.json')
+            self.assertEqual(row['missing'], [])
+
+
 class ReviewTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(dir='/data/skjutbana');self.addCleanup(self.tmp.cleanup)

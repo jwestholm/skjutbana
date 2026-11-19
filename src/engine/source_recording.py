@@ -101,6 +101,7 @@ class SourceRecorder:
         self.reason: str | None = None
         self._queue: queue.Queue = queue.Queue(maxsize=int(queue_max_items))
         self._lock = threading.Lock()
+        self._stop_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self.counts = dict(camera_frames=0, audio_blocks=0, camera_bytes=0, audio_bytes=0,
                            dropped_camera=0, dropped_audio=0, decoded_not_recorded=0)
@@ -189,17 +190,30 @@ class SourceRecorder:
             handle.write(json.dumps(row, separators=(",", ":")) + "\n")
 
     def stop(self, reason: str = "clean_stop") -> None:
+        with self._stop_lock:
+            self._stop(reason, drain=False)
+
+    def stop_for_exit(self) -> None:
+        """Drain before publishing session_end; the supervisor bounds stalled I/O."""
+        with self._stop_lock:
+            self._stop("application_exit", drain=True)
+
+    def _stop(self, reason: str, *, drain: bool) -> None:
         with self._lock:
             if self.state != "RECORDING":
                 return
             self.state = "STOPPING"
             self.reason = reason
-        try:
-            self._queue.put(None, timeout=2.0)
-        except queue.Full:
-            pass
-        if self._thread is not None and self._thread is not threading.current_thread():
-            self._thread.join(timeout=10.0)
+        writer = self._thread
+        if writer is not None and writer is not threading.current_thread():
+            while writer.is_alive():
+                try:
+                    self._queue.put(None, timeout=2.0)
+                    break
+                except queue.Full:
+                    if not drain:
+                        break
+            writer.join(timeout=None if drain else 10.0)
         remaining = 0
         while True:   # anything still queued was not written: count it, never hide it
             try:

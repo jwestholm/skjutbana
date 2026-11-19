@@ -3,6 +3,28 @@
 Status legend: **FIXED** (changed + tested), **OPEN** (needs decision/work),
 **INFO** (documented, no action). All detector changes are default-off; nothing is committed.
 
+## Contents
+
+The opening note describes the original review. Section 15 records a test that
+intermittently reported a saved frame as missing. Section 23 documents the fix.
+
+| Sections 1–12 | Sections 13–23 |
+|---|---|
+| [1. H6–H9 selection experiments](#audit-1) · INFO | [13. Projected F2 recording](#audit-13) · INFO |
+| [2. Stale selftest fixtures](#audit-2) · FIXED | [14. Textured-background experiments](#audit-14) · OPEN |
+| [3. Recall and test timing](#audit-3) · OPEN | [15. Selftest baseline and missing-frame report](#audit-15) · INFO |
+| [4. Calibration persistence](#audit-4) · FIXED | [16. F2 and replay clocks](#audit-16) · INFO |
+| [5. Other maintenance fixes](#audit-5) · FIXED | [17. Replay thread on claude/latency](#audit-17) · FIXED |
+| [6. Decisions pending](#audit-6) · OPEN | [18. Worker benchmarks and shutdown report](#audit-18) · OPEN |
+| [7. Code inventory](#audit-7) · INFO | [19. Offline bench maintenance](#audit-19) · INFO |
+| [8. Outstanding research](#audit-8) · OPEN | [20. Isolated projected replay](#audit-20) · INFO |
+| [9. First physical recording](#audit-9) · INFO | [21. Offline scorer exclusions](#audit-21) · FIXED |
+| [10. Board wear](#audit-10) · INFO | [22. Selftest runner](#audit-22) · FIXED |
+| [11. Fresh-paper recording](#audit-11) · INFO | [23. Opt-in shutdown and hardware validation](#audit-23) · OPEN |
+| [12. Hole and stamp comparison](#audit-12) · INFO |  |
+
+<a id="audit-1"></a>
+
 ## 1. Winner selection hypotheses H6–H9 (measured, default off)
 
 Offline evidence: synthetic real-hole stamps at CO2 scale, pilot flags as base, 3 backgrounds,
@@ -30,6 +52,8 @@ correct; the remaining synthetic failures are **false emissions on echo/false-au
 Next: (a) recall for small faint holes in candidate generation, (b) hole-likeness ranking on
 textured backgrounds, (c) IMPACT/no-hole rejection for echoes/claps.
 
+<a id="audit-2"></a>
+
 ## 2. Long-failing selftests — FIXED (tests were stale, code correct)
 
 - `automation/object_hit_selftest.py`: since b59caa4 OBJECT_HIT waits for later causal frames when
@@ -42,6 +66,8 @@ textured backgrounds, (c) IMPACT/no-hole rejection for echoes/claps.
 - `automation/object_physical_query_selftest.py`: made independent of the local calibration's
   lens model (`h.lens=None`).
 
+
+<a id="audit-3"></a>
 
 ## 3. Recall: the true hole is usually never proposed — mostly a TIMING problem (OPEN, experiment H10 running)
 
@@ -110,6 +136,8 @@ Synthetic check of a longer fixed wait: MIN_POST_AGE 0.30 drops doubles 12→8/1
 recordings at 0.11 / 0.15 / 0.20 and decide per measured onset; an adaptive onset-triggered first
 proposal is a later hypothesis.
 
+<a id="audit-4"></a>
+
 ## 4. Calibration saves silently dropped the lens model — FIXED
 
 Menu "Kalibrera viewport via kamera", AI-test auto-calibration and `bench calibration-check --save`
@@ -122,12 +150,16 @@ only if the saved calibration still has the same fingerprint; `calibration-check
 evaluates the lens model synchronously; the AI-test auto-calibration never replaces a lens-model
 calibration. Test: `automation/calibration_save_selftest.py`.
 
+<a id="audit-5"></a>
+
 ## 5. Other fixes
 - `src/engine/scenes/loading.py`: bootstrap failures are logged with traceback instead of `pass`
   (a silent failure made later patch layers wrap unpatched methods).
 - Docs: stale flash numbers/claims in CURRENT_STATE, bench README calibration semantics, README
   (calibration backup, parec, F2 matrix), new "CURRENT capture method" section at the top of
   PHYSICAL_CAPTURE_RUNBOOK.md, status note in ROADMAP "NOW".
+
+<a id="audit-6"></a>
 
 ## 6. Needs the user's decision (OPEN)
 - **Security:** `src/engine/output/led_test.py` (tracked in git, never imported) hard-codes a Tuya
@@ -138,6 +170,8 @@ calibration. Test: `automation/calibration_save_selftest.py`.
   `src/engine/camera/__init__.py.bak_v27_1`, `src/engine/ai/bootstrap.py.bak_v27_1` — delete?
 - Never-imported modules: `ai/ranker_v5_extension.py`, `ai/training_data.py`,
   `offline/replay_context.py`, `output/led_test.py`.
+
+<a id="audit-7"></a>
 
 ## 7. Information (no action taken)
 - Import graph: 204 modules under src/: 143 live, 57 automation/offline-only, 4 never imported.
@@ -155,6 +189,8 @@ calibration. Test: `automation/calibration_save_selftest.py`.
   source recording/lens model/precision levels/parec); nightly holdout session 98e68fe9 is not
   untouched any more and should be replaced by a fresh physical session.
 
+<a id="audit-8"></a>
+
 ## 8. Recommended next steps (priority)
 1. Tonight: record physical shots (per weapon), label GT, replay at MIN_POST_AGE 0.11/0.15/0.20 →
    choose the value from measured onset; measure real CO2 hole contrast vs the stamp model.
@@ -163,6 +199,8 @@ calibration. Test: `automation/calibration_save_selftest.py`.
 3. IMPACT/no-hole rejection for echo/false audio (synthetic: 7/48 false emissions in every arm).
 4. Replace the nightly holdout session with a fresh physical one.
 5. User decisions in section 6 (Tuya key, stray .bak files, never-imported modules).
+
+<a id="audit-9"></a>
 
 ## 9. First physical CO2 AR15 round on the capture target (2026-11-18 ~15:00)
 
@@ -183,12 +221,16 @@ GT in `ground_truth.jsonl`), analysis `/data/skjutbana/evaluation_runs/physical_
   rejection, not from the double peaks alone. Flag kept off.
 - Suggested: MIN_POST_AGE 0.15 (confirm on airgun/pistol); next hypothesis = no-hole rejection.
 
+<a id="audit-10"></a>
+
 ## 10. Board wear map (2026-11-18 ~16:00, after removing ~150 g of tape)
 New `python3 -m automation.bench board-snapshot` (white projection, camera, hole blobs → screen
 coords, heatmap; `--compare` lists new blobs). Result in
 `/data/skjutbana/evaluation_runs/board_wear_20261118/`: 55 % of holes in the central 25 % of the
 area. Uses agreed with Codex → ROADMAP "Game design rule: spread the aim points". The capture
 target now moves its cross grid randomly per sequence.
+
+<a id="audit-11"></a>
 
 ## 11. Physical CO2 AR15 round 2 on fresh paper (2026-11-18 ~17:00)
 Session `/data/skjutbana/source_sessions/20261118T155321Z_04f1be81` (GT from camera diff + operator
@@ -207,6 +249,8 @@ still emit in replay (no-hole rejection missing). Capture target: board label te
 3 s after a key press; numpad keys accepted. First real AR15 stamps:
 `/data/skjutbana/hole_library/ar15_co2_20261118/`.
 
+<a id="audit-12"></a>
+
 ## 12. Real AR15 vs airgun holes; real stamps used as synthetic holes
 Same camera, same method: airgun core area 40 px / depth 0.28 (38 grey), AR15 22 px / 0.05-0.19
 (10-39 grey) → AR15 diameter ~0.74x and about half as dark, ~1/4 the integrated darkening (the old
@@ -215,6 +259,8 @@ are": AI test F8 `co2` = AR15 library (true size), offline preset `AR15_REAL_STA
 Projector check (`evaluation_runs/stamp_projection_20261118`, white, gain 3): camera sees airgun
 39.5 px/0.20 (real 36.5/0.21, match) and AR15 24.5 px/0.056 (real 22/0.095) → size right, AR15 gain
 raised to 4.5-6. Operator: airgun holes look slightly too big by eye → footprint scale random 0.95-1.0 for both, random 0-360 deg rotation + mirror; weak AR15 stamps (low gas, barely through) kept on purpose. Selftest ai_training_content OK.
+
+<a id="audit-13"></a>
 
 ## 13. AI-test F2 with real AR15 stamps (projected, 48 rounds, MIN_POST_AGE 0.15)
 Run `/data/skjutbana/ai_test_runs/ai_test_20261118T172714.json`, recording
@@ -225,6 +271,8 @@ fresh-paper live result (5–6/15); textured/moving/dark content stays the weakn
 false emissions dominate there. (A first attempt scored 0/76 because the stamp-projection script
 still held the camera — invalid, deleted. AI-test auto-calibration failing silently when there is
 no camera frame now logs the reason.)
+
+<a id="audit-14"></a>
 
 ## 14. Hole recognition on textured backgrounds — H11 hole-likeness ranking (default OFF)
 Measurement first (`automation/bench/hole_likeness.py`: `hole-likeness`, `-dense`, `-emissions`):
@@ -292,6 +340,66 @@ two sessions measured (identical to H11), kept off.
 - Code study of the whole evidence chain → new `EVIDENCE_CHAIN.md` (26 items, status, context maps,
   plan agreed with Codex).
 
+<a id="audit-15"></a>
+
+## 15. Offline selftest baseline at 765580a — 2026-11-18
+
+All 140 modules matching `automation/*selftest*.py` ran in separate Python processes
+on `codex/astra-latency`. Each process used dummy SDL video/audio drivers, a private
+temporary `/data` for fixtures, and no camera device. Three modules ran concurrently.
+
+- First pass: 139/140 modules exited successfully. In `physical_gt_capture_selftest`,
+  `test_interrupt_preserves_completed_frames_and_explicit_missing` saw an extra
+  `PRE` in the missing-frame list. The full module passed 37/37 on a separate rerun.
+  The cause of the first failure is open.
+- Four test cases skipped on the first pass. With the stamp fixture library mounted
+  read-only, `ai_training_content_selftest` passed 8/8. With a private loopback
+  network, `physical_optical_lab_selftest` passed 25/25, including its TCP round trip.
+- After reruns, all 140 modules had a successful run. The passing
+  `object_freshness_selftest` also logged trace finalization errors for temporary
+  fixture paths. The effect on fixture cleanup is unverified.
+
+Work packages 1–6 remain open. There was no detector change, paired replay,
+latency measurement or physical validation in this run.
+
+<a id="audit-16"></a>
+
+## 16. What the F2 event timestamps and the replay clock measure
+
+The F2 report stores a timestamp and an associated synthetic peak timestamp for
+each delivered camera event (`AITrainingScene._on_live_hit`). For each of the
+two reports in §14c, we calculated `1000 * (ts - peak_ts)` for every entry in
+`hits` and used NumPy's linear percentiles. All entries had both timestamps.
+False emissions are included. A projected hole without an emission has no
+latency observation.
+
+| F2 report on 2026-11-18 | Delivered events | Median (ms) | p90 (ms) | Correct / projected holes | False emissions |
+|---|---:|---:|---:|---:|---:|
+| 17:27:14 | 54 | 990 | 1643 | 14/78 | 40 |
+| 19:14:33 | 62 | 1067 | 1950 | 30/79 | 32 |
+
+These were separate live optical runs with different projected holes. The exact
+latency figures in §14c were not reproduced from these two event lists using
+this definition. The input hashes, calculation and clock check are in
+`/data/skjutbana/evaluation_runs/f2_clock_audit_20261118_vPwRuW35/`.
+
+For the recorded-session replay command, the default `--worker-cost-s` is
+0.15. `VirtualExecutor` models a single FIFO worker and freezes the virtual
+clock during each job. `DetectorStageProfilerV2224` reads the patched
+`time.perf_counter()`. As a control, a standalone job that waited 25.06 ms
+on the host registered 0 ms inside the job and 150 ms from submission to
+completion in virtual time. Accordingly the stock replay timings cannot
+attribute the observed F2 percentiles to worker stages or duplicate jobs.
+
+All 140 selftest modules exited successfully in a fresh sequential run. The
+single skipped socket case passed with its full module on isolated loopback
+(25/25). The earlier missing-frame test also passed. Work package 1 remains
+open. This audit adds no paired replay or physical measurements.
+
+The following two sections reproduce the findings from branch `claude/latency` through `19eb44e`.
+
+<a id="audit-17"></a>
+
 ## 17. Replay fidelity bug: replays ran the FULL/legacy path, not the live path (fixed on claude/latency)
 `VirtualExecutor.run_due` (src/engine/offline/virtual_runtime.py) executed detector jobs on MainThread,
 but five live stages are gated on the CV worker thread name "shot-cv-v2224": V2.22.5 FAST extract
@@ -313,6 +421,8 @@ restores the old behaviour for comparisons with earlier baselines. bench_selftes
 
 H11 on the live path: +7 overall (58→65) incl. +2 physical — smaller than the legacy-path +29 but
 consistent with the live F2 result (30/79 vs 14/78). Pattern −2 persists.
+
+<a id="audit-18"></a>
 
 ## 18. Detector worker CPU: exact-equivalent speedups (claude/latency)
 cProfile of every async detector job while replaying the physical AR15 session on the live (FAST)
@@ -337,3 +447,190 @@ overstated it (it inflates pure-Python loops). Both runs were CONTAMINATED by ho
 vs 14/78 earlier. Repeat on an idle host before drawing conclusions.
 **Shutdown bug:** in both runs `main.py` did not exit within 30 s of SIGINT (one earlier instance kept
 running at ~185 % CPU / 11.7 GB RSS and held the camera); TERM/KILL needed. Reproducible tonight.
+
+<a id="17-offline-bench-maintenance"></a>
+
+<a id="audit-19"></a>
+
+## 19. Offline bench maintenance
+
+**A.** The optional recorded-replay sidecar records job boundaries on the
+host monotonic clock. A synthetic 25 ms sleep must measure at least 25 ms,
+while the virtual job cost and event schedule stay fixed. Internal stage
+timers retain their original clock. This measures the offline executor.
+Each row records the observed thread name. At base 765580a, replay calls
+jobs on MainThread. Five runtime modules guard code with the worker name
+prefix, so method-installation parity alone overstates runtime coverage.
+
+**B.** Ran `bench replay --use-current-settings --wall-clock-profile` and
+`bench latency-report` on recorded projected session `20261118T162349Z_66d659ce`.
+Of 121 submitted jobs, 116 had both endpoints, all on `MainThread`. The other
+five had no observed start. The 116 intervals summed to 20.807 s from submit
+to start and 143.313 s from start to finish. These are sums over offline jobs
+on the legacy path. Replay used shared host resources and a read-only source
+tree, so optional writes to the local diagnostic log failed. Results are in
+`/data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/projected/`.
+Per-stage and per-physical-shot attribution remain open. The physical session
+was not run for this report.
+
+**C.** A shared immutable observation represents either a scalar value
+or a missing reason. It carries the family and version, with optional
+time window and cost. Three compatibility fixtures passed on the baseline
+and on the refactor. They compare the patch and map candidate fields,
+including existing keys, missing values and a disabled map source. A fourth
+test checks the new observation type. No accuracy experiment was performed.
+
+**D.** Measured the standalone image-context function on synthetic 640 × 480
+grayscale arrays with a 4 × 6 grid and one OpenCV thread. Over 30 samples after
+three warmups, one frame cost 4.34 ms median / 4.83 ms p90. Three frames cost
+5.86 / 6.38 ms. Seed 20261118. Timings exclude file decoding and JSON output.
+The offline command emits a region grid for inspection. With one image,
+temporal variation is unknown. This run made no candidate-level measurements.
+Reproduce with `PYTHONPATH=. python3 /data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/measure.py`
+from the repository root. Individual samples are in `image_context_cost.json` alongside it.
+
+### E. Static reachability and removals
+
+At `6f74b9b`, the AST import graph for 667 tracked Python files had zero incoming
+edges for each of the four modules in §6. The scan resolved relative imports and
+checked both module imports and `from package import name`. A second pass found
+zero string literals containing their full module names or file paths outside the
+modules themselves. No module in the table appeared in `sys.modules` after either
+headless installer probe in `automation/bench_fidelity_selftest.py`. Those probes
+stop before the application loop. The game loader also accepts a script path and
+manual CLI use and imports from outside the repository remain possible.
+To reproduce the static scan from the repository root, run
+`python3 /data/skjutbana/evaluation_runs/offline_bench_20261118_gkK5l9M8/import_graph.py 6f74b9b`.
+
+| Module | Source and history | Decision |
+|---|---|---|
+| `ai/ranker_v5_extension.py` | The installer is exported through `__all__`. Its bootstrap call was removed in `41bb312`, which explicitly retained the implementation for rollback. | Keep the public installer. |
+| `ai/training_data.py` | `9ccef61` removed the in-tree call to `save_training_example`. The public helper writes session JSON. | Keep the callable for scripts. |
+| `offline/replay_context.py` | `ReplayScannerContext` constructs `ReplayFrame` and `ReplayAudioEvent`. All three names occur only in this module in tracked Python source. The file is listed with a hash in `PACKAGE_V2_12_MANIFEST.txt`. | Keep the packaged module. |
+| `output/led_test.py` | `__main__` calls `main()` and the script has its own argument parser. | Keep the standalone tool. |
+
+To check the call sites, run `git grep -nwE 'save_training_example|install_ranker_v5_extension|ReplayScannerContext|ReplayFrame|ReplayAudioEvent' 6f74b9b -- '*.py'`. The installer probe uses `main.py`'s v241 → v243 → v244 install order. V243 restores v241's saved extractor, and v244 reads v243's saved ROI function. The v241/v243 installers and the v2221 replacement for `HitScanner._resolve_audio_events` participate in that sequence. V25 has three disabled feature switches in the checked-in config, but its top-level `enabled` is true and its wrapper writes telemetry. `object_physical_query.py` directly imports `_regions_in_work_space` from the demo extension.
+
+Within `src`, the 30 definitions of `_safe_float` have 10 distinct argument/body AST combinations and the 11 definitions of `_runtime_settings` have three. For example, the result repository permits a `None` default for invalid floats while ranker V4 returns a numeric default. Name counts do not establish an unused definition. All live wrappers and helper definitions remain in place.
+
+The deletion is confined to `automation/temporal_impact_research.py`. Commit `fb44e37` retained the old single-coordinate branch after an unconditional `continue` in the same loop. Removing the unreachable tail and the now-redundant final `continue` leaves all 553 decoded instructions of `run` equal on CPython 3.10. The comparison also covers instructions of nested code objects loaded by `run`. Reproduce from the repository root after applying this change:
+
+```sh
+python3 - <<'PY'
+import dis, subprocess, types
+from pathlib import Path
+
+path = Path("automation/temporal_impact_research.py")
+old = subprocess.check_output(["git", "show", f"6f74b9b:{path}"], text=True)
+
+def instructions(code):
+    return [(i.opname, instructions(i.argval) if isinstance(i.argval, types.CodeType)
+             else i.argval) for i in dis.get_instructions(code)]
+
+def run_code(text):
+    module = compile(text, str(path), "exec")
+    return next(c for c in module.co_consts if isinstance(c, types.CodeType)
+                and c.co_name == "run")
+
+before, after = (instructions(run_code(s)) for s in (old, path.read_text()))
+assert before == after
+print(len(after))
+PY
+```
+
+### F. Live code navigation
+
+The opening section of `ARCHITECTURE.md` follows event creation, frame
+ownership, proposal and confirmation work, tracking, selection and delivery.
+Source inspection covered the installed resolver wrappers as well as the base
+scanner. A syntax-tree lookup verified 20 named functions across 10 modules.
+The documentation distinguishes a track seeded before confirmation, evidence
+from a subsequent frame, and the state assigned on delivery.
+
+All discovered `automation/*selftest*.py` modules passed at each checkpoint
+(A 140, B 141, C 142, D 143, E 143, F 143). The optical-lab module's TCP
+round trip also passed on isolated loopback at every checkpoint.
+
+<a id="audit-20"></a>
+
+## 20. Projected replay with the worker-name correction in isolation
+
+Replayed `20261118T162349Z_66d659ce` from the recorded projector and camera
+inputs using `--use-current-settings --wall-clock-profile`. The checkout used
+the code at `0457b07` with only `src/engine/offline/virtual_runtime.py` from
+`43f70bd` mounted read-only for the process. This run used the detector
+implementation from `0457b07`. The manifest records the mounted Git blob
+and settings hashes. The legacy thread override was unset.
+
+| Host-clock interval | Observed jobs / submitted | Sum (s) | Median (ms) | p90 (ms) |
+|---|---:|---:|---:|---:|
+| Submit to start | 115/120 | 17.822 | 155.98 | 196.50 |
+| Start to finish | 115/120 | 39.568 | 347.78 | 544.46 |
+
+All 115 observed starts recorded `shot-cv-v2224-virtual`. Five submissions
+had no observed start. The run logged 97 FAST extraction messages and read
+5,025 camera frames and 13,448 PCM blocks. These are elapsed host intervals
+of offline executor jobs. Submit to start includes other replay-loop work.
+The timers inside each stage still read the virtual clock. No physical
+session was profiled and no job was classified as duplicate work.
+
+The report, individual timestamps, log and input manifest are in
+`/data/skjutbana/evaluation_runs/projected_thread_check_20261118_DvDJU49m/`.
+All 143 selftest modules from the working branch passed with the same
+read-only runtime overlay and an isolated loopback network.
+
+<a id="audit-21"></a>
+
+## 21. Image-context fields in offline training
+
+A synthetic candidate row containing `sample`, `ctx_brightness`,
+`ctx_texture` and `ctx_motion` contributed all four numeric fields to
+the trainer's feature list at `b9406e6`. With the three context fields
+explicitly excluded, only `sample` is selected. A regression test covers
+a measured motion value of zero alongside numeric brightness and texture.
+The image-context command remains standalone. Worker cost for generating
+context on candidates remains unmeasured.
+
+<a id="audit-22"></a>
+
+## 22. Selftest runner
+
+The runner reports each module's exit status and elapsed time, returns nonzero
+on failures and timeouts, and gives each module a private data and device
+namespace. Its first three-way run reported 142/143 modules passing. The
+failure reproduced the extra `PRE` missing-frame entry described in §15.
+Separate runner fixtures exercised success, failure, timeout and interrupted
+cleanup, including a test that left a detached descendant running.
+A subsequent two-way suite run passed all 143 modules at this checkpoint.
+
+<a id="audit-23"></a>
+
+## 23. Application shutdown and capture finalization
+
+The legacy installed loop joins both thread pools before stopping camera and
+audio. A device-free fixture submitted a task blocked on an unset event to
+`AsyncDetectorV2224`. A direct call to its original `shutdown()` still
+blocked after 2.000 s, at which point the test terminated its child. This is a
+possible cause of the §18 hang. The operator's process had no stack trace
+identifying which resource was actually blocked.
+
+`SKJUTBANA_BOUNDED_SHUTDOWN=1` enables supervised exit. Communication stops
+accepting commands, the audio backend is terminated and reaped, the camera
+reader is stopped, and the source recorder can drain before the executor join.
+Trace writers can finish and pygame can close on the orderly path. After
+15 seconds the supervisor can kill its child process group, including a
+stuck executor and its subprocesses. An interrupted write may remain partial.
+
+With the production deadline and synthetic processes, clean exit took 0.083 s
+after SIGINT and 0.075 s after SIGTERM (both exit status 0). A blocked executor
+was force-stopped 15.043 s after SIGTERM (status 124). These are single
+signal-to-exit measurements. Release of a busy physical camera remains open.
+The capture wrapper forwards SIGTERM and allows the supervisor to finish
+before finalizing its own exit record.
+
+The review checkpoint now samples the writer queue before checking frame
+metadata on disk. A deterministic fixture publishes the sidecar at the queue
+transition and checks that the saved frame is retained. This reproduces the
+failure mechanism behind the extra missing-frame entry in §§15 and 22.
+All 145 selftest modules passed in the isolated three-process run, including
+the process-signal, resource-cleanup, capture-wrapper and checkpoint tests.

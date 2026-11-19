@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import math
 import tempfile
+import threading
+from time import monotonic_ns
 from pathlib import Path
 from typing import Any
 
@@ -31,10 +33,34 @@ def _rows(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def profile_executor(executor) -> list[dict[str, Any]]:
+    """Observe this replay executor while preserving its schedule and futures."""
+    timings = []
+    original_submit = executor.submit
+
+    def submit(fn, /, *args, **kwargs):
+        row = dict(submit_ns=monotonic_ns(), start_ns=None, finish_ns=None, thread=None)
+
+        def timed_job():
+            row["thread"] = threading.current_thread().name
+            row["start_ns"] = monotonic_ns()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                row["finish_ns"] = monotonic_ns()
+
+        future = original_submit(timed_job)
+        timings.append(row)
+        return future
+
+    executor.submit = submit
+    return timings
+
+
 def replay(session_dir: Path, output: Path, *, use_current_settings: bool = False,
            worker_cost_s: float = 0.15, tolerance_px: float = 8.0, tail_s: float = 4.5,
            pulse_offset_s: float = 0.0, export_candidates: bool = False,
-           label_min_age_s: float = 0.15) -> dict[str, Any]:
+           label_min_age_s: float = 0.15, wall_clock_profile: bool = False) -> dict[str, Any]:
     from src.engine.source_recording import SourceSessionReader
     from src.engine.offline.virtual_runtime import VirtualClock, VirtualRuntime, use_recorded_settings
     output.mkdir(parents=True, exist_ok=False)
@@ -71,6 +97,7 @@ def replay(session_dir: Path, output: Path, *, use_current_settings: bool = Fals
 
     with clock.installed():
         runtime.install()
+        host_timings = profile_executor(runtime.executor) if wall_clock_profile else None
         from src.engine.audio.audio_peak_detector import audio_peak_detector as audio
         from src.engine.camera.camera_manager import CameraFrame, camera_manager as cam
         from src.engine.camera.camera_manager import apply_frame_transform
@@ -136,6 +163,9 @@ def replay(session_dir: Path, output: Path, *, use_current_settings: bool = Fals
                   emissions=emissions, truth=truth, score=scored,
                   limitations=["virtual worker cost is a model, not measured CPU latency",
                                "AI shadow and trace writing disabled"])
+    if host_timings is not None:
+        profile = dict(version=1, clock="host_monotonic_ns", jobs=host_timings)
+        (output / "wall_clock_profile.json").write_text(json.dumps(profile, indent=2) + "\n")
     (output / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 

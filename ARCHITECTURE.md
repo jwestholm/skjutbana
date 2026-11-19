@@ -1,5 +1,33 @@
 # Architecture
 
+## From an audio event to a game hit
+
+`main.py` installs the runtime extensions before invoking `App.run`. The installed loop calls
+`shot_path_step` in `src/engine/shot_async_v2224.py`. This main-thread function dispatches pending
+audio events before picking up new camera frames, advances object queries, and calls
+`HitScanner.update`. A single event can span several iterations. Paths below are relative to
+`src/engine/`.
+
+| Stage | Where to follow it | What passes to the next stage |
+|---|---|---|
+| Audio dispatch | `audio/audio_peak_detector.py`, `AudioPeakDetector.update` → `camera/hit_scanner.py`, `HitScanner._on_audio_peak` | The active scanner creates a pending `AudioShotEvent` with its own ID and peak timestamp. |
+| PRE and POST frames | `shot_critical_v2223.py`, `select_recent_pre_frame_v2223` · `shot_fast_v2225.py`, `_install_pre_by_shot_patch` · `camera/hit_scanner.py`, `HitScanner.update` | The callback selects a PRE reference and retains it for that event. On camera pickup the scanner adds timestamped frames to history and uses the latest new frame for detection. |
+| Proposals | `shot_async_v2224.py`, `AsyncDetectorV2224.submit_if_needed`, `_run_job` and `harvest` · `camera/candidate_generator_v2.py`, `CandidateGeneratorV2.generate` · `shot_fast_v2225.py`, `fast_extract_candidates_v2225` | A worker returns candidate observations. The main thread integrates the result. |
+| Local confirmation and tracks | `shot_fast_v2225.py`, `local_confirm_candidates_v2225` · `shot_track_v2226.py`, `update_tracks_frame_unique_v2226` | A first result can seed tracks. On a later frame the local check compares proposals with their PRE reference. Track updates distinguish support within one frame from observations on distinct frames. An empty or unconfirmed proposal round can request a FULL rescue. |
+| Winner selection | `shot_fast_v2225.py`, `resolve_v2225` · `camera/hit_scanner_v2221.py`, `patched_resolve_audio_events` and `_best_novel_track_for_event` | The installed resolver calls the scanner's selection and readiness methods. It can keep the event pending, emit a ready track, or expire the event. |
+| Emission | `camera/hit_scanner.py`, `HitScanner._emit_track_result` · `input/hit_input.py`, `HitInput.push_camera_hit` and `_notify` | HitInput maps camera XY into game coordinates, queues the event and notifies subscribers. |
+
+Object-context requests can use the selector installed by
+`shot_cross_thread_novelty_v253._install_authority_selector_patch`. The precision-flash path in
+`precision_flash.py` can hold ordinary camera hits and provide a separate measurement. The
+scanner sets track state `confirmed` when it emits a new hole. To establish local confirmation,
+consult the local-confirmation evidence. `last_stable_tracks` is an eight-track debug view.
+
+For offline replay, the fidelity selftest compares installed method names. When a
+job executes on `MainThread`, conditions that check for a `shot-cv-v2224`
+worker take the legacy branch. The optional `bench replay --wall-clock-profile`
+sidecar records the thread name observed inside each executed job.
+
 ## Opt-in engine presentation provenance — 2026-10-17
 
 `physical_render_history` is a research adapter, not a new renderer or hit owner.

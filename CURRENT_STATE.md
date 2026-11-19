@@ -1,5 +1,34 @@
 # Current project state
 
+## Opt-in bounded shutdown — 2026-11-19
+
+The Linux launcher supports `SKJUTBANA_BOUNDED_SHUTDOWN=1`. A supervisor
+handles SIGINT and SIGTERM, gives the engine 15 seconds to leave its loop
+and release its resources, and terminates its private process group if cleanup
+stalls. Shutdown has been exercised with synthetic services and processes.
+Release of the physical rig under load still needs operator verification.
+
+## Running the selftests — 2026-11-18
+
+`python3 -m automation.run_selftests` runs the discovered modules with a
+per-module deadline and up to three concurrent isolated processes. Each module
+receives private fixture directories, dummy SDL drivers and loopback. See README.md.
+
+## Offline replay timing — 2026-11-18
+
+Recorded replay accepts `--wall-clock-profile` to save host submission, start
+and finish timestamps for executor jobs. The replay schedule still uses virtual
+time. See `automation/bench/README.md` for the scope of each clock.
+`bench latency-report REPLAY_DIR` reads the sidecar and reports per-job
+intervals, observed threads and the number of endpoints contributing to each sum.
+
+Both hole-morphology sources use `src/engine/candidate_evidence.py` to write
+their existing flat scalar evidence fields. Missing reasons stay source-specific.
+
+`automation.bench.image_context` reports regional brightness, edge strength
+and temporal variability for image files explicitly supplied to its offline CLI.
+The offline trainer excludes the three `ctx_*` measurements from feature selection.
+
 ## Hole recognition on textured backgrounds — 2026-11-18 (evening)
 - H11 `SKJUTBANA_HOLE_LIKENESS_RANK=1` (default OFF): matched filter with the real airgun+AR15 stamp
   profile ranks candidates. Paired replay projected 48→77 correct (8 sessions), physical AR15 unchanged;

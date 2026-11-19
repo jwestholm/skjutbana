@@ -57,6 +57,10 @@ coarse context (brightness/texture/motion classes), not raw render subtraction.
 
 1. **Evidence contract on every family**: value(s), valid/missing reason, family, version, causal time
    window, measured cost. Done for hole morphology (14, 15); next: wrap 8, 10, 12 outputs the same way.
+   Both morphology producers use `CandidateEvidence` in `src/engine/candidate_evidence.py`.
+   Their legacy callers supply images without causal timestamps and measure cost for a batch.
+   The per-observation window and cost therefore remain unknown. Replay exports keep the
+   existing source-specific keys.
 2. **Ledger** = the existing `bench replay/synth --export-candidates` rows (every numeric candidate
    field) + per-shot stage timings (`DetectorJobResultV2224.stages_ms`). Extend, don't duplicate.
 3. **Scheduler/budget per request**: a game declares `hit_precision` (exists) and a latency class
