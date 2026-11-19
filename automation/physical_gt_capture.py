@@ -371,6 +371,9 @@ class ReviewCapture:
         self.present(states[i+1] if i+1 < len(states) else 'RESTORE', pygame)
 
     def checkpoint(self):
+        # The writer publishes the sidecar before clearing its pending task.
+        # Observe the queue first so a concurrent publication cannot look missing.
+        flush_pending = self.writer.stats()['flush_pending']
         for row in self.manifest['shots']:
             for entry in row['frames']:
                 sidecar = (self.root/entry['path']).with_suffix('.json')
@@ -381,7 +384,7 @@ class ReviewCapture:
                     meta=json.loads(sidecar.read_text())
                     entry['timing']=meta.get('timing')
                     entry['image_sha256']=meta.get('image_sha256')
-                elif entry['status'] != 'DROPPED' and not self.writer.stats()['flush_pending']:
+                elif entry['status'] != 'DROPPED' and not flush_pending:
                     entry['status'] = 'MISSING'
                 if entry['status'] in ('MISSING','DROPPED'):
                     missing=entry['projector_state'] if entry['role']=='GT_SETTLED' else entry['role']

@@ -2,9 +2,17 @@ import atexit
 import os
 import sys
 
+_bounded = __name__ == "__main__" and os.environ.get("SKJUTBANA_BOUNDED_SHUTDOWN") == "1"
+_supervisor = False
+if _bounded:
+    from src.engine import process_shutdown
+    _supervisor = process_shutdown.PIPE_ENV not in os.environ
+    if not _supervisor:
+        process_shutdown.install_child_handlers()
+
 # An explicitly requested capture must be ready before camera/audio/game imports.
 # This process-only binding does not replace the user's saved detector settings.
-if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+if not _supervisor and os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
     try:
         import faulthandler
         import json
@@ -52,7 +60,10 @@ def _save_and_guard_terminal():
     atexit.register(_restore_saved)
 
 
-_save_and_guard_terminal()
+if not _bounded or _supervisor:
+    _save_and_guard_terminal()
+if _supervisor:
+    raise SystemExit(process_shutdown.supervise([sys.executable, *sys.orig_argv[1:]]))
 
 from src.engine.app import App
 from src.engine.shot_critical_v2223 import install_v2223_runtime
@@ -102,7 +113,8 @@ install_v253_runtime(App)
 
 if __name__ == "__main__":
     try:
-        App().run()
+        if not _bounded or not process_shutdown.active.requested:
+            App().run()
     except KeyboardInterrupt:
         print("\nAvbrutet med Ctrl+C.")
     except Exception as exc:
@@ -110,10 +122,15 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
     finally:
-        # Explicitly finish capture while Python is still operational. Completed
-        # extended windows already checkpoint; this also saves partial windows.
-        _trace_module = sys.modules.get('src.engine.physical_trace')
-        _trace_recorder = getattr(_trace_module, '_RECORDER', None)
-        if _trace_recorder is not None and _trace_recorder.enabled:
-            print('[PHYSICAL-TRACE] SHUTDOWN', _trace_recorder.shutdown(), flush=True)
-        _restore_terminal()
+        if _bounded:
+            guard = process_shutdown.active
+            guard.begin_cleanup()
+            if guard.app is not None:
+                guard.app.close_for_exit()
+        else:
+            # Finish partial capture windows while Python is still operational.
+            _trace_module = sys.modules.get('src.engine.physical_trace')
+            _trace_recorder = getattr(_trace_module, '_RECORDER', None)
+            if _trace_recorder is not None and _trace_recorder.enabled:
+                print('[PHYSICAL-TRACE] SHUTDOWN', _trace_recorder.shutdown(), flush=True)
+            _restore_terminal()

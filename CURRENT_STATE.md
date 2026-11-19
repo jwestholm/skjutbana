@@ -1,5 +1,13 @@
 # Current project state
 
+## Opt-in bounded shutdown — 2026-11-19
+
+The Linux launcher supports `SKJUTBANA_BOUNDED_SHUTDOWN=1`. A supervisor
+handles SIGINT and SIGTERM, gives the engine 15 seconds to leave its loop
+and release its resources, and terminates its private process group if cleanup
+stalls. Shutdown has been exercised with synthetic services and processes.
+Release of the physical rig under load still needs operator verification.
+
 ## Running the selftests — 2026-11-18
 
 `python3 -m automation.run_selftests` runs the discovered modules with a

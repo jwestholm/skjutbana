@@ -250,6 +250,18 @@ class CameraManager:
         self.cap = None
         self.latest_frame = None
 
+    def stop_for_exit(self) -> None:
+        """Quiesce the camera before the source writer is drained."""
+        self.running = False
+        reader = self._reader_thread
+        if reader is not None:
+            reader.join(timeout=2.0)
+            if reader.is_alive():
+                # Concurrent release and native read are unsafe. Leave the
+                # handle owned until the process exits and continue teardown.
+                raise TimeoutError("Camera reader is still in a native read")
+        self.stop()
+
     def _reader_loop(self) -> None:
         """Dedicated thread: reads frames as fast as the camera delivers them."""
         while self.running and self.cap is not None and self.cap.isOpened():

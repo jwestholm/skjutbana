@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import sys
 import pygame
 from pygame._sdl2.video import Window
 
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from src.engine import process_shutdown
 from src.engine.audio.audio_peak_detector import audio_peak_detector
 from src.engine.camera.camera_manager import camera_manager
 from src.engine.camera.hit_scanner import hit_scanner
@@ -24,6 +26,9 @@ AUTOMATION_EVENT = pygame.event.custom_type()
 
 class App:
     def __init__(self) -> None:
+        self._exit_guard = process_shutdown.active
+        if self._exit_guard is not None:
+            self._exit_guard.app = self  # also covers partially initialized apps
         # Dedicated optical research process; no mixed shot/GT capture ownership.
         optical = os.environ.get('SKJUTBANA_OPTICAL_LAB') == '1'
         if optical and any(os.environ.get(k) for k in ('SKJUTBANA_GT_CAPTURE_ROOT',
@@ -103,8 +108,39 @@ class App:
     def quit(self) -> None:
         self.running = False
 
+    def close_for_exit(self) -> None:
+        """Stop inputs and save buffered data within the supervisor's deadline."""
+        from src.engine.shot_async_v2224 import _shutdown_workers
+
+        def attempt(name, function):
+            try:
+                return function()
+            except Exception as exc:
+                print(f"[shutdown] {name} failed: {exc}", file=sys.stderr, flush=True)
+
+        if getattr(self, "communication_server", None) is not None:
+            attempt("communication", self.communication_server.stop)
+        attempt("audio", audio_peak_detector.stop_for_exit)
+        attempt("camera", camera_manager.stop_for_exit)
+        recorder = getattr(sys.modules.get("src.engine.source_recording"), "_RECORDER", None)
+        if recorder is not None:
+            attempt("source recording", recorder.stop_for_exit)
+        if getattr(self, "scene", None) is not None:
+            attempt("scene", self.scene.on_exit)
+        attempt("LED", led_service.stop)
+        attempt("workers", _shutdown_workers)
+        attempt("scanner", hit_scanner.disable)
+        trace = sys.modules.get("src.engine.physical_trace")
+        primary = getattr(trace, "_RECORDER", None)
+        secondary = getattr(trace, "_OBJECT_RECORDER", None)
+        for recorder in (primary, secondary if secondary is not primary else None):
+            if recorder is not None:
+                report = attempt("physical trace", recorder.stop_for_exit)
+                print("[PHYSICAL-TRACE] SHUTDOWN", report, flush=True)
+        attempt("pygame", pygame.quit)
+
     def run(self) -> None:
-        while self.running:
+        while self.running and (self._exit_guard is None or not self._exit_guard.requested):
             dt = self.clock.tick(FPS) / 1000.0
 
             camera_manager.update()
@@ -139,6 +175,9 @@ class App:
             self.scene.render(self.screen)
             pygame.display.flip()
 
+        if self._exit_guard is not None:
+            self._exit_guard.begin_cleanup()
+            return
         self.scene.on_exit()
         hit_scanner.disable()
 

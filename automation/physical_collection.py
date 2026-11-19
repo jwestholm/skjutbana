@@ -282,6 +282,17 @@ def _run_capture(binding,env,*,compact=False,verbose_console=False):
      object_crops=bool(env.get('SKJUTBANA_OBJECT_CROP_ROOT')),
      mature=env.get('SKJUTBANA_OBJECT_MATURE_CAPTURE')=='1')
    print(f'[CAPTURE] {binding.parent}\n[CAPTURE] Full diagnostics: runtime.log; event updates: logs/event_summary.jsonl',flush=True)
+  supervised = env.get('SKJUTBANA_BOUNDED_SHUTDOWN') == '1'
+  graceful_timeout = 10
+  termination_requested = False
+  if supervised:
+   from src.engine.process_shutdown import GRACE_SECONDS
+   graceful_timeout = GRACE_SECONDS + 2
+   def request_termination(signum, frame):
+    nonlocal termination_requested
+    termination_requested = True
+   previous = signal.signal(signal.SIGTERM, request_termination)
+   files.callback(signal.signal, signal.SIGTERM, previous)
   process=subprocess.Popen([sys.executable,'-u','main.py'],env=env,stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,start_new_session=compact)
   failures=[];timing=dict(lines=0,bytes=0,drain_ms=0.,max_line_ms=0.)
@@ -304,20 +315,44 @@ def _run_capture(binding,env,*,compact=False,verbose_console=False):
   reader=threading.Thread(target=drain,name='capture-log-drain',daemon=True);reader.start()
   interrupted=False
   try:
-   process.wait()
+   if supervised:
+    while not termination_requested:
+     try:
+      process.wait(timeout=0.25)
+      break
+     except subprocess.TimeoutExpired:
+      continue
+    interrupted = termination_requested
+   else:
+    process.wait()
   except KeyboardInterrupt:
    interrupted=True
    print('[CAPTURE] Stopping; draining final diagnostics...',flush=True)
    if process.poll() is None:
     process.send_signal(signal.SIGINT)
-    try:process.wait(timeout=10)
+    try:process.wait(timeout=graceful_timeout)
     except (subprocess.TimeoutExpired,KeyboardInterrupt):
      print('[CAPTURE WARNING] Graceful shutdown incomplete; terminating child.',flush=True)
      process.terminate()
   finally:
    if process.poll() is None:
-    try:process.wait(timeout=3)
-    except (subprocess.TimeoutExpired,KeyboardInterrupt):process.kill();process.wait()
+    if supervised:
+     # Let the supervisor finish terminating and reaping its own child group.
+     process.terminate()
+     deadline = time.monotonic() + graceful_timeout
+     while process.poll() is None and time.monotonic() < deadline:
+      try:
+       process.wait(timeout=max(0.0, deadline - time.monotonic()))
+      except KeyboardInterrupt:
+       continue
+      except subprocess.TimeoutExpired:
+       break
+     if process.poll() is None:
+      process.kill()
+      process.wait()
+    else:
+     try:process.wait(timeout=3)
+     except (subprocess.TimeoutExpired,KeyboardInterrupt):process.kill();process.wait()
    reader.join(timeout=10)
    if reader.is_alive():
     failures.append('log pipe did not close after child exit')

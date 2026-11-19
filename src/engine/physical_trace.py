@@ -465,7 +465,8 @@ class PhysicalTraceRecorder:
         self._workers = [threading.Thread(target=self._run, name=f"physical-trace-writer-{i}", daemon=True) for i in range(max(1, int(writer_workers)))]
         for worker in self._workers:
             worker.start()
-        threading.Thread(target=self._prime_provenance, name="physical-trace-provenance", daemon=True).start()
+        self._provenance_thread = threading.Thread(target=self._prime_provenance, name="physical-trace-provenance", daemon=True)
+        self._provenance_thread.start()
         atexit.register(self.flush)
 
     def _prime_provenance(self) -> None:
@@ -1503,6 +1504,20 @@ class PhysicalTraceRecorder:
         report = self.stats()
         report["drained"] = not bool(self._queue.unfinished_tasks)
         report["finalized"] = finalized
+        return report
+
+    def stop_for_exit(self) -> dict[str, int | bool]:
+        """Seal the writer after its producers have stopped, under the exit deadline."""
+        self._queue.join()
+        self._provenance_thread.join()
+        report = self.shutdown()
+        self.enabled = False
+        workers = [worker for worker in self._workers if worker.is_alive()]
+        for _ in workers:
+            self._queue.put(None)
+        for worker in workers:
+            worker.join()
+        atexit.unregister(self.flush)
         return report
 
     def attach_ground_truth(self, shot_id: int, camera_xy: tuple[float, float], *, label_source: str = "manual_verified") -> Path:

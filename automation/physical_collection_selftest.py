@@ -20,6 +20,39 @@ class CollectionTests(unittest.TestCase):
    process.terminate.assert_not_called()
    self.assertTrue(process.stdout.closed)
 
+ def test_wrapper_waits_for_supervisor_on_wait_failure(self):
+  from io import BytesIO
+  from unittest.mock import Mock,patch
+  from automation.physical_collection import _run_capture
+  from src.engine.process_shutdown import GRACE_SECONDS
+  process=Mock(stdout=BytesIO(b''),returncode=124)
+  process.wait.side_effect=[RuntimeError('fixture'),124]
+  process.poll.side_effect=[None,None,124,124]
+  with tempfile.TemporaryDirectory() as d,patch('automation.physical_collection.subprocess.Popen',return_value=process):
+   with self.assertRaisesRegex(RuntimeError,'fixture'):
+    _run_capture(Path(d)/'binding.json',{'SKJUTBANA_BOUNDED_SHUTDOWN':'1'})
+  process.terminate.assert_called_once();process.kill.assert_not_called()
+  self.assertGreater(process.wait.call_args_list[1].kwargs['timeout'],GRACE_SECONDS)
+
+ def test_wrapper_forwards_sigterm_and_records_exit(self):
+  from io import BytesIO
+  import signal
+  from unittest.mock import Mock,patch
+  from automation.physical_collection import _run_capture
+  process=Mock(stdout=BytesIO(b''),returncode=0)
+  process.poll.side_effect=[None,None,0,0]
+  previous=signal.getsignal(signal.SIGTERM)
+  def launch(*args,**kwargs):
+   signal.raise_signal(signal.SIGTERM)
+   return process
+  with tempfile.TemporaryDirectory() as tmp,patch('automation.physical_collection.subprocess.Popen',side_effect=launch):
+   directory=Path(tmp)
+   self.assertEqual(_run_capture(directory/'binding.json',{'SKJUTBANA_BOUNDED_SHUTDOWN':'1'}),0)
+   self.assertTrue(json.loads((directory/'runtime_exit.json').read_text())['interrupted'])
+  self.assertEqual(signal.getsignal(signal.SIGTERM),previous)
+  process.terminate.assert_called_once()
+  process.kill.assert_not_called()
+
  def test_d02_process_only_unique_roots_settings_and_symlink_unchanged(self):
   import os
   settings=Path('content/ai/settings.json');before=settings.read_bytes()

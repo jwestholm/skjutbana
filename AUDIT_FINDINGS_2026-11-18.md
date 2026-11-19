@@ -538,3 +538,33 @@ failure reproduced the extra `PRE` missing-frame entry described in §15.
 Separate runner fixtures exercised success, failure, timeout and interrupted
 cleanup, including a test that left a detached descendant running.
 A subsequent two-way suite run passed all 143 modules at this checkpoint.
+
+## 23. Application shutdown and capture finalization
+
+The legacy installed loop joins both thread pools before stopping camera and
+audio. A device-free fixture submitted a task blocked on an unset event to
+`AsyncDetectorV2224`. A direct call to its original `shutdown()` still
+blocked after 2.000 s, at which point the test terminated its child. This is a
+possible cause of the §18 hang. The operator's process had no stack trace
+identifying which resource was actually blocked.
+
+`SKJUTBANA_BOUNDED_SHUTDOWN=1` enables supervised exit. Communication stops
+accepting commands, the audio backend is terminated and reaped, the camera
+reader is stopped, and the source recorder can drain before the executor join.
+Trace writers can finish and pygame can close on the orderly path. After
+15 seconds the supervisor can kill its child process group, including a
+stuck executor and its subprocesses. An interrupted write may remain partial.
+
+With the production deadline and synthetic processes, clean exit took 0.083 s
+after SIGINT and 0.075 s after SIGTERM (both exit status 0). A blocked executor
+was force-stopped 15.043 s after SIGTERM (status 124). These are single
+signal-to-exit measurements. Release of a busy physical camera remains open.
+The capture wrapper forwards SIGTERM and allows the supervisor to finish
+before finalizing its own exit record.
+
+The review checkpoint now samples the writer queue before checking frame
+metadata on disk. A deterministic fixture publishes the sidecar at the queue
+transition and checks that the saved frame is retained. This reproduces the
+failure mechanism behind the extra missing-frame entry in §§15 and 22.
+All 145 selftest modules passed in the isolated three-process run, including
+the process-signal, resource-cleanup, capture-wrapper and checkpoint tests.
