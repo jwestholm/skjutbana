@@ -511,6 +511,8 @@ class AsyncDetectorV2224:
                           result_frame_timestamp=float(result.frame_ts))
             break
         scanner.last_candidates = [dict(c) for c in result.candidates]
+        from src.engine import shot_timing_log as _stl
+        _stl.record_job(result)   # diagnostic only (SKJUTBANA_SHOT_TIMING_LOG=1)
         if getattr(scanner, "physical_trace_capture_enabled", False):
             scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
             scanner.last_trace_pipeline_shot_id = int(result.shot_id)

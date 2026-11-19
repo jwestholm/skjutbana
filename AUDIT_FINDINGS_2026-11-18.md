@@ -634,3 +634,22 @@ transition and checks that the saved frame is retained. This reproduces the
 failure mechanism behind the extra missing-frame entry in §§15 and 22.
 All 145 selftest modules passed in the isolated three-process run, including
 the process-signal, resource-cleanup, capture-wrapper and checkpoint tests.
+
+## 24. 2026-11-19: merge, flaky selftest, live per-shot timing log
+- **Merged** into `codex/physical-ai-lab-foundation` (de0b1f1): claude/latency (replay live-path fix,
+  grid speedups) + codex/astra-2 (test runner, bounded shutdown flag, audit index, evidence contract,
+  latency_report, image_context). Audit conflict resolved by taking astra-2's file (verified: contains
+  every line of the claude/latency audit). `python3 -m automation.run_selftests`: 147/147 twice.
+- **OPEN — flaky `automation.physical_collection_selftest`**: occasionally exits 143 (SIGTERM) when run
+  as a plain process (2 of ~10 runs; once inside run_selftests, once directly), never in its own session
+  (`setsid`, 4/4) nor via `python3 -m unittest`. Individual tests pass. Suspects: the new SIGTERM
+  forwarding tests (`signal.raise_signal(SIGTERM)` relies on `_run_capture` having installed its handler)
+  or a concurrent selftest run sending SIGTERM to a process group. Not reproduced deterministically.
+- **New diagnostic `SKJUTBANA_SHOT_TIMING_LOG=1`** (`src/engine/shot_timing_log.py`, hooks in
+  shot_async_v2224.apply_result and shot_critical_v2223.update_finished): one JSONL line per finished
+  audio shot with every applied detector job (frame age, submit age, queue, worker, applied age, stages,
+  candidates) and the event timing fields. Analysis: `python3 -m automation.bench shot-timing LOG`.
+  Selftest `automation/shot_timing_log_selftest.py`. Replay smoke test works (virtual times); the
+  physical replay shows 42 audio shots for 22 real shots (second CO2 peak) — 20 end "missed".
+- **TODO (user, verify later): live check of `SKJUTBANA_BOUNDED_SHUTDOWN=1`** with the camera open
+  under load (does it release the camera within 15 s; no orphan process). Not yet run.

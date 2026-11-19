@@ -304,6 +304,8 @@ class ShotCriticalControllerV2223:
             timing.detector_done_ts = now
             self._just_finished.append(sid)
             e2e = max(0.0, (now - timing.peak_ts) * 1000.0)
+            from src.engine import shot_timing_log as _stl
+            _stl.record_finish(sid, state, timing.peak_ts, e2e, ev)   # diagnostic only
             print(
                 f"[V2.22.3 LATENCY] shot={sid} state={state} "
                 f"dispatch={timing.dispatch_delay_ms:.1f}ms camera={timing.camera_update_ms:.1f}ms "
