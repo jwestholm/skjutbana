@@ -653,3 +653,62 @@ the process-signal, resource-cleanup, capture-wrapper and checkpoint tests.
   physical replay shows 42 audio shots for 22 real shots (second CO2 peak) — 20 end "missed".
 - **TODO (user, verify later): live check of `SKJUTBANA_BOUNDED_SHUTDOWN=1`** with the camera open
   under load (does it release the camera within 15 s; no orphan process). Not yet run.
+
+## 25. 2026-11-19 live timing (idle host) and silent calibration drift
+**Per-shot live timing** (`SKJUTBANA_SHOT_TIMING_LOG=1`, F2 AI-test 48 rounds, load avg 0.07, H11 off;
+`/data/skjutbana/shot_timing/live_f2_base_20261119T075019Z.jsonl`), matched shots, median:
+analysed frame +168 ms after the peak → job submitted +195 ms → **worker 562 ms** (`generate` 390 ms, of
+which `_register_current` 73 ms) → result applied on the main thread +812 ms → confirmation/selection
++180 ms → **hit 1032 ms** (p90 1665). AI-test = 1 job per shot (synthetic audio has one peak). The worker
+is the dominant cost and is slower live (≈560–630 ms) than offline on the same path (≈348 ms median,
+Codex §20) — GIL/CPU contention with camera decode + rendering is the main suspect.
+**Calibration drift:** live accuracy had dropped to 4–6/77–89 with median error 3.3–4.6 mm. calibration-check:
+saved calibration marker error median 6.35 px (≈4 mm; 1.65 px on 2026-11-18 morning), mean offset −5.9 px x
+— after re-papering and projector restarts. Recalibrated with backup
+(`/data/skjutbana/backups/settings.backup_20261119T091343_571393.json`; lens model LOO median 1.13 screen px;
+validation median 1.31 px). Live F2 afterwards: **11/83, median error 1.2 mm** (white_grid 5/6) — accuracy back.
+The AI-test auto-calibration had seen the markers but silently KEPT the drifted lens calibration. It now
+validates the kept calibration against the on-screen markers and prints/shows a warning when the median
+error exceeds 3 px (`ai_training._try_auto_calibrate`). Recommendation: run `bench calibration-check` before
+every physical session (runbook).
+
+## 26. 2026-11-19 why the live worker is slow: contention measurements (idle host, F2 48 rounds each)
+New diagnostics in `_run_job`: `stages_ms['job_thread_cpu_ms']` (worker thread CPU, excludes OpenCV helper
+threads) and `job_elapsed_ms`; the shot-timing log also records `cv2_threads` (4 by default on this host).
+
+| run | worker thread CPU (median) | worker elapsed (median / p90) | hit (matched, median / p90) | correct |
+|---|---|---|---|---|
+| offline replay, same code path | 253 | 251 / 314 | — | — |
+| live default (cv2 4 threads) | 351 | 555 / 724 | 1024 / 1735 | 19/84 |
+| live `SKJUTBANA_CV2_THREADS=1` | 358 | 509 / 645 | 1003 / 1724 | 16/86 |
+| live `SKJUTBANA_CV2_THREADS=2` | 355 | 511 / 702 | 922 / 1316 | 14/79 |
+| live `SKJUTBANA_AI_SHADOW_OFF=1` | 354 | 524 / 679 | 911 / 1574 | 19/80 |
+
+Live costs ~+100 ms more worker CPU (cache/memory-bandwidth contention — the camera thread decodes,
+rotates and converts 4K MJPG at 25 fps) and ~+200 ms of waiting (GIL/scheduling). Fewer OpenCV threads
+and skipping the shadow-only AI observation each save only ~30–45 ms of worker elapsed; run-to-run noise
+on the hit time is ±50–100 ms. Both flags are default OFF (new: `SKJUTBANA_CV2_THREADS`, `SKJUTBANA_AI_SHADOW_OFF`;
+the latter stops AI-memory training observations, no hit decision uses them).
+Larger options (need design + validation): camera decode cost (grayscale/reduced decode changes inputs and
+hole scale → detector validation), moving the CV worker to its own process (Codex: persistent child owning
+generator state, explicit snapshots, start with copied messages before shared memory).
+
+## 27. 2026-11-19 colour channels, H13 detector luma, and the offline MAX evaluator
+**Colour study** (matched-filter SNR at GT, local gain fit; physical AR15 + AI-test sessions;
+`/data/skjutbana/evaluation_runs/color_channels_20261119/`): CIE L* beats plain grey for real holes —
+physical AR15 median SNR gray 169, Lab L 221, **L*-LUT on grey 226 (+34 %)**; black 8→14 (L), grey 26→37 (L),
+white_grid 303→342 (L); plain white/checker slightly lower. The LUT version costs ~1 ms per frame.
+**H13 `SKJUTBANA_DETECTOR_LUMA=L`** (default off): new `src/engine/camera/detector_luma.py::detector_gray`;
+all nine live BGR→grey conversions (hit_scanner ×5, hit_scanner_v2221, shot_critical_v2223 ×2,
+object_physical_query) now go through it so PRE and POST always match. Caveat: the AI-test board
+reference (`ai_training` white/black exposures) still uses plain grey. Paired replay (live path, new
+calibration): physical fresh paper 14/22 → 14, taped 9/13 → 9, AI-test 21/78 → 22, moving 3/24 → 5;
+no regressions, small gains — the SNR gain at GT does not yet translate into more hits in the chain.
+**Offline MAX evaluator** `python3 -m automation.bench hole-max SESSIONS [--channel L] [--region-radius-px R]`
+(dense matched filter, multi-frame PRE, all POST frames to next shot or 1 s; OBJECT hint = circle around
+an aim point randomly offset ≤ R/2 from GT, seeded before scoring): 7 sessions, 213 shots —
+full viewport gray 68 (32 %), L 70 (33 %); **with a 60 px (~4 cm) object region gray 115 (54 %), L 118 (55 %)**;
+real AR15 holes 11/15 → 12/15 with the region. The object hint is by far the largest single gain. In the
+projected rig grey/black/dark backgrounds and several photos stay at ~0 (projected AR15 holes invisible to
+the camera) — the rig, not the detector, caps those. (Label "physical" in that output = the five
+optical-holes validation sessions, which have no background field.)

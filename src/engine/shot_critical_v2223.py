@@ -15,6 +15,7 @@ import time
 from typing import Any, Mapping, Sequence
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import numpy as np
 
 from src.engine.input.object_hit_v2223 import object_hit_registry_v2223, viewport_center_prior
@@ -423,7 +424,7 @@ def _averaged_pre_v2223(scanner: Any, ring: Sequence[Any], best: Any, peak_ts: f
         return None
     acc = None
     for cf in frames:
-        g = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        g = _detector_gray(cf.frame_bgr).astype(np.float32)
         acc = g if acc is None else acc + g
     scanner._pre_shot_average_frames = len(frames)
     return np.clip(acc / len(frames) + 0.5, 0, 255).astype(np.uint8)
@@ -443,7 +444,7 @@ def _install_recent_pre_snapshot() -> None:
             try:
                 averaged = _averaged_pre_v2223(self, ring, best, float(peak_ts))
                 self.pre_shot_snapshot = (averaged if averaged is not None
-                                          else cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY))
+                                          else _detector_gray(best.frame_bgr))
                 self.pre_shot_snapshot_ts = float(best.timestamp)
                 self._pre_shot_snapshot_source = "camera_ring"
                 self._pre_shot_snapshot_timestamp_semantics = "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"

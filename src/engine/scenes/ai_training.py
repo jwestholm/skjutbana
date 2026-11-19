@@ -417,6 +417,24 @@ class AITrainingScene(Scene):
                   "validated lens model; recalibrate with `python3 -m automation.bench calibration-check "
                   "--distortion --save`")
             self._auto_cal_result = "Kalibrering behållen (linsmodell skyddad)"
+            # The kept calibration can drift silently (2026-11-19: 6.4 px ≈ 4 mm after re-papering /
+            # projector restart dropped live accuracy 14 -> 5 of ~80). Validate it against the markers
+            # that are on screen right now and warn loudly; never overwrite here.
+            try:
+                from src.engine.input.hit_input import hit_input
+                check = self._calibrator.validate_existing(frame_bgr, hit_input)
+                errors = sorted(float(r["error_camera_px"]) for r in (check.get("points") or [])
+                                if isinstance(r, dict) and r.get("error_camera_px") is not None)
+                if errors:
+                    median = errors[len(errors) // 2]
+                    print(f"[AUTO-CAL] saved calibration marker error median {median:.1f} camera px "
+                          f"(n={len(errors)})")
+                    if median > 3.0:
+                        self._auto_cal_result = (f"VARNING: kalibreringen har glidit {median:.1f} px — kör "
+                                                 "python3 -m automation.bench calibration-check --save")
+                        print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
+            except Exception as exc:
+                print(f"[AUTO-CAL] calibration validation failed: {exc}")
             return True
         try:
             import shutil

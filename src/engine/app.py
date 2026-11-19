@@ -26,6 +26,17 @@ AUTOMATION_EVENT = pygame.event.custom_type()
 
 class App:
     def __init__(self) -> None:
+        # Hypothesis (default off, 2026-11-19): OpenCV's process-wide thread pool (4 on this
+        # 4-core host) competes with camera decode, rendering and the CV worker; live worker CPU
+        # was +100 ms and elapsed +300 ms vs offline. SKJUTBANA_CV2_THREADS=<n> sets it at startup.
+        _cv_threads = os.environ.get("SKJUTBANA_CV2_THREADS")
+        if _cv_threads:
+            try:
+                import cv2 as _cv2
+                _cv2.setNumThreads(int(_cv_threads))
+                print(f"[PERF] cv2.setNumThreads({int(_cv_threads)}) -> {_cv2.getNumThreads()}", flush=True)
+            except Exception as exc:
+                print(f"[PERF] SKJUTBANA_CV2_THREADS ignored: {exc}", flush=True)
         self._exit_guard = process_shutdown.active
         if self._exit_guard is not None:
             self._exit_guard.app = self  # also covers partially initialized apps

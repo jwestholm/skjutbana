@@ -366,6 +366,7 @@ class AsyncDetectorV2224:
         submitted_mono: float,
     ) -> DetectorJobResultV2224:
         started = time.monotonic()
+        cpu_started = time.thread_time()   # diagnostic: worker-thread CPU vs elapsed (GIL/contention)
         stages: dict[str, float] = {}
         _PROFILE_TLS.stages = stages
         error = ""
@@ -383,6 +384,9 @@ class AsyncDetectorV2224:
         finally:
             _PROFILE_TLS.stages = None
         finished = time.monotonic()
+        # Thread CPU excludes OpenCV helper threads; compare with elapsed = finished - started.
+        stages["job_thread_cpu_ms"] = (time.thread_time() - cpu_started) * 1000.0
+        stages["job_elapsed_ms"] = (finished - started) * 1000.0
         return DetectorJobResultV2224(
             shot_id=int(shot_id),
             frame_ts=float(frame_ts),
@@ -867,6 +871,11 @@ def _install_async_ai_shadow_patch() -> None:
         return enabled and mode in async_modes and _setting_bool("async_ai_shadow_enabled_v2224", True)
 
     def patched_observe(self, scanner, event=None):
+        if os.environ.get("SKJUTBANA_AI_SHADOW_OFF") == "1":
+            # Hypothesis (default off, 2026-11-19): the shadow-only AI observation thread competes
+            # with the CV worker for the GIL/CPU (replay never runs it: NullExecutor). Skipping it
+            # changes no hit decision in train_only/advisory modes; it stops AI memory training data.
+            return None
         if _async_mode(self):
             # Snapshot only; heavy patch extraction/ranking runs elsewhere.
             ai_shadow_worker_v2224.submit(self, scanner, explicit_event=event)
@@ -891,6 +900,8 @@ def _install_async_ai_shadow_patch() -> None:
         return original_choose(self, default_x, default_y, shot_id=shot_id)
 
     def patched_mark(self, shot_id: int, state: str = "finished"):
+        if os.environ.get("SKJUTBANA_AI_SHADOW_OFF") == "1":
+            return None
         if _async_mode(self):
             # Bootstrap calls mark immediately after emission.  Do not race the
             # worker's context construction; record terminal state and let the

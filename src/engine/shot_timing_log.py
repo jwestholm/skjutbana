@@ -97,7 +97,13 @@ def record_finish(shot_id: int, state: str, peak_wall_ts: float, hit_ms: float, 
             for k, v in trigger["timing"].items():
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     timing[k] = float(v)
+        try:
+            import cv2
+            cv_threads = int(cv2.getNumThreads())
+        except Exception:
+            cv_threads = None
         row = dict(shot_id=sid, state=str(state), peak_wall_ts=peak, hit_ms=round(float(hit_ms), 1),
+                   cv2_threads=cv_threads, cpu_count=os.cpu_count(),
                    n_jobs=len(out_jobs), jobs=out_jobs, timing=timing,
                    mono_minus_wall=time.monotonic() - time.time())
         with open(_path(), "a", encoding="utf-8") as handle:

@@ -14,6 +14,7 @@ import time
 from types import SimpleNamespace
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import numpy as np
 
 from src.engine.camera.analysis_geometry_v2221 import AnalysisGeometryV2221
@@ -38,7 +39,7 @@ _RING=(_d2>=16)&(_d2<=64)
 
 
 def _gray(frame):
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame.copy()
+    return _detector_gray(frame) if frame.ndim == 3 else frame.copy()
 
 
 class ObjectPhysicalQuery:

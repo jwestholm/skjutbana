@@ -317,3 +317,111 @@ def emissions_main(argv=None) -> int:
               f"keep false {sum(v >= thr for v in bad):3d}/{len(bad)}")
     (replay / "emission_hole_likeness.json").write_text(json.dumps(out, indent=1))
     return 0
+
+
+# ---------------------------------------------------------------------------
+# MAX-accuracy offline evaluator (upper bound; latency irrelevant; measurement only)
+# ---------------------------------------------------------------------------
+def _channel(bgr_or_gray, channel: str):
+    import cv2
+    img = bgr_or_gray
+    if img.ndim == 2:
+        return img.astype(np.float32)
+    if channel == "L":
+        return cv2.cvtColor(img, cv2.COLOR_BGR2LAB)[..., 0].astype(np.float32)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).astype(np.float32)
+
+
+class ColorFrameStore(FrameStore):
+    """FrameStore variant returning colour frames converted to a chosen channel."""
+
+    def __init__(self, session: Path, channel: str):
+        super().__init__(session)
+        self.channel = channel
+
+    def frame(self, i: int) -> np.ndarray:
+        if i not in self.cache:
+            r = self.rows[i]
+            self.fh.seek(int(r["offset"]))
+            px = self.cv2.imdecode(np.frombuffer(self.fh.read(int(r["length"])), np.uint8), self.cv2.IMREAD_COLOR)
+            a = r["acquisition"]
+            px = self.tf(px, int(a.get("rotation", 0) or 0), bool(a.get("mirror_horizontal")), bool(a.get("mirror_vertical")))
+            self.cache[i] = _channel(px, self.channel)
+            if len(self.cache) > 60:
+                self.cache.pop(next(iter(self.cache)))
+        return self.cache[i]
+
+
+def max_main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="python3 -m automation.bench hole-max")
+    ap.add_argument("sessions", nargs="+")
+    ap.add_argument("--channel", choices=("gray", "L"), default="gray")
+    ap.add_argument("--age", type=float, default=0.15)
+    ap.add_argument("--post-max-s", type=float, default=1.0, help="use post frames up to this long after the peak")
+    ap.add_argument("--region-radius-px", type=float, default=0.0,
+                    help="OBJECT hint: circle of this camera-px radius around an aim point = GT + seeded random "
+                         "offset (≤ radius/2); 0 = whole viewport")
+    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--match-px", type=float, default=8.0)
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args(argv)
+    import random
+    from src.engine.input.hit_input import hit_input
+    from src.engine.settings import load_viewport_rect
+    kernel, rr = _radial_kernel()
+    vp = load_viewport_rect()
+    corners = [hit_input.screen_to_camera(x, y) for x, y in ((vp.x, vp.y), (vp.right, vp.y), (vp.right, vp.bottom), (vp.x, vp.bottom))]
+    roi = (int(max(R, min(c[0] for c in corners))), int(max(R, min(c[1] for c in corners))),
+           int(max(c[0] for c in corners)), int(max(c[1] for c in corners)))
+    rng = random.Random(args.seed)
+    per = collections.defaultdict(collections.Counter)
+    rows_out = []
+    for sess in args.sessions:
+        session = Path(sess)
+        gt_all = [json.loads(l) for l in open(session / "ground_truth.jsonl") if l.strip()]
+        times = sorted(float(g["wall_ts"]) for g in gt_all)
+        store = ColorFrameStore(session, args.channel)
+        for g in gt_all:
+            if "camera_x" not in g:
+                continue
+            peak = float(g["wall_ts"])
+            nxt = min([t for t in times if t > peak + 0.01] or [peak + 99])
+            prev = max([t for t in times if t < peak - 0.01] or [peak - 99])
+            pre = store.median(max(peak - 0.4, prev + 0.35), peak - 0.02)
+            if pre is None:
+                pre = store.median(peak - 0.4, peak - 0.02)
+            end = min(peak + args.post_max_s, nxt + 0.10)
+            post = store.median(peak + args.age, end)
+            if pre is None or post is None:
+                continue
+            gx, gy = float(g["camera_x"]), float(g["camera_y"])
+            use_roi = roi
+            if args.region_radius_px > 0:
+                rad = args.region_radius_px
+                ang, dist = rng.uniform(0, 2 * np.pi), rng.uniform(0, rad / 2)
+                ax, ay = gx + dist * np.cos(ang), gy + dist * np.sin(ang)
+                use_roi = (int(max(R, ax - rad)), int(max(R, ay - rad)), int(ax + rad), int(ay + rad))
+            peaks = dense_peaks(pre, post, None, kernel, rr, use_roi, top_n=10)
+            if args.region_radius_px > 0:
+                peaks = [p for p in peaks if np.hypot(p[0] - ax, p[1] - ay) <= args.region_radius_px]
+            peaks.sort(key=lambda t: -t[2].get("dense_s", 0.0))
+            bg = g.get("background") or g.get("weapon") or "physical"
+            st = per[bg]
+            st["shots"] += 1
+            err = float(np.hypot(peaks[0][0] - gx, peaks[0][1] - gy)) if peaks else None
+            ok = err is not None and err <= args.match_px
+            st["correct"] += ok
+            rows_out.append(dict(session=session.name, background=bg, err_px=err, correct=ok,
+                                 top_s=peaks[0][2].get("dense_s") if peaks else None))
+    total = collections.Counter()
+    print(f"MAX evaluator: channel={args.channel} post≤{args.post_max_s}s region={args.region_radius_px}px")
+    for bg, st in sorted(per.items()):
+        total.update(st)
+        print(f"  {bg:18s} {st['correct']:3d}/{st['shots']:3d}")
+    pct = 100.0 * total['correct'] / max(1, total['shots'])
+    print(f"  {'TOTAL':18s} {total['correct']:3d}/{total['shots']:3d}  ({pct:.1f} %)")
+    if args.out:
+        Path(args.out).write_text(json.dumps(dict(args=vars(args), per_background={k: dict(v) for k, v in per.items()},
+                                                  total=dict(total), rows=rows_out,
+                                                  evidence="OFFLINE_MAX_EVALUATOR (upper bound, measurement only)"), indent=1))
+    return 0
