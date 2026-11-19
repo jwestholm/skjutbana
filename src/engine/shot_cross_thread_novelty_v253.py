@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+import os
 import threading
 import time
 from typing import Any, Iterable, Sequence
@@ -251,6 +252,19 @@ def _recurrence_hard_px() -> float:
 
 def _authority_wait_s() -> float:
     return _setting_float("cross_thread_authority_wait_s_v253", 1.65, 0.8, 3.0)
+
+
+def _fail_open_s() -> float | None:
+    """SKJUTBANA_REGION_AUTHORITY_FAIL_OPEN=1 (default off, 2026-11-19 experiment): when the
+    registered-region authority has no eligible track (or no registered frame) by this age,
+    delegate to the base physical selector instead of returning None until the shot misses.
+    Live regions runs lost ~40 shots waiting for a full rescue requested at 1.8 s (AUDIT §29)."""
+    if os.environ.get("SKJUTBANA_REGION_AUTHORITY_FAIL_OPEN") != "1":
+        return None
+    try:
+        return float(os.environ.get("SKJUTBANA_REGION_AUTHORITY_FAIL_OPEN_S", "0.9"))
+    except ValueError:
+        return 0.9
 
 
 def _rescue_request_s() -> float:
@@ -626,7 +640,12 @@ def _install_authority_selector_patch() -> None:
             gate_log = set()
             self._v253_gate_log = gate_log
 
+        fail_open = _fail_open_s()
         if not shot_bridge_v253.is_ready(sid, peak_ts):
+            if fail_open is not None and age >= fail_open:
+                best = base_physical_best(self, event)
+                audit_path("FAIL_OPEN_TO_BASE", "region_fail_open_not_ready", "base_physical_selector")
+                return best
             if age < _authority_wait_s():
                 if _log_enabled() and (sid, "wait") not in gate_log:
                     gate_log.add((sid, "wait"))
@@ -668,6 +687,10 @@ def _install_authority_selector_patch() -> None:
             eligible.append((track, cand, onset_dt))
 
         if not eligible:
+            if fail_open is not None and age >= fail_open:
+                best = base_physical_best(self, event)
+                audit_path("FAIL_OPEN_TO_BASE", "region_fail_open_no_eligible", "base_physical_selector")
+                return best
             if age >= _rescue_request_s() and rescue_router_v2225.request(sid):
                 if _log_enabled() and (sid, "rescue") not in gate_log:
                     gate_log.add((sid, "rescue"))

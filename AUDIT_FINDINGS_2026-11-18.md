@@ -743,3 +743,71 @@ from the drifted calibration excluded via new config `exclude_sessions`; new con
   (double 27/36 vs 30/36 is the model's weak spot). OFFLINE_REPLAY_ONLY_UNVALIDATED; not live authority.
 - The validation sessions 1701..1704 are limited by **candidate recall** (5/8/4/11 of 24 shots have any correct
   candidate), not by ranking — the selector cannot fix them.
+
+### §29 Live object regions, idle host (2026-11-19 13:2x-13:4x)
+
+AI test 48 rounds, all backgrounds, calibration median 1.31 px, shot-timing log on
+(`/data/skjutbana/shot_timing/{noregions,regions,regions_failopen}_20261119.jsonl`).
+
+| arm | correct | false/extra | timing-log missed | worker median |
+|---|---|---|---|---|
+| no regions | 20/85 | 44 | 19 | 505 ms |
+| regions r=35 | 18/86 | 26 | 34 | 576 ms |
+| regions + `SKJUTBANA_REGION_AUTHORITY_FAIL_OPEN=1` | 22/88 | 21 | 39 | 650 ms |
+
+- The earlier live collapse (3/79) did not reproduce: it was host load, not the region path.
+- With regions the V2.25.3 registered-region authority replaces the base/H11 selector; 42 shots waited for a
+  full rescue (requested at 1.8 s) and missed. The new default-off fail-open flag (delegate to the base selector
+  after 0.9 s, `_S` overrides) removes the rescue waits; replay unchanged (AI-test 29=29, physical 16 vs 15,
+  moving 5=5). Live the misses did not drop: the base selector has nothing better either.
+- Net: regions halve false emissions (44 -> 21-26) at equal correct hits. The correct-hit ceiling (~20/86) is
+  candidate recall (no correct candidate exists), consistent with §28b. Black background: 0 correct in all arms.
+- Region path costs ~70 ms extra worker CPU per job (REGION-POOL median 83 ms).
+
+### §30 Recall/first-loss study on live AI-test sessions (2026-11-19, offline replay)
+
+Sessions 20261119T1223/1227/1336/1343 (live AI test, all backgrounds). Scripts: session scratchpad
+(visibility_probe.py, firstloss.py, h14_offline*.py); outputs `/data/skjutbana/evaluation_runs/{recall_bg,h12_recall,firstloss}_20261119*`.
+- Visibility probe (MF SNR at GT vs 200 random points): ~20/85 shots visible but without a candidate
+  (moving, bubbles, coord_grid, scroll, checker); black/dark/checker_anim holes essentially invisible -> flash only.
+- H12 n=8: candidate recall 68 -> 81/174, emissions 61 -> 63; n=30 / min SNR 5 add nothing.
+- First loss (174 shots, H11+H12): ok 60, no candidate 82, selection rank 19 (chosen track same onset frame,
+  94-985 px away, slightly higher H11), no audio event 11 (REPLAY artefact: live injects synthetic peaks directly,
+  replay re-detects mixed pulses), other 2.
+- H14 (re-rank earliest-onset tracks by multi-frame MF SNR, post median up to 0.35/0.6/1.0 s, top-K 3..all,
+  ±4 px local search): **falsified** - 92-115 vs base 121/330 events. Not wired.
+- MAX evaluator (whole-viewport dense MF peak) 172/348 vs chain ~37 %: its wins are largely shots where the
+  chain has NO track at GT (any GT track: 166/330), i.e. proposal location, not ranking.
+
+### §31 H15 dense second opinion (2026-11-19, replay; default OFF)
+
+`src/engine/shot_dense_h15.py`, `SKJUTBANA_H15_DENSE=1` (hook in `shot_fast_v2225.detect_v2225`). At peak+0.6 s
+one job on the existing detector worker: H11-profile matched filter over the viewport on
+D = 1 - median(post)/median(pre) (frames from `scanner.frame_history`, POST bounded by next peak+0.10).
+Accepted only if score >= 16, >= 1.15x the next peak, core <= 0.4, bipolar <= 1 (rule fitted on AI-test dev
+sessions 1223/1227, holdout 1336/1343: 84 vs 80 always-dense vs 65 chain, wrong H15 picks 88 -> 12); else the
+ordinary selector decides. The shot waits for H15 until the result or 1.3 s (explicit, bounded).
+Replay, live-path, H11 rank + H13 L, `/data/skjutbana/evaluation_runs/h15_replay_20261119/`:
+
+| session | base correct/false | H15 correct/false |
+|---|---|---|
+| AI 1343 | 30/52 | 43/40 |
+| AI 1336 | 36/48 | 46/40 |
+| AI 1223 | 35/50 | 46/39 |
+| AI 1227 | 31/48 | 38/41 |
+| AI 1623 (18 nov) | 29/46 | 35/40 |
+| moving 1702 | 6/18 | 8/16 |
+| physical AR15 fresh | 16/4 | 15/6 |
+| physical AR15 taped | 9/9 | 10/9 |
+| **total 485** | **192 (39.6 %) / 275** | **241 (49.7 %) / 232** |
+
+Decisions arrive ~0.8-0.9 s after the peak in replay (worker cost modelled). Without the acceptance rule H15 raised
+physical false emissions 4 -> 14 / 9 -> 22 (CO2 echo and no-impact events always produced a pick). NOT live-verified.
+
+§31 addendum (after Codex review): spatial 24 px exclusion removed; state reset per scanner/frame shape with
+generation-checked jobs; deadline enforced on first sight of the result; authority track carries the real POST
+window (first/last POST frame, n POST frames); no unsafe PRE fallback - doubles use PRE after prev+0.20 s, else the
+ordinary PRE window with ONLY the previous shot's own decided XY excluded (burst ownership); second peak of a CO2
+pair gets no H15 job and the pair is one shot (no second emission of a hole its partner already reported).
+Physical after the fixes: fresh 16/22 false 5 (base 16/4), taped 9/13 false 7 (base 9/9). AI-session numbers of
+the reviewed version: pending (run h15v5 in the evaluation dir).
