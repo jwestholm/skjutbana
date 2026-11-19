@@ -167,8 +167,14 @@ class NullExecutor:
         return None
 
 
+# Optional game-object hint for replay experiments (2026-11-19, measurement only):
+# session_replay fills this with dicts {id, game_x, game_y, radius, t0, t1} (game/viewport-local px,
+# wall-time visibility window) when SKJUTBANA_REPLAY_REGION_HINT_PX is set. Empty = no regions.
+REGION_TARGETS: list[dict] = []
+
+
 class _ReplayScene:
-    """Physical SHOT_ONLY-like scene: no regions, no synthetic training flags."""
+    """Physical SHOT_ONLY-like scene: no regions (unless a region-hint experiment is active)."""
     auto_training_enabled = False
     single_synth_round_active = False
     synthetic_trigger_pending = False
@@ -177,7 +183,17 @@ class _ReplayScene:
     wants_hit_scanning = True
 
     def get_hit_regions(self):
-        return ()
+        if not REGION_TARGETS:
+            return ()
+        import time as _t
+        from src.engine.input.hit_regions import HitRegion, object_hit_regions
+        now = _t.time()
+        regions = tuple(HitRegion(object_id=t["id"], x=t["game_x"] - t["radius"], y=t["game_y"] - t["radius"],
+                                  width=2 * t["radius"], height=2 * t["radius"], role="target")
+                        for t in REGION_TARGETS if t["t0"] <= now <= t["t1"])
+        if regions and os.environ.get("SKJUTBANA_REPLAY_REGION_MODE", "regions") == "object_hit":
+            return object_hit_regions(regions)
+        return regions
 
 
 class _ReplayApp:

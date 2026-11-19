@@ -86,6 +86,7 @@ def replay(session_dir: Path, output: Path, *, use_current_settings: bool = Fals
     synthetic = sorted((float(r["wall_ts"]) + float(pulse_offset_s), float(r["amplitude"]))
                        for r in _rows(session_dir / "synthetic_audio.jsonl"))
     truth = _rows(session_dir / "ground_truth.jsonl")
+    _install_region_hint(truth)
 
     events: list[tuple[float, str, Any]] = []
     for row in cam_rows:
@@ -197,7 +198,23 @@ def label_session_candidates(logged, truth, seen_events, tolerance_px, pulse_off
         best = min(impacts, key=lambda t: abs(t["wall_ts"] + pulse_offset_s - peak), default=None)
         if best is not None and abs(best["wall_ts"] + pulse_offset_s - peak) <= 0.05:
             event_truth[sid] = best
-    producer_of = {id(t): sid for sid, t in event_truth.items()}
+    # CO2 shots give two audio peaks 66-94 ms apart.  Truth sits on the first peak while the
+    # detector work (and its candidates) may be owned by the second one (causal ownership), so
+    # an unmatched event within CO2_PAIR_S of a matched one inherits its truth, and the shot
+    # group uses the event that actually produced candidates (2026-11-19: physical 04f1be81 and
+    # taped da06f87a had 0 labelled candidates otherwise).
+    CO2_PAIR_S = 0.12
+    matched = sorted((seen_events[s][0], s) for s in event_truth)
+    for sid, (peak, _ev) in seen_events.items():
+        if sid in event_truth:
+            continue
+        near = [(abs(mpeak - peak), msid) for mpeak, msid in matched if abs(mpeak - peak) <= CO2_PAIR_S]
+        if near:
+            event_truth[sid] = event_truth[min(near)[1]]
+    producers = {e["candidate"].get("v2224_producer_shot_id") for e in logged}
+    producer_of = {}
+    for sid, t in sorted(event_truth.items(), key=lambda kv: (kv[0] in producers, -seen_events[kv[0]][0])):
+        producer_of[id(t)] = sid   # last write wins: a producing event, else the earliest
     rows = [dict(kind="shot", scenario=f"session:{name}", seed=0, shot_index=i,
                  group=(f"{name}:{producer_of[id(t)]}" if id(t) in producer_of else f"{name}:noevent{i}"))
             for i, t in enumerate(impacts)]
@@ -212,6 +229,33 @@ def label_session_candidates(logged, truth, seen_events, tolerance_px, pulse_off
                          producer_has_impact=t is not None, label=bool(dist is not None and dist <= tolerance_px),
                          distance_px=dist, candidate=c))
     return rows
+
+
+def _install_region_hint(truth) -> None:
+    """SKJUTBANA_REPLAY_REGION_HINT_PX=<screen px radius>: a game target around an aim point drawn
+    within radius/2 of each GT hole (seeded by SKJUTBANA_REPLAY_REGION_SEED, default 7), visible from
+    2 s before to 2 s after the shot — the OBJECT-path experiment (measurement only)."""
+    import os as _os
+    import random as _random
+    from src.engine.offline import virtual_runtime as _vr
+    _vr.REGION_TARGETS.clear()
+    try:
+        radius = float(_os.environ.get("SKJUTBANA_REPLAY_REGION_HINT_PX", "0") or 0)
+    except ValueError:
+        radius = 0.0
+    if radius <= 0:
+        return
+    from src.engine.input.hit_input import hit_input
+    from src.engine.settings import load_viewport_rect
+    vp = load_viewport_rect()
+    rng = _random.Random(int(_os.environ.get("SKJUTBANA_REPLAY_REGION_SEED", "7")))
+    for i, t in enumerate(sorted((r for r in truth if r.get("camera_x") is not None), key=lambda r: r["wall_ts"])):
+        sx, sy = hit_input.camera_to_screen(float(t["camera_x"]), float(t["camera_y"]))
+        ang, dist = rng.uniform(0, 6.283185307), rng.uniform(0, radius / 2.0)
+        _vr.REGION_TARGETS.append(dict(id=f"replay_{i}", game_x=sx - vp.x + dist * __import__("math").cos(ang),
+                                       game_y=sy - vp.y + dist * __import__("math").sin(ang), radius=radius,
+                                       t0=float(t["wall_ts"]) - 2.0, t1=float(t["wall_ts"]) + 2.0))
+    print(f"[REPLAY] region hint: {len(_vr.REGION_TARGETS)} targets, radius {radius} screen px", flush=True)
 
 
 def score_truth(truth: list[dict[str, Any]], emissions: list[dict[str, Any]], tolerance_px: float) -> dict[str, Any]:

@@ -712,3 +712,34 @@ real AR15 holes 11/15 → 12/15 with the region. The object hint is by far the l
 projected rig grey/black/dark backgrounds and several photos stay at ~0 (projected AR15 holes invisible to
 the camera) — the rig, not the detector, caps those. (Label "physical" in that output = the five
 optical-holes validation sessions, which have no background field.)
+
+## 28. 2026-11-19 game object hints (OBJECT path), evidence nightly started
+**AI-test object hint** (`SKJUTBANA_AI_TEST_OBJECT_HINT_PX`, `SKJUTBANA_AI_TEST_OBJECT_MODE=regions|object_hit`,
+default off): every scheduled hole gets a square target around an aim point drawn within r/2 of the hole
+before the shot. Live (r = 35 screen px ≈ 4 cm): `regions` → ordinary hits 3/79 (vs 11–19 without),
+only 29 shots got a decision, worker median 840 ms; `object_hit` → of 37 shot queries OBJECT_HIT 14,
+UNKNOWN 22 (13 insufficient change, 5 deadline exceeded), multiple-objects 3, NO_OBJECT_HIT 1; the main loop
+slowed so much that F2 stopped at 26/48 rounds (no object-id correctness scored).
+**Replay region hint** (new `SKJUTBANA_REPLAY_REGION_HINT_PX`, `_REPLAY_REGION_MODE`, `_REPLAY_REGION_SEED`;
+virtual_runtime.REGION_TARGETS via session_replay): with r = 35 the same chain IMPROVES — physical 14→15/22,
+AI-test 21→28/78, moving 3→5/24 (FAST extract is replaced by the v251 region proposals in those shots).
+So the live collapse is a live-only effect (load/latency: region path heavier; decisions not reached in time),
+not a property of the evidence. Next: live regions run on an idle host with the shot-timing log.
+**Evidence nightly** started in a separate root `/data/skjutbana/nightly_evidence` (live-path replay,
+MIN_POST_AGE 0.15, `SKJUTBANA_H11_FULL_ROI_MAP=1` + `SKJUTBANA_HOLE_EVIDENCE=1` as candidate features,
+holdout = physical AR15 fresh paper + the 5 validation sessions + 98e68fe9; 4 AI-test sessions with GT
+from the drifted calibration excluded via new config `exclude_sessions`; new config `pilot_env_override`).
+
+### §28b Evidence nightly result + CO2 labelling bug (2026-11-19)
+
+- `label_session_candidates` gave the physical CO2 sessions **0 labelled candidates**: truth matches the
+  first of the two CO2 audio peaks (66-94 ms apart) but causal ownership hands the candidates to the second.
+  Fix: an event within `CO2_PAIR_S=0.12` s of a truth-matched event inherits its truth; the shot group uses the
+  producing event. Old exports kept in `/data/skjutbana/nightly_evidence/dataset_mislabelled_co2_20261119/`.
+  The regular `/data/skjutbana/nightly` root has the same bug for its CO2 sessions (not re-exported yet).
+- Evidence nightly (`/data/skjutbana/nightly_evidence/2026-11-19_relabel/`; H11 V2-map + patch evidence fields,
+  live-path replay, MIN_POST_AGE 0.15): holdout top-1 **model 161/285 vs live score 154/285**, AUC 0.973 vs 0.921.
+  Physical AR15 11/15 vs 10/15 (13 have a correct candidate), 98e68fe9 13/24 vs 7/24, synthetic equal
+  (double 27/36 vs 30/36 is the model's weak spot). OFFLINE_REPLAY_ONLY_UNVALIDATED; not live authority.
+- The validation sessions 1701..1704 are limited by **candidate recall** (5/8/4/11 of 24 shots have any correct
+  candidate), not by ranking — the selector cannot fix them.

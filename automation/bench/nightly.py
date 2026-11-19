@@ -120,6 +120,10 @@ def main(argv=None) -> int:
         _log(root, f"SKIP resources free_disk={free:.1f}GB mem_available={mem:.1f}GB")
         return 0
 
+    # Optional per-root override of the pilot env (e.g. evidence-feature nights, 2026-11-19):
+    # config "pilot_env_override": {"SKJUTBANA_MIN_POST_AGE_S": "0.15", "SKJUTBANA_H11_FULL_ROI_MAP": "1"}.
+    # The env is applied to every pilot job (regression pilot arm, training, holdout, sessions).
+    pilot_env = {**PILOT_ENV, **{str(k): str(v) for k, v in (cfg.get("pilot_env_override") or {}).items()}}
     day = (dt.date.today() - dt.date(2026, 11, 17)).days
     night = root / dt.date.today().isoformat()
     if night.exists():
@@ -131,24 +135,27 @@ def main(argv=None) -> int:
     jobs: list[tuple[str, list[str], dict]] = []
 
     # 1) Code regression check (defaults and pilot flags), fixed seeds.
-    for arm, env in (("defaults", {}), ("pilot", PILOT_ENV)):
+    for arm, env in (("defaults", {}), ("pilot", pilot_env)):
         out = night / "regression" / arm
         jobs.append((f"regression_{arm}", _synth(out, bg, cfg["regression_seeds"], None, env, None, False), env))
     # 2) New training data (new seeds every night), standard + stress physics.
     seeds = [100000 + day * 100, cfg["train_seeds_per_night"]]
     for variant, physics in (("standard", None), ("stress", STRESS), ("stamps", STAMPS)):
         out = root / "dataset" / "train" / f"{night.name}_{variant}"
-        jobs.append((f"train_{variant}", _synth(out, bg, seeds, cfg["scenarios_train"], PILOT_ENV, physics, True), PILOT_ENV))
+        jobs.append((f"train_{variant}", _synth(out, bg, seeds, cfg["scenarios_train"], pilot_env, physics, True), pilot_env))
     # 3) Frozen holdout (generated once).
     for variant, physics in (("standard", None), ("stress", STRESS), ("stamps", STAMPS)):
         out = root / "dataset" / "holdout" / f"synth_{variant}"
         if not (out / "candidates.jsonl").exists():
             jobs.append((f"holdout_{variant}", _synth(out, bg, cfg["holdout_seeds"], cfg["scenarios_train"],
-                                                      PILOT_ENV, physics, True), PILOT_ENV))
+                                                      pilot_env, physics, True), pilot_env))
     # 4) Recorded sessions with ground truth (each exported once).
     holdout_sessions = set(cfg["holdout_sessions"])
+    excluded = set(cfg.get("exclude_sessions") or [])   # e.g. GT from a drifted calibration
     for session in sorted(Path(cfg["session_root"]).glob("*/ground_truth.jsonl")):
         sdir = session.parent
+        if str(sdir) in excluded or sdir.name in excluded:
+            continue
         meta_path = sdir / "optical_holes.json"
         if meta_path.exists():
             try:
@@ -166,7 +173,7 @@ def main(argv=None) -> int:
         offset = "0.025" if (sdir / "optical_holes.json").exists() else "0.0"
         jobs.append((f"session_{sdir.name}", [sys.executable, "-m", "automation.bench", "replay", str(sdir),
                                              "--output", str(out), "--export-candidates", "--pulse-offset-s", offset],
-                     PILOT_ENV))
+                     pilot_env))
 
     _log(root, f"START night={night.name} jobs={len(jobs)} free_disk={free:.1f}GB mem={mem:.1f}GB")
     if a.dry_run:
