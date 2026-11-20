@@ -1003,6 +1003,26 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     return dict(new_peak=new_peak, audio_ms=audio_ms, camera_ms=camera_ms, scanner_ms=scanner_main_ms)
 
 
+_LOOP_STATS: dict[str, list] = {"work": [], "dt": []}
+
+
+def _loop_timing(t0: float, dt: float) -> None:
+    """SKJUTBANA_LOOP_TIMING=1 (default off, measurement only): main-loop work time (after the frame
+    pacing tick up to the flip) and frame interval; prints p50/p95/p99/max every 600 iterations."""
+    if os.environ.get("SKJUTBANA_LOOP_TIMING") != "1":
+        return
+    st = _LOOP_STATS
+    st["work"].append((time.monotonic() - t0) * 1000.0)
+    st["dt"].append(dt * 1000.0)
+    if len(st["work"]) >= 600:
+        import numpy as _np
+        w, d = _np.array(st["work"]), _np.array(st["dt"])
+        print(f"[LOOP] n={len(w)} work_ms p50={_np.percentile(w, 50):.1f} p95={_np.percentile(w, 95):.1f} "
+              f"p99={_np.percentile(w, 99):.1f} max={w.max():.1f} | interval_ms p50={_np.percentile(d, 50):.1f} "
+              f"p95={_np.percentile(d, 95):.1f} p99={_np.percentile(d, 99):.1f} max={d.max():.1f}", flush=True)
+        st["work"].clear(); st["dt"].clear()
+
+
 def install_v2224_runtime(AppClass: Any) -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -1072,6 +1092,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 # audio latency.
                 audio_pending = controller.pending_audio(audio_peak_detector)
                 dt = self.clock.tick(0 if audio_pending else FPS) / 1000.0
+                _loop_t0 = time.monotonic()
 
                 # The complete shot path (audio dispatch -> camera pickup ->
                 # object queries -> HitScanner -> controller bookkeeping) is one
@@ -1122,6 +1143,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     render_history.call('presented',self.screen,self.scene,
                         render_flip_start,time.monotonic(),time.time())
                 controller.mark_visible_after_flip(self.scene)
+                _loop_timing(_loop_t0, dt)
                 if gt_review is not None:
                     from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
                     gt_review.observe(self, hit_scanner, camera_manager, object_hit_registry_v2223,
