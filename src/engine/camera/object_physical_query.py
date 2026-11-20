@@ -34,7 +34,7 @@ PER_OBJECT_COMPONENTS = 2
 DEADLINE_S = .35
 if os.environ.get("SKJUTBANA_OBJECT_DENSE") == "1":
     # dense decision needs two POST frames >= 0.15 s after the shot; allow a little more time
-    DEADLINE_S = float(os.environ.get("SKJUTBANA_OBJECT_DENSE_DEADLINE_S", "0.5"))
+    DEADLINE_S = float(os.environ.get("SKJUTBANA_OBJECT_DENSE_DEADLINE_S", "0.8"))
 
 
 def _dense_enabled():
@@ -604,13 +604,19 @@ class ObjectPhysicalQuery:
         self.dense_peaks = peaks[:6]
         s_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_S", 11.0)
         r_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_RATIO", 1.15)
+        # A peak "looks like a hole" when its darkening core is clear; bipolar (bright+dark edge)
+        # structure is only required to be low for moderate cores.  Ratio is taken against the next
+        # hole-like peak, not against weak edge-noise peaks.
+        min_core = _denv("SKJUTBANA_OBJECT_DENSE_MIN_CORE", 0.15)
+        strong_core = _denv("SKJUTBANA_OBJECT_DENSE_STRONG_CORE", 0.4)
+        max_bip = _denv("SKJUTBANA_OBJECT_DENSE_MAX_BIPOLAR", 1.8)
+        holey = [p for p in peaks if p['core'] >= min_core and (p['core'] >= strong_core or p['bipolar'] <= max_bip)]
         ok = False
-        if peaks:
-            top = peaks[0]
-            s2 = peaks[1]['s'] if len(peaks) > 1 else 0.0
-            ok = (top['s'] >= s_min and (s2 <= 0 or top['s'] / s2 >= r_min)
-                  and _denv("SKJUTBANA_OBJECT_DENSE_MIN_CORE", 0.15) <= top['core'] <= _denv("SKJUTBANA_OBJECT_DENSE_MAX_CORE", 0.6)
-                  and top['bipolar'] <= _denv("SKJUTBANA_OBJECT_DENSE_MAX_BIPOLAR", 1.8))
+        s2 = 0.0
+        if holey:
+            top = holey[0]
+            s2 = holey[1]['s'] if len(holey) > 1 else 0.0
+            ok = top['s'] >= s_min and (s2 <= 0 or top['s'] / s2 >= r_min)
         self.per_object = []
         if not ok:
             self.hypotheses = []
