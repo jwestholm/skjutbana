@@ -668,6 +668,8 @@ def install_v2223_runtime(AppClass: Any) -> None:
 
             self._update_window_caption()
             self.scene.render(self.screen)
+            from src.engine import display_floor
+            display_floor.apply(self.screen, self.scene)
             pygame.display.flip()
             controller.mark_visible_after_flip(self.scene)
 

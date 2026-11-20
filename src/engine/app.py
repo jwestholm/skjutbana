@@ -184,6 +184,8 @@ class App:
             hit_scanner.update(dt)
             self._update_window_caption()
             self.scene.render(self.screen)
+            from src.engine import display_floor
+            display_floor.apply(self.screen, self.scene)
             pygame.display.flip()
 
         if self._exit_guard is not None:

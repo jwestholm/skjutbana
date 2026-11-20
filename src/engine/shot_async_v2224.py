@@ -1112,6 +1112,8 @@ def install_v2224_runtime(AppClass: Any) -> None:
 
                 self._update_window_caption()
                 self.scene.render(self.screen)
+                from src.engine import display_floor
+                display_floor.apply(self.screen, self.scene)
                 precision_flash.render_hook(self.screen)
                 if render_history is not None:
                     render_flip_start=time.monotonic()
