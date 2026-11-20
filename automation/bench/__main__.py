@@ -103,6 +103,9 @@ def main(argv=None) -> int:
     if raw and raw[0] == "calibration-check":
         from automation.bench.calibration_check import main as calibration_main
         return calibration_main(raw[1:])
+    if raw and raw[0] == "evidence-bench":
+        from automation.bench.evidence_bench import main as evidence_bench_main
+        return evidence_bench_main(raw[1:])
     if raw and raw[0] == "hole-max":
         from automation.bench.hole_likeness import max_main
         return max_main(raw[1:])
