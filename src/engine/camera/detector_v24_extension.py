@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -1232,6 +1233,7 @@ def patch_candidate_generator_class(candidate_generator_cls: type) -> None:
             self._v24_last_context = context
             for candidate in candidates:
                 _annotate_candidate(candidate, context=context, cfg=cfg)
+            self._v24_last_tile_probes_ts = float(kwargs["frame_ts"])
             self._v24_last_tile_probes = _tile_probe_candidates(
                 self,
                 scanner=kwargs["scanner"],
@@ -1267,6 +1269,13 @@ def patch_candidate_generator_class(candidate_generator_cls: type) -> None:
                     _annotate_candidate(candidate, context=context, cfg=cfg)
 
             tile_probes = [dict(candidate) for candidate in getattr(self, "_v24_last_tile_probes", [])]
+            # SKJUTBANA_V24_FRESH_TILE_PROBES=1 (default off, 2026-11-20): FAST extraction never refreshes the
+            # probes, so without this guard the probes of the last FULL extraction (possibly an earlier shot)
+            # are merged into every later frame.  Only merge probes measured on this very frame.
+            if os.environ.get("SKJUTBANA_V24_FRESH_TILE_PROBES") == "1":
+                probe_ts = getattr(self, "_v24_last_tile_probes_ts", None)
+                if probe_ts is None or abs(float(probe_ts) - frame_ts) > 1e-6:
+                    tile_probes = []
             reserve = max(0, _safe_int(cfg.get("tile_probe_reserved_slots", 40), 40))
             nms_radius = max(1.0, _safe_float(cfg.get("tile_probe_nms_radius_px", 4.0), 4.0))
             current = _merge_reserved(current, tile_probes, reserve=reserve, radius=nms_radius)
