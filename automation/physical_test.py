@@ -104,7 +104,7 @@ def start(args):
     CanonicalChallenger(challenger) # Validate pinned artifacts BEFORE settings changes.
     name=datetime.now(timezone.utc).strftime('session_%Y%m%d_%H%M%S_')+uuid.uuid4().hex[:8]
     root=ROOT/'content/ai/physical_traces'/name;root.mkdir(parents=True,exist_ok=False)
-    changes={'physical_trace_capture_enabled':True,'physical_trace_root':str(root),
+    changes={'physical_trace_capture_enabled':True,'physical_trace_root':str(root),'physical_trace_session_mode':'prepared',
              'physical_trace_session_id':name,'canonical_challenger_manifest':str(challenger)}
     state={'root':str(root),'before':{k:{'present':k in settings,'value':settings.get(k)} for k in changes},'applied':changes,'restored':False,
            'session_git_commit':_git_commit(),'frozen_shadow_config_hash':FROZEN_SHADOW_HASH,

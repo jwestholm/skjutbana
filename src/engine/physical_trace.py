@@ -13,9 +13,11 @@ import math
 import os
 import platform
 import queue
+import shutil
 import subprocess
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -24,6 +26,71 @@ import numpy as np
 TRACE_SCHEMA = "physical-shot-trace-1"
 DEFAULT_ROOT = Path("content/ai/physical_traces")
 DECISION_TRACE_SCHEMA = "physical-decision-trace-1"
+DEFAULT_MAX_SESSION_GB = 20.0   # per process/session; legitimate physical sessions so far were 1-13 GB
+DEFAULT_MIN_FREE_GB = 20.0      # same reserve as automation/disk_guard.py
+
+
+def is_archived_session(path: Path | str) -> bool:
+    """A packed/archived session is read-only for new captures."""
+    path = Path(path)
+    return (path.parent.joinpath(path.name + ".tar.zst").exists() or path.joinpath("ARCHIVED").exists()
+            or any(path.joinpath("shots").glob("_PACKED*")))
+
+
+def _prepared_session_problem(path: Path) -> str | None:
+    """None when ``path`` is a session prepared by the collection tooling (physical_collection start /
+    physical_test start) for exactly this root and never launched; otherwise the reason it is not."""
+    shots = path / "shots"
+    if not (path.is_dir() and path.name.startswith("session_")):
+        return "not an existing session_* directory"
+    if is_archived_session(path):
+        return "archived (read-only)"
+    if (path / "runtime_claim.json").exists():
+        return "already launched once (runtime_claim.json)"
+    if shots.exists() and any(shots.iterdir()):
+        return "already contains shots"
+    for record, key in (("collection_binding.json", "trace_root"), ("test_setup.json", "root")):
+        try:
+            prepared = json.loads((path / record).read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(prepared, dict) and Path(str(prepared.get(key, ""))).absolute() == path.absolute():
+            return None
+    return "no matching preparation record (collection_binding.json / test_setup.json)"
+
+
+def _leftover_bytes(path: Path) -> int:
+    total = 0
+    for p in (path, path.with_name(path.name + ".tmp"), path.with_suffix(".json"),
+              path.with_suffix(".json").with_name(path.with_suffix(".json").name + ".tmp")):
+        try:
+            total += p.stat().st_size
+        except OSError:
+            pass
+    return total
+
+
+def _positive_gb(values: Mapping[str, Any], key: str, default: float) -> float:
+    try:
+        v = float(values.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return v if math.isfinite(v) and v > 0 else default
+
+
+def _free_gb(path: Path) -> float:
+    path = Path(path).absolute()
+    while not path.exists() and path != path.parent:
+        path = path.parent
+    return shutil.disk_usage(path).free / 1e9
+
+
+def _disk_guard_log(record: dict) -> None:
+    try:
+        from automation.disk_guard import _log
+        _log(dict(record, source="physical_trace"))
+    except Exception:
+        print(f"[PHYSICAL-TRACE] {record}", flush=True)
 
 
 def validate_capture_history(value):
@@ -443,6 +510,22 @@ class PhysicalTraceRecorder:
         self.capture_history = validate_capture_history(capture_history)
         self._history_environment = None
         self._capture_event_limit_reached = False
+        # Saved-settings capture never appends to the configured path unless it is a fresh prepared
+        # session; otherwise a new unique session is created (and atomically claimed) per process.
+        self._settings_root_cache: tuple[tuple[str, str], Path] | None = None
+        self._settings_base_root: Path | None = None
+        self._root_change_warned = False
+        self._prepared_refusal: str | None = None
+        self._claim_required: set[Path] = set()
+        self._claimed_roots: set[Path] = set()
+        self.max_session_bytes = int(DEFAULT_MAX_SESSION_GB * 1e9)
+        self.min_free_gb = DEFAULT_MIN_FREE_GB
+        self._session_bytes = 0          # bytes reserved/written for the current session root
+        self._budget_root: Path | None = None
+        self._budget_stop: str | None = None
+        self._free_lock = threading.Lock()
+        self._last_free_check = 0.0
+        self._last_free_ok = True
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=max(1, int(queue_maxsize)))
         self._active: dict[int, dict[str, Any]] = {}
         self._review_paths: set[Path] = set()
@@ -499,7 +582,16 @@ class PhysicalTraceRecorder:
         self.decision_trace_enabled = bool(self.enabled and (
             values.get("physical_decision_trace_enabled", False)
             or os.environ.get("SKJUTBANA_PHYSICAL_DECISION_TRACE") == "1"))
-        if values.get("physical_trace_root"):
+        self.max_session_bytes = int(_positive_gb(values, "physical_trace_max_session_gb", DEFAULT_MAX_SESSION_GB) * 1e9)
+        self.min_free_gb = _positive_gb(values, "physical_trace_min_free_gb", DEFAULT_MIN_FREE_GB)
+        if self.enabled and not os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
+            # Saved-settings capture: a configured path is only ever a base for a NEW session, unless the
+            # settings explicitly say it is a freshly prepared session (verified against its record).
+            if self._settings_base_root is None:
+                self._settings_base_root = self.root
+            configured = str(values.get("physical_trace_root") or self._settings_base_root)
+            self.root = self._settings_session_root(configured, str(values.get("physical_trace_session_mode", "new")))
+        elif values.get("physical_trace_root"):
             self.root = Path(str(values["physical_trace_root"]))
         if os.environ.get('SKJUTBANA_PHYSICAL_CAPTURE_BINDING'):
             # main.py verified/claimed the new binding before hardware imports.
@@ -513,6 +605,120 @@ class PhysicalTraceRecorder:
             if encoded != self._history_environment:
                 self.capture_history = validate_capture_history(json.loads(encoded))
                 self._history_environment = encoded
+
+    def _settings_session_root(self, configured: str, mode: str = "new") -> Path:
+        """Resolve a saved-settings root once per process (configure() runs every frame).
+
+        mode "new" (default): always a new unique session under the configured base (a configured
+        session_* path counts as its parent).  mode "prepared": write in place only if the root is a
+        verified, never-launched prepared session; otherwise fall back to a new session.
+        Toggling capture off/on inside one process keeps the same session (one process = one recording)."""
+        cached = self._settings_root_cache
+        if cached is not None and cached[0] == (configured, mode):
+            return cached[1]
+        if cached is not None and self._claimed_roots:
+            # One process = one recording: never move a claimed session (budget and queued jobs belong to it).
+            if not self._root_change_warned:
+                self._root_change_warned = True
+                print(f"[PHYSICAL-TRACE] trace settings changed during the run; keeping session {cached[1]}", flush=True)
+            return cached[1]
+        path = Path(configured)
+        problem = _prepared_session_problem(path) if mode == "prepared" else f"session mode {mode!r}"
+        self._prepared_refusal = None
+        if problem is None:
+            chosen = path
+        elif mode == "prepared":
+            # Explicit 'prepared' fails closed: provenance tooling expects shots in exactly this session.
+            chosen = path
+            self._prepared_refusal = f"prepared session {path} unusable: {problem}"
+            print(f"[PHYSICAL-TRACE] CAPTURE REFUSED: {self._prepared_refusal}", flush=True)
+        else:
+            base = path.parent if path.name.startswith("session_") else path
+            chosen = base / f"session_{time.strftime('%Y%m%d_%H%M%S')}_auto_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+            print(f"[PHYSICAL-TRACE] saved root {path} not used in place ({problem}); "
+                  f"captures go to a new session {chosen}", flush=True)
+        if self._budget_root != chosen.absolute():
+            self._budget_root, self._session_bytes, self._budget_stop = chosen.absolute(), 0, None
+        self._settings_root_cache = ((configured, mode), chosen)
+        self._claim_required.add(chosen.absolute())
+        return chosen
+
+    def _claim_session(self, root: Path) -> str | None:
+        """Atomically claim a settings-derived session; returns a refusal reason or None."""
+        key = root.absolute()
+        if self._prepared_refusal:
+            return self._prepared_refusal
+        if is_archived_session(root):
+            return f"{root} is archived (read-only)"
+        if key not in self._claim_required or key in self._claimed_roots:
+            return None
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            with (root / "runtime_claim.json").open("x") as stream:
+                json.dump(dict(pid=os.getpid(), started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                               source="saved_settings"), stream)
+        except FileExistsError:
+            return f"{root} is already claimed by another run"
+        except OSError as exc:
+            return f"{root} cannot be claimed: {exc}"
+        self._claimed_roots.add(key)
+        return None
+
+    def _budget_problem(self) -> str | None:
+        """Session byte cap and free-space floor; once tripped, capture stays stopped for this process."""
+        if self._budget_stop:
+            return self._budget_stop
+        reason = None
+        if self._session_bytes >= self.max_session_bytes:
+            reason = f"session size {self._session_bytes / 1e9:.1f} GB reached cap {self.max_session_bytes / 1e9:.1f} GB"
+        else:
+            try:
+                free = _free_gb(self.root)
+            except OSError as exc:
+                free, reason = None, f"free-space check failed: {exc}"
+            if free is not None and free < self.min_free_gb:
+                reason = f"free space {free:.1f} GB below floor {self.min_free_gb:.1f} GB"
+        if reason:
+            self._budget_stop = reason
+            print(f"[PHYSICAL-TRACE] CAPTURE STOPPED: {reason}", flush=True)
+            _disk_guard_log(dict(action="trace_capture_stopped", root=str(self.root), reason=reason,
+                                 session_bytes=self._session_bytes))
+        return reason
+
+    def _writer_disk_ok(self) -> bool:
+        """Throttled free-space check for the writer threads (at most once per second)."""
+        if self._budget_stop:
+            return False
+        with self._free_lock:
+            now = time.monotonic()
+            if now - self._last_free_check >= 1.0:
+                self._last_free_check = now
+                try:
+                    self._last_free_ok = _free_gb(self.root) >= self.min_free_gb
+                except OSError:
+                    self._last_free_ok = False      # fail closed: an unknown disk state stops image writes
+                ok = self._last_free_ok
+            else:
+                ok = self._last_free_ok
+        if not ok:
+            with self._lock:
+                if not self._budget_stop:
+                    self._budget_stop = "free-space check failed or below floor during writing"
+                    print(f"[PHYSICAL-TRACE] CAPTURE STOPPED: {self._budget_stop}", flush=True)
+                    _disk_guard_log(dict(action="trace_capture_stopped", root=str(self.root),
+                                         reason=self._budget_stop, session_bytes=self._session_bytes))
+        return ok
+
+    def _trip_cap(self) -> None:
+        self._budget_stop = f"session byte cap {self.max_session_bytes / 1e9:.1f} GB reached"
+        print(f"[PHYSICAL-TRACE] CAPTURE STOPPED: {self._budget_stop}", flush=True)
+        _disk_guard_log(dict(action="trace_capture_stopped", root=str(self.root), reason=self._budget_stop,
+                             session_bytes=self._session_bytes))
+
+    def _release_reservation(self, job: dict[str, Any], keep: int = 0) -> None:
+        """Return a reservation, keeping ``keep`` bytes that a failed write left on disk."""
+        with self._lock:
+            self._session_bytes -= max(0, int(job.pop("reserved_bytes", 0)) - int(keep))
 
     def _record_error(self, shot_id: int | None, *, kind: str, path: Path | None = None,
                       exc: BaseException | None = None, queue_drop: bool = False) -> None:
@@ -543,6 +749,15 @@ class PhysicalTraceRecorder:
                 if job["kind"] == "finalize":
                     active = self._active[job['shot_id']]
                     active['checkpoint_saved'] = self._finalize_safely(job['shot_id'], active, timed_out=False)
+                    try:
+                        with self._lock:
+                            self._session_bytes += path.stat().st_size
+                    except OSError:
+                        pass
+                    continue
+                elif job["kind"] in ("array", "review_frame") and not self._writer_disk_ok():
+                    self._record_error(job.get("shot_id"), kind="disk_budget", path=path)
+                    self._release_reservation(job)
                     continue
                 elif job["kind"] == "review_frame":
                     # Separate post-decision human-inspection artifact. Never
@@ -570,6 +785,8 @@ class PhysicalTraceRecorder:
                     payload = job.get('encoded_json')
                     temporary.write_text(payload if payload is not None else _json(job["value"]), encoding="utf-8")
                     os.replace(temporary, path)
+                    with self._lock:
+                        self._session_bytes += path.stat().st_size
                 else:
                     raise ValueError(f"unknown trace writer job kind: {job['kind']}")
                 if job['kind'] == 'review_frame':
@@ -578,6 +795,8 @@ class PhysicalTraceRecorder:
                     self._artifact_persisted(job)
             except Exception as exc:
                 self._record_error(job.get("shot_id"), kind="writer_exception", path=Path(job["path"]), exc=exc)
+                if job["kind"] in ("array", "review_frame"):
+                    self._release_reservation(job, keep=_leftover_bytes(Path(job["path"])))
             finally:
                 with self._lock:
                     self._persisted_items += 1 if job.get("persisted") else 0
@@ -635,7 +854,24 @@ class PhysicalTraceRecorder:
                 if self._queued_bytes + int(job.get("nbytes", 0)) > self._max_queued_bytes:
                     self._record_error(job.get("shot_id"), kind="queue_byte_limit", path=Path(job["path"]), queue_drop=True)
                     return False
-                self._queue.put_nowait(job)
+                # Session byte cap for image arrays: reserve before writing (all writer threads see the
+                # same reservation).  Metadata (trace.json etc.) is never refused, so stopped shots still
+                # finalize as explicitly incomplete; its real size is counted after writing and new events
+                # are refused once the total reaches the cap (overshoot <= metadata of in-flight shots).
+                reserve = int(job.get("nbytes", 0)) + 4096 if job.get("kind") in ("array", "review_frame") else 0
+                if reserve and self._session_bytes + reserve > self.max_session_bytes:
+                    self._record_error(job.get("shot_id"), kind="session_byte_cap", path=Path(job["path"]))
+                    if not self._budget_stop:
+                        self._budget_problem() or self._trip_cap()
+                    return False
+                self._session_bytes += reserve
+                if reserve:
+                    job["reserved_bytes"] = reserve
+                try:
+                    self._queue.put_nowait(job)
+                except queue.Full:
+                    self._session_bytes -= reserve
+                    raise
                 if job.get('kind') == 'array' and job.get('shot_id') in self._active:
                     active = self._active[job['shot_id']]
                     active['pending_arrays'] = active.get('pending_arrays', 0) + 1
@@ -767,6 +1003,15 @@ class PhysicalTraceRecorder:
                     return
                 directory = self._shot_dir(shot_id)
                 capture_root = directory.parent.absolute()
+                refusal = self._claim_session(self.root) or self._budget_problem()
+                if refusal:
+                    if capture_root not in self._refused_capture_roots and not self._budget_stop:
+                        print(f"[PHYSICAL-TRACE] CAPTURE REFUSED: {refusal}", flush=True)
+                        self._record_error(shot_id, kind="session_claim", path=self.root)
+                    self._refused_capture_roots.add(capture_root)
+                    self._refused_events.add(shot_id)
+                    self._seen_events.add(shot_id)
+                    return
                 if capture_root in self._refused_capture_roots:
                     self._refused_events.add(shot_id)
                     self._seen_events.add(shot_id)
@@ -1523,6 +1768,8 @@ class PhysicalTraceRecorder:
     def attach_ground_truth(self, shot_id: int, camera_xy: tuple[float, float], *, label_source: str = "manual_verified") -> Path:
         if int(shot_id) in self._refused_events:
             raise ValueError("Capture was refused: cannot attach a new label to an existing shot")
+        if is_archived_session(self.root):
+            raise ValueError(f"{self.root} is archived (read-only): cannot attach a label")
         path = self._shot_dir(shot_id) / "ground_truth.json"
         payload = {"schema_version": TRACE_SCHEMA, "shot_id": int(shot_id), "space": "camera", "camera_x": float(camera_xy[0]), "camera_y": float(camera_xy[1]), "label_source": str(label_source), "attached_at": time.time()}
         path.parent.mkdir(parents=True, exist_ok=True); path.write_text(_json(payload), encoding="utf-8"); return path

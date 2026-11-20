@@ -514,7 +514,7 @@ class ReviewTests(unittest.TestCase):
                 'src.engine.input.object_hit_v2223':NS(object_hit_registry_v2223=registry)}
             env=dict(os.environ);env.pop('SKJUTBANA_GT_CAPTURE_ROOT',None)
             if enabled:env['SKJUTBANA_GT_CAPTURE_ROOT']='fixture'
-            namespace=dict(time=time,os=os,async_detector_v2224=object(),_shutdown_workers=mark('workers.stop'))
+            namespace=dict(time=time,os=os,async_detector_v2224=object(),_shutdown_workers=mark('workers.stop'),_loop_timing=lambda t0,dt:None)
             exec(compile(ast.Module(body=[deepcopy(run)],type_ignores=[]),'<real run loop>','exec'),namespace)
             with patch.dict(os.environ,env,clear=True),patch.dict('sys.modules',modules),patch.object(g,'from_environment',return_value=review) as create:
                 namespace['run_v2224'](app)

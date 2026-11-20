@@ -46,6 +46,8 @@ def test_failed_run_keeps_temp_then_reclaimable() -> None:
             pass
         assert (out / "dump.raw").exists(), "failed run must keep temp for debugging"
         assert json.loads((out / dg.MARKER).read_text())["status"] == "failed"
+        assert dg.reclaim(target_free_gb=1e9, root=root) == 0, "owner process alive -> protected"
+        m = json.loads((out / dg.MARKER).read_text()); m["pid"] = None; dg._write_marker(out, m)   # owner gone
         freed = dg.reclaim(target_free_gb=1e9, root=root)
         assert freed == 1000 and not (out / "dump.raw").exists() and (out / "error.log").exists()
 
@@ -114,6 +116,25 @@ def test_outside_root_rejected() -> None:
         except ValueError:
             return
         raise AssertionError("experiment outside the root must be rejected")
+
+
+def test_unknown_marker_never_reclaimed_and_claim_is_exclusive() -> None:
+    with tempfile.TemporaryDirectory() as t:
+        root = Path(t)
+        odd = root / "evaluation_runs" / "odd"
+        odd.mkdir(parents=True)
+        dg._write_marker(odd, dict(status="weird", pid=None, temp_globs=["*.raw"]))
+        _mk(odd / "a.raw")
+        assert dg.reclaim(target_free_gb=1e9, root=root) == 0 and (odd / "a.raw").exists()
+        out = root / "evaluation_runs" / "claimed"
+        out.mkdir(parents=True)
+        (out / (dg.MARKER + ".claim")).write_text("1")     # another process won the race after the empty check
+        try:
+            with dg.experiment(out, estimate_gb=0, root=root, min_free_gb=0):
+                pass
+            raise AssertionError("second owner must be refused")
+        except FileExistsError:
+            pass
 
 
 if __name__ == "__main__":

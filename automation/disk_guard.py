@@ -226,10 +226,12 @@ def reclaim(target_free_gb: float | None = None, *, root: Path | None = None, dr
         run_dir = marker.parent
         m = _read_marker(run_dir) or {}
         status = m.get("status")
-        if status == "running" and _pid_alive(m.get("pid")):
-            continue
+        if _pid_alive(m.get("pid")):
+            continue                       # a live owner protects the run whatever its marker says
         if status == "running":
-            status = "abandoned"
+            status = "abandoned"          # owner verified dead
+        elif status not in ("completed", "failed"):
+            continue                       # unknown / broken marker: never reclaim
         runs.append((m.get("finished") or m.get("started") or 0, run_dir, m, status))
     runs.sort(key=lambda r: r[0])
     open_files = _open_files()
@@ -255,6 +257,11 @@ def experiment(out_dir: Path | str, *, estimate_gb: float = 1.0, temp_globs: lis
         raise FileExistsError(f"{out} exists and is not empty (never overwrite experiment results)")
     ensure_space(estimate_gb, label=label or out.name, root=root, min_free_gb=min_free_gb)
     out.mkdir(parents=True, exist_ok=True)
+    try:   # atomic claim: two processes cannot both own (and later write markers into) the same run dir
+        with open(out / (MARKER + ".claim"), "x") as fh:
+            fh.write(str(os.getpid()))
+    except FileExistsError:
+        raise FileExistsError(f"{out} is already claimed by another experiment") from None
     marker = dict(status="running", pid=os.getpid(), started=time.time(), label=label or out.name,
                   temp_globs=list(temp_globs or []), estimate_gb=estimate_gb)
     _write_marker(out, marker)

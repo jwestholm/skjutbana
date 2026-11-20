@@ -47,6 +47,8 @@ def verify_capture_launch(binding_path, *, claim=False, expected_session=None):
   raise ValueError('not a fresh explicit development root')
  if root.is_symlink() or root.resolve()!=root or not root.is_dir():
   raise ValueError('capture root missing or indirect')
+ from src.engine.physical_trace import is_archived_session
+ if is_archived_session(root):raise ValueError('capture root is archived (read-only); create a new launch')
  if json.loads((root/'collection_binding.json').read_text())!=b:
   raise ValueError('root binding differs from launch binding')
  plan_path=_development_path(b['plan_path']);plan=load_plan(plan_path)
@@ -378,7 +380,7 @@ def _run_capture(binding,env,*,compact=False,verbose_console=False):
  return process.returncode if process.returncode else (1 if failures else 0)
 def _set_trace(settings_path,root,backup):
  p=Path(settings_path); original=p.read_bytes(); Path(backup).write_bytes(original)
- data=json.loads(original); data['physical_trace_capture_enabled']=True; data['physical_trace_root']=str(root)
+ data=json.loads(original); data['physical_trace_capture_enabled']=True; data['physical_trace_root']=str(root); data['physical_trace_session_mode']='prepared'
  p.write_text(json.dumps(data,indent=2)+'\n'); return hashlib.sha256(original).hexdigest()
 def preflight(plan_path,session,trace_root,binding=None,settings_path='content/ai/settings.json'):
  reasons=[]
