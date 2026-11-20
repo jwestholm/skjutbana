@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -142,6 +143,11 @@ class CameraManager:
         # = one 60 Hz projector period, which removes rolling-shutter banding.
         # Unset keeps whatever exposure the device currently has.
         exposure = settings.get("exposure_time_absolute")
+        # Experiment override (2026-11-19): SKJUTBANA_CAMERA_EXPOSURE=<100 us units>, e.g. 333 = 2
+        # projector periods at 60 Hz (bench: pixel noise 0.37 % vs 0.56 % at 167; non-multiples 3-17x worse).
+        env_exposure = os.environ.get("SKJUTBANA_CAMERA_EXPOSURE")
+        if env_exposure:
+            exposure = int(env_exposure)
         self.exposure_time_absolute = None if exposure is None else int(exposure)
 
     def _apply_frame_transform(self, frame_bgr: np.ndarray) -> np.ndarray:
