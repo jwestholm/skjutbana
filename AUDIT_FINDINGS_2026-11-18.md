@@ -809,5 +809,6 @@ generation-checked jobs; deadline enforced on first sight of the result; authori
 window (first/last POST frame, n POST frames); no unsafe PRE fallback - doubles use PRE after prev+0.20 s, else the
 ordinary PRE window with ONLY the previous shot's own decided XY excluded (burst ownership); second peak of a CO2
 pair gets no H15 job and the pair is one shot (no second emission of a hole its partner already reported).
-Physical after the fixes: fresh 16/22 false 5 (base 16/4), taped 9/13 false 7 (base 9/9). AI-session numbers of
-the reviewed version: pending (run h15v5 in the evaluation dir).
+Physical after the fixes: fresh 16/22 false 5 (base 16/4), taped 9/13 false 7 (base 9/9). Reviewed version (h15v5), all 8
+sessions: **241/485 (49.7 %) correct, 228 false** vs base 192/485 (39.6 %), 275 false. AI 1336 46/40, 1343 43/40,
+1227 37/42, 1223 46/39, 1623 36/39, moving 8/16; physical fresh 16/5, taped 9/7.
