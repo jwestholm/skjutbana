@@ -175,7 +175,19 @@ def main(argv=None) -> int:
                                              "--output", str(out), "--export-candidates", "--pulse-offset-s", offset],
                      pilot_env))
 
-    _log(root, f"START night={night.name} jobs={len(jobs)} free_disk={free:.1f}GB mem={mem:.1f}GB")
+    # Disk guard (2026-11-20): estimate the night's output and keep >= 20 GB free after it; reclaims only
+    # declared temp files of finished experiments, never recordings/training data/models.
+    from automation import disk_guard
+    estimate_gb = 0.25 * len(jobs) + 0.5
+    if not a.dry_run:
+        try:
+            free = disk_guard.ensure_space(estimate_gb, label=f"nightly {night.name}", root=root.parent
+                                           if root.parent.exists() else disk_guard.ROOT)
+        except disk_guard.DiskBudgetError as exc:
+            _log(root, f"SKIP disk guard: {exc}")
+            return 0
+    _log(root, f"START night={night.name} jobs={len(jobs)} free_disk={free:.1f}GB mem={mem:.1f}GB "
+               f"estimate={estimate_gb:.1f}GB")
     if a.dry_run:
         for name, cmd, env in jobs:
             print(name, env, " ".join(cmd))

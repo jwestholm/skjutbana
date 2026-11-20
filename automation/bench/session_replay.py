@@ -63,7 +63,10 @@ def replay(session_dir: Path, output: Path, *, use_current_settings: bool = Fals
            label_min_age_s: float = 0.15, wall_clock_profile: bool = False) -> dict[str, Any]:
     from src.engine.source_recording import SourceSessionReader
     from src.engine.offline.virtual_runtime import VirtualClock, VirtualRuntime, use_recorded_settings
-    output.mkdir(parents=True, exist_ok=False)
+    # never overwrite: the dir may only pre-exist holding the disk-guard run marker
+    if output.exists() and any(q.name not in (".disk_run.json", ".disk_run.json.partial") for q in output.iterdir()):
+        raise FileExistsError(f"output exists and is not empty: {output}")
+    output.mkdir(parents=True, exist_ok=True)
     reader = SourceSessionReader(session_dir)
     session = reader.session
     if not use_current_settings:
