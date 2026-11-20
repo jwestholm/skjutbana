@@ -683,6 +683,8 @@ class AITrainingScene(Scene):
         pre_age_ms: float,
     ) -> None:
         """Save pre/post/diff images + animated GIF for offline analysis."""
+        if os.environ.get("SKJUTBANA_TRAINING_SKIP_DIAG_SAVES") == "1":
+            return   # measurement-only control arm (main-loop stall study); default off
         if cv2 is None or np is None:
             print("[SHOT-DIAG] cv2/numpy not available, skipping")
             return
@@ -791,6 +793,8 @@ class AITrainingScene(Scene):
     @staticmethod
     def _save_hole_image(click_camera_xy, post_gray, hole_type: str = "hole", metadata: dict | None = None) -> None:
         """Save the raw post-shot patch as a grayscale PNG with sidecar JSON metadata."""
+        if os.environ.get("SKJUTBANA_TRAINING_SKIP_DIAG_SAVES") == "1":
+            return   # measurement-only control arm (main-loop stall study); default off
         if post_gray is None or np is None:
             return
         try:

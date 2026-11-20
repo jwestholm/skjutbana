@@ -961,14 +961,18 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     from src.engine.camera.camera_manager import camera_manager
     from src.engine.camera.hit_scanner import hit_scanner
     from src.engine.shot_critical_v2223 import shot_critical_controller_v2223 as controller
+    from src.engine.loop_stall_probe import mark as _mark   # no-op unless SKJUTBANA_STALL_PROBE
 
     new_peak = controller.begin_pending_audio(app, audio_peak_detector)
     controller.prepare_object_snapshot(hit_scanner, app.scene, new_peak)
+    _mark('sp_audio_dispatch+object_snapshot')
 
     t0 = time.perf_counter()
     audio_peak_detector.update()
     audio_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_audio_update')
     controller.discover_scanner_events(hit_scanner, app.scene)
+    _mark('sp_discover_events_1')
     if render_history is not None:
         from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
         from src.engine.input.hit_input import hit_input
@@ -981,9 +985,11 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     t0 = time.perf_counter()
     camera_manager.update()
     camera_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_camera_update')
 
     from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
     object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
+    _mark('sp_object_queries')
 
     # HitScanner.update is cheap on the main thread: frame bookkeeping +
     # result integration. _detect_frame_candidates() submits/harvests the
@@ -991,6 +997,7 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     t0 = time.perf_counter()
     hit_scanner.update(dt)
     scanner_main_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_hit_scanner_update')
     controller.discover_scanner_events(hit_scanner, app.scene)
     controller.note_stage(
         audio_dispatch_ms=audio_ms if new_peak is not None else 0.0,
@@ -1074,6 +1081,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     raise ValueError('Render-history capture requires a separate ordinary gameplay process')
                 from automation.physical_render_history import from_environment
                 render_history = from_environment()
+            from src.engine import loop_stall_probe as _stall   # measurement only; no-op unless SKJUTBANA_STALL_PROBE
             while self.running and (guard is None or not guard.requested):
                 if getattr(self, '_optical_lab', None) is not None:
                     # Explicit research-only loop: no audio/scanner/game authority.
@@ -1093,6 +1101,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 audio_pending = controller.pending_audio(audio_peak_detector)
                 dt = self.clock.tick(0 if audio_pending else FPS) / 1000.0
                 _loop_t0 = time.monotonic()
+                _stall.begin()
 
                 # The complete shot path (audio dispatch -> camera pickup ->
                 # object queries -> HitScanner -> controller bookkeeping) is one
@@ -1100,7 +1109,9 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 from src.engine.shot_async_v2224 import shot_path_step
                 precision_flash.pre_step(self)
                 lens_model.apply_pending()   # background lens fit -> saved on the main thread
+                _stall.mark('pre_step')
                 step = shot_path_step(self, dt, render_history=render_history, gt_review=gt_review)
+                _stall.mark('shot_path_step')
                 # Opt-in precision flash (no-op unless the scene asks for exact XY).
                 precision_flash.frame_hook(self, step.get('new_peak'))
 
@@ -1124,6 +1135,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
 
                 if not self.running:
                     break
+                _stall.mark('flash_hook+events')
 
                 freeze_simulation = controller.should_defer_scene_work(self.scene, hit_scanner)
                 if not freeze_simulation:
@@ -1131,19 +1143,24 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     if switch:
                         self._switch_to(switch.new_scene)
 
+                _stall.mark('scene_update')
                 self._update_window_caption()
                 self.scene.render(self.screen)
+                _stall.mark('scene_render')
                 from src.engine import display_floor
                 display_floor.apply(self.screen, self.scene)
                 precision_flash.render_hook(self.screen)
                 if render_history is not None:
                     render_flip_start=time.monotonic()
+                _stall.mark('overlays')
                 pygame.display.flip()
+                _stall.mark('flip')
                 if render_history is not None:
                     render_history.call('presented',self.screen,self.scene,
                         render_flip_start,time.monotonic(),time.time())
                 controller.mark_visible_after_flip(self.scene)
                 _loop_timing(_loop_t0, dt)
+                _stall.end()
                 if gt_review is not None:
                     from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
                     gt_review.observe(self, hit_scanner, camera_manager, object_hit_registry_v2223,
