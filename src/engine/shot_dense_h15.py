@@ -115,12 +115,52 @@ def _viewport_roi(shape: tuple[int, int]) -> tuple[int, int, int, int]:
     return 0, 0, w, h
 
 
+def _network(n: int) -> list[tuple[int, int]]:
+    """Batcher odd-even merge sorting network comparators for n inputs (padded to a power of 2)."""
+    size = 1
+    while size < n:
+        size *= 2
+    pairs: list[tuple[int, int]] = []
+    p = 1
+    while p < size:
+        k = p
+        while k >= 1:
+            for j in range(k % p, size - k, 2 * k):
+                for i in range(min(k, size - j - k)):
+                    if (i + j) // (2 * p) == (i + j + k) // (2 * p):
+                        pairs.append((i + j, i + j + k))
+            k //= 2
+        p *= 2
+    return [(a, b) for a, b in pairs if a < n and b < n]
+
+
+_NETS: dict[int, list[tuple[int, int]]] = {}
+
+
 def _median(frames: list[np.ndarray]) -> np.ndarray | None:
+    """Exact per-pixel median of up to MAX_FRAMES evenly spaced frames (odd count), via a sorting
+    network of np.minimum/np.maximum on uint8 - ~10x faster than np.median over a stack
+    (12 frames 1462x708: 285 ms -> ~25 ms)."""
     if not frames:
         return None
-    if len(frames) == 1:
+    max_n = int(_f("SKJUTBANA_H15_MAX_FRAMES", 9))
+    n = len(frames)
+    if n > max_n:
+        idx = np.linspace(0, n - 1, max_n).round().astype(int)
+        frames = [frames[i] for i in idx]
+        n = len(frames)
+    if n % 2 == 0 and n > 1:
+        frames = frames[1:]          # odd count -> exact middle element (drop the oldest)
+        n -= 1
+    if n == 1:
         return frames[0].astype(np.float32)
-    return np.median(np.stack(frames), axis=0).astype(np.float32)
+    net = _NETS.get(n) or _NETS.setdefault(n, _network(n))
+    a = [np.asarray(f) for f in frames]
+    for i, j in net:
+        lo = np.minimum(a[i], a[j])
+        a[j] = np.maximum(a[i], a[j])
+        a[i] = lo
+    return a[n // 2].astype(np.float32)
 
 
 def dense_top(pre: np.ndarray, post: np.ndarray, top_n: int = 6) -> list[tuple[float, float, float]]:
@@ -246,6 +286,22 @@ def _decided_xy(scanner: Any, prev_sid: int, prev_key: tuple[int, float]) -> tup
     return None
 
 
+_OWN_EXECUTOR = None
+
+
+def _own_executor():
+    """SKJUTBANA_H15_OWN_THREAD=1 (default off, 2026-11-20): run the dense job on its own single thread
+    instead of queueing behind the ~0.5 s ordinary detector jobs (live: queue 0-380 ms, 30/48 late).
+    numpy/cv2 release the GIL, so it runs truly in parallel; camera capture is untouched."""
+    global _OWN_EXECUTOR
+    if os.environ.get("SKJUTBANA_H15_OWN_THREAD") != "1":
+        return None
+    if _OWN_EXECUTOR is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _OWN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="shot-dense-h15")
+    return _OWN_EXECUTOR
+
+
 def _submit(key: tuple[int, float], peak: float, ts: float, pre: list, post: list, windows: dict) -> None:
     from src.engine.shot_async_v2224 import async_detector_v2224 as det
     x0, y0, _x1, _y1 = _S.roi
@@ -272,7 +328,7 @@ def _submit(key: tuple[int, float], peak: float, ts: float, pre: list, post: lis
                 _S.results[key] = res
         return None
 
-    executor = getattr(det, "_executor", None)
+    executor = _own_executor() or getattr(det, "_executor", None)
     if executor is None:
         job()
         return
