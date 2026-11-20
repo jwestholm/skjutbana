@@ -232,7 +232,12 @@ def on_frame(scanner: Any, gray: np.ndarray, frame_ts: float) -> None:
     for ev in list(getattr(scanner, "audio_events", []) or []):
         key = _key(ev)
         sid, _pk = key
-        if sid <= 0 or key in _S.submitted or str(getattr(ev, "state", "")) != "pending":
+        if sid <= 0 or key in _S.submitted:
+            continue
+        # Authority mode holds the event pending until H15 answers.  In shadow mode the ordinary chain
+        # resolves most events before peak+delay, so shadow must measure resolved events too (else it
+        # only ever saw ~5 % of shots, 2026-11-20).  Windows stay causal: POST ends at this frame.
+        if str(getattr(ev, "state", "")) != "pending" and mode() != "shadow":
             continue
         peak = float(getattr(ev, "peak_ts", 0.0) or 0.0)
         if ts < peak + delay_s():
@@ -242,6 +247,7 @@ def on_frame(scanner: Any, gray: np.ndarray, frame_ts: float) -> None:
             # second peak of a CO2 pair: the first peak's H15 owns the hole; this event keeps
             # the ordinary path (no second dense pick of the same hole, no spatial veto needed)
             _S.results[key] = dict(status="co2_pair_follower")
+            _log(dict(kind="job", shot_id=sid, peak_ts=key[1], status="co2_pair_follower"))
             continue
         prev_items = [(p, s_) for s_, p in peaks if p < peak - 0.01]
         prev, prev_sid = max(prev_items) if prev_items else (peak - 99.0, 0)
@@ -262,6 +268,8 @@ def on_frame(scanner: Any, gray: np.ndarray, frame_ts: float) -> None:
         if not pre_items or not post_items:
             # no previous-shot-safe PRE (or no POST): evidence unavailable
             _S.results[key] = dict(status="no_frames", n_pre=len(pre_items), n_post=len(post_items))
+            _log(dict(kind="job", shot_id=sid, peak_ts=key[1], status="no_frames", n_pre=len(pre_items),
+                      n_post=len(post_items), submit_ts=ts))
             print(f"[H15] shot={sid} no_frames pre={len(pre_items)} post={len(post_items)}")
             continue
         windows = dict(pre_t=(pre_items[0][0] - peak, pre_items[-1][0] - peak),
@@ -284,6 +292,25 @@ def _decided_xy(scanner: Any, prev_sid: int, prev_key: tuple[int, float]) -> tup
             if tr is not None:
                 return float(tr.camera_x), float(tr.camera_y)
     return None
+
+
+_LOG_LOCK = threading.Lock()
+
+
+def _log(record: dict) -> None:
+    """SKJUTBANA_H15_LOG=<path> (default off): append one JSON line per H15 job / rule decision - the
+    shadow record for offline joins with truth (runtime-available data only: audio peaks, frame
+    timestamps, frames already received).  Never affects decisions."""
+    path = os.environ.get("SKJUTBANA_H15_LOG")
+    if not path:
+        return
+    try:
+        import json
+        line = json.dumps(record, default=lambda o: o if isinstance(o, (int, float, str)) else str(o))
+        with _LOG_LOCK, open(path, "a") as fh:
+            fh.write(line + "\n")
+    except Exception as exc:
+        print(f"[H15] log failed: {exc}")
 
 
 _OWN_EXECUTOR = None
@@ -310,9 +337,10 @@ def _submit(key: tuple[int, float], peak: float, ts: float, pre: list, post: lis
 
     def job():
         t0 = time.monotonic()
+        c0 = time.thread_time()
         try:
             pre_m, post_m = _median(pre), _median(post)
-            pk = dense_top(pre_m, post_m, top_n=8)
+            pk = dense_top(pre_m, post_m, top_n=max(2, int(_f("SKJUTBANA_H15_TOPK", 8))))
             ex = windows.get("burst_exclude")
             if ex is not None:
                 pk = [p for p in pk if (p[0] + x0 - ex[0]) ** 2 + (p[1] + y0 - ex[1]) ** 2 > 144.0]
@@ -320,12 +348,16 @@ def _submit(key: tuple[int, float], peak: float, ts: float, pre: list, post: lis
             res = dict(status="ok", peaks=[(x + x0, y + y0, s, c, b) for (x, y, s), (c, b) in zip(pk, feats)],
                        n_pre=len(pre), n_post=len(post), frame_ts=ts, **windows,
                        compute_ms=(time.monotonic() - t0) * 1000.0,
-                       queue_ms=(t0 - t_submit) * 1000.0)
+                       queue_ms=(t0 - t_submit) * 1000.0,
+                       cpu_ms=(time.thread_time() - c0) * 1000.0,
+                       input_mb=sum(int(getattr(f, "nbytes", 0)) for f in list(pre) + list(post)) / 1e6,
+                       thread=threading.current_thread().name)
         except Exception as exc:
             res = dict(status=f"error {type(exc).__name__}: {exc}")
         with _LOCK:
             if _S.owner == owner:          # obsolete generation -> dropped
                 _S.results[key] = res
+                _log(dict(kind="job", shot_id=key[0], peak_ts=key[1], **{k: v for k, v in res.items()}))
         return None
 
     executor = _own_executor() or getattr(det, "_executor", None)
@@ -363,6 +395,7 @@ def _choose(key: tuple[int, float], age: float) -> tuple[float, float, float, di
               and bipolar <= _f("SKJUTBANA_H15_MAX_BIPOLAR", 1.0))
         res["rule"] = dict(x=x, y=y, s=s, ratio=(s / s2) if s2 > 0 else None, core=core, bipolar=bipolar,
                            late=late, accepted=ok)
+        _log(dict(kind="rule", shot_id=key[0], peak_ts=key[1], seen_age_s=res["seen_age_s"], **res["rule"]))
         if not ok:
             print(f"[H15] shot={key[0]} rejected s={s:.1f} ratio={(s / s2) if s2 > 0 else 0:.2f} "
                   f"core={core:.2f} bipolar={bipolar:.2f} late={late} -> ordinary selector")
@@ -458,3 +491,21 @@ def _install_selector_patch() -> None:
 
     HitScanner._best_track_for_event = best_h15
     HitScanner._track_is_ready = ready_h15
+
+    previous_age = HitScanner._age_tracks_without_candidates
+
+    def age_h15(self, frame_ts, *args, **kwargs):
+        # The detector (and so on_frame) only runs while an event is open.  In shadow mode the
+        # chain usually resolves the event before peak+delay, so keep feeding H15 the frames that
+        # arrive afterwards (same causal ring: frame_history up to this frame).
+        out = previous_age(self, frame_ts, *args, **kwargs)
+        if enabled() and mode() == "shadow" and not getattr(self, "_v2224_worker_clone", False):
+            hist = getattr(self, "frame_history", None)
+            if hist:
+                try:
+                    on_frame(self, hist[-1].gray, frame_ts)
+                except Exception as exc:
+                    print(f"[H15] shadow frame hook failed: {exc}")
+        return out
+
+    HitScanner._age_tracks_without_candidates = age_h15
