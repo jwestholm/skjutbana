@@ -179,6 +179,13 @@ def dense_top(pre: np.ndarray, post: np.ndarray, top_n: int = 6) -> list[tuple[f
     s[-20:, :] = 0
     s[:, :20] = 0
     s[:, -20:] = 0
+    # SKJUTBANA_H15_MIN_PRE_DN=<DN> (default 0 = off, 2026-11-20): unmeasurable dark pixels.  Where the
+    # projected light under the paper (PRE median, 9x9 mean) is below N camera DN the ratio d = 1-post/pre
+    # is quantisation noise (null test: black scene -> every top-5 peak in <8 DN, s~24) and crowds real
+    # candidates out of the top-K.  N is chosen from the no-hole null calibration, not from hole truth.
+    min_pre = _f("SKJUTBANA_H15_MIN_PRE_DN", 0.0)
+    if min_pre > 0:
+        s[cv2.blur(pre, (9, 9)) < min_pre] = 0
     dil = cv2.dilate(s, np.ones((9, 9), np.uint8))
     ys, xs = np.nonzero((s >= dil) & (s > 0))
     order = np.argsort(-s[ys, xs])[:top_n]
@@ -297,6 +304,34 @@ def _decided_xy(scanner: Any, prev_sid: int, prev_key: tuple[int, float]) -> tup
 _LOG_LOCK = threading.Lock()
 
 
+def _extra_features(pre_m, post_m, pre: list, post: list, pk: list) -> list:
+    """SKJUTBANA_H15_LOG_EXTRA=1 (with SKJUTBANA_H15_LOG; measurement only, default off, 2026-11-20):
+    per logged peak - projected light level under the point (PRE median, DN), per-frame darkening of each
+    POST and PRE frame against the PRE median (temporal persistence / reference stability) and the local
+    background change |POST-PRE| (animation).  Same frames the job already holds; never used to decide."""
+    out = []
+    h, w = pre_m.shape
+    yy, xx = np.mgrid[-20:21, -20:21]
+    rr = np.hypot(xx, yy)
+    core_m, ring_m = rr <= 2, (rr >= 9) & (rr <= 20)
+    for x, y, _s in pk:
+        xi, yi = int(round(x)), int(round(y))
+        if not (20 <= xi < w - 20 and 20 <= yi < h - 20):
+            out.append(None)
+            continue
+        sl = (slice(yi - 20, yi + 21), slice(xi - 20, xi + 21))
+        p = np.maximum(pre_m[sl], 1.0)
+
+        def core_of(frame):
+            d = 1.0 - np.asarray(frame[sl], np.float32) / p
+            return float((d - np.median(d[ring_m]))[core_m].mean())
+        out.append(dict(pre_core_dn=float(pre_m[sl][core_m].mean()), pre_ring_dn=float(np.median(pre_m[sl][ring_m])),
+                        post_frame_cores=[round(core_of(f), 4) for f in post],
+                        pre_frame_cores=[round(core_of(f), 4) for f in pre],
+                        bg_change=float(np.abs(post_m[sl] - pre_m[sl])[ring_m].mean())))
+    return out
+
+
 def _log(record: dict) -> None:
     """SKJUTBANA_H15_LOG=<path> (default off): append one JSON line per H15 job / rule decision - the
     shadow record for offline joins with truth (runtime-available data only: audio peaks, frame
@@ -352,6 +387,8 @@ def _submit(key: tuple[int, float], peak: float, ts: float, pre: list, post: lis
                        cpu_ms=(time.thread_time() - c0) * 1000.0,
                        input_mb=sum(int(getattr(f, "nbytes", 0)) for f in list(pre) + list(post)) / 1e6,
                        thread=threading.current_thread().name)
+            if os.environ.get("SKJUTBANA_H15_LOG_EXTRA") == "1" and os.environ.get("SKJUTBANA_H15_LOG"):
+                res["extra"] = _extra_features(pre_m, post_m, pre, post, pk[:12])
         except Exception as exc:
             res = dict(status=f"error {type(exc).__name__}: {exc}")
         with _LOCK:

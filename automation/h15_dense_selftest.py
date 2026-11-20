@@ -90,6 +90,40 @@ def test_log_default_off(tmp=None) -> None:
             os.environ.pop("SKJUTBANA_H15_LOG", None)
 
 
+def _scene():
+    """Left half unlit (pre ~1 DN, quantisation noise), right half lit (120 DN) with one real dark dot."""
+    rng = np.random.default_rng(3)
+    pre = np.full((200, 400), 120.0, np.float32)
+    pre[:, :200] = 1.0
+    pre[:, :200] = rng.integers(0, 3, (200, 200)).astype(np.float32)    # unlit: 0..2 DN
+    post = pre + rng.normal(0.0, 0.8, pre.shape).astype(np.float32)       # sensor noise everywhere
+    post[:, :200] = rng.integers(0, 3, (200, 200)).astype(np.float32)   # 0..2 DN flicker
+    yy, xx = np.mgrid[0:200, 0:400]
+    post[np.hypot(xx - 300, yy - 100) <= 3] *= 0.85                      # hole at (300, 100)
+    return pre, post
+
+
+def test_dark_mask_default_off_and_effective() -> None:
+    os.environ.pop("SKJUTBANA_H15_MIN_PRE_DN", None)
+    pre, post = _scene()
+    base = h15.dense_top(pre, post, top_n=5)
+    os.environ["SKJUTBANA_H15_MIN_PRE_DN"] = "16"
+    try:
+        masked = h15.dense_top(pre, post, top_n=5)
+    finally:
+        os.environ.pop("SKJUTBANA_H15_MIN_PRE_DN", None)
+    assert all(x >= 200 for x, _y, _s in masked), masked
+    assert abs(masked[0][0] - 300) <= 2 and abs(masked[0][1] - 100) <= 2, masked[0]
+    assert h15.dense_top(pre, post, top_n=5) == base, "flag off must be bit-identical"
+
+
+def test_extra_features_only_when_flagged() -> None:
+    pre, post = _scene()
+    ex = h15._extra_features(pre, post, [pre, pre], [post, post], [(300.0, 100.0, 1.0), (5.0, 5.0, 1.0)])
+    assert ex[1] is None and ex[0]["pre_ring_dn"] == 120.0 and len(ex[0]["post_frame_cores"]) == 2
+    assert ex[0]["post_frame_cores"][0] > 0.08
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
