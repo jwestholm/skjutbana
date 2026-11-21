@@ -871,10 +871,12 @@ class ObjectHitRegistryV2223:
             # Under SKJUTBANA_OBJECT_DENSE a second audio peak shortly after this one (muzzle report + impact,
             # CO2 double report; measured live 65-80 ms) belongs to the same shot and must not cut this query.
             from src.engine.camera.object_physical_query import _dense_enabled, _denv
-            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.25) if _dense_enabled() else 0.0
+            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.15) if _dense_enabled() else 0.0  # followers 64-97 ms; AR15 doubles >=228 ms
             next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts+pair_s),default=math.inf)
             frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
                 and f.timestamp<=now),key=lambda f:f.timestamp)
+            if pair_s and not query.final and now>=snap.peak_ts+DEADLINE_S+1.0:
+                query.finish_deadline(now)   # hard cap checked before any work
             for frame in frames[:8 if pair_s else 2]:  # bounded frames per query per main tick (dense: catch up after stalls)
                 if query.final:
                     break
@@ -894,6 +896,12 @@ class ObjectHitRegistryV2223:
                     and snap.peak_ts-pair_s<=s.peak_ts<snap.peak_ts for s in self._snapshots.values())
                 if owner_pending:
                     continue
+                owner=[s for s in self._snapshots.values() if s is not snap and s.object_query is not None
+                    and snap.peak_ts-pair_s<=s.peak_ts<snap.peak_ts]
+                if owner and not query.published:
+                    # explicit pair ownership: consumers must not count the follower as its own shot
+                    query.result['paired_follower_of']=int(getattr(owner[0],'shot_id',0) or 0) or None
+                    query.result['gameplay_owner']=False
             if query.final:
                 query.published=True
                 dispatch_started=time.perf_counter()
