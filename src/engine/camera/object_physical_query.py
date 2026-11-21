@@ -44,6 +44,20 @@ def _dense_enabled():
     return os.environ.get("SKJUTBANA_OBJECT_DENSE") == "1"
 
 
+def _dense_dx(game_x):
+    """SKJUTBANA_OBJECT_DENSE_GAME_DX: 'c0' or 'c0,c1,c2' -> c0 + c1*u + c2*u^2, u=(x-380)/380 clamped to the
+    fitted range |u|<=0.63 (game x 141..618)."""
+    raw = os.environ.get("SKJUTBANA_OBJECT_DENSE_GAME_DX")
+    if not raw:
+        return 0.0
+    try:
+        c = [float(v) for v in raw.split(",")]
+    except ValueError:
+        return 0.0
+    u = max(-0.63, min(0.63, (game_x - 380.0) / 380.0))
+    return sum(ci * u ** i for i, ci in enumerate(c))
+
+
 def _denv(name, default):
     try:
         return float(os.environ.get(name, default))
@@ -579,7 +593,7 @@ class ObjectPhysicalQuery:
         g = self.camera_to_game(cx, cy) if self.camera_to_game else None
         if g is None:
             return None
-        return (float(g[0]) + _denv("SKJUTBANA_OBJECT_DENSE_GAME_DX", 0.0), float(g[1]))
+        return (float(g[0]) + _dense_dx(float(g[0])), float(g[1]))
 
     def _dense_observe(self, frame, ts, now, started):
         """H15-style decision on the frozen object crops (flag SKJUTBANA_OBJECT_DENSE)."""

@@ -26,6 +26,7 @@ from src.engine.camera.detector_luma import detector_gray
 from src.engine.camera.camera_manager import apply_frame_transform
 from src.engine.game_objects.geometry import shape_contains
 from src.engine.shot_dense_h15 import _core_bipolar, dense_top
+from src.engine.camera.object_physical_query import _dense_dx
 
 
 def env(name, default):
@@ -112,7 +113,7 @@ def decide(shot, frames, to_game):
             dk_post = spot(post_s.astype(np.float32)); dk_pre = spot(pre_s.astype(np.float32))
             consist = float(dk_post.min() - dk_pre.max())   # every POST frame darker than every PRE frame
             peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy, edge=edge, consist=consist,
-                              game_xy=[float(v) + (env("SKJUTBANA_OBJECT_DENSE_GAME_DX", 0.0) if k == 0 else 0.0)
+                              game_xy=[float(v) + (_dense_dx(float(v)) if k == 0 else 0.0)
                                        for k, v in enumerate(to_game(cx, cy))]))
     # overlapping tiles can report the same peak twice
     uniq = []
