@@ -96,12 +96,22 @@ def decide(shot, frames, to_game):
         x, y, w, h = reg["camera_aabb"]
         x0, y0 = max(int(x) - MARGIN, 0), max(int(y) - MARGIN, 0)
         x1, y1 = int(math.ceil(x + w)) + MARGIN, int(math.ceil(y + h)) + MARGIN
-        pre_m = np.median(np.stack([p[y0:y1, x0:x1] for p in pre]), 0).astype(np.float32)
-        post_m = np.median(np.stack([p[y0:y1, x0:x1] for p in post]), 0).astype(np.float32)
+        pre_s = np.stack([p[y0:y1, x0:x1] for p in pre]); post_s = np.stack([p[y0:y1, x0:x1] for p in post])
+        pre_m = np.median(pre_s, 0).astype(np.float32)
+        post_m = np.median(post_s, 0).astype(np.float32)
         for px, py, s in dense_top(pre_m, post_m, top_n=6):
             core, bip = _core_bipolar(pre_m, post_m, px, py)
             cx, cy = x0 + px, y0 + py
-            peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy,
+            yi, xi = int(round(py)), int(round(px))
+            win = pre_m[max(yi - 4, 0):yi + 5, max(xi - 4, 0):xi + 5]
+            edge = float(np.hypot(*np.gradient(win)).mean()) if win.size >= 9 else 0.0
+            def spot(a):   # 3x3 spot minus 9x9 ring (local darkening proxy)
+                c = a[..., max(yi - 1, 0):yi + 2, max(xi - 1, 0):xi + 2].mean(axis=(-1, -2))
+                r = a[..., max(yi - 5, 0):yi + 6, max(xi - 5, 0):xi + 6].mean(axis=(-1, -2))
+                return r - c
+            dk_post = spot(post_s.astype(np.float32)); dk_pre = spot(pre_s.astype(np.float32))
+            consist = float(dk_post.min() - dk_pre.max())   # every POST frame darker than every PRE frame
+            peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy, edge=edge, consist=consist,
                               game_xy=[float(v) for v in to_game(cx, cy)]))
     # overlapping tiles can report the same peak twice
     uniq = []
@@ -152,6 +162,10 @@ def main():
                 wrong += obj is not None and obj != t["truth_object"]
             else:
                 false += obj is not None
+        if os.environ.get("CAN_OFF_DUMP"):
+            with open(os.environ["CAN_OFF_DUMP"], "a") as fh:
+                fh.write(json.dumps(dict(sid=sid, truth=t and t["truth_object"], truth_xy=t and t.get("truth_game_xy"),
+                                         peaks=peaks[:4], shapes={p["object_id"]: p.get("shape") for p in shots[sid].get("per_object", [])})) + "\n")
         if os.environ.get("CAN_OFF_VERBOSE"):
             print(sid, "truth", t and t["truth_object"], "live", live, "off", obj, why,
                   [(round(p["s"], 1), round(p["core"], 2)) for p in peaks[:3]])
