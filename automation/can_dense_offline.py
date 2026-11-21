@@ -138,6 +138,9 @@ def decide(shot, frames, to_game):
         if peaks[0]["s"] >= env("SKJUTBANA_OBJECT_DENSE_ISOLATED_S", 18) and (
                 s2 <= 0 or peaks[0]["s"] / s2 >= env("SKJUTBANA_OBJECT_DENSE_ISOLATED_RATIO", 1.5)):
             top = peaks[0]
+    mc = os.environ.get("SKJUTBANA_OBJECT_DENSE_MIN_CONSIST")
+    if top is not None and mc is not None and top["consist"] < float(mc):
+        return None, peaks, "inconsistent_over_frames"
     if top is None:
         return None, peaks, "dense_no_accepted_dot"
     inside = [oid for oid, sh in shapes.items() if sh and shape_contains(sh, *top["game_xy"])]

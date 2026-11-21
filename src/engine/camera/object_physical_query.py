@@ -134,7 +134,25 @@ class ObjectPhysicalQuery:
             self.finish('UNCERTAIN', 'recent_surface_too_old')
         else:
             self._prepare(pre_frames[-3:])
+            self._model_prepare(pre_frames[-3:])
         self.prepare_ms = (time.perf_counter() - started) * 1000
+
+    def _model_prepare(self, pre_frames):
+        """SHADOW only (SKJUTBANA_OBJECT_DENSE_MODEL): per-region PRE crops for the candidate-peak model."""
+        self.model_tiles = []
+        if self.final or not (_dense_enabled() and self.object_hit_requested):
+            return
+        try:
+            from src.engine.camera.dense_peak_model import live_model, tile_bounds
+            if live_model() is None:
+                return
+            for r in self.regions:
+                x0, y0, x1, y1 = tile_bounds([r.x, r.y, r.width, r.height])
+                pre = np.stack([_gray(f.frame_bgr[y0:y1, x0:x1]) for f in pre_frames]).astype(np.float32)
+                self.model_tiles.append(dict(bounds=(x0, y0, x1, y1), pre=pre, post=[]))
+        except Exception as exc:   # shadow must never affect the query
+            self.model_tiles = []
+            self.dense_model = dict(error=type(exc).__name__)
 
     def _prepare(self, pre_frames):
         roi_started=time.perf_counter()
@@ -587,6 +605,61 @@ class ObjectPhysicalQuery:
             return self.finish_deadline(finished_at)
         return self.payload('UNCERTAIN','awaiting_persistence',finished_at)
 
+    def _model_shadow(self, tiles):
+        """Score candidates with the SHADOW model (background thread); logs what it WOULD award.
+        Never changes the decision; the rule decision is already final when this runs."""
+        if not tiles:
+            return
+        # let the main thread publish the rule decision and render the reaction first (GIL contention)
+        time.sleep(_denv("SKJUTBANA_OBJECT_DENSE_MODEL_DELAY_S", 0.6))
+        t0 = time.perf_counter()
+        try:
+            from src.engine.camera.dense_peak_model import dedupe, live_model, tile_peaks
+            model = live_model()
+            rows = []
+            for mt in tiles:
+                if not mt['post']:
+                    continue
+                x0, y0 = mt['bounds'][:2]
+                rows += tile_peaks(mt['pre'], np.stack(mt['post']), x0, y0)
+            rows = dedupe(rows)
+            if not rows:
+                self.dense_model = dict(state='no_candidates')
+                return
+            ps = model.p([r[3] for r in rows])
+            cands = []
+            for (cx, cy, s, _f), p in zip(rows, ps):
+                g = self._dense_game(cx, cy)
+                inside = []
+                for region in self.regions:
+                    original = next((r for r in self.game_regions if r.object_id == region.object_id), None)
+                    shape = (original.metadata.get('v250_object_snapshot', {}).get('shape') if original else None)
+                    if g is not None and shape and shape_contains(shape, *g):
+                        inside.append(region.object_id)
+                cands.append(dict(p=float(p), s=float(s), cx=float(cx), cy=float(cy),
+                                  game_xy=None if g is None else [float(g[0]), float(g[1])], inside=inside))
+            cands.sort(key=lambda c: -c['p'])
+            best = cands[0]
+            outs = {(c['inside'][0] if len(c['inside']) == 1 else ('AMBIG' if c['inside'] else None))
+                    for c in cands if c['p'] >= model.ambig_p}
+            if best['p'] < model.tau:
+                would, why = None, 'below_tau'
+            elif len(outs) > 1 or 'AMBIG' in outs:
+                would, why = None, 'ambiguous'
+            elif len(best['inside']) == 1:
+                would, why = best['inside'][0], 'award'
+            else:
+                would, why = None, 'outside'
+            self.dense_model = dict(state='scored', would_award=would, reason=why, tau=model.tau,
+                                    best=best, top=cands[:3], ms=(time.perf_counter() - t0) * 1000.)
+        except Exception as exc:   # shadow must never affect the query
+            self.dense_model = dict(state='error', error=type(exc).__name__)
+        dm = self.dense_model
+        b = dm.get('best') or {}
+        print(f"[OBJECT-DENSE-MODEL] shot={self.shot_id} state={dm.get('state')} would_award={dm.get('would_award')} "
+              f"reason={dm.get('reason')} best_p={b.get('p')} best_inside={b.get('inside')} "
+              f"best_game_xy={b.get('game_xy')} ms={dm.get('ms')}", flush=True)
+
     def _dense_game(self, cx, cy):
         """camera->game for the dense decision plus an optional measured constant x correction
         (SKJUTBANA_OBJECT_DENSE_GAME_DX, game px; fitted on projected dots for one calibration)."""
@@ -603,6 +676,10 @@ class ObjectPhysicalQuery:
         if ts - self.peak_ts >= min_age:
             for tile in self.tiles:
                 tile['dense_post'].append(_gray(tile['geometry'].crop_array(frame.frame_bgr)).astype(np.float32))
+            for mt in getattr(self, 'model_tiles', []):
+                if len(mt['post']) < need:
+                    x0, y0, x1, y1 = mt['bounds']
+                    mt['post'].append(_gray(frame.frame_bgr[y0:y1, x0:x1]).astype(np.float32))
         n_post = len(self.tiles[0]['dense_post']) if self.tiles else 0
         self.processing_ms.append((time.perf_counter()-started)*1000.)
         if n_post < need:
@@ -626,6 +703,11 @@ class ObjectPhysicalQuery:
                                   game_xy=None if g is None else [float(g[0]), float(g[1])]))
         peaks.sort(key=lambda d: -d['s'])
         self.dense_peaks = peaks[:6]
+        if getattr(self, 'model_tiles', None):
+            # SHADOW off the main thread: never delays the gameplay decision
+            import threading
+            tiles, self.model_tiles = self.model_tiles, []
+            threading.Thread(target=self._model_shadow, args=(tiles,), name='dense-model-shadow', daemon=True).start()
         s_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_S", 11.0)
         r_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_RATIO", 1.15)
         # A peak "looks like a hole" when its darkening core is clear; bipolar (bright+dark edge)
@@ -705,6 +787,7 @@ class ObjectPhysicalQuery:
             examined_candidate_count=self.examined_candidate_count,
             pre_activity_context=self.pre_activity,
             dense_peaks=getattr(self,'dense_peaks',None),
+            dense_model=getattr(self,'dense_model',None),
             peak_ts=self.peak_ts,first_post_ts=self.first_post_ts,decision_ts=now,
             timing=dict(prepare_ms=getattr(self,'prepare_ms',0.),processing_ms=list(self.processing_ms),
                 roi_prepare_ms=self.roi_prepare_ms,pre_prepare_ms=self.pre_prepare_ms,

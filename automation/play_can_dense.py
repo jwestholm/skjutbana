@@ -23,6 +23,10 @@ if _cal == "2026-11-21T17:55:49":
     os.environ.setdefault("SKJUTBANA_OBJECT_DENSE_GAME_DX", "1.35")
 else:
     print(f"[play_can_dense] calibration {_cal!r} differs from the fitted one: no x correction", flush=True)
+# SHADOW-only candidate-peak model (logs [OBJECT-DENSE-MODEL]; never decides gameplay)
+_MODEL = "/data/skjutbana/evaluation_runs/can_peak_model_20261121/v2/model.json"   # sha256 321f9088...
+if os.path.exists(_MODEL):
+    os.environ.setdefault("SKJUTBANA_OBJECT_DENSE_MODEL", _MODEL)
 sys.path.insert(0, os.getcwd())
 sys.argv = [sys.argv[0]]
 import main  # noqa: F401,E402  installs runtimes exactly like main.py
