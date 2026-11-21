@@ -2,13 +2,15 @@
 
     cd <checkout> && python3 automation/play_can_dense.py
 Sets (unless already set): SKJUTBANA_OBJECT_DENSE=1, SKJUTBANA_SOURCE_RECORD=1 (raw camera+audio to
-/data/skjutbana/source_sessions, ~1.5 GB per 4 min), SKJUTBANA_PHYSICAL_TRACE_DISABLE=1.
+/data/skjutbana/source_sessions, ~1.5 GB per 4 min), SKJUTBANA_PHYSICAL_TRACE_DISABLE=1,
+SKJUTBANA_AUDIO_COOLDOWN_S=0.15 (merge the 65-97 ms follower peak; audio_shot_signature_20261121).
 Every shot prints one [OBJECT-HIT] and one [OBJECT-DENSE] line (reason, frames, dense peaks).
 """
 import os
 import sys
 
-for k, v in (("SKJUTBANA_OBJECT_DENSE", "1"), ("SKJUTBANA_SOURCE_RECORD", "1"), ("SKJUTBANA_PHYSICAL_TRACE_DISABLE", "1")):
+for k, v in (("SKJUTBANA_OBJECT_DENSE", "1"), ("SKJUTBANA_SOURCE_RECORD", "1"), ("SKJUTBANA_PHYSICAL_TRACE_DISABLE", "1"),
+             ("SKJUTBANA_AUDIO_COOLDOWN_S", "0.15")):
     os.environ.setdefault(k, v)
 sys.path.insert(0, os.getcwd())
 sys.argv = [sys.argv[0]]
