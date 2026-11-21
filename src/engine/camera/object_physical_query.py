@@ -34,7 +34,7 @@ PER_OBJECT_COMPONENTS = 2
 DEADLINE_S = .35
 if os.environ.get("SKJUTBANA_OBJECT_DENSE") == "1":
     # dense decision needs two POST frames >= 0.15 s after the shot; allow a little more time
-    DEADLINE_S = float(os.environ.get("SKJUTBANA_OBJECT_DENSE_DEADLINE_S", "0.8"))
+    DEADLINE_S = float(os.environ.get("SKJUTBANA_OBJECT_DENSE_DEADLINE_S", "1.2"))
 
 
 def _dense_enabled():
@@ -574,8 +574,8 @@ class ObjectPhysicalQuery:
     def _dense_observe(self, frame, ts, now, started):
         """H15-style decision on the frozen object crops (flag SKJUTBANA_OBJECT_DENSE)."""
         from src.engine.shot_dense_h15 import dense_top, _core_bipolar
-        min_age = _denv("SKJUTBANA_OBJECT_DENSE_POST_AGE_S", 0.15)
-        need = int(_denv("SKJUTBANA_OBJECT_DENSE_POST_FRAMES", 2))
+        min_age = _denv("SKJUTBANA_OBJECT_DENSE_POST_AGE_S", 0.35)  # hole must be visible: projectile flight + projector/camera latency
+        need = int(_denv("SKJUTBANA_OBJECT_DENSE_POST_FRAMES", 3))
         if ts - self.peak_ts >= min_age:
             for tile in self.tiles:
                 tile['dense_post'].append(_gray(tile['geometry'].crop_array(frame.frame_bgr)).astype(np.float32))
