@@ -868,7 +868,11 @@ class ObjectHitRegistryV2223:
         ring=camera.get_ring_snapshot()
         for snap in sorted(pending,key=lambda s:s.peak_ts):
             query=snap.object_query
-            next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts),default=math.inf)
+            # Under SKJUTBANA_OBJECT_DENSE a second audio peak shortly after this one (muzzle report + impact,
+            # CO2 double report; measured live 65-80 ms) belongs to the same shot and must not cut this query.
+            from src.engine.camera.object_physical_query import _dense_enabled, _denv
+            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.25) if _dense_enabled() else 0.0
+            next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts+pair_s),default=math.inf)
             frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
                 and f.timestamp<=now),key=lambda f:f.timestamp)
             for frame in frames[:2]:  # at most two relevant frames per query per main tick

@@ -692,6 +692,14 @@ class ObjectPhysicalQuery:
             self.result['object_decision']=self._object_decision(status,reason)
             self.result['timing']['object_decision_ms']=(time.perf_counter()-started)*1000.
         self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
+        if _dense_enabled() and self.object_hit_requested:
+            try:
+                pk = [(round(d['s'], 1), round(d['core'], 2), round(d['bipolar'], 2)) for d in (getattr(self, 'dense_peaks', None) or [])[:4]]
+                print(f"[OBJECT-DENSE] shot={self.shot_id} status={status} reason={reason} frames={self.frames} "
+                      f"decision_ms={self.result['timing']['audio_to_decision_ms']:.0f} "
+                      f"first_post_ms={self.result['timing']['audio_to_first_frame_ms']} peaks={pk}", flush=True)
+            except Exception as exc:
+                print('[OBJECT-DENSE] log failed', exc, flush=True)
         if self.capture_result:
             self.capture_result(self.shot_id,self.result)
         return self.result
