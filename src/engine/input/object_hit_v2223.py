@@ -875,7 +875,7 @@ class ObjectHitRegistryV2223:
             next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts+pair_s),default=math.inf)
             frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
                 and f.timestamp<=now),key=lambda f:f.timestamp)
-            for frame in frames[:2]:  # at most two relevant frames per query per main tick
+            for frame in frames[:8 if pair_s else 2]:  # bounded frames per query per main tick (dense: catch up after stalls)
                 if query.final:
                     break
                 try:
@@ -885,7 +885,15 @@ class ObjectHitRegistryV2223:
                     query.finish('UNCERTAIN','object_query_error:'+type(exc).__name__)
             decision_now=now+time.perf_counter()-tick_started
             if not query.final and (decision_now>=snap.peak_ts+DEADLINE_S or decision_now>=next_peak):
-                query.finish_deadline(decision_now)
+                if not pair_s or frames[8:] == [] or decision_now>=snap.peak_ts+DEADLINE_S+1.0:
+                    query.finish_deadline(decision_now)
+            if query.final and pair_s:
+                # Follower of a paired peak: never publish before the owner (first peak) has published,
+                # so a fast UNKNOWN from the follower cannot consume the game's shot window.
+                owner_pending=any(s is not snap and s.object_query is not None and not s.object_query.published
+                    and snap.peak_ts-pair_s<=s.peak_ts<snap.peak_ts for s in self._snapshots.values())
+                if owner_pending:
+                    continue
             if query.final:
                 query.published=True
                 dispatch_started=time.perf_counter()

@@ -374,7 +374,9 @@ class ObjectPhysicalQuery:
             return self.result
         ts = float(frame.timestamp)
         now = time.time() if delivered_ts is None else float(delivered_ts)
-        if now >= self.peak_ts+DEADLINE_S:
+        # Dense flag: a main-loop stall must not discard frames already in the ring; the frame-timestamp
+        # deadline below still bounds the window.
+        if now >= self.peak_ts+DEADLINE_S and not (_dense_enabled() and self.object_hit_requested):
             return self.finish_deadline(now)
         if ts > now or ts < self.peak_ts or ts <= self.last_frame_ts:
             return self.result
@@ -617,6 +619,15 @@ class ObjectPhysicalQuery:
             top = holey[0]
             s2 = holey[1]['s'] if len(holey) > 1 else 0.0
             ok = top['s'] >= s_min and (s2 <= 0 or top['s'] / s2 >= r_min)
+        if not ok and peaks:
+            # Strong, isolated peak accepted regardless of core depth: real holes can be much shallower
+            # than projected dots (physical median core ~0.09).  Ratio is against the next peak of any kind.
+            strong_s = _denv("SKJUTBANA_OBJECT_DENSE_ISOLATED_S", 18.0)
+            strong_r = _denv("SKJUTBANA_OBJECT_DENSE_ISOLATED_RATIO", 1.5)
+            t0 = peaks[0]
+            s2 = peaks[1]['s'] if len(peaks) > 1 else 0.0
+            if t0['s'] >= strong_s and (s2 <= 0 or t0['s'] / s2 >= strong_r):
+                top, ok = t0, True
         self.per_object = []
         if not ok:
             self.hypotheses = []

@@ -66,6 +66,27 @@ def main() -> None:
     q1 = run(dense=True, follower_gap=0.3)
     # 0.3 s > pair window 0.25 s: frames after the second peak are excluded, so it is a separate shot
     assert all(ts < 1000.3 for ts in q1.seen)
+    # follower that finishes first (fast UNKNOWN) must not be published before its owner
+    os.environ["SKJUTBANA_OBJECT_DENSE"] = "1"
+    import src.engine.events as ev
+    emitted = []
+    orig = ev.event_bus.emit
+    ev.event_bus.emit = lambda name, data, **kw: emitted.append(data['sid'])
+    try:
+        t0 = 2000.0
+        own, fol = FakeQuery(t0), FakeQuery(t0 + 0.07)
+        fol._finish('fast_unknown'); fol.result['sid'] = 'follower'
+        reg = SimpleNamespace(_lock=threading.Lock(), _snapshots={
+            1: SimpleNamespace(peak_ts=own.peak_ts, object_query=own, object_gameplay={}, object_current={}),
+            2: SimpleNamespace(peak_ts=fol.peak_ts, object_query=fol, object_gameplay={}, object_current={})})
+        cam = SimpleNamespace(get_ring_snapshot=lambda: [SimpleNamespace(timestamp=t0 + 0.033 * i) for i in range(1, 6)])
+        ObjectHitRegistryV2223.advance_object_queries(reg, None, cam, now=t0 + 0.2)
+        assert emitted == [] and not fol.published, emitted
+        own._finish('owner_done'); own.result['sid'] = 'owner'
+        ObjectHitRegistryV2223.advance_object_queries(reg, None, cam, now=t0 + 0.4)
+        assert emitted == ['owner', 'follower'], emitted
+    finally:
+        ev.event_bus.emit = orig
     os.environ.pop("SKJUTBANA_OBJECT_DENSE", None)
     print("OK")
 
