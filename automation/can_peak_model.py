@@ -171,17 +171,23 @@ def main():
     tau0 = min(safe) if safe else 0.999
     tau = min(0.999, tau0 + 0.5 * (1 - tau0))          # margin towards 1 (no statistical guarantee)
     P, params = train(Xd, md)
-    np.savez(d / f"preds_{params['kind']}.npz", oof=p_oof, val=P(Xv), real=P(Xr))
+    extra = {}
+    if (d / "test.npz").exists():                       # untouched final test (reported, never used)
+        Xt, mt, _ = load(d, "test")
+        man["test"] = [json.loads(l) for l in open(d / "test_shots.jsonl")]
+        extra["test"] = P(Xt)
+    np.savez(d / f"preds_{params['kind']}.npz", oof=p_oof, val=P(Xv), real=P(Xr), **extra)
     out = dict(features=feats, **params, tau_dev_min=tau0, tau=tau, ambig_p=AMBIG_P,
                dev_oof=shot_eval(md, p_oof, tau, man["dev"]), val=shot_eval(mv, P(Xv), tau, man["val"]),
-               real_dev_only=shot_eval(mr, P(Xr), tau, man["real"]))
+               real_dev_only=shot_eval(mr, P(Xr), tau, man["real"]),
+               test=shot_eval(mt, extra["test"], tau, man["test"]) if "test" in extra else None)
     if params["kind"] == "logreg":
         w = np.array(params["w"]); order = np.argsort(-np.abs(w))
         out["top_weights"] = [(feats[i], round(float(w[i]), 3)) for i in order[:10]]
     (d / f"model_{params['kind']}.json").write_text(json.dumps(out, indent=1))
     if params["kind"] == "logreg":
         (d / "model.json").write_text(json.dumps(out, indent=1))
-    for k in ("tau_dev_min", "tau", "dev_oof", "val", "real_dev_only", "top_weights"):
+    for k in ("tau_dev_min", "tau", "dev_oof", "val", "test", "real_dev_only", "top_weights"):
         print(k, out.get(k))
 
 
