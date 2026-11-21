@@ -37,11 +37,18 @@ MARGIN = int(env("CAN_OFF_MARGIN", 36))   # live margin 36 px; smaller tiles los
 
 
 def load_shots(log_path):
-    shots = {}
+    shots, bad = {}, 0
+    dec = json.JSONDecoder()
     for line in open(log_path, errors="replace"):
         if line.startswith("[OBJECT-HIT] "):
-            d = json.loads(line[13:])
+            try:
+                d, _end = dec.raw_decode(line[13:])   # tolerate text appended by another thread's print
+            except ValueError:
+                bad += 1
+                continue
             shots[int(d["shot_id"])] = d
+    if bad:
+        print(f"[can_dense_offline] {log_path}: skipped {bad} unparsable [OBJECT-HIT] lines", file=sys.stderr)
     return shots
 
 

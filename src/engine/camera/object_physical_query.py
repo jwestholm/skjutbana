@@ -656,9 +656,11 @@ class ObjectPhysicalQuery:
             self.dense_model = dict(state='error', error=type(exc).__name__)
         dm = self.dense_model
         b = dm.get('best') or {}
-        print(f"[OBJECT-DENSE-MODEL] shot={self.shot_id} state={dm.get('state')} would_award={dm.get('would_award')} "
-              f"reason={dm.get('reason')} best_p={b.get('p')} best_inside={b.get('inside')} "
-              f"best_game_xy={b.get('game_xy')} ms={dm.get('ms')}", flush=True)
+        import sys as _sys   # one write per line: never interleaves with the main thread's log lines
+        _sys.stdout.write(f"[OBJECT-DENSE-MODEL] shot={self.shot_id} state={dm.get('state')} would_award={dm.get('would_award')} "
+                          f"reason={dm.get('reason')} best_p={b.get('p')} best_inside={b.get('inside')} "
+                          f"best_game_xy={b.get('game_xy')} ms={dm.get('ms')}\n")
+        _sys.stdout.flush()
 
     def _dense_game(self, cx, cy):
         """camera->game for the dense decision plus an optional measured constant x correction

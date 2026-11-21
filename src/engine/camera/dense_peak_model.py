@@ -86,7 +86,14 @@ class PeakModel:
     def __init__(self, path):
         m = json.load(open(path))
         self.path = path
-        self.w, self.b = np.array(m["w"]), float(m["b"])
+        self.kind = m.get("kind", "logreg")
+        if self.kind == "stumps":
+            self.trees = [tuple(t) for t in m["trees"]]
+        elif self.kind == "mlp":
+            self.W1, self.b1 = np.array(m["W1"]), np.array(m["b1"])
+            self.W2, self.b2 = np.array(m["W2"]), float(m["b2"])
+        else:
+            self.w, self.b = np.array(m["w"]), float(m["b"])
         self.mu, self.sd = np.array(m["mu"]), np.array(m["sd"])
         self.tau = float(m["tau"])
         self.ambig_p = float(m.get("ambig_p", 0.85))
@@ -94,7 +101,16 @@ class PeakModel:
 
     def p(self, feats):
         X = (np.asarray(feats, np.float64) - self.mu) / self.sd
-        return 1 / (1 + np.exp(-np.clip(X @ self.w + self.b, -30, 30)))
+        X = np.atleast_2d(X)
+        if self.kind == "stumps":
+            z = np.zeros(len(X))
+            for j, t, vl, vr in self.trees:
+                z += np.where(X[:, int(j)] <= t, vl, vr)
+        elif self.kind == "mlp":
+            z = np.tanh(X @ self.W1 + self.b1) @ self.W2 + self.b2
+        else:
+            z = X @ self.w + self.b
+        return 1 / (1 + np.exp(-np.clip(z, -30, 30)))
 
 
 _MODEL = None

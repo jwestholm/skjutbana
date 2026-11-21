@@ -74,21 +74,87 @@ def shot_eval(meta, p, tau, manifest):
     return res
 
 
+def fit_mlp(X, y, hidden=16, iters=4000, lr=0.01, l2=1e-3, seed=0):
+    """1-hidden-layer tanh MLP, Adam, class-balanced log loss (numpy only)."""
+    rng = np.random.default_rng(seed)
+    W1 = rng.normal(0, 1 / np.sqrt(X.shape[1]), (X.shape[1], hidden)); b1 = np.zeros(hidden)
+    W2 = rng.normal(0, 1 / np.sqrt(hidden), hidden); b2 = 0.0
+    pos = y.mean(); sw = np.where(y == 1, 0.5 / max(pos, 1e-6), 0.5 / max(1 - pos, 1e-6))
+    params = [W1, b1, W2, np.array([b2])]
+    m = [np.zeros_like(p) for p in params]; v = [np.zeros_like(p) for p in params]
+    for t in range(1, iters + 1):
+        H = np.tanh(X @ params[0] + params[1])
+        z = H @ params[2] + params[3][0]
+        p = 1 / (1 + np.exp(-np.clip(z, -30, 30)))
+        g = (p - y) * sw / len(y)
+        gW2 = H.T @ g + l2 * params[2]; gb2 = np.array([g.sum()])
+        gH = np.outer(g, params[2]) * (1 - H ** 2)
+        gW1 = X.T @ gH + l2 * params[0]; gb1 = gH.sum(0)
+        for i, gr in enumerate((gW1, gb1, gW2, gb2)):
+            m[i] = 0.9 * m[i] + 0.1 * gr; v[i] = 0.999 * v[i] + 0.001 * gr ** 2
+            params[i] = params[i] - lr * (m[i] / (1 - 0.9 ** t)) / (np.sqrt(v[i] / (1 - 0.999 ** t)) + 1e-8)
+    return params
+
+
+def fit_stumps(X, y, rounds=150, lr=0.3, bins=16):
+    """Gradient-boosted decision stumps (numpy, histogram split search): axis-aligned thresholds, a
+    different inductive bias from the linear model and the MLP."""
+    qs = [np.unique(np.quantile(X[:, j], np.linspace(0.03, 0.97, bins))) for j in range(X.shape[1])]
+    B = [np.searchsorted(q, X[:, j], side="left") for j, q in enumerate(qs)]   # bin k: q[k-1] < x <= q[k]
+    pos = y.mean(); sw = np.where(y == 1, 0.5 / max(pos, 1e-6), 0.5 / max(1 - pos, 1e-6))
+    F = np.zeros(len(y)); trees = []
+    for _ in range(rounds):
+        p = 1 / (1 + np.exp(-F)); g = (y - p) * sw; h = p * (1 - p) * sw + 1e-9
+        G, H = g.sum(), h.sum(); best = None
+        for j, q in enumerate(qs):
+            gl = np.cumsum(np.bincount(B[j], g, len(q) + 1))[:len(q)]
+            hl = np.cumsum(np.bincount(B[j], h, len(q) + 1))[:len(q)]
+            gain = gl * gl / (hl + 1) + (G - gl) ** 2 / (H - hl + 1)
+            k = int(np.argmax(gain))
+            if best is None or gain[k] > best[0]:
+                best = (gain[k], j, float(q[k]), gl[k] / (hl[k] + 1), (G - gl[k]) / (H - hl[k] + 1))
+        _, j, t, vl, vr = best
+        trees.append((j, t, lr * vl, lr * vr))
+        F += np.where(X[:, j] <= t, lr * vl, lr * vr)
+    return trees
+
+
+def stumps_predict(trees, X):
+    F = np.zeros(len(X))
+    for j, t, vl, vr in trees:
+        F += np.where(X[:, j] <= t, vl, vr)
+    return 1 / (1 + np.exp(-np.clip(F, -30, 30)))
+
+
 def labels(meta):
     return np.array([1 if m["dist"] is not None and m["dist"] <= 3 else (0 if m["dist"] is None or m["dist"] > 6 else -1)
                      for m in meta])
+
+
+KIND = "logreg"
 
 
 def train(X, meta):
     lab = labels(meta)
     keep = lab >= 0
     mu, sd = X[keep].mean(0), X[keep].std(0) + 1e-6
+    if KIND == "stumps":
+        trees = fit_stumps((X[keep] - mu) / sd, lab[keep].astype(float))
+        return (lambda Y: stumps_predict(trees, (Y - mu) / sd),
+                dict(kind="stumps", trees=[list(t) for t in trees], mu=mu.tolist(), sd=sd.tolist()))
+    if KIND == "mlp":
+        W1, b1, W2, b2 = fit_mlp((X[keep] - mu) / sd, lab[keep].astype(float))
+        f = lambda Y: 1 / (1 + np.exp(-np.clip(np.tanh(((Y - mu) / sd) @ W1 + b1) @ W2 + b2[0], -30, 30)))
+        return f, dict(kind="mlp", W1=W1.tolist(), b1=b1.tolist(), W2=W2.tolist(), b2=float(b2[0]), mu=mu.tolist(), sd=sd.tolist())
     w, b = fit_logreg((X[keep] - mu) / sd, lab[keep].astype(float))
-    return lambda Y: 1 / (1 + np.exp(-np.clip(((Y - mu) / sd) @ w + b, -30, 30))), (w, b, mu, sd)
+    return (lambda Y: 1 / (1 + np.exp(-np.clip(((Y - mu) / sd) @ w + b, -30, 30))),
+            dict(kind="logreg", w=w.tolist(), b=b, mu=mu.tolist(), sd=sd.tolist()))
 
 
 def main():
+    global KIND
     d = Path(sys.argv[1])
+    KIND = sys.argv[2] if len(sys.argv) > 2 else "logreg"
     Xd, md, feats = load(d, "dev")
     Xv, mv, _ = load(d, "val")
     Xr, mr, _ = load(d, "real")
@@ -104,15 +170,19 @@ def main():
     safe = [t for t in taus if (lambda r: r["wrong"] == 0 and r["false"] == 0)(shot_eval(md, p_oof, t, man["dev"]))]
     tau0 = min(safe) if safe else 0.999
     tau = min(0.999, tau0 + 0.5 * (1 - tau0))          # margin towards 1 (no statistical guarantee)
-    P, (w, b, mu, sd) = train(Xd, md)
-    out = dict(features=feats, w=w.tolist(), b=b, mu=mu.tolist(), sd=sd.tolist(), tau_dev_min=tau0, tau=tau, ambig_p=AMBIG_P,
+    P, params = train(Xd, md)
+    np.savez(d / f"preds_{params['kind']}.npz", oof=p_oof, val=P(Xv), real=P(Xr))
+    out = dict(features=feats, **params, tau_dev_min=tau0, tau=tau, ambig_p=AMBIG_P,
                dev_oof=shot_eval(md, p_oof, tau, man["dev"]), val=shot_eval(mv, P(Xv), tau, man["val"]),
                real_dev_only=shot_eval(mr, P(Xr), tau, man["real"]))
-    order = np.argsort(-np.abs(w))
-    out["top_weights"] = [(feats[i], round(float(w[i]), 3)) for i in order[:10]]
-    (d / "model.json").write_text(json.dumps(out, indent=1))
+    if params["kind"] == "logreg":
+        w = np.array(params["w"]); order = np.argsort(-np.abs(w))
+        out["top_weights"] = [(feats[i], round(float(w[i]), 3)) for i in order[:10]]
+    (d / f"model_{params['kind']}.json").write_text(json.dumps(out, indent=1))
+    if params["kind"] == "logreg":
+        (d / "model.json").write_text(json.dumps(out, indent=1))
     for k in ("tau_dev_min", "tau", "dev_oof", "val", "real_dev_only", "top_weights"):
-        print(k, out[k])
+        print(k, out.get(k))
 
 
 if __name__ == "__main__":
