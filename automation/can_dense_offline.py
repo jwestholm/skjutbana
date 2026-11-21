@@ -100,8 +100,11 @@ def decide(shot, frames, to_game):
         pre_s = np.stack([p[y0:y1, x0:x1] for p in pre]); post_s = np.stack([p[y0:y1, x0:x1] for p in post])
         pre_m = np.median(pre_s, 0).astype(np.float32)
         post_m = np.median(post_s, 0).astype(np.float32)
-        for px, py, s in dense_top(pre_m, post_m, top_n=6):
-            core, bip = _core_bipolar(pre_m, post_m, px, py)
+        cand = [(px, py, s, 'dark') for px, py, s in dense_top(pre_m, post_m, top_n=6)]
+        if os.environ.get("CAN_OFF_BRIGHT"):   # hypothesis: some real holes appear BRIGHT (light behind)
+            cand += [(px, py, s, 'bright') for px, py, s in dense_top(post_m, pre_m, top_n=6)]
+        for px, py, s, kind in cand:
+            core, bip = (_core_bipolar(pre_m, post_m, px, py) if kind == 'dark' else _core_bipolar(post_m, pre_m, px, py))
             cx, cy = x0 + px, y0 + py
             yi, xi = int(round(py)), int(round(px))
             win = pre_m[max(yi - 4, 0):yi + 5, max(xi - 4, 0):xi + 5]
@@ -112,7 +115,7 @@ def decide(shot, frames, to_game):
                 return r - c
             dk_post = spot(post_s.astype(np.float32)); dk_pre = spot(pre_s.astype(np.float32))
             consist = float(dk_post.min() - dk_pre.max())   # every POST frame darker than every PRE frame
-            peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy, edge=edge, consist=consist,
+            peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy, edge=edge, consist=consist, kind=kind,
                               game_xy=[float(v) + (_dense_dx(float(v)) if k == 0 else 0.0)
                                        for k, v in enumerate(to_game(cx, cy))]))
     # overlapping tiles can report the same peak twice
