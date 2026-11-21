@@ -21,6 +21,7 @@ RADII = (0, 1, 2, 3, 4, 6, 8)
 FEATURES = (["s", "core", "bipolar", "rank", "ratio_next", "s_over_tile_median"]
             + [f"prof{r}" for r in RADII] + [f"prof{r}_z" for r in RADII]
             + ["pre_tstd", "post_tstd", "post_min_dk", "post_max_dk", "pre_max_dk", "consist", "edge", "local_level"])
+FEATURES_V2 = FEATURES + ["is_bright"]        # v2: bright candidates (some real holes appear bright)
 TILE_MARGIN = 36
 
 
@@ -39,8 +40,11 @@ def tile_bounds(camera_aabb):
             int(math.ceil(x + w)) + TILE_MARGIN, int(math.ceil(y + h)) + TILE_MARGIN)
 
 
-def tile_peaks(pre_s, post_s, x0, y0):
-    """pre_s/post_s: float32 stacks (n, h, w) of one tile.  Returns [(cx, cy, s, feature_vector)]."""
+def tile_peaks(pre_s, post_s, x0, y0, bright=False):
+    """pre_s/post_s: float32 stacks (n, h, w) of one tile.  Returns [(cx, cy, s, feature_vector)].
+    bright=True searches brightening dots by swapping PRE/POST (features then describe the brightening)."""
+    if bright:
+        pre_s, post_s = post_s, pre_s
     pre_m, post_m = np.median(pre_s, 0), np.median(post_s, 0)
     tops = dense_top(pre_m, post_m, top_n=6)
     ss = [t[2] for t in tops]
@@ -97,7 +101,9 @@ class PeakModel:
         self.mu, self.sd = np.array(m["mu"]), np.array(m["sd"])
         self.tau = float(m["tau"])
         self.ambig_p = float(m.get("ambig_p", 0.85))
-        assert list(m["features"]) == list(FEATURES), "feature list mismatch"
+        self.features = list(m["features"])
+        assert self.features in (list(FEATURES), list(FEATURES_V2)), "feature list mismatch"
+        self.uses_bright = self.features == list(FEATURES_V2)
 
     def p(self, feats):
         X = (np.asarray(feats, np.float64) - self.mu) / self.sd

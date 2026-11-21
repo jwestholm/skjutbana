@@ -17,7 +17,10 @@ import sys
 import numpy as np
 
 from automation.can_dense_offline import Frames, env, load_shots, mapper
-from src.engine.camera.dense_peak_model import FEATURES, tile_bounds, tile_peaks
+import os
+from src.engine.camera.dense_peak_model import FEATURES, FEATURES_V2, tile_bounds, tile_peaks
+
+BRIGHT = os.environ.get("CAN_PEAK_BRIGHT") == "1"
 from src.engine.camera.object_physical_query import _dense_dx
 from src.engine.game_objects.geometry import shape_contains
 
@@ -41,13 +44,15 @@ def shot_rows(shot, frames, to_game, next_peak=math.inf):
         x0, y0, x1, y1 = tile_bounds(reg["camera_aabb"])
         pre_s = np.stack([p[y0:y1, x0:x1] for p in pre]).astype(np.float32)
         post_s = np.stack([p[y0:y1, x0:x1] for p in post]).astype(np.float32)
-        for cx, cy, s, f in tile_peaks(pre_s, post_s, x0, y0):
-            gxy = to_game(cx, cy)
-            gxy = (gxy[0] + _dense_dx(gxy[0]), gxy[1])
-            rows.append(dict(f=f, cx=cx, cy=cy, game_xy=[float(gxy[0]), float(gxy[1])], s=float(s)))
+        for bright in ((False, True) if BRIGHT else (False,)):
+            for cx, cy, s, f in tile_peaks(pre_s, post_s, x0, y0, bright=bright):
+                gxy = to_game(cx, cy)
+                gxy = (gxy[0] + _dense_dx(gxy[0]), gxy[1])
+                rows.append(dict(f=f + ([1.0 if bright else 0.0] if BRIGHT else []), cx=cx, cy=cy,
+                                 game_xy=[float(gxy[0]), float(gxy[1])], s=float(s), bright=bright))
     uniq = []
     for r in sorted(rows, key=lambda r: -r["s"]):
-        if all(math.hypot(r["cx"] - q["cx"], r["cy"] - q["cy"]) > 3 for q in uniq):
+        if all(math.hypot(r["cx"] - q["cx"], r["cy"] - q["cy"]) > 3 or r.get("bright") != q.get("bright") for q in uniq):
             uniq.append(r)
     return uniq
 
@@ -82,9 +87,9 @@ def main():
                 exact = t.get("source") != "operator_visual"
                 dist = math.hypot(row["game_xy"][0] - tx, row["game_xy"][1] - ty) if exact else None
                 X.append(row["f"])
-                meta.append(dict(session=session.rstrip("/").split("/")[-1], sid=sid, truth=t["truth_object"],
+                meta.append(dict(bright=row.get("bright", False), session=session.rstrip("/").split("/")[-1], sid=sid, truth=t["truth_object"],
                                  exact=exact, dist=dist, inside=inside, s=row["s"], game_xy=row["game_xy"]))
-    np.savez_compressed(out, X=np.array(X, np.float32), features=np.array(FEATURES))
+    np.savez_compressed(out, X=np.array(X, np.float32), features=np.array(FEATURES_V2 if BRIGHT else FEATURES))
     with open(out.replace(".npz", "_meta.jsonl"), "w") as fh:
         for m in meta:
             fh.write(json.dumps(m) + "\n")

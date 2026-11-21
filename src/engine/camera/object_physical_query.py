@@ -617,12 +617,15 @@ class ObjectPhysicalQuery:
             from src.engine.camera.dense_peak_model import dedupe, live_model, tile_peaks
             model = live_model()
             rows = []
-            for mt in tiles:
-                if not mt['post']:
-                    continue
-                x0, y0 = mt['bounds'][:2]
-                rows += tile_peaks(mt['pre'], np.stack(mt['post']), x0, y0)
-            rows = dedupe(rows)
+            for bright in ((False, True) if model.uses_bright else (False,)):
+                part = []
+                for mt in tiles:
+                    if not mt['post']:
+                        continue
+                    x0, y0 = mt['bounds'][:2]
+                    part += [(cx, cy, s, f + ([1.0 if bright else 0.0] if model.uses_bright else []))
+                             for cx, cy, s, f in tile_peaks(mt['pre'], np.stack(mt['post']), x0, y0, bright=bright)]
+                rows += dedupe(part)
             if not rows:
                 self.dense_model = dict(state='no_candidates')
                 return
