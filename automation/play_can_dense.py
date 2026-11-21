@@ -12,6 +12,17 @@ import sys
 for k, v in (("SKJUTBANA_OBJECT_DENSE", "1"), ("SKJUTBANA_SOURCE_RECORD", "1"), ("SKJUTBANA_PHYSICAL_TRACE_DISABLE", "1"),
              ("SKJUTBANA_AUDIO_COOLDOWN_S", "0.15")):
     os.environ.setdefault(k, v)
+# Measured x correction (+1.35 game px; projected dots 2026-11-21, held-out |dx| 1.31 -> 0.42) is only
+# valid for the calibration it was fitted on.
+import json  # noqa: E402
+try:
+    _cal = json.load(open("content/settings.json"))["camera_calibration"].get("calibrated_at")
+except Exception:
+    _cal = None
+if _cal == "2026-11-21T17:55:49":
+    os.environ.setdefault("SKJUTBANA_OBJECT_DENSE_GAME_DX", "1.35")
+else:
+    print(f"[play_can_dense] calibration {_cal!r} differs from the fitted one: no x correction", flush=True)
 sys.path.insert(0, os.getcwd())
 sys.argv = [sys.argv[0]]
 import main  # noqa: F401,E402  installs runtimes exactly like main.py

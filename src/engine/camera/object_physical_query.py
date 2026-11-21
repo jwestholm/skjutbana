@@ -573,6 +573,14 @@ class ObjectPhysicalQuery:
             return self.finish_deadline(finished_at)
         return self.payload('UNCERTAIN','awaiting_persistence',finished_at)
 
+    def _dense_game(self, cx, cy):
+        """camera->game for the dense decision plus an optional measured constant x correction
+        (SKJUTBANA_OBJECT_DENSE_GAME_DX, game px; fitted on projected dots for one calibration)."""
+        g = self.camera_to_game(cx, cy) if self.camera_to_game else None
+        if g is None:
+            return None
+        return (float(g[0]) + _denv("SKJUTBANA_OBJECT_DENSE_GAME_DX", 0.0), float(g[1]))
+
     def _dense_observe(self, frame, ts, now, started):
         """H15-style decision on the frozen object crops (flag SKJUTBANA_OBJECT_DENSE)."""
         from src.engine.shot_dense_h15 import dense_top, _core_bipolar
@@ -599,7 +607,7 @@ class ObjectPhysicalQuery:
                     continue
                 core, bip = _core_bipolar(pre_m, post_m, x, y)
                 cx, cy = tile['geometry'].local_to_camera(x, y)
-                g = self.camera_to_game(cx, cy) if self.camera_to_game else None
+                g = self._dense_game(cx, cy)
                 peaks.append(dict(s=float(sc), core=float(core), bipolar=float(bip), cx=float(cx), cy=float(cy),
                                   game_xy=None if g is None else [float(g[0]), float(g[1])]))
         peaks.sort(key=lambda d: -d['s'])
@@ -633,7 +641,7 @@ class ObjectPhysicalQuery:
             self.hypotheses = []
             return self.finish('UNCERTAIN', 'dense_no_accepted_dot', now)
         cx, cy = top['cx'], top['cy']
-        game_xy = self.camera_to_game(cx, cy) if self.camera_to_game else None
+        game_xy = self._dense_game(cx, cy)
         associations = []
         for region in self.regions:
             original = next((r for r in self.game_regions if r.object_id == region.object_id), None)

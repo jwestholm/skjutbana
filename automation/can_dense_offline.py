@@ -112,7 +112,8 @@ def decide(shot, frames, to_game):
             dk_post = spot(post_s.astype(np.float32)); dk_pre = spot(pre_s.astype(np.float32))
             consist = float(dk_post.min() - dk_pre.max())   # every POST frame darker than every PRE frame
             peaks.append(dict(s=float(s), core=float(core), bipolar=float(bip), cx=cx, cy=cy, edge=edge, consist=consist,
-                              game_xy=[float(v) for v in to_game(cx, cy)]))
+                              game_xy=[float(v) + (env("SKJUTBANA_OBJECT_DENSE_GAME_DX", 0.0) if k == 0 else 0.0)
+                                       for k, v in enumerate(to_game(cx, cy))]))
     # overlapping tiles can report the same peak twice
     uniq = []
     for p in sorted(peaks, key=lambda d: -d["s"]):
