@@ -138,7 +138,7 @@ TARGET_SPECS = (
     TargetSpec(
         "mini_can", "MINIBURK", "Liten men dryg",
         5.0, 8.0, 225, "can",
-        (75, 153, 210), (29, 78, 120), "can",
+        (75, 153, 210), (95, 150, 200), "can",
     ),
     TargetSpec(
         "soda_can", "LÄSKBURK", "Klassikern",
@@ -155,22 +155,22 @@ TARGET_SPECS = (
     TargetSpec(
         "gold_can", "GULDBURK", "Helt onödigt blank",
         6.6, 11.5, 300, "can",
-        (245, 191, 57), (153, 102, 16), "can",
+        (245, 191, 57), (205, 160, 70), "can",
     ),
     TargetSpec(
         "rubber_duck", "GUMMIANKA", "Kvack +250",
         11.5, 10.0, 250, "duck",
-        (250, 211, 56), (235, 130, 31), "ellipse",
+        (250, 211, 56), (240, 170, 70), "ellipse",
     ),
     TargetSpec(
         "beans_xxl", "BÖNBURK XXL", "Stor. Inte smart.",
         10.0, 15.0, 100, "can",
-        (115, 173, 87), (50, 93, 42), "can",
+        (115, 173, 87), (120, 165, 100), "can",
     ),
     TargetSpec(
         "sardines", "SARDINER", "Låg profil",
         12.5, 3.5, 275, "tin",
-        (143, 177, 191), (59, 91, 106), "rect",
+        (143, 177, 191), (120, 160, 175), "rect",
     ),
 )
 
@@ -186,6 +186,8 @@ GROUND_BOTTOM = (53, 73, 48)
 TEXT = (247, 246, 239)
 MUTED = (202, 206, 201)
 PANEL = (12, 18, 22)
+# Light shadow for targets/plates near the shooting area (colour guide: no dark areas where shots land).
+SHADOW_LIGHT = (150, 170, 140)
 PANEL_2 = (23, 31, 36)
 AMBER = (255, 190, 70)
 GOOD = (105, 235, 145)
@@ -1380,7 +1382,7 @@ class ShootStuffGame:
             self._draw_target(surf, rect, spec)
 
             if self.font_tiny is not None:
-                points = self.font_tiny.render(str(spec.points), True, (241, 231, 196))
+                points = self.font_tiny.render(str(spec.points), True, (70, 60, 45))
                 plate_w = max(24, points.get_width() + 8)
                 plate = pygame.Rect(
                     rect.centerx - plate_w // 2,
@@ -1388,7 +1390,7 @@ class ShootStuffGame:
                     plate_w,
                     max(17, points.get_height() + 3),
                 )
-                pygame.draw.rect(surf, (50, 43, 33), plate, border_radius=3)
+                pygame.draw.rect(surf, (238, 232, 210), plate, border_radius=3)
                 surf.blit(points, points.get_rect(center=plate.center))
 
     def _draw_target(self, surf: pygame.Surface, rect: pygame.Rect, spec: TargetSpec) -> None:
@@ -1407,7 +1409,7 @@ class ShootStuffGame:
     def _draw_can(self, surf, rect, spec) -> None:
         radius = max(2, rect.width // 5)
         shadow = rect.move(max(1, rect.width // 8), max(1, rect.height // 18))
-        pygame.draw.rect(surf, (26, 30, 29), shadow, border_radius=radius)
+        pygame.draw.rect(surf, SHADOW_LIGHT, shadow, border_radius=radius)
         pygame.draw.rect(surf, spec.secondary, rect, border_radius=radius)
         inner = rect.inflate(-max(2, rect.width // 7), -max(2, rect.height // 18))
         if inner.width > 1 and inner.height > 1:
@@ -1427,12 +1429,12 @@ class ShootStuffGame:
         )
 
     def _draw_roll(self, surf, rect, spec) -> None:
-        pygame.draw.ellipse(surf, (60, 61, 57), rect.move(2, 2))
+        pygame.draw.ellipse(surf, SHADOW_LIGHT, rect.move(2, 2))
         pygame.draw.ellipse(surf, spec.primary, rect)
         inner = rect.inflate(-max(4, rect.width // 3), -max(4, rect.height // 3))
         if inner.width > 0 and inner.height > 0:
-            pygame.draw.ellipse(surf, (91, 82, 68), inner)
-            pygame.draw.ellipse(surf, (35, 32, 28), inner, 1)
+            pygame.draw.ellipse(surf, (180, 168, 140), inner)
+            pygame.draw.ellipse(surf, (150, 140, 115), inner, 1)
         pygame.draw.arc(surf, spec.secondary, rect.inflate(-2, -2), 0.5, 4.7, 2)
 
     def _draw_duck(self, surf, rect, spec) -> None:
@@ -1441,7 +1443,7 @@ class ShootStuffGame:
         def ellipse_rect(p):
             return pygame.Rect(round(p['x']),round(p['y']),max(1,round(p['width'])),max(1,round(p['height'])))
         body,head=map(ellipse_rect,parts[:2])
-        pygame.draw.ellipse(surf, (55, 53, 40), body.move(2, 2))
+        pygame.draw.ellipse(surf, SHADOW_LIGHT, body.move(2, 2))
         pygame.draw.ellipse(surf, spec.primary, body)
         pygame.draw.ellipse(surf, spec.primary, head)
         beak = [(round(x),round(y)) for x,y in parts[2]['points']]
@@ -1455,7 +1457,7 @@ class ShootStuffGame:
         )
 
     def _draw_tin(self, surf, rect, spec) -> None:
-        pygame.draw.rect(surf, (35, 40, 42), rect.move(2, 2), border_radius=3)
+        pygame.draw.rect(surf, SHADOW_LIGHT, rect.move(2, 2), border_radius=3)
         pygame.draw.rect(surf, spec.primary, rect, border_radius=3)
         pygame.draw.rect(surf, spec.secondary, rect, 2, border_radius=3)
         inset = rect.inflate(-max(2, rect.width // 10), -max(2, rect.height // 4))
