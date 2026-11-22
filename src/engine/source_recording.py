@@ -87,6 +87,78 @@ def looks_like_mjpg(buffer: Any) -> bool:
     return int(flat[0]) == 0xFF and int(flat[1]) == 0xD8
 
 
+class WindowGate:
+    """Shot-window recording (opt-in ``SKJUTBANA_SOURCE_RECORD_WINDOW=1``).
+
+    Camera frames are kept in a ring of ``pre_s`` seconds and written only around triggers: every audio
+    block whose peak reaches ``level`` (a fraction of full scale, default 0.5 x the detector's absolute
+    threshold so near-threshold shots are kept too) and every explicit trigger (detected or injected
+    shot).  A frame opens/extends nothing by itself; frames up to ``post_s`` after the last trigger are
+    written, and one heartbeat frame every ``heartbeat_s`` keeps the board state between shots.  Audio is
+    always recorded in full.  Pure logic so the same rule can be simulated offline on old sessions.
+    """
+
+    def __init__(self, pre_s: float = 1.5, post_s: float = 2.5, heartbeat_s: float = 2.0, level: float = 0.1):
+        self.pre_s, self.post_s, self.heartbeat_s, self.level = float(pre_s), float(post_s), float(heartbeat_s), float(level)
+        self.ring: list[tuple[float, Any]] = []
+        self.open_until = -1e18
+        self.last_written = -1e18
+        self.skipped = 0
+        self.triggers = 0
+
+    @classmethod
+    def from_env(cls) -> "WindowGate | None":
+        if os.environ.get("SKJUTBANA_SOURCE_RECORD_WINDOW") != "1":
+            return None
+        env = lambda k, d: float(os.environ.get(k, d))
+        level = os.environ.get("SKJUTBANA_SOURCE_RECORD_WINDOW_LEVEL")
+        if level is None:
+            try:
+                from src.engine.settings import load_audio_peak_threshold
+                level = 0.5 * float(load_audio_peak_threshold())
+            except Exception:
+                level = 0.1
+        return cls(env("SKJUTBANA_SOURCE_RECORD_WINDOW_PRE_S", 1.5), env("SKJUTBANA_SOURCE_RECORD_WINDOW_POST_S", 2.5),
+                   env("SKJUTBANA_SOURCE_RECORD_WINDOW_HEARTBEAT_S", 2.0), float(level))
+
+    def config(self) -> dict:
+        return dict(pre_s=self.pre_s, post_s=self.post_s, heartbeat_s=self.heartbeat_s, level=self.level)
+
+    def trigger(self, ts: float) -> list:
+        """Open the window at ts; returns ring items (oldest first) that must now be written."""
+        self.triggers += 1
+        self.open_until = max(self.open_until, ts + self.post_s)
+        keep = [(t, item) for t, item in self.ring if t >= ts - self.pre_s]
+        self.skipped += len(self.ring) - len(keep)
+        self.ring = []
+        if keep:
+            self.last_written = max(self.last_written, keep[-1][0])
+        return [item for _, item in keep]
+
+    def audio(self, pcm: bytes, ts: float) -> list:
+        data = np.frombuffer(pcm, dtype=np.int16)
+        if data.size and float(np.abs(data.astype(np.int32)).max()) / 32768.0 >= self.level:
+            return self.trigger(ts)
+        return []
+
+    def camera(self, ts: float, item: Any) -> list:
+        """Items to write now, oldest first (time order is preserved).  Inside an open window the frame is
+        written at once; otherwise it waits in the ring, and a frame leaving the ring is written only as a
+        heartbeat (>= heartbeat_s after the last written frame)."""
+        if ts <= self.open_until:
+            self.last_written = ts
+            return [item]
+        self.ring.append((ts, item))
+        out = []
+        while self.ring and self.ring[0][0] < ts - self.pre_s:
+            t, old = self.ring.pop(0)
+            if t - self.last_written >= self.heartbeat_s:
+                self.last_written = t
+                out.append(old)
+            else:
+                self.skipped += 1
+        return out
+
 class SourceRecorder:
     def __init__(self, root: Path | str | None = None, *, repo_root: Path | None = None,
                  start_min_free_gb: float = START_MIN_FREE_GB,
@@ -106,6 +178,7 @@ class SourceRecorder:
         self.counts = dict(camera_frames=0, audio_blocks=0, camera_bytes=0, audio_bytes=0,
                            dropped_camera=0, dropped_audio=0, decoded_not_recorded=0)
         self._since_disk_check = 0
+        self.window = WindowGate.from_env()
 
     # -- lifecycle -----------------------------------------------------
     def free_gb(self) -> float:
@@ -145,6 +218,10 @@ class SourceRecorder:
             self._audio_idx = open(self.directory / "audio_index.jsonl", "a", encoding="utf-8")
             self._events = open(self.directory / "events.jsonl", "a", encoding="utf-8")
             self.state = "RECORDING"
+            if self.window is not None:
+                self._events.write(json.dumps(dict(kind="window_mode", wall=time.time(), **self.window.config())) + "\n")
+                self._events.flush()
+                print(f"[SOURCE-RECORD] shot-window mode {self.window.config()}")
             self._thread = threading.Thread(target=self._run, name="source-recorder", daemon=True)
             self._thread.start()
             atexit.register(self.stop)
@@ -228,6 +305,9 @@ class SourceRecorder:
             elif item[0] == "audio":
                 self.counts["dropped_audio"] += 1
         self.counts["unwritten_at_stop"] = remaining
+        if self.window is not None:
+            self.counts["window_skipped_frames"] = self.window.skipped + len(self.window.ring)
+            self.counts["window_triggers"] = self.window.triggers
         self._close_files()
         if self.directory is not None:
             end = dict(stopped_wall=time.time(), reason=reason, counts=dict(self.counts))
@@ -268,6 +348,16 @@ class SourceRecorder:
             self.counts["dropped_audio"] += 1
             self._event("audio_dropped_queue_full", sequence=metadata.get("sequence"))
 
+    def note_trigger(self, wall_ts: float | None = None, source: str = "shot") -> None:
+        """A shot (detected or injected) happened: in shot-window mode the frames around it are kept."""
+        if self.state != "RECORDING" or self.window is None:
+            return
+        try:
+            self._queue.put_nowait(("trigger", b"", dict(wall=float(wall_ts if wall_ts is not None else time.time()),
+                                                         source=source)))
+        except queue.Full:
+            self.counts["dropped_trigger"] = self.counts.get("dropped_trigger", 0) + 1
+
     def _event(self, kind: str, **fields: Any) -> None:
         try:
             self._queue.put_nowait(("event", b"", dict(kind=kind, wall=time.time(), **fields)))
@@ -275,6 +365,14 @@ class SourceRecorder:
             pass
 
     # -- writer --------------------------------------------------------
+    def _write_camera(self, data: bytes, meta: Mapping[str, Any]) -> None:
+        offset = self._camera_bin.tell()
+        self._camera_bin.write(data)
+        row = dict(offset=offset, length=len(data), payload=PAYLOAD_MJPG, acquisition=_json_safe(meta))
+        self._camera_idx.write(json.dumps(row, separators=(",", ":")) + "\n")
+        self.counts["camera_frames"] += 1
+        self.counts["camera_bytes"] += len(data)
+
     def _run(self) -> None:
         while True:
             item = self._queue.get()
@@ -282,13 +380,21 @@ class SourceRecorder:
                 break
             kind, data, meta = item
             try:
+                if self.window is not None and kind in ("camera", "audio", "trigger"):
+                    if kind == "camera":
+                        ts = float(meta.get("receive_wall_ts") or time.time())
+                        for d, m in self.window.camera(ts, (data, meta)):
+                            self._write_camera(d, m)
+                        continue
+                    else:
+                        ts = float(meta.get("wall") if kind == "trigger" else (meta.get("receive_wall_ts") or time.time()))
+                        held = self.window.trigger(ts) if kind == "trigger" else self.window.audio(data, ts)
+                        for d, m in held:
+                            self._write_camera(d, m)
+                        if kind == "trigger":
+                            continue
                 if kind == "camera":
-                    offset = self._camera_bin.tell()
-                    self._camera_bin.write(data)
-                    row = dict(offset=offset, length=len(data), payload=PAYLOAD_MJPG, acquisition=_json_safe(meta))
-                    self._camera_idx.write(json.dumps(row, separators=(",", ":")) + "\n")
-                    self.counts["camera_frames"] += 1
-                    self.counts["camera_bytes"] += len(data)
+                    self._write_camera(data, meta)
                 elif kind == "audio":
                     offset = self._audio_bin.tell()
                     self._audio_bin.write(data)
