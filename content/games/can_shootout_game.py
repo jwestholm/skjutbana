@@ -71,6 +71,12 @@ SHELF_HEIGHT_CM = 135.0
 # shelf must also move at least TABLE_MIN_MOVE_TARGET_H tallest-target heights from the last turns.
 TABLE_HEIGHT_RANGE_CM = (35.0, 260.0)
 TABLE_MIN_MOVE_TARGET_H = 2.5
+# The old fixed 135 cm table wore out (and taped over) that band of the screen: always keep away from it.
+TABLE_WORN_HEIGHTS_CM = (SHELF_HEIGHT_CM,)
+# Recent shelf positions survive restarts so a new game does not land where the last one ended.
+TABLE_HISTORY_PATH = os.environ.get(
+    "SKJUTBANA_CAN_TABLE_HISTORY",
+    os.path.expanduser("~/.local/state/skjutbana/can_table_recent.json"))
 HORIZON_Y_NORM = 0.43
 HUD_HEIGHT = 132
 
@@ -311,7 +317,7 @@ class ShootStuffGame:
         self._target_geometry: dict[str, tuple[float, float, float, float]] = {}
         self._shelf_y = float(self.viewport.h * 0.66)
         self._shelf_height_cm = SHELF_HEIGHT_CM
-        self._recent_shelf_ys: list[float] = []
+        self._recent_shelf_ys: list[float] = self._load_table_history()
         self._last_resolution_line = ""
         self._last_hit_shot_id = None
         self._background_cache = None
@@ -438,6 +444,25 @@ class ShootStuffGame:
         # room above the targets for the distance sign, below the HUD
         return float(HUD_HEIGHT + max_target_h + sign_h + 34 + 8), float(self.viewport.h - 64)
 
+    def _load_table_history(self) -> list[float]:
+        try:
+            data = json.load(open(TABLE_HISTORY_PATH))
+            if data.get("viewport") == [self.viewport.w, self.viewport.h]:
+                return [float(y) for y in data.get("shelf_ys", [])][-6:]
+        except Exception:
+            pass
+        return []
+
+    def _save_table_history(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(TABLE_HISTORY_PATH), exist_ok=True)
+            tmp = TABLE_HISTORY_PATH + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(dict(viewport=[self.viewport.w, self.viewport.h], shelf_ys=self._recent_shelf_ys[-6:]), fh)
+            os.replace(tmp, TABLE_HISTORY_PATH)
+        except Exception as exc:
+            print(f"[CAN-TABLE] history not saved: {exc}", flush=True)
+
     def _pick_table_height(self) -> None:
         """New random leg length for this turn (fixed 135 cm with SKJUTBANA_CAN_FIXED_TABLE=1)."""
         if os.environ.get("SKJUTBANA_CAN_FIXED_TABLE") == "1":
@@ -452,7 +477,8 @@ class ShootStuffGame:
             y = self._projected_shelf_y(cm)
             if not (lo <= y <= hi):
                 continue
-            gap = min((abs(y - p) for p in self._recent_shelf_ys[-3:]), default=1e9)
+            avoid = self._recent_shelf_ys[-3:] + [self._projected_shelf_y(c) for c in TABLE_WORN_HEIGHTS_CM]
+            gap = min(abs(y - p) for p in avoid)
             if best is None or gap > best[0]:
                 best = (gap, cm, y)
             if gap >= min_move:
@@ -460,6 +486,7 @@ class ShootStuffGame:
         if best is not None:
             self._shelf_height_cm = best[1]
             self._recent_shelf_ys.append(best[2])
+            self._save_table_history()
             print(f"[CAN-TABLE] player={self.player} table_height_cm={best[1]:.0f} shelf_y={best[2]:.0f} "
                   f"move_px={best[0] if best[0] < 1e9 else 0:.0f}", flush=True)
 
