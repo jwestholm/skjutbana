@@ -513,3 +513,12 @@ src/engine/scenes/automation_ai_training.py
 `ai_training_results.py` owns persistent machine-readable result storage.
 The normal `src/engine/scenes/ai_training.py` remains the actual training
 implementation and is deliberately not duplicated by automation.
+
+## Starta ett registrerat spel
+
+`send_command("startGame", {"id": "light_targets"})` väljer ett spel-id från
+`content/menu.json`. Kommandot köas och scenbytet sker i App:s huvudtråd via
+samma fabrik som menyn. Godtyckliga skriptvägar och okända id:n avvisas.
+Svaret bekräftar scenbyte; spelaren startar sedan omgången med ENTER.
+API-anropet ändrar inte inspelnings-/ljudinställningar i en redan körande process.
+För Ljusjakten finns `python3 -m automation.play_light_targets --api`.

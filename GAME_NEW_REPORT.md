@@ -1,127 +1,159 @@
-# Ljusjakten — luftgevär 20 m
+# PANG! – Ljusateljén / Ljusjakten
 
-2026-11-22. Implementerat för granskning, inga commits. **95 % fysisk korrekthet är
-ett acceptansmål, inte ett uppmätt resultat.** Ingen kamera eller projektor har använts.
+2026-11-22, `claude/latency`, för granskning. Inga commits/push/merge.
+**Kamera/projektor orörda. Nya rummet är inte fysiskt validerat; ≥95 % är målet.**
 
-## Spelet
+## Spelbar version
 
-En eller två spelare, fem eller tio skott var. En stor ljus cirkel på ljusgul botten
-byter plats efter varje bedömt skott. Träff ger 100 poäng och svitbonus upp till 200;
-miss eller osäkert ger inga poäng. Osäkert visas uttryckligen och räknas som förbrukat
-försök. Inga tidspoäng, inga flashar. Skjut bara när REDO visas, ett skott per lampa.
-ENTER startar; 1/2 väljer spelare, 5/0 väljer fem/tio skott, ESC återgår till menyn.
-Mus är märkt SIMULATED och ingår inte i fysisk mätning.
+Ett ljust, förrenderat Blender-rum med **sex föremål åt gången** på golv, bord,
+bänk, hylla och fönsterbräda. Fem modeller: blomvas, kruka, skål, flaska och lampa;
+elva funktionella deltyper. Placeringarna varierar mellan spelarturer och när ett
+rum är tömt. Skador och skärvor ligger kvar mellan skotten – man plockar isär rummet.
+1–2 spelare, 5/10 skott, inget tidstvång. ENTER startar, 1/2 spelare, 5/0 skott,
+ESC meny, **M tystar ljuden**.
 
-Tolv spridda positioner används före återanvändning, med marginal från dukens kanter.
-Vid 760×580 är målet 120 px i diameter, cirka 14 cm på en 90 cm bred projektion.
-20 m avser den avsedda verkliga skjutdistansen; målet krymps inte virtuellt.
-Paletten har hög grönkanal, utan text, mörk kontur eller smådetaljer nära målet.
-Ren presenterad yta får stabiliseras 1,1 s före REDO. Hela bilden fryses under frågan;
-feedback börjar först när frågan stängts. Renderingen cachas mellan förändringar.
+- Blomskott: blomman faller, vasen står kvar. Halsskott: hals/överdel faller,
+  buken står kvar. Bukskott: kroppen krossas och överdelarna lossnar.
+- Lock, skålens kant och lampskärm har egna former och fallsekvenser.
+- Bekräftad del ger 100–200 poäng, svitbonus upp till +100 och +500 för tömt rum.
+  Strukturellt lossnade syskon ger **inte** extra fysiska träffar eller delpoäng.
+- Träffens observerade sida styr fragmentimpulsens riktning. Damm, lokal träffring,
+  keramikkrasch/klonk/blomljud kommer först efter beslutet och skyddat POST-fönster.
 
-## Filer och återanvändning
+## Mekanik, former och mätbarhet
 
-- `content/games/light_targets_game.py`: spel, poäng, låst skottägarskap, regioner.
-- `content/menu.json`: id `light_targets`, ”Ljusjakten – luftgevär 20 m”.
-- `src/engine/input/hit_regions.py`: explicit `evidence_method='dense'` i fryst region.
-- `src/engine/camera/object_physical_query.py` och `input/object_hit_v2223.py`:
-  befintlig dense-väg/deadline/parhantering kan väljas per fråga utan global env-ändring.
-  Frågor utan denna opt-in behåller befintligt val. Inga detektortrösklar har justerats.
-- `src/engine/scene_factory.py`, `app.py`: `startGame` väljer registrerat meny-id via
-  befintlig fabrik/kö och utför scenbytet i huvudtråden.
-- `automation/play_light_targets.py`: start och API-klient.
-- `automation/light_targets_score.py`: oberoende facit jämfört med spelloggen.
-- `automation/light_targets_selftest.py`: nio kontraktstester.
+Befintliga `GameObject.entity_id/part_id`, `make_breakable_object`, ObjectManager,
+frysta former, OBJECT dense och audio `play_feedback` återanvänds.
+Den enda nya generella motormekaniken är **opt-in `EffectAction.break_parts`**:
+namngivna syskondelar inom samma ägare/entity kan få en uttrycklig strukturell
+brottreaktion. Den skapar inga nya observerade skott eller koordinater. Andra spel
+utan denna action behåller sitt beteende.
 
-OBJECT-träffar går via befintlig ObjectManager/resolve_object_query med frysta
-ellipsformer och projektilradie 2,25 mm (4,5 mm luftgevär). Vanliga CURRENT-XY ger
-aldrig poäng. Fel skott-id, gammal målkontext, followers och dubbletter avvisas.
-Fyra sekunder utan slutresultat ger UNKNOWN; inget påhittat missbeslut.
-Modellen är fortsatt SHADOW. Ingen standardpolicy ändras för andra spel.
+Varje del har en egen **synlig alpha-mask från samma renderkamera**, polygon/union
+och projektil-touch 2,25 mm. Delmaskerna överlappar inte som raster. Flera möjliga
+parts vid en fysisk delgräns ger UNKNOWN; ingen väljs med listordning eller 3D-djup.
+Maskexporten rättar bara instängda ID-antialiasprickar ≤4 källpixlar, loggar antalet
+och vägrar riktiga hål i polygonen. Alla former motsvarar de exporterade pixlarna;
+kontur/nedskalning har fortfarande ungefär en källpixels gränsosäkerhet.
 
-## Start
+Kvarliggande skärvor ritas **bakom** aktiva delar, så de inte döljer något som
+fortfarande är träffbart. Flygande skärvor får korsa rummet bara när frågorna är
+stängda. Detta är en explicit renderregel, ingen z-ordning gissad från fysiskt XY.
 
-Från worktree-roten, när operatören vill starta riggen:
+Från första nya presentation väntar spelet **1,7 s före REDO** (1,5 s + marginal).
+Hela bilden fryses vid skott. Reaktionen väntar på slutbeslut **och peak+1,2 s**.
+Animationens klocka startar när den faktiskt börjar renderas, så en huvudloopspaus
+inte hoppar över effekten. Därefter nytt stilla PRE-fönster. Fördröjda ljudtoppar
+från en äldre spelperiod tar inte ett nytt försök. Ljudutmatning loggas via motorn;
+**ingen ny mikrofonspärr eller ljudtröskel** införs. Kontrollera fysisk återkoppling
+med ljud både på och av; digital volym är ingen akustisk kalibrering.
+
+Paletten kontrolleras i exporterade bilder: G≥192, ljus omgivning, ingen fin textur.
+HUD/text ligger ovanför alla mål. Detta är digital kontroll, inte ny kameramätning.
+UNKNOWN/timeout ger inga poäng; CURRENT-XY och skuggmodellen ger aldrig spelpoäng.
+
+## Start och granskning utan hårdvara
+
+Samma meny/API-id **`light_targets`**, ny titel ”PANG! – Ljusateljén”.
 
 ```bash
-python3 -m automation.play_light_targets 2>&1 | tee /tmp/light_targets.log
+python3 -m automation.play_light_targets 2>&1 | tee /tmp/light_targets_room.log
+# alternativ: --menu eller --api (redan körande app)
 ```
 
-Starta med vanlig meny och samma mätmiljö:
+API: `send_command('startGame', {'id':'light_targets'})`. Befintliga launcher-defaults
+för dense, .15 s cooldown, source/window recording och avstängda fullspår är
+bevarade, liksom användarens fönsterplacering. Ingen ny GAME_DX.
+
+**Utan App, display, mixer, kamera eller projektor:**
 
 ```bash
-python3 -m automation.play_light_targets --menu
+python3 -m automation.light_room_preview --out /tmp/light_room_preview_NEW
 ```
 
-I redan körande app:
+Ger PNG för intakt rum samt blom-/hals-/bukträff och separata WAV-ljud att granska.
+Körda exempel: `/tmp/pang_delivery_preview/` och `/tmp/light_room_v3_checks/`.
+Förhandsprocessen mättes till cirka 159 MiB topp-RSS och 2,0 s (inte hela live-appens RAM).
+Grafik/sönderfall förladdas före mätfönstret; ingen bildläsning i träffreaktionen.
+
+## Tillgångar och Blender-pipeline
+
+Leveransen använder **egna procedurmodeller**, inte nedladdade modeller. Nya
+render-/masktillgångar levereras med **CC0-1.0**, se
+`content/games/light_room_parts_assets/{SOURCES.md,LICENSE.txt,manifest.json}`.
+Originala genererade ljudvågformer är också CC0-1.0, utan externa samplingar.
+Befintlig projektkod omlicensieras inte. Paketet innehåller 155 PNG och manifest
+(cirka 4,2 MiB); gamla tre-sprite-provet bevaras separat.
+
+Verifierade fria alternativ, **ej importerade**, inga konton skapade:
+
+| Källa | Tillgång/licens | Användning |
+|---|---|---|
+| [Kenney Furniture Kit](https://kenney.nl/assets/furniture-kit) | CC0 | Bord/hyllor/dekor |
+| [Poly Haven Jug 01, Kuutti Siitonen](https://polyhaven.com/a/jug_01) | [CC0](https://polyhaven.com/license) | Kanna, manuella funktionsdelar |
+| [Quaternius Ultimate Furniture](https://quaternius.com/packs/ultimatefurniture.html) | CC0 | Alternativ möblering |
+| [Blender demo files](https://www.blender.org/download/demo-files/) | Impact Fracture, Simon Thommes, listad CC0 | Fracture-referens; ej hämtad |
+| [Cell Fracture](https://extensions.blender.org/add-ons/cell-fracture/) | GPL-3.0-or-later, **verktyget** | Offline-fragment, inte modelllicens |
+
+Lokal hämtning saknar DNS i sandlådan. Därför är alternativen dokumenterade och
+inte felaktigt märkta som använda. Inget overifierat Sketchfab-material införs.
+
+Pipeline: modell+källa/licens/hash → ljusa material → **manuella funktionella
+parts först**, sedan Cell Fracture eller sektorskärvor inom respektive part →
+intakta/delvisa/brytande sprites → synliga masker → frysta polygoner/union.
+Aktuell version använder manuella meshsektorer, ingen installerad addon eller ny
+realtidsrenderer. Receptet har spärr mot körning i interaktiv Blender.
 
 ```bash
-python3 -m automation.play_light_targets --api
-# motsvarar send_command('startGame', {'id': 'light_targets'})
+/snap/blender/current/blender -noaudio -b --factory-startup \
+ --python automation/assets/render_light_room_parts.py -- --out /tmp/room_raw_NEW
+python3 -m automation.build_light_room_parts /tmp/room_raw_NEW /tmp/room_bundle_NEW
 ```
 
-API öppnar intro; ENTER startar omgången. Vanlig meny fungerar även utan global
-OBJECT_DENSE eftersom just detta spels regioner väljer dense explicit.
-API kan inte aktivera inspelning i en redan körande app.
+Blender 5.3.0, CPU/två rendertrådar. `--room-only` och `--only-kind vase` stöder
+iteration. Alla skrivningar avslutas före explicit processavslut, vilket undviker
+sandlådans PulseAudio-teardown-hängning. Ingen användaröppen Blender-scen används.
 
-Launchern sätter defaults (befintliga env-värden respekteras):
-`SKJUTBANA_OBJECT_DENSE=1`, `SKJUTBANA_AUDIO_COOLDOWN_S=0.15`,
-`SKJUTBANA_SOURCE_RECORD=1`, `SKJUTBANA_SOURCE_RECORD_WINDOW=1`,
-`SKJUTBANA_PHYSICAL_TRACE_DISABLE=1`. Befintlig v6aug-modell används enbart i SHADOW
-om filen finns. Ingen GAME_DX/korrigering införs. Källsessioner skrivs av befintlig
-inspelare under `/data/skjutbana/source_sessions/`; kontrollera dess start-/diskstatus.
-En redan satt env-variabel kan avsiktligt stänga av inspelningen.
+## A. Tidigare tio fysiska luftgevärsskott
 
-## Fysisk verifiering före påstående om 95 %
+Session `20261122T135436Z_7c511b31`, `live_ljusjakten2.log`: **9/10 rätt, ett osäkert**.
+Approximativ `can_dense_offline`-crop-replay återger 10/10 livebeslut med sparad
+sessionskalibrering. Skott 9: MF 21,28, core 0,051, toppkvot 1,142. Ingen tröskel
+ändrades efter detta enda svaga positiva exempel. Negativa kontroller saknas.
+Skuggmodellens ambiguitet är höga p både inne/utanför målet, inte ett upprepat id.
 
-Lås kod, kalibrering, mikrofon och inställningar. Använd färskt papper och verifierad
-kalibrering. Samla först en pilot med minst 60 verkliga målträffar över samtliga
-positioner och minst 20 negativa kontroller (verkliga missar, ljud utan nytt hål).
-Inkludera dokumenterade kantträffar; facit ska använda projektilens touch-regel,
-inte enbart hålcentrum. Undvik snabba serier: spelet begär ett skott per REDO.
+Reproducerbart verktyg: `automation.light_targets_review SESSION LOG TRUTH NEW.json
+--model MODEL.json`. Resultat `/tmp/light_room_review/review_final.json`; ungefär
+301 MiB topp-RSS och 2,81 s. Detta är **inte** live-path-ekvivalent replay och
+validerar inte nya rummet. Baselinefilerna är orörda. Efter delmekaniken kontrollerades
+samma 9/10 igen: `/tmp/light_room_v3_review/circle_baseline.json`.
 
-Operatören registrerar varje avlossat skott, också när motorn inte reagerar. Facit
-kommer från faktiskt hål och fryst målposition, vid behov oberoende granskning av
-sparade bilder. **Använd inte motorns vinnare som facit.** Oklart facit särredovisas
-som UNKNOWN och hindrar ett rent godkännande. Bevara källsession och konsollogg.
-Befintliga `[OBJECT-DENSE]`/`[OBJECT-HIT]` kompletteras med `[LAMP-TARGET]`,
-`[LAMP-PRESENTED]`, `[LAMP-SHOT]`, `[LAMP-RESULT]` (owner, token, shot_id, peak, poäng).
-Ingen parallell detektor eller automatisk etikettering har införts.
+## Fysisk acceptans och tester
 
-Facit JSONL, koppla id från loggen men bestäm expected oberoende:
+Samla nya operatörsfacit: minst 60 positiva skott över delar/stödytor/positioner
+plus 20 negativa kontroller, inklusive missar, delgränser och ljud utan hål.
+Registrera även skott utan ljudhändelse. Facit måste komma från verkligt hål och
+fryst form, **inte** träffring eller spelreaktion. Exempel:
 
 ```json
-{"owner":"light_targets:…","shot_id":42,"expected":"HIT"}
+{"owner":"light_targets:…","shot_id":42,"expected":"HIT","truth_object":"vase_1_3:neck"}
 {"owner":"light_targets:…","shot_id":43,"expected":"MISS"}
-{"owner":"light_targets:…","shot_id":null,"attempt_id":"operator-shot-44","expected":"HIT"}
+{"owner":"light_targets:…","shot_id":null,"attempt_id":"operator-44","expected":"HIT","truth_object":"jar_1_6:body"}
 ```
 
-Den sista raden fångar utebliven ljudhändelse/resultat. Owner kan utelämnas endast
-om loggen har exakt en owner; ange den alltid vid flera omgångar.
+`python3 -m automation.light_targets_score RUN.log truth.jsonl` räknar fel del,
+UNKNOWN och uteblivet resultat som fel på känt facit. Versions-/part-id och faktiska
+reaktions-/ljudtider finns i LAMP-/OBJECT-loggarna. Kräv ≥95 % strikt korrekthet och
+hit recall samt noll fel del/falska poäng; redovisa Wilson-intervall och nya holdouts.
+9/10 är 90 %, och inget godkänt 95 %-resultat har påståtts.
 
-```bash
-python3 -m automation.light_targets_score /tmp/light_targets.log truth.jsonl
-```
-
-Rapporten visar strikt korrekthet, Wilson 95 %-intervall, träffåterkallning, falska
-poäng, avståenden, oetiketterade resultat och pilotstorlek. UNKNOWN/uteblivet resultat
-på känt facit räknas som fel. Kräv minst 95 % strikt korrekthet **och** minst 95 %
-träffåterkallning samt noll falska poäng i piloten. Pilotens punktestimat bevisar inte
-95 % generaliserbar korrekthet: använd därefter ny oberoende inspelning och redovisa
-konfidensintervallet. Exempelvis räcker inte ens 60/60 till 95 % nedre Wilson-gräns.
-Ingen fysisk pilot eller live-path replay av nya spelet har körts här.
-
-## Programvarutester
-
-Körda utan hårdvara, SDL dummy och privata `/dev`, `/tmp`, `/data` i bubblewrap:
+Relevanta självtester: `breakable_parts_selftest`, `light_room_selftest`,
 `light_targets_selftest`, `object_physical_query_selftest`, `object_hit_selftest`,
-`object_readiness_selftest`, `object_dense_pair_selftest`, `v250_selftest`.
-Alla sex moduler är gröna: 9 nya speltester, 43 OBJECT-querytester, 14 OBJECT-hit,
-43 readiness samt dense-pair- och V2.25-kontrakten.
-Detaljloggar: `/tmp/light_targets_checks/*_verified.log`.
-Ordinarie runnerns nätverksisolering nekas av denna miljö (NETLINK_ROUTE); den
-ersattes enbart i testkommandot med samma isolering utan `--unshare-net`.
-Ingen App/device-start görs i testerna; API-handlern testas med stubbat scenbyte.
-`compileall`, launcher `--help` och `git diff --check` ingår också.
+`object_readiness_selftest`, `object_dense_pair_selftest`, `object_disambiguation_selftest`,
+`edge_rule_selftest`, `v250_selftest`. Körda isolerat med privata `/dev`, `/tmp`,
+`/data`, skrivskyddat repo och SDL dummy. Compileall och diff-check ingår.
 
-Befintliga användarändringar i `content/ai/settings.json` och lokala data är orörda.
+Alla tio moduler är gröna: bland annat 14 rums-/deltester, 5 motor-deltester och
+9 tidigare spelkontrakt. Rumsdelen provar även riktiga dense-frågor på renderade
+fixtures, negativa bildfall, mutning/tidsgränser, skärvocklusion, del-UNKNOWN och
+rum-rensat-bonus. De syntetiska bildfallen är inte fysisk validering.

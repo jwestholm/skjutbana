@@ -27,6 +27,10 @@ def main(argv=None):
     from src.engine.scene_factory import game_scene_from_menu_id
     app=App()
     if not a.menu: app._switch_to(game_scene_from_menu_id('light_targets'))
+    try:
+        app._automation_window.position = (2135, 95)   # same projector placement as the Can Shootout launcher
+    except Exception:
+        pass
     app.run()
 
 if __name__=='__main__': main()

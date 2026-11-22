@@ -26,11 +26,11 @@ class GameTests(unittest.TestCase):
         self.screen=pygame.Surface((900,700))
     def live(self):
         self.g.start();self.g.render(self.screen);self.g.on_frame_presented(10.)
-        self.g.presented_mono-=2;self.g.update(0);self.assertEqual(self.g.phase,'live')
+        self.g.presented_mono-=2;self.g.update(0);self.assertEqual(self.g.phase,'live');self.g.ready_wall_ts=0.
     def test_static_pending_and_presented_settle(self):
         self.g.start();self.g.phase_at-=10;self.g.update(0);self.assertEqual(self.g.phase,'settling')
         self.g.render(self.screen);self.g.on_frame_presented(10);self.g.update(0);self.assertEqual(self.g.phase,'settling')
-        self.g.presented_mono-=2;self.g.update(0);self.g.render(self.screen)
+        self.g.presented_mono-=2;self.g.update(0);self.g.ready_wall_ts=0.;self.g.render(self.screen)
         before=pygame.surfarray.array3d(self.screen).copy()
         self.g.on_object_shot_frozen(NS(shot_id=7,peak_ts=11))
         self.g.update(0);self.g.render(self.screen)
@@ -38,12 +38,14 @@ class GameTests(unittest.TestCase):
         self.assertEqual(self.g.active_shot,7)
         self.g.on_object_shot_frozen(NS(shot_id=8,peak_ts=11.08));self.assertEqual(self.g.active_shot,7)
     def test_spread_brightness_regions_and_edge(self):
-        centers=[]
-        for _ in range(12):
-            self.g._next_target();g=self.g.target;centers.append(g.center)
-            self.assertGreater(g.x,60);self.assertGreater(g.y,70)
-            self.assertLess(g.right,760-60);self.assertLess(g.bottom,580-30)
-        self.assertEqual(len(set(centers)),12)
+        anchors=set()
+        for _ in range(4):
+            self.g._next_target();self.assertEqual(len(self.g.items),6)
+            for item in self.g.items:
+                g=item['geometry'];anchors.add(item['anchor']['id'])
+                self.assertGreaterEqual(g.x,760*.075);self.assertGreaterEqual(g.y,104)
+                self.assertLessEqual(g.right,760*.93);self.assertLessEqual(g.bottom,580*.94)
+        self.assertGreaterEqual(len(anchors),8)
         self.assertGreaterEqual(BACKGROUND[1],190)
         self.assertTrue(all(c[1]>=190 for c in PALETTE))
         self.live();r=self.g.get_hit_regions()[0]
@@ -75,9 +77,9 @@ class GameTests(unittest.TestCase):
             self.g._on_object_event(dict(event='physical.object_result',data=dict(final=True,shot_id=10)))
         self.assertEqual(self.g.used[0],0)
         self.g.players=2;self.g.shots_per_player=5
-        for _ in range(5):self.g._finish('UNKNOWN',None,None,None,simulated=True);self.g.phase_at-=2;self.g.update(0)
+        for _ in range(5):self.g._finish('UNKNOWN',None,None,None,simulated=True);self.g.render(self.screen);self.g._reaction_start_mono-=2;self.g.update(0)
         self.assertEqual(self.g.player,1)
-        for _ in range(5):self.g._finish('MISS',None,None,None,simulated=True);self.g.phase_at-=2;self.g.update(0)
+        for _ in range(5):self.g._finish('MISS',None,None,None,simulated=True);self.g.render(self.screen);self.g._reaction_start_mono-=2;self.g.update(0)
         self.assertEqual(self.g.phase,'finished')
     def test_menu_api_factory_and_handler(self):
         from src.engine.scene_factory import game_scene_from_menu_id

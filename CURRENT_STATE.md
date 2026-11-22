@@ -1,5 +1,29 @@
 # Current project state
 
+## Ljusjakten / ceramic room — 2026-11-22
+
+The original circle game was physically tested by the operator: 9/10 air-rifle
+hits awarded, one UNKNOWN, no negative controls. Saved-session approximate crop
+replay reproduces all ten live decisions. The shadow model's ambiguity comes from
+high probabilities both inside and outside the target, not a reused object id.
+No detector threshold or model authority was changed from that sample.
+
+`light_targets` now offers PANG! / Ljusateljén: a bright furnished Blender room
+with six objects from five types and eleven functional part types. Floor/table/
+bench/shelf/sill anchors vary by room. Damage persists; head/flower/lid failures
+have separate sprites, points and original audio. Existing entity_id/part_id and
+ObjectManager own parts; the sole new generic mechanic is opt-in break_parts
+within the same owner/entity, never additional physical hits. Resting debris is
+behind active parts. Effects/audio wait for the final result and peak+1.2 s;
+every renewed measurement surface settles 1.7 s. No detector threshold changed.
+
+The new room/parts are **not physically validated** and >=95% has not been
+established. New generated assets are CC0; researched external CC0 sources are
+listed but were not downloaded. `automation.light_room_preview` writes software-
+only PNG/WAV examples without App or hardware. Menu/API id and launcher remain
+compatible. See GAME_3D_PLAN.md and GAME_NEW_REPORT.md for recipes and independent
+part-level truth scoring.
+
 ## Opt-in bounded shutdown — 2026-11-19
 
 The Linux launcher supports `SKJUTBANA_BOUNDED_SHUTDOWN=1`. A supervisor

@@ -2,6 +2,7 @@
 
 python3 -m automation.light_targets_score RUN.log truth.jsonl
 Truth: {"shot_id": 123, "expected":"HIT"|"MISS"|"UNKNOWN", "owner":"optional if only one owner"}
+Ceramic-room HIT labels also require truth_object (e.g. "vase_3").
 Use shot_id=null and a unique attempt_id for a real shot with no audio event.
 MISS means independently verified outside-target/no-impact control, not merely no game award.
 """
@@ -15,7 +16,7 @@ def score(log, truth):
     results = {}
     for line in Path(log).read_text().splitlines():
         if '[LAMP-RESULT] ' not in line: continue
-        r = json.loads(line.split('[LAMP-RESULT] ',1)[1])
+        r, _ = json.JSONDecoder().raw_decode(line.split('[LAMP-RESULT] ',1)[1])
         if r['source'] != 'OBJECT': continue
         key = (r['owner'], r['shot_id'])
         if key in results: raise ValueError('Duplicate gameplay result: '+str(key))
@@ -39,20 +40,28 @@ def score(log, truth):
         if key is not None: seen.add(key)
         if expected=='UNKNOWN': excluded+=1; continue
         r=results.get(key); actual=r['outcome'] if r else 'NO_RESULT'
-        rows.append(dict(shot_id=int(sid) if sid is not None else None,attempt_id=t.get('attempt_id'),owner=owner,expected=expected,actual=actual,correct=actual==expected))
+        expected_object=t.get('truth_object')
+        if expected=='HIT' and r and str(r.get('game_version','')).startswith('ceramic-room') and not expected_object:
+            raise ValueError('Ceramic-room HIT truth needs independent truth_object')
+        actual_object=r.get('object_id') if r else None
+        wrong_object=bool(expected=='HIT' and expected_object and actual=='HIT' and actual_object!=expected_object)
+        rows.append(dict(shot_id=int(sid) if sid is not None else None,attempt_id=t.get('attempt_id'),owner=owner,
+                         expected=expected,actual=actual,truth_object=expected_object,actual_object=actual_object,
+                         wrong_object=wrong_object,correct=actual==expected and not wrong_object))
     n=len(rows); correct=sum(r['correct'] for r in rows)
     hits=[r for r in rows if r['expected']=='HIT']; misses=[r for r in rows if r['expected']=='MISS']
     unlabelled=len(set(results)-seen)
     false_awards=sum(r['actual']=='HIT' for r in misses)
+    wrong_objects=sum(r['wrong_object'] for r in rows)
     return dict(evidence_level='OPERATOR_LABELLED_PHYSICAL_ONLY_IF_TRUTH_IS_PHYSICAL', cases=n,correct=correct,
         accuracy=correct/n if n else None, ci95=wilson_interval(correct,n) if n else None,
         true_hit_correct=sum(r['correct'] for r in hits),true_hits=len(hits),
         hit_recall=sum(r['correct'] for r in hits)/len(hits) if hits else None,
         negative_no_award_rate=1-false_awards/len(misses) if misses else None,
-        false_awards=sum(r['actual']=='HIT' for r in misses),negative_controls=len(misses),
+        false_awards=false_awards,wrong_objects=wrong_objects,negative_controls=len(misses),
         abstentions=sum(r['actual'] in ('UNKNOWN','NO_RESULT') for r in rows),excluded_unknown_truth=excluded,
         unlabelled_results=unlabelled,rows=rows,minimum_pilot_size_met=len(hits)>=60 and len(misses)>=20,
-        point_target_met=bool(n and correct/n>=.95 and not false_awards and not unlabelled and not excluded))
+        point_target_met=bool(n and hits and correct/n>=.95 and sum(r['correct'] for r in hits)/len(hits)>=.95 and not false_awards and not wrong_objects and not unlabelled and not excluded))
 
 
 def main():

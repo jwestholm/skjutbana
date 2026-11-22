@@ -1,0 +1,3 @@
+Original generated room geometry/render outputs, part sprites, masks and animation frames: CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+This dedication covers these newly generated assets, not existing project source code or Blender/third-party software.
