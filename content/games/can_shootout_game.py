@@ -73,6 +73,12 @@ TABLE_HEIGHT_RANGE_CM = (35.0, 260.0)
 TABLE_MIN_MOVE_TARGET_H = 2.5
 # The old fixed 135 cm table wore out (and taped over) that band of the screen: always keep away from it.
 TABLE_WORN_HEIGHTS_CM = (SHELF_HEIGHT_CM,)
+# The whole table also slides sideways a little per turn (metres at the target distance), never so far that a
+# target leaves the screen (TABLE_SIDE_MARGIN_PX), and at least TABLE_MIN_SIDE_MOVE_TARGET_W widest-target
+# widths from the recent turns when possible.
+TABLE_SIDE_RANGE_M = (-0.45, 0.45)
+TABLE_SIDE_MARGIN_PX = 40
+TABLE_MIN_SIDE_MOVE_TARGET_W = 1.5
 # Recent shelf positions survive restarts so a new game does not land where the last one ended.
 TABLE_HISTORY_PATH = os.environ.get(
     "SKJUTBANA_CAN_TABLE_HISTORY",
@@ -317,7 +323,10 @@ class ShootStuffGame:
         self._target_geometry: dict[str, tuple[float, float, float, float]] = {}
         self._shelf_y = float(self.viewport.h * 0.66)
         self._shelf_height_cm = SHELF_HEIGHT_CM
-        self._recent_shelf_ys: list[float] = self._load_table_history()
+        self._rack_shift_m = 0.0
+        self._recent_shelf_ys: list[float] = []
+        self._recent_shift_xs: list[float] = []
+        self._load_table_history()
         self._last_resolution_line = ""
         self._last_hit_shot_id = None
         self._background_cache = None
@@ -444,30 +453,68 @@ class ShootStuffGame:
         # room above the targets for the distance sign, below the HUD
         return float(HUD_HEIGHT + max_target_h + sign_h + 34 + 8), float(self.viewport.h - 64)
 
-    def _load_table_history(self) -> list[float]:
+    def _load_table_history(self) -> None:
         try:
             data = json.load(open(TABLE_HISTORY_PATH))
             if data.get("viewport") == [self.viewport.w, self.viewport.h]:
-                return [float(y) for y in data.get("shelf_ys", [])][-6:]
+                self._recent_shelf_ys = [float(y) for y in data.get("shelf_ys", [])][-6:]
+                self._recent_shift_xs = [float(x) for x in data.get("shift_xs", [])][-6:]
         except Exception:
             pass
-        return []
 
     def _save_table_history(self) -> None:
         try:
             os.makedirs(os.path.dirname(TABLE_HISTORY_PATH), exist_ok=True)
             tmp = TABLE_HISTORY_PATH + ".tmp"
             with open(tmp, "w") as fh:
-                json.dump(dict(viewport=[self.viewport.w, self.viewport.h], shelf_ys=self._recent_shelf_ys[-6:]), fh)
+                json.dump(dict(viewport=[self.viewport.w, self.viewport.h], shelf_ys=self._recent_shelf_ys[-6:],
+                               shift_xs=self._recent_shift_xs[-6:]), fh)
             os.replace(tmp, TABLE_HISTORY_PATH)
         except Exception as exc:
             print(f"[CAN-TABLE] history not saved: {exc}", flush=True)
+
+    def _rack_extent_px(self, shift_m: float) -> tuple[float, float]:
+        xs = []
+        for spec, lateral_m in zip(TARGET_SPECS, TARGET_LATERAL_OFFSETS_M):
+            w = self._projected_size_px(spec)[0]
+            c = self._target_center_x(lateral_m + shift_m, raw=True)
+            xs += [c - w * 0.5, c + w * 0.5]
+        return min(xs), max(xs)
+
+    def _pick_table_side(self) -> None:
+        """Slide the whole table sideways for this turn, keeping every target on screen."""
+        old = self._rack_shift_m
+        self._rack_shift_m = 0.0
+        base = self._target_center_x(0.0, raw=True)
+        max_w = max(self._projected_size_px(s)[0] for s in TARGET_SPECS)
+        min_move = TABLE_MIN_SIDE_MOVE_TARGET_W * max_w
+        best = None
+        for _ in range(60):
+            m = self.rng.uniform(*TABLE_SIDE_RANGE_M)
+            lo, hi = self._rack_extent_px(m)
+            if lo < TABLE_SIDE_MARGIN_PX or hi > self.viewport.w - TABLE_SIDE_MARGIN_PX:
+                continue
+            dx = self._target_center_x(m, raw=True) - base
+            gap = min((abs(dx - p) for p in self._recent_shift_xs[-3:]), default=1e9)
+            if best is None or gap > best[0]:
+                best = (gap, m, dx)
+            if gap >= min_move:
+                break
+        self._rack_shift_m = best[1] if best is not None else 0.0
+        if best is None:
+            self._rack_shift_m = old if old else 0.0
+            return
+        self._recent_shift_xs.append(best[2])
+        print(f"[CAN-TABLE] player={self.player} side_shift_m={best[1]:+.2f} side_shift_px={best[2]:+.0f} "
+              f"move_px={best[0] if best[0] < 1e9 else 0:.0f}", flush=True)
 
     def _pick_table_height(self) -> None:
         """New random leg length for this turn (fixed 135 cm with SKJUTBANA_CAN_FIXED_TABLE=1)."""
         if os.environ.get("SKJUTBANA_CAN_FIXED_TABLE") == "1":
             self._shelf_height_cm = SHELF_HEIGHT_CM
+            self._rack_shift_m = 0.0
             return
+        self._pick_table_side()
         max_target_h = max(self._projected_size_px(s)[1] for s in TARGET_SPECS)
         min_move = TABLE_MIN_MOVE_TARGET_H * max_target_h
         lo, hi = self._shelf_y_bounds()
@@ -515,10 +562,10 @@ class ShootStuffGame:
             min(float(self.viewport.h - 64), float(shelf_y)),
         )
 
-    def _target_center_x(self, lateral_offset_m: float) -> float:
+    def _target_center_x(self, lateral_offset_m: float, raw: bool = False) -> float:
         geometry = self._projection_geometry()
         offset_px = projected_lateral_offset_px(
-            lateral_offset_m,
+            lateral_offset_m + (0.0 if raw else self._rack_shift_m),
             self.distance_m,
             self.local_viewport,
             geometry,
@@ -606,7 +653,7 @@ class ShootStuffGame:
             )
             obj.world = WorldPlacement(
                 distance_m=self.distance_m,
-                world_x_m=float(lateral_m),
+                world_x_m=float(lateral_m + self._rack_shift_m),
                 world_y_m=self._shelf_height_cm / 100.0,
                 world_z_m=self.distance_m,
                 metadata={
@@ -1180,7 +1227,7 @@ class ShootStuffGame:
             surf.blit(txt, txt.get_rect(center=sign_rect.center))
 
         shelf_rect = pygame.Rect(
-            int(w * 0.08),
+            int(w * 0.08 + self._target_center_x(0.0) - self._target_center_x(0.0, raw=True)),
             int(self._shelf_y),
             int(w * 0.84),
             16,
