@@ -5,7 +5,7 @@
 
 ## Spelbar version
 
-Ett ljust, förrenderat Blender-rum med **sex föremål åt gången** på golv, bord,
+Ett ljust, förrenderat Blender-rum med **åtta föremål åt gången, i varierade storlekar** på golv, bord,
 bänk, hylla och fönsterbräda. Fem modeller: blomvas, kruka, skål, flaska och lampa;
 elva funktionella deltyper. Placeringarna varierar mellan spelarturer och när ett
 rum är tömt. Skador och skärvor ligger kvar mellan skotten – man plockar isär rummet.
@@ -48,7 +48,8 @@ från en äldre spelperiod tar inte ett nytt försök. Ljudutmatning loggas via 
 **ingen ny mikrofonspärr eller ljudtröskel** införs. Kontrollera fysisk återkoppling
 med ljud både på och av; digital volym är ingen akustisk kalibrering.
 
-Paletten kontrolleras i exporterade bilder: G≥192, ljus omgivning, ingen fin textur.
+Paletten kontrolleras med Jimmys kameramodell: exporterade målytor ≥128 DN,
+kompositerade spelbilder ≥121,09 DN. Detta är en prediktion; ingen ny fysisk ljusmätning.
 HUD/text ligger ovanför alla mål. Detta är digital kontroll, inte ny kameramätning.
 UNKNOWN/timeout ger inga poäng; CURRENT-XY och skuggmodellen ger aldrig spelpoäng.
 
@@ -72,7 +73,7 @@ python3 -m automation.light_room_preview --out /tmp/light_room_preview_NEW
 ```
 
 Ger PNG för intakt rum samt blom-/hals-/bukträff och separata WAV-ljud att granska.
-Körda exempel: `/tmp/pang_delivery_preview/` och `/tmp/light_room_v3_checks/`.
+Aktuell R3-förhandsvisning: `/tmp/pang_r3_delivery/`, även MISS/UNKNOWN och fem WAV-ljud.
 Förhandsprocessen mättes till cirka 159 MiB topp-RSS och 2,0 s (inte hela live-appens RAM).
 Grafik/sönderfall förladdas före mätfönstret; ingen bildläsning i träffreaktionen.
 
@@ -82,7 +83,7 @@ Leveransen använder **egna procedurmodeller**, inte nedladdade modeller. Nya
 render-/masktillgångar levereras med **CC0-1.0**, se
 `content/games/light_room_parts_assets/{SOURCES.md,LICENSE.txt,manifest.json}`.
 Originala genererade ljudvågformer är också CC0-1.0, utan externa samplingar.
-Befintlig projektkod omlicensieras inte. Paketet innehåller 155 PNG och manifest
+Befintlig projektkod omlicensieras inte. Paketet innehåller 166 PNG och manifest
 (cirka 4,2 MiB); gamla tre-sprite-provet bevaras separat.
 
 Verifierade fria alternativ, **ej importerade**, inga konton skapade:
@@ -108,6 +109,7 @@ realtidsrenderer. Receptet har spärr mot körning i interaktiv Blender.
 /snap/blender/current/blender -noaudio -b --factory-startup \
  --python automation/assets/render_light_room_parts.py -- --out /tmp/room_raw_NEW
 python3 -m automation.build_light_room_parts /tmp/room_raw_NEW /tmp/room_bundle_NEW
+python3 -m automation.recolor_light_room /tmp/room_bundle_NEW /tmp/room_distinct_NEW
 ```
 
 Blender 5.3.0, CPU/två rendertrådar. `--room-only` och `--only-kind vase` stöder
@@ -147,13 +149,77 @@ reaktions-/ljudtider finns i LAMP-/OBJECT-loggarna. Kräv ≥95 % strikt korrekt
 hit recall samt noll fel del/falska poäng; redovisa Wilson-intervall och nya holdouts.
 9/10 är 90 %, och inget godkänt 95 %-resultat har påståtts.
 
-Relevanta självtester: `breakable_parts_selftest`, `light_room_selftest`,
+Relevanta självtester: `pang_r3_selftest`, `breakable_parts_selftest`, `light_room_selftest`,
 `light_targets_selftest`, `object_physical_query_selftest`, `object_hit_selftest`,
 `object_readiness_selftest`, `object_dense_pair_selftest`, `object_disambiguation_selftest`,
 `edge_rule_selftest`, `v250_selftest`. Körda isolerat med privata `/dev`, `/tmp`,
 `/data`, skrivskyddat repo och SDL dummy. Compileall och diff-check ingår.
 
-Alla tio moduler är gröna: bland annat 14 rums-/deltester, 5 motor-deltester och
+Alla elva moduler är gröna: bland annat 14 rums-/deltester, 5 motor-deltester och
 9 tidigare spelkontrakt. Rumsdelen provar även riktiga dense-frågor på renderade
 fixtures, negativa bildfall, mutning/tidsgränser, skärvocklusion, del-UNKNOWN och
 rum-rensat-bonus. De syntetiska bildfallen är inte fysisk validering.
+
+## Runda 3: PANG1-granskning och tydligare rum
+
+Sparad fysisk session `20261122T151030Z_e3f0e267`, `live_pang1.log`:
+query-matematik med sparade bildrutor/former återger **10/10 livebeslut**:
+7 HIT, 3 UNKNOWN. Detta är offline query-replay, inte full live-schemaläggning.
+Vit efterbild och kausal bildserie granskas separat, aldrig som detektorindata:
+
+| Skott | Eftergranskning | Slutsats |
+|---|---|---|
+| 8 | Nytt hål kamera (2252,27;1598,27), spel (384,86;499,02) | Utanför alla aktiva och ursprungliga objektformer; närmaste aktiva kamera-AABB 93,23 px bort |
+| 9 | Inget nytt verifierat hål identifierat | Modellens favoritpunkt har bara 3,32 DN lokal kontrast i vit efterbild; 87,47 px till närmaste granskningshål |
+| 10 | Nytt hål kamera (2228,70;1433,20), spel (370,06;346,26) | Utanför alla aktiva och ursprungliga former; närmaste aktiva kamera-AABB 159,80 px bort |
+
+Nio granskade hål har 17,15–30,49 DN lokal kontrast. Skott 9 kan exempelvis
+överlappa ett befintligt hål; frånvaro av verifierat nytt hål bevisar inte uteblivet
+skott. Hög skuggmodell-p är inte facit. UNKNOWN behålls; ingen regeltröskel eller
+modellauktoritet ändras. Objektfrågan täcker bara objektens områden: ett hål utanför
+är inte i sig ett säkert globalt MISS-besked från denna väg.
+
+Senaste scenpresentation låg 12,97/11,93/14,73 s före skott 8–10. PRE p99-variation
+var 2–3 DN; skålens medelnivå 172,1/172,2/172,0 DN. Ingen evidens för pågående
+skärvanimation eller kraftig kontrastförlust i dessa PRE-fönster. Kvarliggande
+skador ändrar scenen, men var stabila här.
+
+**Digitala ändringar:** åtta objekt, höjd 78–132 px i standardlayout, mättade
+turkos/grön/gul/cyan och neutral bakgrund ungefär grå 194–214. Grå 160/170 ger enligt
+modellen bara 96,54/105,03 DN; därför kan grå 140–170 inte samtidigt lova ≥120 DN.
+Genomsnittligt RGB-avstånd objekt–rum ökar 29,91→188,26; målfärgernas kanalspann
+40,06→204,40. Detta beskriver bildkontrast, inte detektionsprecision.
+Exportminimum 128,0039 DN; elva kompositerade förhandsbilder minimum 121,0947 DN
+på spelytan under HUD. Alla alpha-masker och träffformer bevaras.
+
+Delträffar färgar kvarvarande delar kontrasterande; helt/kvarstående/krossat visas
+även i status. HIT/MISS/UNKNOWN har olika text och ljud; osäkert döps inte om till
+miss. Tolv brytbilder vid 20 fps ger **0,6 s** animation och resultatpaus 0,95 s.
+Skyddet peak+1,2 s och ny PRE-stabilisering 1,7 s kvarstår. Trettio layouter med
+sparad 4K-kalibrering använder högst **642000/1000000** tillåtna ROI-läspixlar.
+Detta är budgetkontroll, inte uppmätt live-latens.
+
+Reproduktion (nya utmappar, inga baselineöverskrivningar):
+
+```bash
+python3 -m automation.pang_session_audit \
+ /data/skjutbana/source_sessions/20261122T151030Z_e3f0e267 \
+ /data/skjutbana/evaluation_runs/can_real_20261122/live_pang1.log \
+ /data/skjutbana/evaluation_runs/can_real_20261122/board_captures_pang1/white.png \
+ /tmp/pang_audit_NEW
+python3 -m automation.pang_layout_budget \
+ /data/skjutbana/source_sessions/20261122T151030Z_e3f0e267 \
+ /tmp/pang_budget_NEW.json --seeds 30
+```
+
+Audit: `/tmp/pang_r3_audit/final/{audit.json,white_review.png}`. Digital palett:
+`content/games/light_room_parts_assets/palette_report.json`; kompositkontroll
+`/tmp/pang_r3_audit/composited_palette.json`. Fryst ursprungspaket finns i
+`/tmp/pang_r3_audit/baseline_assets`, reproducerbart från Git
+`afdaba31343d3583510a314a76ee8707b13243dd` (assetkatalogen).
+Recolor-verktyget kräver v2-input, sparar hash/proveniens och vägrar befintlig utrot.
+Testloggar: `/tmp/pang_r3_final_checks/`, inklusive sju nya R3-tester.
+
+R3 behöver ny fysisk pilot, särskilt kantträffar, missar och ljudåterkoppling.
+Ingen förbättrad fysisk träffprocent eller uppnådda 95 % påstås av dessa ändringar.
+Appen behöver läsa den nya koden; starta inte en andra kameraägare.

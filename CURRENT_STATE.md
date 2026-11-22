@@ -8,21 +8,27 @@ replay reproduces all ten live decisions. The shadow model's ambiguity comes fro
 high probabilities both inside and outside the target, not a reused object id.
 No detector threshold or model authority was changed from that sample.
 
-`light_targets` now offers PANG! / Ljusateljén: a bright furnished Blender room
-with six objects from five types and eleven functional part types. Floor/table/
-bench/shelf/sill anchors vary by room. Damage persists; head/flower/lid failures
-have separate sprites, points and original audio. Existing entity_id/part_id and
-ObjectManager own parts; the sole new generic mechanic is opt-in break_parts
-within the same owner/entity, never additional physical hits. Resting debris is
-behind active parts. Effects/audio wait for the final result and peak+1.2 s;
-every renewed measurement surface settles 1.7 s. No detector threshold changed.
+PANG1 (20261122T151030Z_e3f0e267): 7 awarded air-rifle hits, no wrong awards,
+three UNKNOWN. Saved-query math reproduces all ten decisions. White-photo/time-
+series review associates two new holes with shots 8/10 outside every active and
+original object; shot 9 has no newly verified hole. Its high-scoring model point
+has only 3.3 DN white-photo contrast (review holes: 17–30 DN). PRE is stable;
+there is no evidence of animation contaminating those windows. This is an
+exploratory reviewed session, not a new accuracy guarantee or full scheduling replay.
 
-The new room/parts are **not physically validated** and >=95% has not been
-established. New generated assets are CC0; researched external CC0 sources are
-listed but were not downloaded. `automation.light_room_preview` writes software-
-only PNG/WAV examples without App or hardware. Menu/API id and launcher remain
-compatible. See GAME_3D_PLAN.md and GAME_NEW_REPORT.md for recipes and independent
-part-level truth scoring.
+R3 now shows eight objects at varied sizes with saturated, camera-proxy-constrained
+colors against a neutral gray room. Exported target pixels predict >=128 DN;
+eleven rendered preview images have a playfield minimum of 121.1 DN after blending.
+Normal/partial/broken states are explicit; partial entities change color. Hit/miss/
+UNKNOWN have separate feedback and cues. Break animation is 0.6 s (20 fps) versus
+1.2 s; result dwell 0.95 s versus 1.7 s. PRE 1.7 s and protected peak+1.2 s POST
+are unchanged. No detector threshold or model authority changed. Thirty layouts
+fit the saved 4K calibration's query budget (max 642000/1000000 read pixels).
+
+The R3 display/denser layouts are **not physically validated** and >=95% has not
+been established. Old images and sessions are preserved; recoloring references
+the frozen v2 manifest. Menu/API id and launcher remain compatible. See
+GAME_3D_PLAN.md and GAME_NEW_REPORT.md for measurements and reproduction commands.
 
 ## Opt-in bounded shutdown — 2026-11-19
 

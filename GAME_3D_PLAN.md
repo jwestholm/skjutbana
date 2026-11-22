@@ -89,3 +89,22 @@ Ytterligare fracture-referens: Blenders officiella
 av Simon Thommes/Blender Studio som CC0. Filen är inte hämtad eller verifierad
 i vår pipeline. Nästa faktiska steg är fysisk pilot av delgränser, stödytor och
 ljudåterkoppling; inte fler detektortrösklar anpassade till de tio positiva skotten.
+
+## Runda 3 – genomförd, fysisk ommätning återstår
+
+- PANG1: samma query-matematik återger 7 HIT + 3 UNKNOWN. Eftergranskning av
+  foton/tidsserie ger hål utanför samtliga objekt vid 8 och 10, inget nytt verifierat
+  hål vid 9. Inga detektortrösklar ändras efter dessa data.
+- Neutral bakgrund och tydliga mättade objekt, oförändrade alpha-masker/partformer.
+  Grå 160 ger bara 96,5 predikterade DN; därför används cirka grå 194–214 i stället
+  för 140–170 för att behålla kameramarginalen. Exportgolv 128 DN, kontrollerat
+  kompositgolv >120 DN. Detta är en proxyberäkning, inte en ny ljusmätning på riggen.
+- Åtta föremål med olika storlekar och varierade stödankare. Partialträffar färgar
+  kvarvarande delar kontrasterande; krossade delar blir skärvor. Distinkt träff,
+  miss och osäkert – UNKNOWN döps inte om till MISS utan belägg.
+- Tolv brytbilder vid 20 fps ger 0,6 s animation. Efterbesked 0,95 s, oförändrat
+  POST-skydd peak+1,2 s och ny PRE-stabilisering 1,7 s.
+- Reproducerbar palettstatistik, sparad-query-audit och ROI-budget finns i
+  automation.{recolor_light_room,pang_session_audit,pang_layout_budget}.
+  Nästa acceptans kräver nya fysiska skott med oberoende facit, inklusive missar
+  och delgränser; ingen fysisk förbättring för R3 påstås.

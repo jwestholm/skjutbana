@@ -4,9 +4,9 @@ import pygame
 
 
 def cue_wave(cue,rate):
-    duration={'shatter':.42,'topple':.32,'petal':.24}[cue]
+    duration={'shatter':.42,'topple':.32,'petal':.24,'miss':.22,'unknown':.30}[cue]
     t=np.arange(round(rate*duration),dtype=np.float64)/rate
-    rng=np.random.default_rng({'shatter':271,'topple':272,'petal':273}[cue])
+    rng=np.random.default_rng({'shatter':271,'topple':272,'petal':273,'miss':274,'unknown':275}[cue])
     if cue=='shatter':
         noise=rng.standard_normal(len(t));noise-=np.convolve(noise,np.ones(9)/9,mode='same')
         wave=.45*noise*np.exp(-18*t)
@@ -15,6 +15,11 @@ def cue_wave(cue,rate):
     elif cue=='topple':
         wave=np.sin(2*np.pi*350*t)*np.exp(-22*t)
         u=np.maximum(0,t-.13);wave+=np.where(t>=.13,.5*np.sin(2*np.pi*920*u)*np.exp(-28*u),0)
+    elif cue=='miss':
+        wave=np.sin(2*np.pi*(330*t-380*t*t))*np.exp(-15*t)
+    elif cue=='unknown':
+        u=np.maximum(0,t-.12)
+        wave=.6*np.sin(2*np.pi*520*t)*np.exp(-30*t)+np.where(t>=.12,.7*np.sin(2*np.pi*690*u)*np.exp(-25*u),0)
     else:
         wave=np.sin(2*np.pi*(740*t-650*t*t))*np.exp(-16*t)
     # Quiet feedback; digital level is not an acoustic calibration or input veto.
@@ -29,7 +34,7 @@ def build_sounds():
     sounds={}
     try:
         rate,_,channels=config
-        for cue in ('shatter','topple','petal'):
+        for cue in ('shatter','topple','petal','miss','unknown'):
             wave=cue_wave(cue,rate)
             if channels==2:wave=np.repeat(wave[:,None],2,axis=1)
             sounds[cue]=pygame.sndarray.make_sound(np.ascontiguousarray(wave))

@@ -16,3 +16,7 @@ Free external alternatives (not included), checked 2026-11-22:
 
 Current shards use manually authored functional parts and mesh sectors.
 The manifest lists hashes for rendered files and exact source recipes.
+
+R3 palette: automation.recolor_light_room, preserving baseline alpha/masks/geometry.
+Generated recolored and contrasting-state sprites retain CC0-1.0. See palette_report.json;
+DN values are predictions, not physical camera validation.

@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch,Mock
 import numpy as np
 import pygame
-from content.games.light_targets_game import LightTargetsGame,BACKGROUND,PALETTE
+from content.games.light_targets_game import LightTargetsGame,BACKGROUND,PALETTE,OBJECTS_PER_ROOM
 from src.engine.input.hit_regions import object_hit_regions
 from src.engine.input.object_hit_v2223 import object_hit_registry_v2223,CameraHitRegionV240
 from src.engine.game_objects import ObjectGeometry,make_breakable_object
@@ -40,7 +40,7 @@ class GameTests(unittest.TestCase):
     def test_spread_brightness_regions_and_edge(self):
         anchors=set()
         for _ in range(4):
-            self.g._next_target();self.assertEqual(len(self.g.items),6)
+            self.g._next_target();self.assertEqual(len(self.g.items),OBJECTS_PER_ROOM)
             for item in self.g.items:
                 g=item['geometry'];anchors.add(item['anchor']['id'])
                 self.assertGreaterEqual(g.x,760*.075);self.assertGreaterEqual(g.y,104)

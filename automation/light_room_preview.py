@@ -23,22 +23,26 @@ def main():
     from content.games.light_room_audio import cue_wave
     pygame.font.init()  # no display, mixer, camera, network or App initialization
     summaries=[]
-    for part in ('flower','neck','body'):
+    for part in ('flower','neck','body','MISS','UNKNOWN'):
         g=LightTargetsGame('',pygame.Rect(0,0,760,580));g.on_enter();g.rng.seed(a.seed);g.start()
         try:
             surface=pygame.Surface((760,580));g.render(surface);g.on_frame_presented(1.)
             g.presented_mono-=2;g.update(0);g.render(surface)
             if part=='flower':pygame.image.save(surface,str(out/'room.png'))
-            obj=next(o for o in g.manager.objects if o.metadata['sprite_kind']=='vase' and o.part_id==part)
-            mask=np.asarray(Image.open(ASSET_ROOT/g.art.objects['vase']['parts'][part]['mask']))
-            _,_,_,point=cv2.minMaxLoc(cv2.distanceTransform(mask,cv2.DIST_L2,5));h,w=mask.shape
-            x=obj.geometry.x+point[0]/w*obj.geometry.width;y=obj.geometry.y+point[1]/h*obj.geometry.height
-            g._on_hit(SimpleNamespace(is_simulated=True,game_x=x,game_y=y,shot_id=None));g.render(surface)
+            if part in ('MISS','UNKNOWN'):
+                g._finish(part,None,None,None,simulated=True)
+            else:
+                obj=next(o for o in g.manager.objects if o.metadata['sprite_kind']=='vase' and o.part_id==part)
+                mask=np.asarray(Image.open(ASSET_ROOT/g.art.objects['vase']['parts'][part]['mask']))
+                _,_,_,point=cv2.minMaxLoc(cv2.distanceTransform(mask,cv2.DIST_L2,5));h,w=mask.shape
+                x=obj.geometry.x+point[0]/w*obj.geometry.width;y=obj.geometry.y+point[1]/h*obj.geometry.height
+                g._on_hit(SimpleNamespace(is_simulated=True,game_x=x,game_y=y,shot_id=None))
+            g.render(surface)
             g._reaction_start_mono-=.55;g.render(surface);pygame.image.save(surface,str(out/(part+'_breaking.png')))
             g._reaction_start_mono-=2;g.update(0);g.render(surface);pygame.image.save(surface,str(out/(part+'_after.png')))
             summaries.append(dict(part=part,points=g.scores[0],broken=sorted(g.broken_ids)))
         finally:g.on_exit()
-    for cue in ('shatter','topple','petal'):
+    for cue in ('shatter','topple','petal','miss','unknown'):
         data=cue_wave(cue,22050)
         with wave.open(str(out/(cue+'.wav')),'wb') as f:
             f.setnchannels(1);f.setsampwidth(2);f.setframerate(22050);f.writeframes(data.tobytes())

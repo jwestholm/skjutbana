@@ -11,7 +11,8 @@ import cv2
 import numpy as np
 from PIL import Image
 import pygame
-from content.games.light_targets_game import LightTargetsGame
+from content.games.light_targets_game import LightTargetsGame,OBJECTS_PER_ROOM,BREAK_FPS,RESULT_DWELL_S
+from automation.light_room_palette import camera_level
 from content.games.light_room_art import ASSET_ROOT
 from content.games.light_room_audio import cue_wave
 from src.engine.game_objects.geometry import shape_contains
@@ -46,23 +47,24 @@ class RoomTests(unittest.TestCase):
             total=None
             for part,p in spec['parts'].items():
                 img=np.asarray(Image.open(ASSET_ROOT/p['sprite']).convert('RGBA'));mask=np.asarray(Image.open(ASSET_ROOT/p['mask']))>0
-                self.assertTrue(np.array_equal(mask,img[:,:,3]>0));self.assertGreaterEqual(int(img[:,:,1][mask].min()),192)
-                self.assertGreaterEqual(int(img[:,:,:3][mask].min()),128)
+                self.assertTrue(np.array_equal(mask,img[:,:,3]>0));self.assertGreaterEqual(float(camera_level(img[:,:,:3][mask]).min()),124)
+                hit=np.asarray(Image.open(ASSET_ROOT/p['hit_sprite']).convert('RGBA'))
+                self.assertTrue(np.array_equal(hit[:,:,3],img[:,:,3]))
+                self.assertGreaterEqual(float(camera_level(hit[:,:,:3][mask]).min()),124)
                 h,w=mask.shape;polygon=np.zeros((h,w),np.uint8)
                 for poly in p['polygons']:cv2.fillPoly(polygon,[np.rint(np.array(poly)*(w,h)).astype(np.int32)],1)
                 self.assertTrue(np.array_equal(polygon>0,mask),(name,part))
                 total=mask.astype(int) if total is None else total+mask
                 self.assertEqual(len(p['frames']),12)
             self.assertLessEqual(total.max(),1,'visible-part masks must not invent overlapping depth')
-        room=np.asarray(Image.open(ASSET_ROOT/'room.png'));self.assertGreaterEqual(int(room[:,:,1].min()),192)
-        self.assertGreaterEqual(int(room.min()),160)
+        room=np.asarray(Image.open(ASSET_ROOT/'room.png'));self.assertGreaterEqual(float(camera_level(room[:,:,:3]).min()),124)
     def test_layouts_use_real_supports_without_overlap_or_hud_collision(self):
         for size in ((640,480),(760,580),(1280,720)):
             game=LightTargetsGame('',pygame.Rect(0,0,*size));game.on_enter()
             try:
                 game.rng.seed(11);anchors=set();supports=set()
                 for _ in range(4):
-                    game._next_target();self.assertEqual(len(game.items),6,size)
+                    game._next_target();self.assertEqual(len(game.items),OBJECTS_PER_ROOM,size)
                     for i,a in enumerate(game.items):
                         ga=a['geometry'];anchors.add(a['anchor']['id']);supports.add(a['anchor']['support']);self.assertGreaterEqual(ga.y,104)
                         for b in game.items[i+1:]:self.assertFalse(pygame.Rect(ga.aabb).colliderect(pygame.Rect(b['geometry'].aabb)),size)
@@ -98,17 +100,19 @@ class RoomTests(unittest.TestCase):
         old_layout=self.g.layout_id;remaining={o.object_id for o in self.g.manager.objects if o.active}
         self.finish_animation();self.assertEqual(self.g.phase,'settling');self.assertEqual(self.g.layout_id,old_layout)
         self.assertEqual({o.object_id for o in self.g.manager.objects if o.active},remaining)
-    def test_unknown_never_breaks_or_plays_audio(self):
+    def test_unknown_never_breaks_but_has_distinct_feedback(self):
         self.live();before=pygame.surfarray.array3d(self.screen).copy()
         for _ in range(3):self.g.update(.1);self.g.render(self.screen)
         self.assertTrue(np.array_equal(before,pygame.surfarray.array3d(self.screen)))
         self.g._finish('UNKNOWN',None,dict(reason='test'),None,simulated=True);self.g.render(self.screen)
-        with patch('content.games.light_targets_game.audio_peak_detector.play_feedback') as sound:self.g.on_frame_presented(10.);sound.assert_not_called()
+        with patch('content.games.light_targets_game.audio_peak_detector.play_feedback',return_value={'status':'TEST'}) as sound:
+            self.g.on_frame_presented(10.);sound.assert_called_once()
+            self.assertEqual(sound.call_args.kwargs['cue'],'unknown')
         self.assertFalse(self.g.broken_ids);self.assertTrue(all(o.visible for o in self.g.manager.objects))
     def test_audio_is_quiet_distinct_and_can_be_muted(self):
-        waves=[cue_wave(c,16000) for c in ('shatter','topple','petal')]
+        waves=[cue_wave(c,16000) for c in ('shatter','topple','petal','miss','unknown')]
         self.assertTrue(all(w.dtype==np.int16 and np.abs(w.astype(int)).max()<=.161*32767 for w in waves))
-        self.assertEqual(len({len(w) for w in waves}),3)
+        self.assertEqual(len({len(w) for w in waves}),5)
         self.g.handle_event(pygame.event.Event(pygame.KEYDOWN,key=pygame.K_m));self.assertFalse(self.g.sound_enabled)
     def test_part_ambiguity_never_uses_depth_in_preview(self):
         self.live();body=next(o for o in self.g.manager.objects if o.metadata['sprite_kind']=='vase' and o.part_id=='body')
@@ -138,7 +142,7 @@ class RoomTests(unittest.TestCase):
                 if expected:self.assertEqual(decision.get('object_id'),expected)
                 else:self.assertNotEqual(decision['state'],'OBJECT_HIT')
     def test_clear_room_bonus_and_refill(self):
-        self.live();layout=self.g.layout_id
+        self.live();self.g.shots_per_player=10;layout=self.g.layout_id
         # One body/base hit per object clears the room through explicit dependencies.
         entities=[i['entity_id'] for i in self.g.items]
         for entity in entities:

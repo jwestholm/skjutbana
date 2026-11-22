@@ -14,10 +14,11 @@ class LightRoomArt:
         self.manifest=json.loads(data);self.manifest_sha256=hashlib.sha256(data).hexdigest()
         self.objects=self.manifest['objects'];self.size=size
         self.background=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/'room.png')),size)
-        self._raw={};self._scaled={};self._raw_frames={};self._frames={}
+        self._raw={};self._scaled={};self._raw_hit={};self._scaled_hit={};self._raw_frames={};self._frames={}
         for name,spec in self.objects.items():
             for part,p in spec['parts'].items():
                 self._raw[name,part]=pygame.image.load(str(ASSET_ROOT/p['sprite']))
+                self._raw_hit[name,part]=pygame.image.load(str(ASSET_ROOT/p.get('hit_sprite',p['sprite'])))
                 self._raw_frames[name,part]=[pygame.image.load(str(ASSET_ROOT/f)) for f in p['frames']]
 
     def geometry(self,name,anchor,height):
@@ -27,17 +28,15 @@ class LightRoomArt:
         return ObjectGeometry(round(ax*self.size[0]-px*w),round(ay*self.size[1]-py*h),w,h)
 
     def prepare_round(self,items):
-        self._scaled.clear();self._frames.clear()
+        self._scaled.clear();self._scaled_hit.clear();self._frames.clear()
         for item in items:
             size=(round(item['geometry'].width),round(item['geometry'].height))
             for part in self.objects[item['kind']]['parts']:
-                scaled=pygame.transform.smoothscale(self._raw[item['kind'],part],size)
-                # Some SDL smoothscale paths turn solid alpha 255 into 252–254.
-                # Keep opaque interiors opaque over resting fragment layers.
-                alpha=pygame.surfarray.pixels_alpha(scaled)
-                alpha[alpha>=252]=255
-                del alpha
-                self._scaled[item['kind'],part,size]=scaled
+                for raw,cache in ((self._raw,self._scaled),(self._raw_hit,self._scaled_hit)):
+                    scaled=pygame.transform.smoothscale(raw[item['kind'],part],size)
+                    # Keep solid alpha opaque despite SDL's integer resampling.
+                    alpha=pygame.surfarray.pixels_alpha(scaled);alpha[alpha>=252]=255;del alpha
+                    cache[item['kind'],part,size]=scaled
                 self.frames(item['kind'],part,size)  # no image I/O/scaling in a shot reaction
 
     def frames(self,name,part,size):
@@ -73,9 +72,11 @@ class LightRoomArt:
                 if oid in broken_ids and oid not in effect_ids:debris(item,part,oid,False)
         for item in ordered:
             g=item['geometry'];size=(round(g.width),round(g.height))
+            partial=any(oid in broken_ids for oid in item['parts'].values())
+            cache=self._scaled_hit if partial else self._scaled
             for part,oid in item['parts'].items():
                 if oid not in broken_ids:
-                    surface.blit(self._scaled[item['kind'],part,size],(round(g.x),round(g.y)))
+                    surface.blit(cache[item['kind'],part,size],(round(g.x),round(g.y)))
         # Moving fragments may cross the scene only while shot queries are closed.
         for item in ordered:
             for part,oid in item['parts'].items():
