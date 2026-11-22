@@ -459,6 +459,16 @@
             }
           },
           {
+            "id": "light_targets",
+            "title": "Ljusjakten – luftgevär 20 m",
+            "type": "game",
+            "description": "Stora ljusa lampor, 1–2 spelare och 5 eller 10 skott. OBJECT-träffar, kantregel och tydligt osäkert-besked. Fysisk 95 %-verifiering återstår.",
+            "preview": "assets/thumbs/game_icon.png",
+            "script": "content/games/light_targets_game.py",
+            "path": "",
+            "led": {"enabled": false, "color": [255, 255, 192]}
+          },
+          {
             "id": "shoot_stuff_range",
             "title": "Skjutprylar",
             "type": "game",

@@ -90,6 +90,10 @@ class ObjectPhysicalQuery:
         self.game_regions = deepcopy(tuple(snapshot.game_regions))
         self.object_hit_requested = any(r.metadata.get('physical_query',{}).get(
             'result_semantics') == 'OBJECT_HIT' for r in self.game_regions)
+        requested_dense = any(r.metadata.get('physical_query', {}).get('evidence_method') == 'dense'
+                              for r in self.game_regions)
+        self.dense_enabled = _dense_enabled() or requested_dense
+        self.deadline_s = _denv('SKJUTBANA_OBJECT_DENSE_DEADLINE_S', 1.2) if self.dense_enabled else DEADLINE_S
         self.camera_to_game = camera_to_game
         self.capture_crop=capture_crop
         self.capture_result=capture_result
@@ -140,7 +144,7 @@ class ObjectPhysicalQuery:
     def _model_prepare(self, pre_frames):
         """SHADOW only (SKJUTBANA_OBJECT_DENSE_MODEL): per-region PRE crops for the candidate-peak model."""
         self.model_tiles = []
-        if self.final or not (_dense_enabled() and self.object_hit_requested):
+        if self.final or not (self.dense_enabled and self.object_hit_requested):
             return
         try:
             from src.engine.camera.dense_peak_model import live_model, tile_bounds
@@ -227,7 +231,7 @@ class ObjectPhysicalQuery:
                 self.freshness_ms.append((time.perf_counter()-freshness_started)*1000.)
             self.pre_activity |= np.count_nonzero((noise>3.)&(mask>0))>=2
             valid_pixels=int(np.count_nonzero(mask))
-            if _dense_enabled():
+            if self.dense_enabled:
                 dense_pre=np.median(stack,axis=0).astype(np.float32) if len(stack)>1 else stack[0]
             else:
                 dense_pre=None
@@ -408,20 +412,20 @@ class ObjectPhysicalQuery:
         now = time.time() if delivered_ts is None else float(delivered_ts)
         # Dense flag: a main-loop stall must not discard frames already in the ring; the frame-timestamp
         # deadline below still bounds the window.
-        if now >= self.peak_ts+DEADLINE_S and not (_dense_enabled() and self.object_hit_requested):
+        if now >= self.peak_ts+self.deadline_s and not (self.dense_enabled and self.object_hit_requested):
             return self.finish_deadline(now)
         if ts > now or ts < self.peak_ts or ts <= self.last_frame_ts:
             return self.result
-        if ts > self.peak_ts+DEADLINE_S:
+        if ts > self.peak_ts+self.deadline_s:
             return self.finish_deadline(now)
         if frame.frame_bgr.shape[:2] != self.frame_shape:
             return self.finish('UNCERTAIN','camera_geometry_changed')
         started = time.perf_counter()
-        stop_after=started+self.peak_ts+DEADLINE_S-now
+        stop_after=started+self.peak_ts+self.deadline_s-now
         self.first_post_ts = ts if self.first_post_ts is None else self.first_post_ts
         self.last_frame_ts = ts
         self.frames += 1
-        if _dense_enabled() and self.object_hit_requested:
+        if self.dense_enabled and self.object_hit_requested:
             return self._dense_observe(frame, ts, now, started)
         candidates = []
         production = {}
@@ -813,7 +817,7 @@ class ObjectPhysicalQuery:
             self.result['object_decision']=self._object_decision(status,reason)
             self.result['timing']['object_decision_ms']=(time.perf_counter()-started)*1000.
         self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
-        if _dense_enabled() and self.object_hit_requested:
+        if self.dense_enabled and self.object_hit_requested:
             try:
                 pk = [(round(d['s'], 1), round(d['core'], 2), round(d['bipolar'], 2)) for d in (getattr(self, 'dense_peaks', None) or [])[:4]]
                 print(f"[OBJECT-DENSE] shot={self.shot_id} status={status} reason={reason} frames={self.frames} "

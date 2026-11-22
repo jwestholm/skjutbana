@@ -871,11 +871,12 @@ class ObjectHitRegistryV2223:
             # Under SKJUTBANA_OBJECT_DENSE a second audio peak shortly after this one (muzzle report + impact,
             # CO2 double report; measured live 65-80 ms) belongs to the same shot and must not cut this query.
             from src.engine.camera.object_physical_query import _dense_enabled, _denv
-            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.15) if _dense_enabled() else 0.0  # followers 64-97 ms; AR15 doubles >=228 ms
+            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.15) if getattr(query, "dense_enabled", _dense_enabled()) else 0.0  # followers 64-97 ms; AR15 doubles >=228 ms
+            deadline_s = getattr(query, "deadline_s", DEADLINE_S)
             next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts+pair_s),default=math.inf)
             frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
                 and f.timestamp<=now),key=lambda f:f.timestamp)
-            if pair_s and not query.final and now>=snap.peak_ts+DEADLINE_S+1.0:
+            if pair_s and not query.final and now>=snap.peak_ts+deadline_s+1.0:
                 query.finish_deadline(now)   # hard cap checked before any work
             for frame in frames[:8 if pair_s else 2]:  # bounded frames per query per main tick (dense: catch up after stalls)
                 if query.final:
@@ -886,8 +887,8 @@ class ObjectHitRegistryV2223:
                     # An optional scoped query must never interrupt CURRENT.
                     query.finish('UNCERTAIN','object_query_error:'+type(exc).__name__)
             decision_now=now+time.perf_counter()-tick_started
-            if not query.final and (decision_now>=snap.peak_ts+DEADLINE_S or decision_now>=next_peak):
-                if not pair_s or frames[8:] == [] or decision_now>=snap.peak_ts+DEADLINE_S+1.0:
+            if not query.final and (decision_now>=snap.peak_ts+deadline_s or decision_now>=next_peak):
+                if not pair_s or frames[8:] == [] or decision_now>=snap.peak_ts+deadline_s+1.0:
                     query.finish_deadline(decision_now)
             if query.final and pair_s:
                 # Follower of a paired peak: never publish before the owner (first peak) has published,
