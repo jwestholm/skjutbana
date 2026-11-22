@@ -26,7 +26,7 @@ if _cal == "2026-11-21T17:55:49":
 else:
     print(f"[play_can_dense] calibration {_cal!r} differs from the fitted one: no x correction", flush=True)
 # SHADOW-only candidate-peak model (logs [OBJECT-DENSE-MODEL]; never decides gameplay)
-_MODEL = "/data/skjutbana/evaluation_runs/can_peak_model_20261121/v4/model.json"   # logreg v4, tau .994
+_MODEL = "/data/skjutbana/evaluation_runs/can_peak_model_20261121/v6aug/model.json"   # logreg v6aug (real-stamp augmentation), tau .991, SHADOW
 if os.path.exists(_MODEL):
     os.environ.setdefault("SKJUTBANA_OBJECT_DENSE_MODEL", _MODEL)
 sys.path.insert(0, os.getcwd())
