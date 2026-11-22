@@ -66,6 +66,11 @@ SHOTS_PER_PLAYER = 5
 PLAYERS = (1, 2)
 
 SHELF_HEIGHT_CM = 135.0
+# Table height varies per player turn so new rounds do not land in old (patched) holes on the
+# physical screen.  Range is the table's leg length in cm at the target distance; the rendered
+# shelf must also move at least TABLE_MIN_MOVE_TARGET_H tallest-target heights from the last turns.
+TABLE_HEIGHT_RANGE_CM = (35.0, 260.0)
+TABLE_MIN_MOVE_TARGET_H = 2.5
 HORIZON_Y_NORM = 0.43
 HUD_HEIGHT = 132
 
@@ -305,6 +310,8 @@ class ShootStuffGame:
         self._subscribed = False
         self._target_geometry: dict[str, tuple[float, float, float, float]] = {}
         self._shelf_y = float(self.viewport.h * 0.66)
+        self._shelf_height_cm = SHELF_HEIGHT_CM
+        self._recent_shelf_ys: list[float] = []
         self._last_resolution_line = ""
         self._last_hit_shot_id = None
         self._background_cache = None
@@ -425,7 +432,38 @@ class ShootStuffGame:
         )
         return max(2.0, width_px), max(2.0, height_px)
 
-    def _projected_shelf_y(self) -> float:
+    def _shelf_y_bounds(self) -> tuple[float, float]:
+        max_target_h = max(self._projected_size_px(s)[1] for s in TARGET_SPECS)
+        sign_h = max(58, int(self.viewport.h * 0.08))
+        # room above the targets for the distance sign, below the HUD
+        return float(HUD_HEIGHT + max_target_h + sign_h + 34 + 8), float(self.viewport.h - 64)
+
+    def _pick_table_height(self) -> None:
+        """New random leg length for this turn (fixed 135 cm with SKJUTBANA_CAN_FIXED_TABLE=1)."""
+        if os.environ.get("SKJUTBANA_CAN_FIXED_TABLE") == "1":
+            self._shelf_height_cm = SHELF_HEIGHT_CM
+            return
+        max_target_h = max(self._projected_size_px(s)[1] for s in TARGET_SPECS)
+        min_move = TABLE_MIN_MOVE_TARGET_H * max_target_h
+        lo, hi = self._shelf_y_bounds()
+        best = None
+        for _ in range(60):
+            cm = self.rng.uniform(*TABLE_HEIGHT_RANGE_CM)
+            y = self._projected_shelf_y(cm)
+            if not (lo <= y <= hi):
+                continue
+            gap = min((abs(y - p) for p in self._recent_shelf_ys[-3:]), default=1e9)
+            if best is None or gap > best[0]:
+                best = (gap, cm, y)
+            if gap >= min_move:
+                break
+        if best is not None:
+            self._shelf_height_cm = best[1]
+            self._recent_shelf_ys.append(best[2])
+            print(f"[CAN-TABLE] player={self.player} table_height_cm={best[1]:.0f} shelf_y={best[2]:.0f} "
+                  f"move_px={best[0] if best[0] < 1e9 else 0:.0f}", flush=True)
+
+    def _projected_shelf_y(self, height_cm: float | None = None) -> float:
         geometry = self._projection_geometry()
         ground_y = projected_ground_anchor_y_px(
             self.distance_m,
@@ -434,7 +472,7 @@ class ShootStuffGame:
             horizon_y_norm=HORIZON_Y_NORM,
         )
         shelf_height_wall_cm = projected_size_on_wall_cm(
-            SHELF_HEIGHT_CM,
+            self._shelf_height_cm if height_cm is None else height_cm,
             self.distance_m,
             geometry.wall_distance_m,
         )
@@ -542,7 +580,7 @@ class ShootStuffGame:
             obj.world = WorldPlacement(
                 distance_m=self.distance_m,
                 world_x_m=float(lateral_m),
-                world_y_m=SHELF_HEIGHT_CM / 100.0,
+                world_y_m=self._shelf_height_cm / 100.0,
                 world_z_m=self.distance_m,
                 metadata={
                     "physical_width_cm": spec.width_cm,
@@ -637,6 +675,8 @@ class ShootStuffGame:
         self._retire_object_queries('game_round_or_distance_changed')
         self._round_token += 1
         self.player = player
+        self._pick_table_height()
+        self._rebuild_visual_world()
         self._build_rack()
         self.phase = "intro"
         self.phase_until = time.monotonic() + INTRO_SECONDS

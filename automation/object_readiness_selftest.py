@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault('SDL_VIDEODRIVER','dummy')
 os.environ.setdefault('SDL_AUDIODRIVER','dummy')
+os.environ.setdefault('SKJUTBANA_CAN_FIXED_TABLE','1')  # lifecycle tests reuse one rack position across turns
 
 from dataclasses import replace
 from types import SimpleNamespace as S
