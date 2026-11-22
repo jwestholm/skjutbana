@@ -60,7 +60,8 @@ class FrameStore:
         self.session = session
         self.rows = [json.loads(l) for l in open(session / "camera_index.jsonl")]
         self.ts = np.array([r["acquisition"]["receive_wall_ts"] for r in self.rows])
-        self.fh = open(session / "camera.bin", "rb")
+        from src.engine.camera_bin_store import open_camera_bin
+        self.fh = open_camera_bin(session)
         self.cache: dict[int, np.ndarray] = {}
 
     def frame(self, i: int) -> np.ndarray:

@@ -365,7 +365,8 @@ class SourceSessionReader:
         """Yield (index_row, frame). Frames get the recorded transform, as live."""
         import cv2
         from src.engine.camera.camera_manager import apply_frame_transform
-        with open(self.directory / "camera.bin", "rb") as handle:
+        from src.engine.camera_bin_store import open_camera_bin
+        with open_camera_bin(self.directory) as handle:
             for row in self.camera_index():
                 handle.seek(int(row["offset"]))
                 data = handle.read(int(row["length"]))

@@ -110,7 +110,8 @@ def replay(session_dir: Path, output: Path, *, use_current_settings: bool = Fals
         export = runtime.enable_candidate_export() if export_candidates else None
         runtime.start_scanner()
         seen_events: dict[int, Any] = {}
-        cam_file = open(session_dir / "camera.bin", "rb")
+        from src.engine.camera_bin_store import open_camera_bin
+        cam_file = open_camera_bin(session_dir)
         pcm_file = open(session_dir / "audio.pcm", "rb")
         step = runtime.step_interval_s
         next_step = 0.0

@@ -72,7 +72,8 @@ class Frames:
         self.dir = Path(session)
         self.rows = [json.loads(l) for l in open(self.dir / "camera_index.jsonl")]
         self.ts = np.array([r["acquisition"]["receive_wall_ts"] for r in self.rows])
-        self.fh = open(self.dir / "camera.bin", "rb")
+        from src.engine.camera_bin_store import open_camera_bin
+        self.fh = open_camera_bin(self.dir)
         self.cache = {}
 
     def gray(self, i):
