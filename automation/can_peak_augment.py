@@ -9,7 +9,8 @@ stay untouched.  Candidates are then extracted with exactly the dataset code (sh
 against the pasted position.  Each miss shot is also emitted unchanged as a control (truth_object None).
 
     python3 -m automation.can_peak_augment OUT.npz SESSION RUN.log TRUTH.jsonl [...]
-Env: AUG_SEED (1), AUG_DEPTH=lo,hi (0.3,1.0), AUG_PER_SHOT (2), AUG_SCALE=lo,hi (0.8,1.2)
+Env: AUG_SEED (1), AUG_DEPTH=lo,hi (0.3,1.0), AUG_PER_SHOT (2), AUG_SCALE=lo,hi (0.8,1.2),
+AUG_STAMPS=path[,path] (stamp libraries, chosen uniformly per pasted hole; default hole_library clean_stamps)
 """
 from __future__ import annotations
 
@@ -54,7 +55,7 @@ def main():
     dlo, dhi = map(float, os.environ.get("AUG_DEPTH", "0.3,1.0").split(","))
     slo, shi = map(float, os.environ.get("AUG_SCALE", "0.8,1.2").split(","))
     per_shot = int(os.environ.get("AUG_PER_SHOT", "2"))
-    bank = StampSet()
+    banks = [StampSet(p) for p in os.environ["AUG_STAMPS"].split(",")] if os.environ.get("AUG_STAMPS") else [StampSet()]
     to_game = mapper()
     X, meta, manifest = [], [], []
     args = sys.argv[2:]
@@ -95,6 +96,7 @@ def main():
                             break
                     if tgt_obj is None:
                         continue
+                    bank = banks[int(rng.integers(len(banks)))]
                     frames.stamp = (bank.patch(rng, float(rng.uniform(slo, shi)), extra_blur_px=0.4)[0]
                                     * float(rng.uniform(dlo, dhi))).astype(np.float32)
                     frames.cx, frames.cy, frames.t0 = cx, cy, pk + 0.02
