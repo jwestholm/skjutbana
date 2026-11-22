@@ -1187,6 +1187,8 @@ class ShootStuffGame:
             gamma = float(os.environ.get("SKJUTBANA_CAN_BG_GAMMA", BG_GAMMA))
         except ValueError:
             gamma = BG_GAMMA
+        if not math.isfinite(gamma) or not 0.2 <= gamma <= 3.0:   # invalid override -> safe default
+            gamma = BG_GAMMA
         if abs(gamma - 1.0) < 1e-3:
             return surf
         lut = (255.0 * (np.arange(256) / 255.0) ** gamma).round().astype(np.uint8)
