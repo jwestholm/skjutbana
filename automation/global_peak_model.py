@@ -116,8 +116,8 @@ def main():
             p = P(X)
             out[n] = eval_model(m, sh, p, tau, ambig)
             out[n + "_rule"] = eval_rule(X, m, sh, feats)
-            out[n + "_by_bg"] = dict(model=eval_model(m, sh, p, tau, ambig, by="background"),
-                                     rule=eval_rule(X, m, sh, feats, by="background"))
+            out[n + "_by_bg"] = dict(model=eval_model(m, sh, p, tau, ambig, by="background" if n != "test" or sh[0].get("background") else "session"),
+                                     rule=eval_rule(X, m, sh, feats, by="background" if n != "test" or sh[0].get("background") else "session"))
     (d / f"model_{kind}.json").write_text(json.dumps(out, indent=1))
     for k in ("tau", "ambig_p", "dev_oof", "dev_rule", "val", "val_rule", "test", "test_rule", "real", "real_rule"):
         print(k, out.get(k))

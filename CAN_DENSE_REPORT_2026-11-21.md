@@ -37,3 +37,21 @@ verklig kantträff), MLP/stubbar/ensembler (inte bättre än logistisk modell p�
   bakgrundstråd.
 - Riktiga hål är grunda (core 0,05–0,15) och ibland ljusa; projicerade testhål överskattar detekteringen.
 - Codex: modellen ska vara SKUGGA tills ~300 oberoende riktiga skott utan fel.
+
+## Natten 21–22 nov: realistiska hål, v5 och universellt spår
+- Testprogrammet kan nu rita grunda (30–55 % mörkare) och ljusa hål samt kantmissar.
+- v5 (mörka+ljusa kandidater, tränad med grunda hål): validering grunda hål regel 46/220, v5 127/220,
+  regel∪v5 131/220; vanliga 502→538/603; orört test 176→181/206; 0 fel, 0 falska på 591 missar.
+  Live, färska sessioner utan inspelning: grunda 29→51/74, vanliga 59→62/73, 0 fel/0 falska på 93 missar.
+- Universellt (hela ytan, 12 bakgrundstyper, ~800 skott): H15-regeln 26 % rätt, universell modell 19 %
+  med fler fel; riktiga hålstämplar på dart/bågskytte/skidskytte/5-tavla/rörlig/mörk: regel 13/44 (1 fel),
+  modell 0/44. Modellen generaliserar INTE mellan domäner; det stora hindret är rörlig och mörk bakgrund.
+
+## Förslag: motorfunktion för universell detektering (ej byggd)
+"Projektionsmedveten differens": motorn vet exakt vilken bild som projicerades. Med en fotometrisk modell
+projektor→kamera (per pixel, kalibreras med några testbilder) kan motorn förutsäga kamerabilden och jämföra
+med den verkliga; residualen är fysiska förändringar (hål) även när spelet animerar. API: spelets renderade
+bilder loggas med presentationstid (finns delvis: render_history 'presented'), motorn bygger förväntad
+kamerabild för PRE/POST-tidpunkterna. Alternativ/komplement: spelet kan begära "stillbild" efter skott
+(hålla senast visade bild ~0,5 s) – finns som idé i Skyttegrav/bench --freeze-on-shot-ms.
+Mörka scener: hål syns inte i mörkt projicerat ljus; kräver ljusare golvnivå eller kort ljuspuls (precision_flash).
