@@ -113,65 +113,130 @@ def _top1(shots, cands, scores):
                 per_scenario={k: f"{v[0]}/{v[1]}" for k, v in sorted(per_scenario.items())})
 
 
-def train(train_dirs: list[str], holdout_dirs: list[str], output: Path) -> dict[str, Any]:
-    if set(map(str, train_dirs)) & set(map(str, holdout_dirs)):
-        raise SystemExit("A directory is in both train and holdout")
+def _cached_top1(exports, scores, *, source_scoped=True):
+    """Source identity is part of a shot group. Legacy mode is diagnostic only."""
+    hits = total = 0; scenarios = {}; offset = 0; best = {}
+    for e in exports:
+        inverse = {v: k for k, v in e.manifest['groups'].items()}
+        for i, row in enumerate(e.meta):
+            raw = inverse[int(row['group'])]
+            g = (e.source, raw) if source_scoped else raw
+            score = scores[offset + i]
+            if g not in best or score > best[g][0]: best[g] = (score, bool(row['label']))
+        offset += len(e.meta)
+    for e in exports:
+        for shot in e.shots:
+            raw = str(shot['group']); g = (e.source, raw) if source_scoped else raw
+            ok = best.get(g, (0, False))[1]
+            hits += ok; total += 1
+            v = scenarios.setdefault(shot['scenario'], [0, 0]); v[0] += ok; v[1] += 1
+    return dict(shots=total, hits=hits, rate=hits / total if total else None,
+                per_scenario={k: f'{v[0]}/{v[1]}' for k, v in sorted(scenarios.items())})
+
+
+def train(train_dirs: list[str], holdout_dirs: list[str], output: Path, *, cache_root=None,
+          negative_cap=None, sample_seed=20261122, max_matrix_gb=2.0) -> dict[str, Any]:
+    from .candidate_cache import Export, selection
+    import resource
+    started = time.monotonic()
+    train_dirs = [str(Path(d).resolve()) for d in train_dirs]
+    holdout_dirs = [str(Path(d).resolve()) for d in holdout_dirs]
+    if set(train_dirs) & set(holdout_dirs):
+        raise ValueError('A directory is in both train and holdout')
+    if not train_dirs or not holdout_dirs: raise ValueError('Both splits are required')
     output.mkdir(parents=True, exist_ok=False)
-    tr_shots, tr, tr_hashes = _load(train_dirs)
-    ho_shots, ho, ho_hashes = _load(holdout_dirs)
-    tr = [r for r in tr if r["producer_has_impact"]]       # learn ranking within real shots
-    names = _feature_names(tr)                               # fit on TRAIN only
-    Xtr, medians = _matrix(tr, names)
-    mu, sd = Xtr.mean(axis=0), Xtr.std(axis=0)
-    sd = np.where(sd > 1e-9, sd, 1.0)
-    ytr = np.array([1.0 if r["label"] else 0.0 for r in tr])
-    w, b = _fit_logistic((Xtr - mu) / sd, ytr)
-    Xho, _ = _matrix(ho, names, medians)
-    model_scores = (Xho - mu) / sd @ w + b
-    live_scores = np.array([float(r["candidate"].get("score", 0.0) or 0.0) for r in ho])
-    yho = np.array([1.0 if r["label"] else 0.0 for r in ho])
-    impact_mask = np.array([bool(r["producer_has_impact"]) for r in ho])
-    metrics = dict(
-        train=dict(dirs=len(train_dirs), candidates=len(tr), positives=int(ytr.sum()), shots=len(tr_shots)),
-        holdout=dict(dirs=len(holdout_dirs), candidates=len(ho), positives=int(yho.sum()), shots=len(ho_shots)),
-        holdout_auc=dict(model=_auc(model_scores[impact_mask], yho[impact_mask]) if impact_mask.any() else None,
-                         live_score=_auc(live_scores[impact_mask], yho[impact_mask]) if impact_mask.any() else None),
-        holdout_top1=dict(model=_top1(ho_shots, ho, model_scores), live_score=_top1(ho_shots, ho, live_scores)),
-        holdout_top1_by_source={},
-    )
-    # per holdout set (synthetic disk / stress / real-hole stamps / recorded session)
-    for src in holdout_dirs:
-        idx = [i for i, r in enumerate(ho) if r["_source"] == str(src)]
-        shots_s = [s for s in ho_shots if s["_source"] == str(src)]
-        sub = [ho[i] for i in idx]
-        m = _top1(shots_s, sub, model_scores[idx]) if idx else _top1(shots_s, [], [])
-        l = _top1(shots_s, sub, live_scores[idx]) if idx else _top1(shots_s, [], [])
-        metrics["holdout_top1_by_source"][Path(src).name] = dict(model=f"{m['hits']}/{m['shots']}",
-                                                                 live_score=f"{l['hits']}/{l['shots']}")
-    weights = sorted(zip(names, w.tolist()), key=lambda kv: -abs(kv[1]))
-    model = dict(status=STATUS, live_authority=False, kind="logistic_regression_candidate_scorer",
-                 created=time.time(), features=names, impute_medians=medians.tolist(), mean=mu.tolist(),
-                 std=sd.tolist(), weights=w.tolist(), bias=float(b), top_weights=weights[:15],
-                 training_data=tr_hashes, holdout_data=ho_hashes,
-                 note="Never installed into the runtime. Synthetic/optical replay evidence only.")
-    blob = json.dumps(model, sort_keys=True).encode()
-    model["sha256"] = hashlib.sha256(blob).hexdigest()
-    (output / "model.json").write_text(json.dumps(model, indent=2) + "\n")
-    (output / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    t1m, t1l = metrics["holdout_top1"]["model"], metrics["holdout_top1"]["live_score"]
-    report = [f"# Nightly candidate-scorer ({STATUS})", "",
-              f"live_authority=false. Model sha256 `{model['sha256']}`.", "",
-              f"Holdout shots: {t1m['shots']} — model top-1 {t1m['hits']} vs live score top-1 {t1l['hits']}",
-              f"Holdout AUC (impact groups): model {metrics['holdout_auc']['model']} vs live score {metrics['holdout_auc']['live_score']}",
-              "", "Per holdout set (model / live):"]
-    for k, v in metrics["holdout_top1_by_source"].items():
-        report.append(f"- {k}: {v['model']} / {v['live_score']}")
-    report += ["", "Per scenario (model / live):"]
-    for k in t1m["per_scenario"]:
-        report.append(f"- {k}: {t1m['per_scenario'][k]} / {t1l['per_scenario'].get(k)}")
-    report += ["", "Top weights:"] + [f"- {k}: {v:+.3f}" for k, v in weights[:15]]
-    (output / "REPORT.md").write_text("\n".join(report) + "\n")
-    return dict(metrics=metrics, model_sha256=model["sha256"])
+    cache_root = Path(cache_root or output.parent / 'candidate_cache')
+    te = [Export(d, cache_root) for d in train_dirs]
+    he = [Export(d, cache_root) for d in holdout_dirs]
+    tr_hashes = [f'{e.source}/candidates.jsonl:{e.manifest["sha256"]}' for e in te]
+    ho_hashes = [f'{e.source}/candidates.jsonl:{e.manifest["sha256"]}' for e in he]
+    if {e.manifest['sha256'] for e in te} & {e.manifest['sha256'] for e in he}:
+        raise ValueError('Identical export content in train and holdout')
+    counts = {}; n_impact = sum(e.manifest['impact_candidates'] for e in te)
+    for e in te:
+        for k, n in zip(e.manifest['features'], e.manifest['impact_presence']): counts[k] = counts.get(k, 0) + n
+    names = sorted(k for k, n in counts.items() if n / max(n_impact, 1) >= 0.5)
+    chosen = [selection(e, seed=sample_seed, negative_cap=negative_cap) for e in te]
+    n = sum(map(len, chosen)); nh = sum(len(e.meta) for e in he)
+    if not n or not names: raise ValueError('No training candidates/features')
+    matrix_bytes = (n + nh) * len(names) * 8
+    if not math.isfinite(max_matrix_gb) or max_matrix_gb <= 0 or matrix_bytes > max_matrix_gb * 1e9:
+        raise ValueError(f'Matrix budget exceeded: {matrix_bytes} bytes; limit {max_matrix_gb} GB')
+    # Float32 storage; float64 working arithmetic retains the previous optimizer.
+    def matrix(exports, selections, path):
+        N = sum(map(len, selections)); out = np.lib.format.open_memmap(path, mode='w+', dtype='float64', shape=(N, len(names)))
+        out[:] = np.nan; off = 0
+        for e, idx in zip(exports, selections):
+            cols = {k: j for j, k in enumerate(e.manifest['features'])}
+            for j, k in enumerate(names):
+                if k in cols: out[off:off+len(idx), j] = e.X[idx, cols[k]]
+            off += len(idx)
+        return out
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="bench_train_work_") as work:
+        Xtr = matrix(te, chosen, Path(work) / 'train_work.npy')
+        medians = np.array([np.nanmedian(Xtr[:, j]) for j in range(len(names))])
+        medians = np.where(np.isfinite(medians), medians, 0)
+        for j in range(len(names)):
+            col = Xtr[:, j]; col[~np.isfinite(col)] = medians[j]
+        mu = np.array([Xtr[:, j].mean() for j in range(len(names))])
+        sd = np.array([Xtr[:, j].std() for j in range(len(names))]); sd = np.where(sd > 1e-9, sd, 1)
+        for lo in range(0, n, 8192): Xtr[lo:lo+8192] = (Xtr[lo:lo+8192] - mu) / sd
+        Xtr.flush()
+        ytr = np.concatenate([e.meta['label'][idx].astype(float) for e, idx in zip(te, chosen)])
+        sample = dict(seed=sample_seed, negative_cap=negative_cap, policy='all positive groups; capped other impact groups', exports=[])
+        for j, (e, idx) in enumerate(zip(te, chosen)):
+            np.save(output / f'selection_{j:03d}.npy', idx, allow_pickle=False)
+            sample['exports'].append(dict(source=e.source, sha256=e.manifest['sha256'], rows=len(idx), selection=f'selection_{j:03d}.npy'))
+        (output / 'sampling.json').write_text(json.dumps(sample, indent=2) + '\n')
+        w, b = _fit_logistic(Xtr, ytr)
+        all_ho = [np.arange(len(e.meta)) for e in he]
+        Xho = matrix(he, all_ho, Path(work) / 'holdout_work.npy')
+        model_scores = np.empty(nh); off = 0
+        for lo in range(0, nh, 8192):
+            block = np.asarray(Xho[lo:lo+8192]); block = np.where(np.isfinite(block), block, medians)
+            model_scores[lo:lo+len(block)] = (block - mu) / sd @ w + b
+        live_scores = np.concatenate([e.meta['live_score'] for e in he])
+        yho = np.concatenate([e.meta['label'] for e in he]); impact_mask = np.concatenate([e.meta['impact'] for e in he])
+        metrics = dict(train=dict(dirs=len(te), candidates=n, available_candidates=n_impact, positives=int(ytr.sum()), shots=sum(len(e.shots) for e in te)),
+            holdout=dict(dirs=len(he), candidates=nh, positives=int(yho.sum()), shots=sum(len(e.shots) for e in he)),
+            holdout_auc=dict(model=_auc(model_scores[impact_mask], yho[impact_mask]) if impact_mask.any() else None,
+                             live_score=_auc(live_scores[impact_mask], yho[impact_mask]) if impact_mask.any() else None),
+            holdout_top1=dict(model=_cached_top1(he, model_scores), live_score=_cached_top1(he, live_scores)), holdout_top1_by_source={})
+        metrics['legacy_global_group_top1'] = dict(note='DIAGNOSTIC ONLY: historical cross-export group collision', model=_cached_top1(he, model_scores, source_scoped=False), live_score=_cached_top1(he, live_scores, source_scoped=False))
+        for e in he:
+            end = off + len(e.meta)
+            m = _cached_top1([e], model_scores[off:end]); l = _cached_top1([e], live_scores[off:end])
+            metrics['holdout_top1_by_source'][Path(e.source).name] = dict(model=f"{m['hits']}/{m['shots']}", live_score=f"{l['hits']}/{l['shots']}")
+            off = end
+        metrics['resources'] = dict(peak_rss_mb=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
+            elapsed_s=time.monotonic()-started, working_matrix_bytes=matrix_bytes,
+            selected_cache_bytes=sum(p.stat().st_size for e in te+he for p in e.path.iterdir() if p.is_file()),
+            sampling=sample, evaluation_sampling=False)
+        weights = sorted(zip(names, w.tolist()), key=lambda kv: -abs(kv[1]))
+        model = dict(status=STATUS, live_authority=False, kind="logistic_regression_candidate_scorer",
+                     created=time.time(), features=names, impute_medians=medians.tolist(), mean=mu.tolist(),
+                     std=sd.tolist(), weights=w.tolist(), bias=float(b), top_weights=weights[:15],
+                     training_data=tr_hashes, holdout_data=ho_hashes, sampling=sample, cache_version=1,
+                     note="Never installed into the runtime. Synthetic/optical replay evidence only.")
+        blob = json.dumps(model, sort_keys=True).encode()
+        model["sha256"] = hashlib.sha256(blob).hexdigest()
+        (output / "model.json").write_text(json.dumps(model, indent=2) + "\n")
+        (output / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
+        t1m, t1l = metrics["holdout_top1"]["model"], metrics["holdout_top1"]["live_score"]
+        report = [f"# Nightly candidate-scorer ({STATUS})", "",
+                  f"live_authority=false. Model sha256 `{model['sha256']}`.", "",
+                  f"Holdout shots: {t1m['shots']} — model top-1 {t1m['hits']} vs live score top-1 {t1l['hits']}",
+                  f"Holdout AUC (impact groups): model {metrics['holdout_auc']['model']} vs live score {metrics['holdout_auc']['live_score']}",
+                  "", "Per holdout set (model / live):"]
+        for k, v in metrics["holdout_top1_by_source"].items():
+            report.append(f"- {k}: {v['model']} / {v['live_score']}")
+        report += ["", "Per scenario (model / live):"]
+        for k in t1m["per_scenario"]:
+            report.append(f"- {k}: {t1m['per_scenario'][k]} / {t1l['per_scenario'].get(k)}")
+        report += ["", "Top weights:"] + [f"- {k}: {v:+.3f}" for k, v in weights[:15]]
+        (output / "REPORT.md").write_text("\n".join(report) + "\n")
+        return dict(metrics=metrics, model_sha256=model["sha256"])
 
 
 def main(argv=None) -> int:
@@ -179,8 +244,18 @@ def main(argv=None) -> int:
     p.add_argument("--train", nargs="+", required=True)
     p.add_argument("--holdout", nargs="+", required=True)
     p.add_argument("--output", required=True)
+    p.add_argument("--cache-root")
+    p.add_argument("--negative-cap", type=int, default=None)
+    p.add_argument("--sample-seed", type=int, default=20261122)
+    p.add_argument("--max-matrix-gb", type=float, default=2.0)
+    p.add_argument('--address-limit-gb', type=float, default=None)
     a = p.parse_args(argv)
-    result = train(a.train, a.holdout, Path(a.output))
+    if a.address_limit_gb is not None:
+        import resource
+        if not math.isfinite(a.address_limit_gb) or a.address_limit_gb <= 0: p.error('Invalid address limit')
+        limit = int(a.address_limit_gb * 1e9)
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+    result = train(a.train, a.holdout, Path(a.output), cache_root=a.cache_root, negative_cap=a.negative_cap, sample_seed=a.sample_seed, max_matrix_gb=a.max_matrix_gb)
     print(json.dumps(result["metrics"], indent=2))
     return 0
 

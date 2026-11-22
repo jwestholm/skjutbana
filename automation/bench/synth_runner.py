@@ -293,6 +293,9 @@ def run(args) -> Path:
                     tolerance_mm=float(args.tolerance_mm), scenarios=scenarios, seeds=seeds,
                     background=background_sources,
                     background_sha256=hashlib.sha256(b"".join(hashlib.sha256(b.tobytes()).digest() for b in backgrounds)).hexdigest(),
+                    ai_settings_path="content/ai/settings.json",
+                    ai_settings_sha256=(hashlib.sha256(Path("content/ai/settings.json").read_bytes()).hexdigest()
+                                        if Path("content/ai/settings.json").exists() else None),
                     settings_path=str(args.settings),
                     settings_sha256=hashlib.sha256(Path(args.settings).read_bytes()).hexdigest(),
                     limitations=["synthetic sources: hole renderer and audio pulses are models, not physics",

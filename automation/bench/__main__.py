@@ -33,7 +33,7 @@ def compare(baseline: Path, candidate: Path, *, quiet: bool = False) -> dict:
         if isinstance(man.get("physics"), dict):
             man["physics"] = {**defaults, **man["physics"]}
     for field in ("evidence_level", "physics", "tolerance_mm", "background_sha256", "seeds", "scenarios",
-                  "settings_sha256"):
+                  "settings_sha256", "ai_settings_sha256"):
         if man_a.get(field) != man_b.get(field):
             raise SystemExit(f"Refusing to compare: '{field}' differs between runs (not the same experiment)")
     groups = {k: c["scenario"] for k, c in a.items()}

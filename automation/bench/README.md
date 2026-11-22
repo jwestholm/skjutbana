@@ -138,20 +138,48 @@ hash (different calibrations are different experiments).
 | `SKJUTBANA_AUDIO_COOLDOWN_S=0.12` | audio peak cooldown override (CO2 second peak 66–94 ms after the muzzle peak) — audio events = real shots, but emissions unchanged/worse in replay; KEPT OFF 2026-11-18 |
 | `SKJUTBANA_HOLE_LIKENESS_RANK=1` | H11: candidates get `h11_hole_snr` (matched filter of the signed PRE→POST darkening with the mean real-stamp radial profile ÷ local RMS); tracks rank by it and the winner is the highest rank among eligible tracks (implies H8a ordering). Offline re-rank evidence positive; live A/B: see AUDIT_FINDINGS §14 |
 
-## Nightly (cron 02:30, `crontab -l`)
+## Nightly (cron paused by the operator, 2026-11-22)
 
 ```bash
-python3 -m automation.bench nightly --dry-run      # show plan and preconditions
-python3 -m automation.bench nightly                # run now
-cat /data/skjutbana/nightly/LATEST.md              # last report
+python3 -m automation.bench nightly --manifest research/nightly_candidate_dataset_20261121.json --dry-run
+# Only after preflight succeeds and the operator approves scheduling:
+python3 -m automation.bench nightly --manifest research/nightly_candidate_dataset_20261121.json
 ```
 
-Each night: code regression check (defaults + pilot flags, fixed seeds, compared with the
-previous night), new synthetic training data (new seeds), export of every recorded session
-with `ground_truth.jsonl` (once), training of a logistic candidate scorer on all training
-data and evaluation on a frozen holdout (synthetic seeds + held-out session). Models are
-`OFFLINE_REPLAY_ONLY_UNVALIDATED`, `live_authority=false`, never installed. Skips when the
-game runs, memory < 12 GB or disk < 10 GB; at most two worker processes.
+The manifest explicitly pins export paths/hashes and the fixed regression suite/baselines.
+There is no directory discovery, automatic session export, or new synthetic training data each night.
+The supplied manifest keeps exactly the 64 training exports selected by the historical model;
+its historical holdout has been inspected and is a regression set, not fresh physical validation.
+A changed settings snapshot, missing/changed AI-settings provenance or unavailable raw camera background
+is NOT_COMPARABLE and fails visibly;
+packed camera inputs are not read. Freeze a new compatible regression baseline explicitly rather than
+silently comparing different experiments. `--dry-run` hashes inputs and writes nothing.
+
+Candidate exports are converted once to content-addressed float32 NPY caches, read with mmap.
+NaN retains missingness, and a shot manifest includes shots without candidates. TRAIN-only feature
+selection, imputation/scaling and logistic fitting retain float64 arithmetic. The experimental config `research/nightly_sample64.json` freezes seed 20261122 and caps
+negative-only impact groups at 64 candidates, retaining all candidates in every positive group.
+This frozen selection is also the nightly default; on the complete 2026-11-21 manifest it retained
+all 3,116 positives and reproduced the unsampled source-scoped top-1 result (128/150).
+Set `negative_cap` to null in a budget config for the unsampled reference. Every selected row index is saved. Holdout is never sampled. Groups are scoped to
+source export; `legacy_global_group_top1` is diagnostic only (the old total mixed synthetic variants).
+
+Resource defaults: 20 GB disk reserve plus a conservative run budget of 16 GB, 8 GB available RAM,
+6 GB training address-space limit, 2 GB work-matrix cap, at most 100 exports / 6 GB JSON input.
+`--config FILE` overrides these positive numeric limits. Training runs in a supervised subprocess;
+work matrices are temporary files under /tmp, and only compact caches/models/manifests persist.
+Existing exports/baselines are never deleted. Models remain OFFLINE_REPLAY_ONLY_UNVALIDATED,
+`live_authority=false`; no gameplay path consumes them.
+
+`summary.json`, `REPORT.md` and `LATEST.md` are updated to RUNNING before work starts and FAILED on
+job/training/comparison failure. A killed supervisor leaves RUNNING, never a stale success. Child
+failure, including SIGKILL/OOM, returns a nonzero nightly exit. Cron is not modified by this command.
+
+To freeze an explicitly chosen historical export selection (review before running):
+```bash
+python3 -m automation.bench nightly --freeze-from-model /path/to/model.json --manifest /new/manifest.json
+```
+For bounded historical parity checks, see `python3 -m automation.bench.verify_training --help`.
 
 Promote a flag only after synthetic A/B, recorded-source replay **and**
 physical validation agree.

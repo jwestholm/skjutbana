@@ -1,0 +1,335 @@
+{
+  "version": 1,
+  "reference_model": "/data/skjutbana/nightly/2026-11-21/model/model.json",
+  "reference_model_sha256": "8e566d5b6a9ef5a1ea3a1672f12e661766ff39eeeafa802bbe2492681c2632d6",
+  "note": "Inspected historical evaluation set; not an untouched physical holdout.",
+  "train": [
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-17_standard",
+      "sha256": "51b7575a617a1e5b598817735eeb704fe5386e5f75ab347d5901a053ad8cdc46"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-17_stress",
+      "sha256": "436236e68d88fc655a8d607335a7302a28605b5ab5ebc1d59b0d5672741c84ba"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-18_100816_stamps",
+      "sha256": "a204ffb2d362f673004435643ae9720e222d2c03a46f345c21951c6157389743"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-18_100816_standard",
+      "sha256": "0d67debf3f1f6674ddc05585b315595da6c36342d6e8a6fbf2c350e80b156f2b"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-18_100816_stress",
+      "sha256": "3b32bb756a9c110d18f412c2c6a89acc7bf231524ed763fcafd6ec128ad81008"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-18_standard",
+      "sha256": "62bf8816d159c95c35c59be6a95f5209db5bcd71c463e93253489873705f82c4"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-18_stress",
+      "sha256": "2d8af5a614f0fae6a7dcbec81b303f5faa36f68762b91cc16d7df337e29fd065"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-19_stamps",
+      "sha256": "f81e588abe0c7734218364f629e6c42e7dba5403288ca9bd0a2454f10449db90"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-19_standard",
+      "sha256": "b432ef1f192dc0ea4c49396c1be94743514644973a54fcc2a3c1d85f88da8591"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-19_stress",
+      "sha256": "dbe271e02ad3175dfe116f5e05657e2a237874f4ba7403f325449bfdca5d9f2a"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-20_stamps",
+      "sha256": "6f3f7980e56268129338b6f63d7154370768a53ba410b7652ac6195dbb984a35"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-20_standard",
+      "sha256": "9093648d3b88e9bf821ad588712ca4711b7dc164a8a553b3d1e8bb07d165b4de"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-20_stress",
+      "sha256": "3a6bc907c3fd4c8ddca8e16a13336cdda25aa8df7135a0bc5c80a2682fec93d6"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-21_stamps",
+      "sha256": "de2b4d034f639e740ccbb47a2b3464f8c7b2f82ea45ffbe7386e20fe02a15388"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-21_standard",
+      "sha256": "8ef1434b43e6f5def84af170ef5f6e69b5ab2f5ab3f622980d0210a5aa2a16f1"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/2026-11-21_stress",
+      "sha256": "94f92c22293bf1c801c2d9ff3fecfe574d8dda7f208ac4e03ba42c8c24531a20"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261117T212422Z_7c2ccc17",
+      "sha256": "e5dd8870ec48dd7406a3d3db8835985259bf331712c516c9acc27c576d278c90"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261117T220813Z_2842f9a5",
+      "sha256": "0b201a56cba746e8296e4da9eaad906c7a716caeb47506bd333096c65639b365"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261117T220854Z_e1f8a9b4",
+      "sha256": "eb805065921a2898cf8239304d10df527db3a6e92f2d8f9fbab656147abe4640"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261117T222725Z_a5735418",
+      "sha256": "2ff15de2cbb6915ae7423258139c9c307bcb3f4ae39ba024c15e41483e4627a3"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261117T222853Z_38934cd9",
+      "sha256": "fd61807d5738c0e3bab03233e00eaad68357f58fcb7779823e107ba881fcdd93"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T074254Z_33dadfc9",
+      "sha256": "ce80e9ac3b317976be990b5a92fe4f3d742fd81ddbf542b2d1d4abd018862cf0"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T083338Z_eb3da73c",
+      "sha256": "a99cc2e59654f9de0b7fa1077755233c8031c7975cf141d81b1264dc4b98627e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T084026Z_7cd3f0cd",
+      "sha256": "c78ad0c3a61793d3d66a6dcea302fd2d4a4a08e3aabfc5170bfe4bf8c214e6ac"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T110324Z_f624945f",
+      "sha256": "41775efcf5c60798ce5f47dfff5fc722888a872e5611a14f76db9f46fd60f9e6"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T110415Z_e1bc684f",
+      "sha256": "999e212b9f0478ee52402a55f07079a9be3a20872d6731e2984e1b94813c9b4c"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T123405Z_76d489ed",
+      "sha256": "958e56a2f9752391b3f0e4988a5115704e2b58d73f8d1fec3aaeba630eb00bd3"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T135339Z_da06f87a_ar15cut",
+      "sha256": "75d29203853baa2c1a075bf03ea4a6e7e0713e6fc0f25a13cd36f3dc5dd3b438"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T155321Z_04f1be81",
+      "sha256": "0b5885014979edd670b79583a5da7ead8ec5707f485f4dbe1c0c038b5a0a0978"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T162349Z_66d659ce",
+      "sha256": "f4595a5b36a33bbaecf482b9153ed4ac9682e5114034650e82f8eebb9b69d1d6"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T164040Z_b6a3413c",
+      "sha256": "56f836203fe5c65082a16a78509c85ee253e9aa47de14e7bd711be1e7642598e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T170137Z_70fd8ac7",
+      "sha256": "9af0c87d2ccb7d68b361547e09b56e5e62da0aac7ce1a22ab0f02d8e48511551"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T170218Z_6f7aceea",
+      "sha256": "e599f2b9809b746eef2235a9768fa14a028d689a9b840671c3fab12271addefc"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T170259Z_e4ea70c5",
+      "sha256": "f34e07fa503fc7159e9a612ed73cb2d6f8d0983ff593aae535723e3c594021f2"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T170339Z_6d926bf6",
+      "sha256": "6a065ede8e4a3705a0e0e2668fc465ff5c1308ebc03c0d988545b450d198470f"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T170420Z_06e8e1cb",
+      "sha256": "e08a1fcd1957cda76abda8474178535f9418dc45123228e185ebd7eb502b5ee2"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T181112Z_6cb18ae7",
+      "sha256": "94af751b8a7920ca500735da9276da47b84d1cc84b6a000382a6956ee00c55cf"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T203159Z_623da413",
+      "sha256": "78bc32c8e1279408abf7b022ab3e68692a7b9ef73e99f748e678a31e1eae856e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T204008Z_598605f5",
+      "sha256": "574e3dd2a76106314040e87dcfc875dd2a37ff339c5993c35b53b69efc8a41d1"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261118T204403Z_35085ffb",
+      "sha256": "b085b4020521a0556c76e3c29a9f6e1238f5479e6b3abc1de2d2f2e65a85d47f"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T075020Z_42111dd2",
+      "sha256": "b46bbbd23732999b906aaee0a1b233423d4f86f745061083c9865ac8b2eb79a3"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T081359Z_0b1fceff",
+      "sha256": "8e044713f74a0fe839fd26b7baced2c87f7592c1f6a70935858a425fd1586abe"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T082349Z_f0fc092e",
+      "sha256": "a9c520d1895d51d41502971600a65289c84f1d7f8332f7b350f48d5c6db18cfa"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T083124Z_d34b70b8",
+      "sha256": "17ac57361b22bdc5a51851b9f6333ae1c65862f67d0ef1051732ed94af29bef2"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T083529Z_da6ffa60",
+      "sha256": "97c97bec026741738ede5f1449d4a4c5493c3209e6796f287f7165437d64a075"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T083951Z_c50b3050",
+      "sha256": "50c303b8ce9fbe6a236c0b117f79ab14dbe8d0b9d25454a146cbc15cd79cc1ac"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T093840Z_1a44ab50",
+      "sha256": "54b0d40ec6a475fe629f053ad72eecfe2c8be87a50ab82465ec030cb233171b3"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T122358Z_96d3df63",
+      "sha256": "c9ea4ce1e302022ff30ced9553f420f10b25e1f1dc0e937fbf915be2cc01376e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T122749Z_7a0d5e51",
+      "sha256": "66c7dda0ae6d2b3b4dd89145fd81d77d4ebd0b09536d22f3317811076b08a848"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T133608Z_161c19db",
+      "sha256": "3a94f35f467725a95fe6c440eeb11d69cf6c187e3fe050a55049b509a601276d"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T134333Z_4f975191",
+      "sha256": "6e437ff81e954b8d3c71b30e9409e3807678178a8f6b70a1bb4597de3a6020bc"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T215947Z_9a06c3df",
+      "sha256": "79e78c848b65f27f6104b68f1bdee503dbb80354cbc35b1f8cce50742d85a334"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261119T220340Z_a753c104",
+      "sha256": "792c867caee4e31bb171e26d22df99d388f7fdb607c82052b5ade2680e5f1726"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T092930Z_9b830990",
+      "sha256": "fb0b85e0bc5571730f9aed2cc7e87edf8b86df3147953a4f0e7c5d39b3054f12"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T093339Z_1c0d4e70",
+      "sha256": "a0abab97ec5f1b5fd77d011a4e00f63ff577e941aff0d3c3f1c37b049102a4e7"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T093743Z_ead0b008",
+      "sha256": "64ee1950b4a7ddedb09a86719a2085f068687e0b462fcf1cbc0a84d48d3f6946"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T095957Z_e76ccf71",
+      "sha256": "c23b2a5a897e8da4ee2dee88fa2eb1cf31cfd0d37ef67807da4267122feca841"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T100359Z_2bae7cb7",
+      "sha256": "2ee54e82c133f9249cc24804ba875d72a6f7d18c9f7aa97c3def0120119befd4"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T100812Z_206388b2",
+      "sha256": "b0594f6b5a9d7c46d5dc380e5387d429a46e2b9322bcfb436f132db072d25ccb"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T101215Z_581e328a",
+      "sha256": "0f29211905eb22d91758de1768ee28f6b887566c732fd06867b140a76ce07fb3"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T110430Z_8951e218",
+      "sha256": "e596cc02c707575ce9faf906c346e7cf298104f946127a56efc0b58b8099e79e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T111320Z_5dbeda27",
+      "sha256": "49f16d98118caf39b76aa366bfdfe43de1b4e61f35e0aae07679cade0131b15e"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T111729Z_bba149c8",
+      "sha256": "2bebca71e9eb324da7deeec94bf3fcc32ddee43a11c9a7fbf2a97f0082eaeaf8"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/train/session_20261120T132736Z_3dadd8e7",
+      "sha256": "5b595498e42301656cb8f8c618c271cc137079c0a2bbc915a8d0ea8d97f707cf"
+    }
+  ],
+  "holdout": [
+    {
+      "export": "/data/skjutbana/nightly/dataset/holdout/session_20261117T222812Z_98e68fe9",
+      "sha256": "14ff3ca9f8fc39a5700a42d47de8424888c5627167eaa0b92c56c96ff02ddce2"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/holdout/synth_stamps",
+      "sha256": "7ca2bed9cdd43b2ce609c0022f3cbff1b0570740e7c988a2ebbd0ca043a82497"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/holdout/synth_standard",
+      "sha256": "7892834e2e5c64da8e440e5848d4c5c05ebe4ab2c6bfc2f63b1ecd704c9644d9"
+    },
+    {
+      "export": "/data/skjutbana/nightly/dataset/holdout/synth_stress",
+      "sha256": "103c6a23ad5653e83bf89efa540b731cd18a50563e48789e4b71f5e5dd870337"
+    }
+  ],
+  "regression": [
+    {
+      "name": "defaults",
+      "baseline": "/data/skjutbana/nightly/2026-11-21/regression/defaults",
+      "baseline_sha256": "303e442de8213a8413cb563254d544b3c0b7dbae5792352217d9796ad096959a",
+      "args": [
+        "--background",
+        "/data/skjutbana/source_sessions/20261117T220813Z_2842f9a5,/data/skjutbana/source_sessions/20261117T222725Z_a5735418,/data/skjutbana/source_sessions/20261117T220854Z_e1f8a9b4",
+        "--seed-start",
+        "2000",
+        "--seeds",
+        "3",
+        "--scenarios",
+        "single,double,string3,echo,false_audio,silence",
+        "--physics",
+        "{\"fps\": 25.0, \"exposure_s\": 0.0157, \"camera_receive_latency_s\": 0.066, \"camera_latency_jitter_s\": 0.003, \"shooter_distance_m\": 6.3, \"mic_to_board_m\": 0.5, \"bullet_speed_mps\": [150.0, 200.0], \"speed_of_sound_mps\": 343.0, \"muzzle_amplitude\": 0.85, \"impact_amplitude\": 0.65, \"noise_rms\": 0.012, \"pulse_decay_s\": 0.004, \"sample_rate\": 16000, \"chunk_samples\": 256, \"pcm_delivery_latency_s\": [0.008, 0.02], \"hole_diameter_mm\": [2.0, 3.5], \"hole_depth_gray\": [25.0, 55.0], \"camera_blur_sigma_px\": 0.6, \"hole_model\": \"disk\", \"hole_stamp_scale\": [0.2, 0.5], \"hole_stamp_extra_blur_px\": 0.4, \"hole_stamp_path\": \"/data/skjutbana/hole_library/clean_stamps.npz\", \"sensor_noise_sigma\": 1.5, \"jpeg_quality\": 80, \"pre_roll_s\": 2.2, \"post_roll_s\": 4.5, \"double_interval_s\": [0.15, 0.3], \"string_interval_s\": [0.25, 0.5], \"echo_delay_s\": [0.08, 0.2], \"echo_gain\": [0.6, 0.9]}",
+        "--tolerance-mm",
+        "5.0",
+        "--settings",
+        "content/settings.json",
+        "--variant",
+        "defaults"
+      ],
+      "env": {}
+    },
+    {
+      "name": "pilot",
+      "baseline": "/data/skjutbana/nightly/2026-11-21/regression/pilot",
+      "baseline_sha256": "4514eed13c8e6281f7c708eea8bb7a85f13f73bb8f250ba54c3bd5418445b2e8",
+      "args": [
+        "--background",
+        "/data/skjutbana/source_sessions/20261117T220813Z_2842f9a5,/data/skjutbana/source_sessions/20261117T222725Z_a5735418,/data/skjutbana/source_sessions/20261117T220854Z_e1f8a9b4",
+        "--seed-start",
+        "2000",
+        "--seeds",
+        "3",
+        "--scenarios",
+        "single,double,string3,echo,false_audio,silence",
+        "--physics",
+        "{\"fps\": 25.0, \"exposure_s\": 0.0157, \"camera_receive_latency_s\": 0.066, \"camera_latency_jitter_s\": 0.003, \"shooter_distance_m\": 6.3, \"mic_to_board_m\": 0.5, \"bullet_speed_mps\": [150.0, 200.0], \"speed_of_sound_mps\": 343.0, \"muzzle_amplitude\": 0.85, \"impact_amplitude\": 0.65, \"noise_rms\": 0.012, \"pulse_decay_s\": 0.004, \"sample_rate\": 16000, \"chunk_samples\": 256, \"pcm_delivery_latency_s\": [0.008, 0.02], \"hole_diameter_mm\": [2.0, 3.5], \"hole_depth_gray\": [25.0, 55.0], \"camera_blur_sigma_px\": 0.6, \"hole_model\": \"disk\", \"hole_stamp_scale\": [0.2, 0.5], \"hole_stamp_extra_blur_px\": 0.4, \"hole_stamp_path\": \"/data/skjutbana/hole_library/clean_stamps.npz\", \"sensor_noise_sigma\": 1.5, \"jpeg_quality\": 80, \"pre_roll_s\": 2.2, \"post_roll_s\": 4.5, \"double_interval_s\": [0.15, 0.3], \"string_interval_s\": [0.25, 0.5], \"echo_delay_s\": [0.08, 0.2], \"echo_gain\": [0.6, 0.9]}",
+        "--tolerance-mm",
+        "5.0",
+        "--settings",
+        "content/settings.json",
+        "--variant",
+        "pilot"
+      ],
+      "env": {
+        "SKJUTBANA_MIN_POST_AGE_S": "0.11",
+        "SKJUTBANA_CAUSAL_OWNERSHIP": "1"
+      }
+    }
+  ]
+}

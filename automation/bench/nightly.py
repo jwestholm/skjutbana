@@ -1,235 +1,178 @@
-"""Nightly bench: code regression check + training data growth + shadow scorer training.
+"""Bounded SHADOW training and fixed regression suite from an explicit manifest.
 
-  python3 -m automation.bench nightly [--root /data/skjutbana/nightly] [--dry-run]
-
-Safe by construction: skips when the game (main.py) runs, when memory/disk is
-low, or when another nightly holds the lock; at most two worker processes; the
-holdout set is generated ONCE and never trained on; models are written with
-status OFFLINE_REPLAY_ONLY_UNVALIDATED and are never installed into the runtime.
-Recorded sessions with ground_truth.jsonl under /data/skjutbana/source_sessions
-are added to training automatically (except those listed as holdout).
+No automatic export discovery or synthetic training-data growth. Cron remains an
+operator decision. --dry-run validates inputs and prints the plan without writes.
 """
 from __future__ import annotations
-
 import argparse
 import datetime as dt
 import fcntl
 import json
+import math
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
+from .dataset_manifest import freeze, validate
 
 REPO = Path(__file__).resolve().parents[2]
-PILOT_ENV = {"SKJUTBANA_MIN_POST_AGE_S": "0.11", "SKJUTBANA_CAUSAL_OWNERSHIP": "1"}
-STRESS = {"hole_diameter_mm": [1.5, 2.5], "hole_depth_gray": [15.0, 35.0]}
-# Real-hole stamps (airgun holes from labelled shots, shrunk 50-80 % to CO2 AR15/pistol size).
-STAMPS = {"hole_model": "stamps"}
-DEFAULT_CONFIG = {
-    "backgrounds": [
-        "content/ai/physical_traces/session_20260926_162528_D02_4e1d6abd/shots/shot_00000001/frames/pre_history_000001.npy",
-        "/data/skjutbana/source_sessions/20261117T220813Z_2842f9a5",
-        "/data/skjutbana/source_sessions/20261117T222725Z_a5735418",
-        "/data/skjutbana/source_sessions/20261117T220854Z_e1f8a9b4",
-    ],
-    # Holdout sessions must never also serve as synthetic backgrounds (scene leakage).
-    "holdout_sessions": ["/data/skjutbana/source_sessions/20261117T222812Z_98e68fe9"],
-    "regression_seeds": [2000, 3],
-    "train_seeds_per_night": 4,
-    "holdout_seeds": [900000, 6],
-    "scenarios_train": "single,double,string3,echo,false_audio",
-    "max_parallel": 2,
-    "min_free_gb": 10.0,
-    "min_available_mem_gb": 12.0,
-    "session_root": "/data/skjutbana/source_sessions",
-}
+DEFAULT_CONFIG = dict(min_free_gb=20, min_available_mem_gb=8, max_input_gb=6,
+    max_exports=100, max_matrix_gb=2, train_address_gb=6, max_run_disk_gb=16,
+    negative_cap=64, sample_seed=20261122, timeout_s=14400)
 
 
-def _log(root: Path, msg: str) -> None:
-    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
-    print(line, flush=True)
-    with open(root / "nightly.log", "a") as handle:
-        handle.write(line + "\n")
-
-
-def _mem_available_gb() -> float:
-    try:
-        for line in open("/proc/meminfo"):
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1e6
-    except OSError:
-        pass
-    return 0.0
-
-
-def _game_running() -> bool:
-    out = subprocess.run(["pgrep", "-af", "main.py"], capture_output=True, text=True).stdout
-    return any("skjutbana" in line or "main.py" in line.split()[-1:] for line in out.splitlines()
-               if "pgrep" not in line and "automation.bench" not in line)
-
-
-def _run(cmd: list[str], env_extra: dict[str, str], log: Path) -> int:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("SKJUTBANA_")}
-    env.update(env_extra)
-    env.setdefault("SDL_VIDEODRIVER", "dummy")
-    with open(log, "w") as handle:
-        return subprocess.run(cmd, cwd=REPO, env=env, stdout=handle, stderr=subprocess.STDOUT,
-                              timeout=4 * 3600).returncode
-
-
-def _synth(out: Path, bg: str, seeds: list[int], scenarios: str | None, env: dict, physics: dict | None,
-           export: bool) -> list[str]:
-    cmd = [sys.executable, "-m", "automation.bench", "synth", "--background", bg, "--output", str(out),
-           "--seed-start", str(seeds[0]), "--seeds", str(seeds[1]), "--variant", out.name]
-    if scenarios:
-        cmd += ["--scenarios", scenarios]
-    if physics:
-        cmd += ["--physics", json.dumps(physics)]
-    if export:
-        cmd += ["--export-candidates"]
-    return cmd
-
-
-def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="python3 -m automation.bench nightly")
-    p.add_argument("--root", default="/data/skjutbana/nightly")
-    p.add_argument("--dry-run", action="store_true", help="only check preconditions and print the plan")
-    a = p.parse_args(argv)
-    root = Path(a.root)
-    root.mkdir(parents=True, exist_ok=True)
-    config_path = root / "config.json"
-    if not config_path.exists():
-        config_path.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
-    cfg = {**DEFAULT_CONFIG, **json.loads(config_path.read_text())}
-
-    lock = open(root / ".lock", "w")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        _log(root, "SKIP another nightly is running")
-        return 0
-    if _game_running():
-        _log(root, "SKIP game/main.py is running")
-        return 0
-    free = shutil.disk_usage(root).free / 1e9
-    mem = _mem_available_gb()
-    if free < cfg["min_free_gb"] or mem < cfg["min_available_mem_gb"]:
-        _log(root, f"SKIP resources free_disk={free:.1f}GB mem_available={mem:.1f}GB")
-        return 0
-
-    day = (dt.date.today() - dt.date(2026, 11, 17)).days
-    night = root / dt.date.today().isoformat()
-    if night.exists():
-        night = root / f"{dt.date.today().isoformat()}_{time.strftime('%H%M%S')}"
-    if set(cfg["backgrounds"]) & set(cfg["holdout_sessions"]):
-        _log(root, "ABORT a holdout session is also configured as a training background (leakage)")
-        return 2
-    bg = ",".join(b for b in cfg["backgrounds"] if Path(b if b.startswith("/") else REPO / b).exists())
-    jobs: list[tuple[str, list[str], dict]] = []
-
-    # 1) Code regression check (defaults and pilot flags), fixed seeds.
-    for arm, env in (("defaults", {}), ("pilot", PILOT_ENV)):
-        out = night / "regression" / arm
-        jobs.append((f"regression_{arm}", _synth(out, bg, cfg["regression_seeds"], None, env, None, False), env))
-    # 2) New training data (new seeds every night), standard + stress physics.
-    seeds = [100000 + day * 100, cfg["train_seeds_per_night"]]
-    for variant, physics in (("standard", None), ("stress", STRESS), ("stamps", STAMPS)):
-        out = root / "dataset" / "train" / f"{night.name}_{variant}"
-        jobs.append((f"train_{variant}", _synth(out, bg, seeds, cfg["scenarios_train"], PILOT_ENV, physics, True), PILOT_ENV))
-    # 3) Frozen holdout (generated once).
-    for variant, physics in (("standard", None), ("stress", STRESS), ("stamps", STAMPS)):
-        out = root / "dataset" / "holdout" / f"synth_{variant}"
-        if not (out / "candidates.jsonl").exists():
-            jobs.append((f"holdout_{variant}", _synth(out, bg, cfg["holdout_seeds"], cfg["scenarios_train"],
-                                                      PILOT_ENV, physics, True), PILOT_ENV))
-    # 4) Recorded sessions with ground truth (each exported once).
-    holdout_sessions = set(cfg["holdout_sessions"])
-    for session in sorted(Path(cfg["session_root"]).glob("*/ground_truth.jsonl")):
-        sdir = session.parent
-        meta_path = sdir / "optical_holes.json"
-        if meta_path.exists():
-            try:
-                if json.loads(meta_path.read_text()).get("flash"):
-                    # precision-flash sessions: the flash frames would reach the ordinary
-                    # detector in replay (never happens live: the flash controller hides
-                    # them), so they are not training data for it
-                    continue
-            except (OSError, ValueError):
-                pass
-        split = "holdout" if str(sdir) in holdout_sessions else "train"
-        out = root / "dataset" / split / f"session_{sdir.name}"
-        if (out / "candidates.jsonl").exists():
-            continue
-        offset = "0.025" if (sdir / "optical_holes.json").exists() else "0.0"
-        jobs.append((f"session_{sdir.name}", [sys.executable, "-m", "automation.bench", "replay", str(sdir),
-                                             "--output", str(out), "--export-candidates", "--pulse-offset-s", offset],
-                     PILOT_ENV))
-
-    _log(root, f"START night={night.name} jobs={len(jobs)} free_disk={free:.1f}GB mem={mem:.1f}GB")
-    if a.dry_run:
-        for name, cmd, env in jobs:
-            print(name, env, " ".join(cmd))
-        return 0
-    night.mkdir(parents=True, exist_ok=True)
-    (night / "logs").mkdir(exist_ok=True)
-
-    def execute(job):
-        name, cmd, env = job
-        if _mem_available_gb() < cfg["min_available_mem_gb"] / 2:
-            _log(root, f"SKIP job {name}: memory low")
-            return name, -1
-        Path(cmd[cmd.index("--output") + 1]).parent.mkdir(parents=True, exist_ok=True)
-        code = _run(cmd, env, night / "logs" / f"{name}.log")
-        _log(root, f"job {name} exit={code}")
-        return name, code
-
-    with ThreadPoolExecutor(max_workers=int(cfg["max_parallel"])) as pool:
-        results = dict(pool.map(execute, jobs))
-
-    summary: dict = dict(night=night.name, jobs=results)
-    # Regression comparison with the previous night (same arm), when comparable.
-    previous = sorted(d for d in root.iterdir() if d.is_dir() and d.name[:4].isdigit() and d.name < night.name
-                      and (d / "regression").exists())
-    if previous:
-        from automation.bench.__main__ import compare
-        summary["regression_vs_previous"] = {}
-        for arm in ("defaults", "pilot"):
-            a_dir, b_dir = previous[-1] / "regression" / arm, night / "regression" / arm
-            try:
-                o = compare(a_dir, b_dir, quiet=True)["overall"]
-                summary["regression_vs_previous"][arm] = dict(verdict=o["verdict"], before=o["baseline_correct"],
-                                                              after=o["candidate_correct"], cases=o["cases"])
-            except BaseException as exc:   # different settings/seeds = not comparable
-                summary["regression_vs_previous"][arm] = dict(verdict="NOT_COMPARABLE", reason=str(exc)[:200])
-    # Train on all accumulated training data, evaluate on the frozen holdout.
-    train_dirs = sorted(str(d) for d in (root / "dataset" / "train").glob("*") if (d / "candidates.jsonl").exists())
-    holdout_dirs = sorted(str(d) for d in (root / "dataset" / "holdout").glob("*") if (d / "candidates.jsonl").exists())
-    if train_dirs and holdout_dirs:
-        from automation.bench.train import train
-        result = train(train_dirs, holdout_dirs, night / "model")
-        summary["model"] = dict(sha256=result["model_sha256"], **result["metrics"])
-        with open(root / "history.jsonl", "a") as handle:
-            handle.write(json.dumps(dict(night=night.name, model=summary["model"])) + "\n")
-    (night / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    lines = [f"# Nightly {night.name}", "", "Status: OFFLINE_REPLAY_ONLY_UNVALIDATED models, live_authority=false.", ""]
-    for arm, v in (summary.get("regression_vs_previous") or {}).items():
-        lines.append(f"- regression {arm}: {v.get('verdict')} {v.get('before', '')}→{v.get('after', '')}/{v.get('cases', '')}")
-    if "model" in summary:
-        m = summary["model"]["holdout_top1"]
-        lines.append(f"- scorer holdout top-1: model {m['model']['hits']}/{m['model']['shots']} vs live score "
-                     f"{m['live_score']['hits']}/{m['live_score']['shots']}")
-        for name, v in (summary["model"].get("holdout_top1_by_source") or {}).items():
-            lines.append(f"  - {name}: model {v['model']} vs live score {v['live_score']}")
-    failed = [k for k, v in results.items() if v != 0]
-    lines.append(f"- jobs: {len(results)} run, failed: {failed or 'none'}")
-    (night / "REPORT.md").write_text("\n".join(lines) + "\n")
-    shutil.copy2(night / "REPORT.md", root / "LATEST.md")
-    _log(root, f"DONE night={night.name} failed={failed}")
+def _mem_available_gb():
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        if line.startswith('MemAvailable:'): return int(line.split()[1]) / 1e6
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def _game_running():
+    for p in Path('/proc').glob('[0-9]*/cmdline'):
+        try:
+            args = p.read_bytes().split(b'\0')
+            if any(Path(a.decode(errors='replace')).name == 'main.py' for a in args): return True
+        except (OSError, ValueError): pass
+    return False
+
+
+def _atomic(path, text):
+    tmp = path.with_name(path.name + '.tmp'); tmp.write_text(text); os.replace(tmp, path)
+
+
+def _publish(root, night, summary):
+    _atomic(night / 'summary.json', json.dumps(summary, indent=2) + '\n')
+    lines = [f'# Nightly {night.name}', '', f"Status: {summary['status']}",
+             'OFFLINE_REPLAY_ONLY_UNVALIDATED; live_authority=false.', '',
+             f"Stage: {summary.get('stage')}"]
+    if summary.get('error'): lines += ['', f"ERROR: {summary['error']}"]
+    for arm, r in summary.get('regression', {}).items(): lines.append(f"- {arm}: {r['verdict']}")
+    if 'model' in summary:
+        t = summary['model']['metrics']['holdout_top1']
+        lines.append(f"- Holdout: model {t['model']['hits']}/{t['model']['shots']}; live score {t['live_score']['hits']}/{t['live_score']['shots']}")
+    lines += ['', 'RUNNING is not success: if the supervisor is killed, this record remains visibly unfinished.']
+    report = '\n'.join(lines) + '\n'
+    _atomic(night / 'REPORT.md', report); _atomic(root / 'LATEST.md', report)
+
+
+def _run(cmd, env_extra, log, timeout):
+    env = {k: v for k, v in os.environ.items() if not k.startswith('SKJUTBANA_')}
+    env.update(SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy', OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
+    env.update(env_extra)
+    with log.open('w') as f:
+        return subprocess.run(cmd, cwd=REPO, env=env, stdout=f, stderr=subprocess.STDOUT, timeout=timeout).returncode
+
+
+def _regression_preflight(manifest):
+    from .candidate_cache import file_hash
+    errors = {}
+    for r in manifest.get('regression', []):
+        if not r.get('baseline_sha256'): continue
+        baseline = json.loads((Path(r['baseline']) / 'results.json').read_text())['manifest']
+        args = r['args']
+        settings = Path(args[args.index('--settings') + 1])
+        if not settings.is_absolute(): settings = REPO / settings
+        if not settings.exists() or file_hash(settings) != baseline['settings_sha256']:
+            errors[r['name']] = dict(verdict='NOT_COMPARABLE', reason='settings snapshot differs from frozen regression baseline')
+        ai_path = Path(baseline.get('ai_settings_path', 'content/ai/settings.json'))
+        if not ai_path.is_absolute(): ai_path = REPO / ai_path
+        if not baseline.get('ai_settings_sha256') or not ai_path.exists() or file_hash(ai_path) != baseline['ai_settings_sha256']:
+            reason = errors.get(r['name'], {}).get('reason', '')
+            errors[r['name']] = dict(verdict='NOT_COMPARABLE', reason=(reason + '; AI settings provenance missing or changed').lstrip('; '))
+        for bg in baseline.get('background', []):
+            p = Path(bg)
+            if not p.is_absolute(): p = REPO / p
+            if not p.exists() or (p.is_dir() and not (p / 'camera.bin').exists()):
+                errors[r['name']] = dict(verdict='NOT_COMPARABLE', reason=f'raw regression background unavailable: {p}; packed inputs unsupported')
+    return errors
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser()
+    p.add_argument('--root', default='/data/skjutbana/nightly')
+    p.add_argument('--manifest'); p.add_argument('--config'); p.add_argument('--output-root')
+    p.add_argument('--dry-run', action='store_true')
+    p.add_argument('--freeze-from-model', help='create a manifest from an explicitly chosen historical model')
+    a = p.parse_args(argv)
+    if a.freeze_from_model:
+        if not a.manifest: p.error('--manifest is required with --freeze-from-model')
+        freeze(a.freeze_from_model, a.manifest); return 0
+    root = Path(a.root); manifest_path = Path(a.manifest or root / 'dataset_manifest.json')
+    cfg = dict(DEFAULT_CONFIG)
+    if a.config: cfg.update(json.loads(Path(a.config).read_text()))
+    for k in DEFAULT_CONFIG:
+        v = cfg[k]
+        if k == 'negative_cap' and v is None: continue
+        if not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0: raise ValueError(f'Invalid budget: {k}')
+        if k in ('max_exports', 'negative_cap', 'sample_seed') and int(v) != v: raise ValueError(f'Integer budget required: {k}')
+    if a.dry_run:
+        m, info = validate(manifest_path, max_exports=cfg['max_exports'], max_input_gb=cfg['max_input_gb'])
+        errors = _regression_preflight(m)
+        disk_path = root
+        while not disk_path.exists(): disk_path = disk_path.parent
+        preconditions = dict(game_running=_game_running(), available_mem_gb=_mem_available_gb(), free_disk_gb=shutil.disk_usage(disk_path).free / 1e9)
+        print(json.dumps(dict(mode='DRY_RUN_NO_WRITES', preconditions=preconditions, regression_errors=errors, inputs=info, budgets=cfg, regression=m.get('regression', []),
+            train_exports=len(m['train']), holdout_exports=len(m['holdout']), new_training_synthetic_jobs=0,
+            automatic_session_exports=0, packed_camera_reading=False), indent=2)); return 2 if errors else 0
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / '.lock').open('a') as lock:
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: return 0
+        night = Path(a.output_root or root) / (dt.datetime.now().strftime('%Y-%m-%d_%H%M%S_%f'))
+        night.mkdir(parents=True, exist_ok=False); (night / 'logs').mkdir()
+        s = dict(status='RUNNING', stage='preflight', started=time.time(), manifest=str(manifest_path))
+        _publish(root, night, s)  # before hashing/loading/training, never stale success
+        try:
+            if _game_running(): raise RuntimeError('Game/main.py is running')
+            if _mem_available_gb() < cfg['min_available_mem_gb']: raise RuntimeError('Insufficient available RAM')
+            if shutil.disk_usage(night).free / 1e9 < cfg['min_free_gb'] + cfg['max_run_disk_gb']:
+                raise RuntimeError('Insufficient disk reserve including run budget')
+            m, info = validate(manifest_path, max_exports=cfg['max_exports'], max_input_gb=cfg['max_input_gb'])
+            s['inputs'] = info
+            errors = _regression_preflight(m)
+            if errors:
+                s['regression'] = errors
+                raise RuntimeError('NOT_COMPARABLE: regression preflight failed; explicitly freeze a compatible baseline')
+            _atomic(night / 'dataset_manifest.json', json.dumps(m, indent=2) + '\n')
+            cache_root = root / 'candidate_cache'
+            # Conservative bound: JSON input * 2 covers cache plus allowed work matrices;
+            # use the explicit matrix cap as well. Refuse instead of deleting old data.
+            if info['input_bytes'] * 2 + cfg['max_matrix_gb'] * 1e9 > cfg['max_run_disk_gb'] * 1e9:
+                raise RuntimeError('Conservative cache/work disk estimate exceeds max_run_disk_gb; review budget explicitly')
+            s['stage'] = 'regression'; s['regression'] = {}; _publish(root, night, s)
+            if not m.get('regression'): raise RuntimeError('No fixed regression suite in manifest')
+            from .__main__ import compare
+            for r in m['regression']:
+                out = night / 'regression' / r['name']; out.parent.mkdir(exist_ok=True)
+                code = _run([sys.executable, '-m', 'automation.bench', 'synth', *r['args'], '--output', str(out)],
+                            r['env'], night / 'logs' / f"{r['name']}.log", cfg['timeout_s'])
+                if code: raise RuntimeError(f"Regression {r['name']} exit={code}")
+                try: result = compare(Path(r['baseline']), out, quiet=True)['overall']
+                except (Exception, SystemExit) as exc:
+                    s['regression'][r['name']] = dict(verdict='NOT_COMPARABLE', reason=str(exc))
+                    raise RuntimeError(f"NOT_COMPARABLE: {r['name']}: {exc}") from exc
+                s['regression'][r['name']] = result
+                _publish(root, night, s)
+                if result['verdict'] == 'WORSE': raise RuntimeError(f"Regression WORSE: {r['name']}")
+            s['stage'] = 'training'; _publish(root, night, s)
+            cmd = [sys.executable, '-m', 'automation.bench.train', '--train', *[e['export'] for e in m['train']],
+                   '--holdout', *[e['export'] for e in m['holdout']], '--output', str(night / 'model'),
+                   '--cache-root', str(cache_root),
+                   '--sample-seed', str(int(cfg['sample_seed'])), '--max-matrix-gb', str(cfg['max_matrix_gb']),
+                   '--address-limit-gb', str(cfg['train_address_gb'])]
+            if cfg['negative_cap'] is not None: cmd += ['--negative-cap', str(int(cfg['negative_cap']))]
+            code = _run(cmd, {}, night / 'logs' / 'train.log', cfg['timeout_s'])
+            if code: raise RuntimeError(f'Training failed exit={code}; see logs/train.log')
+            s['model'] = dict(metrics=json.loads((night / 'model/metrics.json').read_text()),
+                              sha256=json.loads((night / 'model/model.json').read_text())['sha256'])
+            s.update(status='COMPLETE', stage='finished', finished=time.time())
+        except (Exception, SystemExit) as exc:
+            s.update(status='FAILED', error=f'{type(exc).__name__}: {exc}', finished=time.time())
+            _publish(root, night, s); return 1
+        _publish(root, night, s)
+        with (root / 'history.jsonl').open('a') as f: f.write(json.dumps(s) + '\n')
+        return 0
+
+if __name__ == '__main__': raise SystemExit(main())

@@ -1,5 +1,20 @@
 # Current project state
 
+## Nightly resource repair — 2026-11-22
+
+Cron remains paused by the operator. Candidate training now uses streamed, content-addressed
+float32 mmap caches and an explicit frozen dataset manifest instead of directory accumulation.
+Full 2026-11-21 export parity: 977,259 training candidates at 1,671 MiB peak RSS; frozen seeded
+negative-group sampling retains all 3,116 positives, 453,375 candidates and the same top-1 at 1,149 MiB.
+A historical cross-export group-ID collision was found: old diagnostic 130/150 vs 127/150 becomes
+source-owned 128/150 vs 126/150. These are inspected offline regression data, not physical validation.
+Nightly publishes RUNNING/FAILED state before training, supervises a memory-limited child and treats
+NOT_COMPARABLE as failure. Dry-run detects incompatible current settings versus frozen regression
+baseline; a compatible explicitly frozen baseline is still required before restarting scheduling.
+No game defaults, original datasets, cron or claude/latency changed. OBJECT export schema remains
+only a proposal for agreement with Claude. See [NIGHTLY_REPAIR_2026-11-22.md](NIGHTLY_REPAIR_2026-11-22.md).
+
+
 ## Opt-in bounded shutdown — 2026-11-19
 
 The Linux launcher supports `SKJUTBANA_BOUNDED_SHUTDOWN=1`. A supervisor

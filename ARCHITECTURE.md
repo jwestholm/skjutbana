@@ -1084,3 +1084,15 @@ Features/tools set by hand: `SOURCE_RECORD` (+ `SOURCE_RECORD_ROOT`), `PRECISION
 Capture plumbing set by automation (do not set by hand): `PHYSICAL_CAPTURE_BINDING`,
 `PHYSICAL_TRACE_ROOT`, `PHYSICAL_CAPTURE_HISTORY`, `KOMPETENSPROV_TEST`, `GT_CAPTURE_ROOT`,
 `OBJECT_CROP_ROOT`, `OBJECT_MATURE_CAPTURE`, `RENDER_HISTORY_ROOT`.
+
+
+## Bounded offline candidate training — 2026-11-22
+
+`automation.bench.candidate_cache` converts immutable JSONL exports into hash-addressed float32
+NPY matrices with NaN missingness and a separate shot manifest. `train` fits preprocessing only
+on selected TRAIN rows, uses temporary float64 mmap work matrices, and evaluates all holdout
+rows with export-scoped group identity. Sampling saves exact row selections and source hashes.
+`dataset_manifest` pins explicit exports and fixed regression baselines; `nightly` never discovers
+or grows training data automatically. A supervised address-limited training process permits the
+parent to publish a failure after OOM/SIGKILL. Runtime code never consumes this SHADOW scorer.
+OBJECT-specific schema and packed camera reading remain separate future integrations.
