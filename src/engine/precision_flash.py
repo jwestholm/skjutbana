@@ -73,7 +73,8 @@ class FlashConfig:
     reference_quiet_s: float = 0.5  # range quiet this long before the reference flash
     capture_min_after_s: float = 0.22  # measure once a frame received this long after the flash exists (projector + receive latency)
     capture_wait_s: float = 0.35    # ... or at the latest after this
-    color: tuple = (255, 255, 255)
+    # 2026-11-22 hole lab: flat pale yellow beats white (weakest real hole SNR 41.5 vs 29.6) and glares less.
+    color: tuple = (230, 220, 150)
     plateau_fraction: float = 0.93  # frame/band brightness vs the brightest flash frame
     min_flash_delta: float = 4.0    # grey levels: flash frames must be this much brighter than before
     reference_retry_s: float = 1.0  # failed reference flash: wait before retrying (max 3 attempts)
