@@ -77,6 +77,10 @@ TABLE_WORN_HEIGHTS_CM = (SHELF_HEIGHT_CM,)
 # target leaves the screen (TABLE_SIDE_MARGIN_PX), and at least TABLE_MIN_SIDE_MOVE_TARGET_W widest-target
 # widths from the recent turns when possible.
 TABLE_SIDE_RANGE_M = (-0.45, 0.45)
+# Edge rule (Jimmy 2026-11-22): "if the bullet breaks the line it is a hit".  The hole on the screen has the
+# real projectile diameter (4.5 mm pellet / BB), so a target counts when that disc touches its shape.
+# SKJUTBANA_CAN_EDGE_HITS=0 restores the centre-point test.
+PROJECTILE_DIAMETER_MM = 4.5
 TABLE_SIDE_MARGIN_PX = 40
 TABLE_MIN_SIDE_MOVE_TARGET_W = 1.5
 # Recent shelf positions survive restarts so a new game does not land where the last one ended.
@@ -576,6 +580,18 @@ class ShootStuffGame:
     # GameObject rack
     # ------------------------------------------------------------------
 
+    def _touch_radius_px(self) -> float:
+        """Projectile radius on the physical screen, in game px (the hole is real size, not distance-scaled)."""
+        if os.environ.get("SKJUTBANA_CAN_EDGE_HITS", "1") == "0":
+            return 0.0
+        geometry = self._projection_geometry()
+        px_per_mm = self.local_viewport.w / (geometry.viewport_physical_width_cm * 10.0)
+        return 0.5 * PROJECTILE_DIAMETER_MM * px_per_mm
+
+    def _with_edge_rule(self, shape: HitShapeSpec) -> HitShapeSpec:
+        r = self._touch_radius_px()
+        return replace(shape, touch_radius=r) if r > 0 else shape
+
     def _shape_for_spec(self, spec: TargetSpec, geometry=None) -> HitShapeSpec:
         if spec.draw_kind == 'duck':
             # Preserve the existing pixel-art primitives, including their integer
@@ -635,7 +651,7 @@ class ShootStuffGame:
                 owner=f"player_{self.player}",
                 entity_id=f"rack_p{self.player}",
                 part_id=spec.target_id,
-                shape=self._shape_for_spec(spec,geometry),
+                shape=self._with_edge_rule(self._shape_for_spec(spec,geometry)),
                 tags={
                     "shoot_stuff",
                     f"distance_{int(self.distance_m)}m",
