@@ -81,6 +81,8 @@ TABLE_SIDE_RANGE_M = (-0.45, 0.45)
 # real projectile diameter (4.5 mm pellet / BB), so a target counts when that disc touches its shape.
 # SKJUTBANA_CAN_EDGE_HITS=0 restores the centre-point test.
 PROJECTILE_DIAMETER_MM = 4.5
+# Background gamma for hole visibility (hole lab 2026-11-22); 1.0 = original colours.
+BG_GAMMA = 0.5
 TABLE_SIDE_MARGIN_PX = 40
 TABLE_MIN_SIDE_MOVE_TARGET_W = 1.5
 # Recent shelf positions survive restarts so a new game does not land where the last one ended.
@@ -141,7 +143,9 @@ TARGET_SPECS = (
     TargetSpec(
         "soda_can", "LÄSKBURK", "Klassikern",
         6.6, 11.5, 125, "can",
-        (205, 74, 62), (121, 31, 27), "can",
+        # 2026-11-22 lighter red (was (205,74,62)/(121,31,27)): projector red is nearly black to the camera;
+        # measured weakest-hole SNR 3.6 -> 13.3 (front) and 3.0 -> 8.7 (dark side) on real holes.
+        (240, 120, 110), (205, 115, 100), "can",
     ),
     TargetSpec(
         "toilet_roll", "TOARULLE", "Krisberedskap",
@@ -1176,6 +1180,21 @@ class ShootStuffGame:
         self._shelf_y = self._projected_shelf_y()
         self._build_background()
 
+    def _detection_brighten(self, surf):
+        """Brighten the background for hole visibility (2026-11-22 hole lab: gamma 0.5 turned 786 false
+        blobs on this background into 10 with the same recall).  SKJUTBANA_CAN_BG_GAMMA=1 restores the old look."""
+        try:
+            gamma = float(os.environ.get("SKJUTBANA_CAN_BG_GAMMA", BG_GAMMA))
+        except ValueError:
+            gamma = BG_GAMMA
+        if abs(gamma - 1.0) < 1e-3:
+            return surf
+        lut = (255.0 * (np.arange(256) / 255.0) ** gamma).round().astype(np.uint8)
+        arr = pygame.surfarray.pixels3d(surf)
+        arr[...] = lut[arr]
+        del arr
+        return surf
+
     def _build_background(self) -> None:
         surf = pygame.Surface((self.viewport.w, self.viewport.h)).convert()
         w, h = surf.get_size()
@@ -1282,7 +1301,7 @@ class ShootStuffGame:
             )
             surf.blit(joke, joke.get_rect(center=(w // 2, h - 18)))
 
-        self._background_cache = surf
+        self._background_cache = self._detection_brighten(surf)
 
     @staticmethod
     def _vertical_gradient(surface, rect, top, bottom) -> None:
