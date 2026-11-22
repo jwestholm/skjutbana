@@ -367,7 +367,11 @@ class ShootStuffGame:
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
 
-        self.distance_m = max(self._minimum_distance_m(), DEFAULT_DISTANCE_M)
+        try:  # launcher/operator override of the start distance (in-game distance keys still work)
+            start_m = float(os.environ.get("SKJUTBANA_CAN_DISTANCE_M", DEFAULT_DISTANCE_M))
+        except ValueError:
+            start_m = DEFAULT_DISTANCE_M
+        self.distance_m = max(self._minimum_distance_m(), min(MAX_DISTANCE_M, start_m))
         self.distance_m = self._snap_distance(self.distance_m)
         self._start_match()
 

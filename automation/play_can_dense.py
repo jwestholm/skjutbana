@@ -30,6 +30,9 @@ _MODEL = "/data/skjutbana/evaluation_runs/can_peak_model_20261121/v6aug/model.js
 if os.path.exists(_MODEL):
     os.environ.setdefault("SKJUTBANA_OBJECT_DENSE_MODEL", _MODEL)
 sys.path.insert(0, os.getcwd())
+for _arg in sys.argv[1:]:          # e.g. --distance 15  (Can Shootout start distance in metres)
+    if _arg.startswith("--distance"):
+        os.environ["SKJUTBANA_CAN_DISTANCE_M"] = _arg.split("=", 1)[1] if "=" in _arg else sys.argv[sys.argv.index(_arg) + 1]
 sys.argv = [sys.argv[0]]
 import main  # noqa: F401,E402  installs runtimes exactly like main.py
 from src.engine.app import App  # noqa: E402
