@@ -42,7 +42,7 @@ class RoomTests(unittest.TestCase):
     def test_assets_partition_palette_and_hashes(self):
         m=self.g.art.manifest
         for name,digest in m['files_sha256'].items():self.assertEqual(hashlib.sha256((ASSET_ROOT/name).read_bytes()).hexdigest(),digest)
-        self.assertEqual(len(m['objects']),5)
+        self.assertTrue({'vase','jar','bowl','bottle','lamp'}<=set(m['objects']))
         for name,spec in m['objects'].items():
             total=None
             for part,p in spec['parts'].items():
@@ -142,20 +142,23 @@ class RoomTests(unittest.TestCase):
                 if expected:self.assertEqual(decision.get('object_id'),expected)
                 else:self.assertNotEqual(decision['state'],'OBJECT_HIT')
     def test_clear_room_bonus_and_refill(self):
-        self.live();self.g.shots_per_player=10;layout=self.g.layout_id
-        # One body/base hit per object clears the room through explicit dependencies.
-        entities=[i['entity_id'] for i in self.g.items]
-        for entity in entities:
-            obj=next(o for o in self.g.manager.objects if o.entity_id==entity and o.part_id in ('body','base'))
+        self.live();self.g.shots_per_player=40;layout=self.g.layout_id
+        # Books and TV have independent parts. Clear actual active shapes instead
+        # of assuming that every entity has a body/base that destroys it in one hit.
+        for _ in range(40):
+            active=[o for o in self.g.manager.objects if o.active]
+            obj=min(active,key=lambda o:(o.part_id not in ('body','base','stand'),o.object_id))
             kind=obj.metadata['sprite_kind'];spec=self.g.art.objects[kind]['parts'][obj.part_id]
             mask=np.asarray(Image.open(ASSET_ROOT/spec['mask']));_,_,_,point=cv2.minMaxLoc(cv2.distanceTransform(mask,cv2.DIST_L2,5))
             h,w=mask.shape;g=obj.geometry;xy=(g.x+point[0]/w*g.width,g.y+point[1]/h*g.height)
             self.g.phase='live';self.g.ready_wall_ts=0.
             self.g._on_hit(NS(is_simulated=True,game_x=xy[0],game_y=xy[1],shot_id=None))
             self.assertEqual(self.g.phase,'result')
-            if entity==entities[-1]:
-                self.assertEqual(self.g._clear_bonus,500);self.assertIn('RUMMET RENSAT',self.g.feedback)
+            clear=self.g._clear_bonus==500
+            if clear:self.assertIn('RUMMET RENSAT',self.g.feedback)
             self.finish_animation()
+            if clear:break
+        else:self.fail('room did not clear after all parts were exercised')
         self.assertEqual(self.g.layout_id,layout+1)
         self.assertTrue(all(o.active for o in self.g.manager.objects))
 

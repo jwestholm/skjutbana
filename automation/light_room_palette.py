@@ -42,7 +42,7 @@ def colorize(image,kind=None,*,part=None,hit=False):
         gray=194.+20.*shade
         result=np.repeat(gray[:,:,None],3,axis=2)
     else:
-        base=HIT_PALETTE.get(kind,HIT_COLOR) if hit else ((250,230,30) if part in ('flower','lid') else PALETTE[kind])
+        base=HIT_PALETTE.get(kind,HIT_COLOR) if hit else ((250,230,30) if part in ('flower','lid') else PALETTE.get(kind,(210,225,180)))
         result=np.asarray(base,dtype=float)[None,None,:]*(.80+.23*shade[:,:,None])
     data[:,:,:3]=ensure_floor(result)
     return Image.fromarray(data)
@@ -56,3 +56,36 @@ def stats(image):
                 predicted_dn_max=float(dn.max()),
                 mean_rgb=[float(x) for x in rgb.mean(axis=0)],
                 mean_channel_span=float((rgb.max(axis=1).astype(float)-rgb.min(axis=1)).mean()))
+
+
+def protect_render(image, floor=EXPORT_FLOOR):
+    """Keep Cycles shading/specular colors; minimally lift toward white for DN floor.
+
+    No texture or synthetic highlights added. Alpha is unchanged. Integer safety
+    search protects the floor after RGB quantization. Not camera calibration.
+    """
+    a=np.array(image.convert('RGBA'))
+    # Exact RGB palette lookup avoids re-solving identical transparent/background
+    # colors hundreds of thousands of times. No sampling or approximate colors.
+    shape=a.shape[:2]
+    colors,inverse=np.unique(a[:,:,:3].reshape(-1,3),axis=0,return_inverse=True)
+    rgb=colors.astype(float);need=camera_level(rgb)<floor
+    if not need.any():return Image.fromarray(a)
+    lo=np.zeros(len(rgb));hi=np.ones_like(lo)
+    for _ in range(16):
+        mid=(lo+hi)*.5
+        trial=rgb+(255.-rgb)*mid[:,None]
+        ok=camera_level(np.floor(trial))>=floor
+        hi=np.where(ok,mid,hi);lo=np.where(ok,lo,mid)
+    lifted=np.floor(rgb+(255.-rgb)*hi[:,None])
+    protected=np.where(need[:,None],lifted,rgb).clip(0,255).astype(np.uint8)
+    a[:,:,:3]=protected[inverse].reshape(*shape,3)
+    return Image.fromarray(a)
+
+
+def hit_render(image,kind):
+    """Contrasting partial-hit state retaining the underlying rendered highlights."""
+    a=np.array(image.convert('RGBA'))
+    target=np.asarray(HIT_PALETTE.get(kind,HIT_COLOR),dtype=float)
+    a[:,:,:3]=np.rint(.45*a[:,:,:3].astype(float)+.55*target).astype(np.uint8)
+    return protect_render(Image.fromarray(a))

@@ -108,3 +108,49 @@ ljudåterkoppling; inte fler detektortrösklar anpassade till de tio positiva sk
   automation.{recolor_light_room,pang_session_audit,pang_layout_budget}.
   Nästa acceptans kräver nya fysiska skott med oberoende facit, inklusive missar
   och delgränser; ingen fysisk förbättring för R3 påstås.
+
+## Runda 4 – material och former levererade
+
+- PANG2:s två underkända hål är starkaste MF-kandidat men för grunda för befintlig
+  acceptans. Ingen detektortröskel ändrad; PANG1 ger ett konkret motexempel till
+  sänkt isoleringskvot. Separat experiment med oberoende negativa kontroller krävs.
+- Mjukare profiler, glaserad keramik/porlinsliknande material och breda reflexer;
+  rumsljus och färger bevaras från Cycles. Ytor under proxygolvet lyfts mot vitt.
+  Silhuettmasker/partpolygoner exporteras om från samma kamera; ingen gammal mask
+  läggs över ändrad geometri. Egna CC0-tillgångar, inga nya externa modeller.
+- 166 exporterade PNG, proxygolv >=128 DN; elva kompositerade bilder >=124,31 DN.
+  30 layouter klarar ROI-budgeten. Förhandsbild `/tmp/pang_r4/preview/room.png`.
+  Detta är ett materialsteg, inte ett fotorealistiskt vardagsrum eller ny fysisk
+  validering. Den större vardagsrumsvisionen kräver ytterligare scen-/tillgångsarbete.
+
+## Runda 5 – vardagsrum, pågående implementation
+
+Återanvänd samma sprite-/maskexport, frysta OBJECT-former och delreaktioner.
+Bygg ett perspektiviskt Cycles-rum med soffa, bokhylla, soffbord/mediaförvaring,
+stort dagsljusfönster och varma material. Aktiva nya föremål: stilla ljus TV
+(skärm spricker, fot kan falla), böcker (enskilda volymer faller), krukväxt
+(kruka/blad separata), klocka (spräckt urtavla). Behåll stor ljus keramik och
+spridda placeringar. Inga nya detektortrösklar. Ingen live hårdvara startas.
+
+Poly Haven CC0/licens kontrollerad 2026-11-22: https://polyhaven.com/license .
+Nedladdning från api.polyhaven.com misslyckas med DNS i denna miljö. Levererade
+modeller förblir därför egna CC0-procedurmodeller; inga externa tillgångar får
+påstås vara införda. Visuell kvalitet granskas på faktiska renderbilder, medan
+kameranivå/alpha/partmasker/timing kontrolleras separat. ≥95% kan bara avgöras med
+nytt fysiskt facit, inte av snygga renderingar eller syntetiska selftests.
+
+
+## Runda 5 – levererad spelversion och nästa acceptans
+
+Perspektiviskt vardagsrum, tio typer/21 funktionella delar, TV och böcker i varje
+rum samt varierande växt/klocka/mugg. Åtta stora föremål samtidigt. Sprickor,
+enskilda böcker, separata växtdelar och muggdelar använder befintlig delmotor.
+Möbler/fönster/väggtavla är ännu dekor, inte poänggivande mål. Begränsad
+backtracking säkrar placeringen utan mindre mål. 13 testmoduler är gröna;
+31 kompositbilder >=124,28 DN och 30 layouter inom ROI-budget. Inga nya fysiska
+noggrannhetssiffror påstås. Externa CC0-hämtningar blockerades av DNS; egna
+procedurmodeller levereras med korrekt käll-/licensredovisning. Visuell
+fotorealistisk slutkvalitet måste bedömas på renderingen; det här är en ljus,
+förenklad och mätbar tolkning. Förhandsbild `/tmp/pang_r5/delivery/room.png`.
+Nästa acceptans: Jimmys bildgranskning och nya fysiska skott med negativkontroller,
+kanter och facit. Ingen automatisk modellpromotion eller sänkt acceptansgräns.

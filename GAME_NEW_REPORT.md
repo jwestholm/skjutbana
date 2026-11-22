@@ -1,14 +1,17 @@
-# PANG! – Ljusateljén / Ljusjakten
+# PANG! – Vardagsrummet
 
 2026-11-22, `claude/latency`, för granskning. Inga commits/push/merge.
 **Kamera/projektor orörda. Nya rummet är inte fysiskt validerat; ≥95 % är målet.**
 
 ## Spelbar version
 
-Ett ljust, förrenderat Blender-rum med **åtta föremål åt gången, i varierade storlekar** på golv, bord,
-bänk, hylla och fönsterbräda. Fem modeller: blomvas, kruka, skål, flaska och lampa;
-elva funktionella deltyper. Placeringarna varierar mellan spelarturer och när ett
-rum är tömt. Skador och skärvor ligger kvar mellan skotten – man plockar isär rummet.
+Ett varmt, perspektiviskt Cycles-vardagsrum med soffa, bokhylla, matta, soffbord,
+mediabänk, dagsljusfönster och väggtavla. **Åtta stora föremål åt gången** ur tio typer:
+vas, kruka, skål, flaska, lampa, TV, böcker, krukväxt, klocka och mugg. Totalt
+21 funktionella deltyper. TV och böcker finns i varje rum; övriga nya typer varierar.
+Placeringar och storlekar varierar mellan spelarturer och när rummet töms.
+Skador och skärvor ligger kvar mellan skotten. Fönster, soffa och väggtavla är
+bakgrundsdekor i denna version; de åtta lösa föremålen är poänggivande mål.
 1–2 spelare, 5/10 skott, inget tidstvång. ENTER startar, 1/2 spelare, 5/0 skott,
 ESC meny, **M tystar ljuden**.
 
@@ -49,7 +52,7 @@ från en äldre spelperiod tar inte ett nytt försök. Ljudutmatning loggas via 
 med ljud både på och av; digital volym är ingen akustisk kalibrering.
 
 Paletten kontrolleras med Jimmys kameramodell: exporterade målytor ≥128 DN,
-kompositerade spelbilder ≥121,09 DN. Detta är en prediktion; ingen ny fysisk ljusmätning.
+kompositerade spelbilder ≥124,28 DN. Detta är en prediktion; ingen ny fysisk ljusmätning.
 HUD/text ligger ovanför alla mål. Detta är digital kontroll, inte ny kameramätning.
 UNKNOWN/timeout ger inga poäng; CURRENT-XY och skuggmodellen ger aldrig spelpoäng.
 
@@ -69,12 +72,13 @@ bevarade, liksom användarens fönsterplacering. Ingen ny GAME_DX.
 **Utan App, display, mixer, kamera eller projektor:**
 
 ```bash
-python3 -m automation.light_room_preview --out /tmp/light_room_preview_NEW
+python3 -m automation.light_room_preview --out /tmp/light_room_preview_NEW --all-parts
 ```
 
 Ger PNG för intakt rum samt blom-/hals-/bukträff och separata WAV-ljud att granska.
-Aktuell R3-förhandsvisning: `/tmp/pang_r3_delivery/`, även MISS/UNKNOWN och fem WAV-ljud.
-Förhandsprocessen mättes till cirka 159 MiB topp-RSS och 2,0 s (inte hela live-appens RAM).
+Aktuell R5-förhandsvisning: `/tmp/pang_r5/delivery/`, även nya delreaktioner, MISS/UNKNOWN och fem WAV-ljud.
+Den äldre R3-förhandsprocessen mättes till cirka 159 MiB topp-RSS och 2,0 s;
+detta är inte en RAM-/tidsmätning av R5 eller hela live-appen.
 Grafik/sönderfall förladdas före mätfönstret; ingen bildläsning i träffreaktionen.
 
 ## Tillgångar och Blender-pipeline
@@ -83,8 +87,8 @@ Leveransen använder **egna procedurmodeller**, inte nedladdade modeller. Nya
 render-/masktillgångar levereras med **CC0-1.0**, se
 `content/games/light_room_parts_assets/{SOURCES.md,LICENSE.txt,manifest.json}`.
 Originala genererade ljudvågformer är också CC0-1.0, utan externa samplingar.
-Befintlig projektkod omlicensieras inte. Paketet innehåller 166 PNG och manifest
-(cirka 4,2 MiB); gamla tre-sprite-provet bevaras separat.
+Befintlig projektkod omlicensieras inte. Paketet innehåller 316 PNG och manifest
+(cirka 8,1 MiB); gamla tre-sprite-provet bevaras separat.
 
 Verifierade fria alternativ, **ej importerade**, inga konton skapade:
 
@@ -107,9 +111,9 @@ realtidsrenderer. Receptet har spärr mot körning i interaktiv Blender.
 
 ```bash
 /snap/blender/current/blender -noaudio -b --factory-startup \
- --python automation/assets/render_light_room_parts.py -- --out /tmp/room_raw_NEW
-python3 -m automation.build_light_room_parts /tmp/room_raw_NEW /tmp/room_bundle_NEW
-python3 -m automation.recolor_light_room /tmp/room_bundle_NEW /tmp/room_distinct_NEW
+ --python automation/assets/render_light_room_parts.py -- --out /tmp/room_raw_NEW --living-room
+python3 -m automation.build_light_room_parts /tmp/room_raw_NEW /tmp/room_bundle_NEW --realistic
+python3 -m automation.recolor_light_room /tmp/room_bundle_NEW /tmp/room_distinct_NEW --realistic
 ```
 
 Blender 5.3.0, CPU/två rendertrådar. `--room-only` och `--only-kind vase` stöder
@@ -223,3 +227,194 @@ Testloggar: `/tmp/pang_r3_final_checks/`, inklusive sju nya R3-tester.
 R3 behöver ny fysisk pilot, särskilt kantträffar, missar och ljudåterkoppling.
 Ingen förbättrad fysisk träffprocent eller uppnådda 95 % påstås av dessa ändringar.
 Appen behöver läsa den nya koden; starta inte en andra kameraägare.
+
+## Runda 4: PANG2, två verkliga men svaga hål
+
+Session `20261122T161620Z_4b470454`, byggd från `858486d`: operatören anger
+10/10 verkliga objektträffar. Live gav 8 HIT och 2 UNKNOWN, inga felaktiga poäng.
+Samma sparade query-matematik återger 10/10 beslut. Separat vit efterbild bekräftar
+båda bortsorterade punkterna; den används aldrig som detektorindata.
+
+| Skott | Objekt | MF S | core | bipolar | S/S2 | Orsak |
+|---|---|---:|---:|---:|---:|---|
+| 8 | bowl_1_3:rim | 24,207 | 0,1098 | 0,1797 | 1,337 | core <0,15; isoleringskvot <1,5 |
+| 9 | vase_1_7:body | 23,823 | 0,0976 | 0,1297 | 1,335 | core <0,15; isoleringskvot <1,5 |
+
+Högsta peak ligger kamera (2518,1394) respektive (2132,1261), mot operatörens
+(2519,1394)/(2132,1261). Det är inte recall-/rankingfel. Konkurrenterna har core
+ungefär 0,012 men räknas ändå i isoleringskvoten som avsiktligt skydd mot fel.
+Lokalt runt hålen är PRE 152/160 DN, patch-standardavvikelse 1,34/1,45 DN;
+ringkorrigerad förändring 14,68/13,13 DN. Tre separata POST-bilder ger 14,38–15,71
+respektive 12,49–15,72 DN: ihållande men svag mörkning. Ingen tydlig fintextur eller
+kantstörning vid dessa punkter. Aktiva regioners PRE p99-variation 3–5 DN. Skott 8
+kom 10,76 s efter loggad presentation; skott 9 ändrar inga delar och har därför ingen
+egen presentationsmarkering. PRE-data ger inget stöd för pågående skärvanimation.
+
+**Säkerhetsbeslut:** ingen ändring i detektor, trösklar, modell eller poängauktoritet.
+Att sänka core till under dessa två mätvärden vore efteranpassning.
+Dessutom hade PANG1:s skott 9 S=21,7667 och isoleringskvot **1,334117**,
+nästan samma som PANG2:s svaga hål: en kvotgräns 1,33 skulle också släppa igenom
+den gamla obestyrkta punkten (white-spot bara 3,32 DN). Detta är ett konkret
+motexempel till en ren kvotsänkning, inte en ny acceptansregel. Ett möjligt
+separat experiment är en bruskalibrerad verifiering av grunda, persistenta toppar,
+innan svaga konkurrenter kan undantas från kvoten. Det kräver frysta negativa
+kontroller och samtliga tidigare fysiska sessioner; dessa två positiva exempel
+bevisar inte noll nya fel. Ingen förbättrad detektionsprocent påstås här.
+
+R4 byter grafikpipeline: Cycles-material med glasyrlager, IOR 1,46 och breda
+reflexer, mjuk key/fill-belysning samt bevarad rumsskuggning. Opaka keramiska/
+porslinsliknande material prioriteras framför verkligt transparent glas, som
+skulle göra hålsynligheten innehållsberoende. Inga mörka texturmönster läggs till.
+Renderfärgerna behålls; bara pixlar under kameramodellens golv lyfts minimalt mot
+vitt. R3:s relativa gråskaleomfärgning används inte för normalmaterialen.
+Modellerna är fortsatt egna CC0-procedurmodeller; inga externa modeller påstås
+vara importerade. Delindelning, maskexport och manuellt delade sönderfall återanvänds.
+Profilerna interpoleras mjukt mellan ursprungliga knutar, med begränsad radie
+så att inga extra smala kanter skapas; synliga masker och träffpolygoner exporteras
+på nytt från samma kamera. Nya former är alltså inte gamla masker över ny grafik.
+
+Reproduktion:
+
+```bash
+# Separat headless Blender, aldrig användarens interaktiva Blender:
+/snap/blender/current/blender -noaudio -b --factory-startup \
+ --python automation/assets/render_light_room_parts.py -- --out /tmp/pang4_raw_NEW
+python3 -m automation.build_light_room_parts /tmp/pang4_raw_NEW /tmp/pang4_pack_NEW --realistic
+python3 -m automation.recolor_light_room /tmp/pang4_pack_NEW /tmp/pang4_final_NEW --realistic
+```
+
+Analysfiler: `/tmp/pang_r4/audit/{audit.json,white_review.png}` och
+`/tmp/pang_r4/hole_details.json`, patchbilder `shot8_patches.png`/`shot9_patches.png`.
+R3-baslinjetillgångar sparade i `/tmp/pang_r4/baseline_assets` före ändring.
+Nya material måste fortfarande godkännas visuellt av Jimmy och mätas fysiskt.
+
+### Leverans och slutkontroll R4
+
+- **166 PNG, 5 178 633 byte** inklusive paketmetadata. Vanliga målytor min
+  128,0008 DN, delträffstillstånd 128,0005 DN, rum 128,0004 DN enligt proxyn.
+- **Elva sammansatta förhandsbilder:** minimum **124,3115 DN** under HUD, både
+  intakt, sönderfall, efterläge och MISS/UNKNOWN. Dessa bilder är mjukvarurenderade,
+  inte fysiska kameramätningar. Förhandsbild: `/tmp/pang_r4/preview/room.png`.
+- **30 layouter:** högst 642000/1000000 ROI-läspixlar; sparad PANG2-kalibrering.
+  `/tmp/pang_r4/budget.json`. Metadata binder resultat till aktuell asset-manifesthash.
+- **Tolv självtestmoduler gröna**, inklusive tre nya R4-materialtester, befintliga
+  R3-färg-/timingtester, 14 rums-/deltester och OBJECT-regressioner. Loggar:
+  `/tmp/pang_r4/final_checks/`. Compileall och `git diff --check` godkända.
+- Meny/API-id är fortsatt `light_targets`; loggversion `ceramic-room-parts-4` och
+  assethash skiljer nya bygget från de fysiskt testade R3-bilderna. Inga commits.
+
+Råpaketet `/tmp/pang_r4/raw_assembly` använder de färdiga objektrenderingarna från
+`raw_complete` och den färdiga rumsrenderingen från `raw_v6` (samma rumsgeometri,
+material, ljus, kamera; exponering −0,35, 32 samples). Tidigare mörkare rumsförsök
+bevaras. `source_provenance.json` och `raw_inputs_sha256` anger ursprung och hash.
+Stillbilder använder 32 samples och rörelsebilder 8; samtliga renderas CPU/två trådar.
+Arbetet delades per `--only-kind` efter en avbruten lång export; `--resume` återanvänder
+färdiga råbilder i just samma oförändrade export. Använd nya utmappar för nya recept.
+
+Nya paket kan granskas före installation:
+
+```bash
+python3 -m automation.light_room_preview --assets /tmp/pang4_final_NEW --out /tmp/pang4_preview_NEW
+```
+
+R4 förbättrar material-/formåtergivningen men är inte den större fotorealistiska
+vardagsrumsleveransen. Visuell acceptans och ett nytt fysiskt försök återstår.
+Det är inte visat att de nya materialen ökar träffdetekteringen; inga nya fysiska
+noll-fel/noll-falska eller 95 %-resultat påstås.
+
+## Runda 5 – vardagsrummet
+
+**Levererat i worktree, utan commits eller kamera/projektoråtkomst.** Samma
+meny/API-id `light_targets`, titel ”PANG! – Vardagsrummet”, loggversion
+`living-room-parts-5`. Startskriptet och dess opt-in OBJECT/source-recording-miljö
+är bevarade. Inga globala detektorinställningar, trösklar eller modeller ändras.
+
+Blender-rummet har perspektivkamera (50 mm), kontinuerligt golv, mineralfärgade
+väggar, ljus ek, breda stoppade soffkuddar, bokhylla, matta och fönsterljus.
+Föremålen är fortfarande friställda sprites från samma exportkedja och har
+silhuettpolygoner från synliga partmasker. Ljusa, stora och förenklade ytor
+prioriteras framför mörk träådring, text och finmönster. Det är en ljus egenbyggd
+Cycles-tolkning av vardagsrummet, inte importerade fotogrammetrimodeller eller en
+påstått verifierad fotorealistisk slutkvalitet. Jimmy behöver bedöma det faktiska
+utseendet i förhandsbilden.
+
+| Typ | Träffdel och efterförlopp |
+|---|---|
+| TV | Skärmen får ljusa sprickor och ligger kvar; foten är separat och kan fälla skärmen |
+| Böcker | Vänster/mitten/höger bok är separata; bara den träffade volymen faller |
+| Krukväxt | Bladverket faller separat; krukan krossas med tre stora jordklumpar och lossat bladverk |
+| Mugg | Handtaget kan lossna ensamt; kroppsträff krossar muggen och lossar handtaget |
+| Klocka | Glastavlan får sprickor |
+| Tidigare keramik | Hals/buk/blomma/lock/kant/lampskärm enligt tidigare delregler |
+
+TV:n visar en egen ljus, helt stilla procedurbild. Klockvisarna är också stilla;
+inga omgivningsanimationer eller subtilt fladdrande videobilder körs under mätning.
+Skyddad POST till peak+1,2 s, 1,7 s ny PRE-stillhet, 0,6 s reaktion och 0,95 s
+resultatpaus är bevarade. Kvarvarande delar behåller sina material efter en träff;
+saknade delar, sprickor, skärvor och HUD visar skadan. Inga extra poäng ges för
+delar som bara lossnar strukturellt. Fragmentens nya fallbanor stoppas vid deras
+lokala stödyta. Detta är förrenderade, manuellt författade reaktioner, inte en ny
+live-3D-/rigid-body-motor.
+
+Placeraren använder begränsad backtracking och placerar stödkrävande föremål
+först: TV på mediabänk/bord, böcker i bokhyllan, övriga på passande stöd. Det
+åtgärdar en verklig regression där den gamla giriga algoritmen kunde returnera
+ett tomt rum vid 640×480 trots att en giltig layout fanns. Målens storlek och
+icke-överlappande former behålls; slitaget sprids genom varierade ankare.
+
+### Digitala mätningar och regression
+
+- **10 typer, 21 delar, 316 PNG; 8 506 794 byte** inklusive paketmetadata.
+- Exporterade vanliga målytor: minimum **128,0004 DN** enligt den givna proxyn.
+- **31 kompositerade spelbilder**, inklusive samtliga nya delreaktioner:
+  minimum **124,2830 DN** under HUD. Källa `/tmp/pang_r5/composited_delivery.json`.
+- **30 layouter** på sparad PANG2-kalibrering: max **591840/1000000** läspixlar,
+  inga budgetfel. `/tmp/pang_r5/budget_final.json`. Detta är geometri/resurskontroll,
+  inte uppmätt live-latens eller fysisk precision.
+- **13 självtestmoduler gröna**, inklusive sju nya R5-tester. Kontrollerna omfattar
+  TV/stand-ägarskap, enskilda böcker, kruka/blad, muggens strukturella delar,
+  alpha-kanter, hash/proveniens, 640×480-layout, frysta former och skyddad timing.
+  `/tmp/pang_r5/final_checks/results.json`; relevanta OBJECT-regressioner ingår.
+- Kontaktskuggornas första version gav mörka resamplingsfransar (minimum 113,12 DN).
+  Orsak: svarta RGB-värden i transparenta pixlar. De färglades före skalning;
+  ett regressionstest skyddar nu mot felet. De tidigare bilderna är bevarade.
+- Färgskyddet använder nu en exakt RGB-uppslagstabell för upprepade färger.
+  Ingen sampling: det är byte-identiskt mot den frysta pre-optimeringsfixturen
+  (`4ebd2785…f3f624`), och de befintliga materialtesterna är gröna.
+
+Dessa är **mjukvaru-/renderkontroller**. Nya fysiska träffar, missar, delgränser,
+redan spruckna ytor och ljudåterkoppling måste fortfarande testas med operatörsfacit.
+Ingen ny fysisk noll-fel/noll-falska eller ≥95%-nivå påstås. R4:s detektoranalys
+förblir giltig; ingen poängauktoritet har öppnats för de två grunda hålen.
+
+### Källor, licenser och reproduktion
+
+Poly Havens [licens](https://polyhaven.com/license) är CC0, men den lokala
+filhämtningen från `api.polyhaven.com` misslyckas med `Temporary failure in name
+resolution`. **Inga Poly Haven-/Kenney-/Sketchfab-modeller ingår.** Samtliga nya
+modeller, renderbilder, TV-motiv och befintliga syntesljud är egna och levereras
+som CC0-1.0; se paketets SOURCES.md/LICENSE.txt. Befintlig projektkod omlicensieras inte.
+
+```bash
+# Separat headless CPU-Blender, aldrig den interaktiva Blender-sessionen:
+/snap/blender/current/blender -noaudio -b --factory-startup \
+ --python automation/assets/render_light_room_parts.py -- --out /tmp/living_raw_NEW --living-room
+python3 -m automation.build_light_room_parts /tmp/living_raw_NEW /tmp/living_pack_NEW --realistic
+python3 -m automation.recolor_light_room /tmp/living_pack_NEW /tmp/living_final_NEW --realistic
+python3 -m automation.light_room_preview --assets /tmp/living_final_NEW \
+ --out /tmp/living_preview_NEW --all-parts
+```
+
+Den färdiga exporten återanvänder fem oförändrade R4-modeller; nytt rum och fem
+nya typer renderades separat. `raw_provenance`/`raw_inputs_sha256` binder paketet
+till sparade indata; originalen finns kvar i `/tmp/pang_r4` och `/tmp/pang_r5`.
+R4-installationens tillgångar är dessutom frysta i `/tmp/pang_r5/baseline_assets`.
+`--only-kind`/`--resume` kan återuppta en avbruten, oförändrad råexport; använd alltid
+nya utmappar vid nytt recept/färghantering. Det separata AgX-stillbildsprovet används
+inte i spelets levererade sprites.
+
+**Förhandsbild:** `/tmp/pang_r5/delivery/room.png`. Där finns också
+`tv_screen_after.png`, `books_middle_after.png`, `plant_body_breaking.png` och
+`mug_handle_after.png`, övriga delsteg och WAV-filer. Bildmappen är en simulering;
+träffpunkterna väljs inne i respektive form för att testa spelreaktioner och får
+inte användas som mätning av detektorns träffsäkerhet.

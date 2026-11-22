@@ -14,7 +14,7 @@ class LightRoomArt:
         self.manifest=json.loads(data);self.manifest_sha256=hashlib.sha256(data).hexdigest()
         self.objects=self.manifest['objects'];self.size=size
         self.background=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/'room.png')),size)
-        self._raw={};self._scaled={};self._raw_hit={};self._scaled_hit={};self._raw_frames={};self._frames={}
+        self._shadows={};self._raw={};self._scaled={};self._raw_hit={};self._scaled_hit={};self._raw_frames={};self._frames={}
         for name,spec in self.objects.items():
             for part,p in spec['parts'].items():
                 self._raw[name,part]=pygame.image.load(str(ASSET_ROOT/p['sprite']))
@@ -31,6 +31,9 @@ class LightRoomArt:
         self._scaled.clear();self._scaled_hit.clear();self._frames.clear()
         for item in items:
             size=(round(item['geometry'].width),round(item['geometry'].height))
+            if self.manifest.get('scene')=='living_room' and size not in self._shadows:
+                shadow=pygame.Surface((16,6),pygame.SRCALPHA);shadow.fill((194,198,190,0));pygame.draw.ellipse(shadow,(194,198,190,65),(1,1,14,4))
+                self._shadows[size]=pygame.transform.smoothscale(shadow,(max(12,round(size[0]*.95)),max(5,round(size[1]*.12))))
             for part in self.objects[item['kind']]['parts']:
                 for raw,cache in ((self._raw,self._scaled),(self._raw_hit,self._scaled_hit)):
                     scaled=pygame.transform.smoothscale(raw[item['kind'],part],size)
@@ -59,12 +62,18 @@ class LightRoomArt:
             frames,offset=self.frames(item['kind'],part,size)
             idx=min(max(int(frame or 0),0),len(frames)-1) if animated else len(frames)-1
             image=frames[idx];x=round(g.x)+offset[0];side=effect_sides.get(oid,1)
-            if side<0:
+            if side<0 and self.objects[item['kind']]['parts'][part]['motion']!='crack':
                 x=round(2*g.center[0]-x-image.get_width());image=pygame.transform.flip(image,True,False)
             if self.objects[item['kind']]['parts'][part]['motion']=='fall':
                 # Extra lateral impulse from the observed hit side; no change to evidence/XY.
                 x+=round(g.width*.45*(idx+1)/len(frames))*side
             surface.blit(image,(x,round(g.y)+offset[1]))
+        # Soft contact shadows are presentation only; never part of a hit silhouette.
+        for item in ordered:
+            if not any(oid not in broken_ids for oid in item['parts'].values()):continue
+            g=item['geometry'];shadow=self._shadows.get((round(g.width),round(g.height)))
+            if shadow is not None:
+                ax,ay=item['anchor']['anchor'];surface.blit(shadow,(round(ax*self.size[0]-shadow.get_width()/2),round(ay*self.size[1]-shadow.get_height()/2)))
         # Resting fragments never hide a still-hittable part. This is an explicit
         # presentation rule, not z-order guessed from a physical coordinate.
         for item in ordered:

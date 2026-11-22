@@ -23,15 +23,20 @@ def polygons(mask):
     return clean,[[[float(x)/w,float(y)/h] for x,y in c[:,0,:]] for c in contours]
 
 
-def build(raw,output):
+def build(raw,output,*,realistic=False):
+    from automation.light_room_palette import protect_render
+    prepare = protect_render if realistic else brighten
     raw,output=Path(raw),Path(output);output.mkdir(parents=True,exist_ok=False)
     info=json.loads((raw/'parts.json').read_text())
-    m=dict(schema='light-room-parts-2',blender_version=info['blender_version'],
+    m=dict(scene=info.get('scene','atelier'),schema='light-room-parts-2',blender_version=info['blender_version'],
            alpha_threshold=128,objects={},anchors=json.loads((raw/'layout.json').read_text())['anchors'],
            source='automation/assets/render_light_room_parts.py',license='CC0-1.0',
+           material_pipeline='render_preserving' if realistic else 'legacy_brighten',
            note='Functional parts and sectors are authored manually; Cell Fracture is an optional offline replacement.')
+    m['raw_inputs_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(raw.iterdir()) if p.is_file() and p.suffix in ('.png','.json')}
+    if (raw/'source_provenance.json').exists():m['raw_provenance']=json.loads((raw/'source_provenance.json').read_text())
     for name,spec in info['objects'].items():
-        original=brighten(Image.open(raw/f'{name}.png'));full=np.array(original)
+        original=prepare(Image.open(raw/f'{name}.png'));full=np.array(original)
         labels=np.asarray(Image.open(raw/f'{name}_ids.png').convert('RGBA'))
         ownership=labels[:,:,:3].argmax(axis=2)
         relabelled=0
@@ -48,7 +53,7 @@ def build(raw,output):
                 if stats[k,cv2.CC_STAT_AREA]<=4 and np.all(union[island]>0):
                     relabelled+=int(island.sum());ownership[island]=idx
         x,y,w,h=cv2.boundingRect(union);bbox=(x,y,x+w,y+h)
-        entry=dict(id_antialias_relabelled_pixels=relabelled,label={'vase':'Blomvas','jar':'Kruka','bowl':'Skål','bottle':'Flaska','lamp':'Lampa'}[name],
+        entry=dict(id_antialias_relabelled_pixels=relabelled,label={'vase':'Blomvas','jar':'Kruka','bowl':'Skål','bottle':'Flaska','lamp':'Lampa','tv':'TV','books':'Böcker','plant':'Krukväxt','clock':'Klocka','mug':'Mugg'}[name],
                    source_bbox=list(bbox),source_size=list(original.size),
                    pivot=[(info['pivot'][0]-x)/w,(info['pivot'][1]-y)/h],parts={})
         for idx,part in enumerate(spec['parts']):
@@ -59,7 +64,7 @@ def build(raw,output):
             Image.fromarray(pixels).save(output/(base+'.png'));Image.fromarray(mask).save(output/(base+'_mask.png'))
             paths=[]
             for j,f in enumerate(part['frames']):
-                image=brighten(Image.open(raw/f))
+                image=prepare(Image.open(raw/f))
                 if part['motion']=='shatter':
                     dust=Image.new('RGBA',image.size);draw=ImageDraw.Draw(dust);t=(j+1)/len(part['frames'])
                     for k in range(10):
@@ -70,7 +75,8 @@ def build(raw,output):
             entry['parts'][part['id']]=dict(sprite=base+'.png',mask=base+'_mask.png',polygons=poly,
                 frames=paths,motion=part['motion'],detach=part['detach'],points=part['points'],cue=part['cue'])
         m['objects'][name]=entry
-    brighten(Image.open(raw/'room.png'),floor=160).convert('RGB').save(output/'room.png')
+    room=protect_render(Image.open(raw/'room.png')) if realistic else brighten(Image.open(raw/'room.png'),floor=160)
+    room.convert('RGB').save(output/'room.png')
     m['files_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.glob('*.png'))}
     m['recipes_sha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('automation/build_light_room_parts.py'),Path(m['source'])]}
     (output/'manifest.json').write_text(json.dumps(m,indent=2)+'\n')
@@ -79,5 +85,5 @@ def build(raw,output):
     return m
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('raw');p.add_argument('output');a=p.parse_args()
-    m=build(a.raw,a.output);print('Packaged',len(m['objects']),'types',sum(len(s['parts']) for s in m['objects'].values()),'parts',len(m['files_sha256']),'images')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('raw');p.add_argument('output');p.add_argument('--realistic',action='store_true');a=p.parse_args()
+    m=build(a.raw,a.output,realistic=a.realistic);print('Packaged',len(m['objects']),'types',sum(len(s['parts']) for s in m['objects'].values()),'parts',len(m['files_sha256']),'images')

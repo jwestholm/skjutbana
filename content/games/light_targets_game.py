@@ -112,26 +112,46 @@ class LightTargetsGame:
     def _choose_layout(self):
         w,h=self.viewport.size
         if w<640 or h<480:return []
-        kinds=list(self.art.objects)
-        best=[];best_quality=None
-        for _ in range(320):
-            anchors=sorted(self.art.manifest['anchors'],key=lambda a:self._anchor_uses.get(a['id'],0)+self.rng.random()*1.2)
-            order=kinds+[self.rng.choice(kinds) for _ in range(OBJECTS_PER_ROOM-len(kinds))];self.rng.shuffle(order)
-            items=[]
-            for anchor in anchors:
-                if len(items)>=OBJECTS_PER_ROOM:break
-                kind=order[len(items)]
-                factor={'bowl':.68,'lamp':.95,'bottle':1.04}.get(kind,1.)
-                height=max(78,min(132,min(124,h*.21)*factor*self.rng.choice((.82,.96,1.08))))
-                g=self.art.geometry(kind,anchor,height)
-                rect=pygame.Rect(g.aabb)
-                if g.x<w*.075 or g.right>w*.93 or g.y<104 or g.bottom>h*.94:continue
-                if any(rect.inflate(10,10).colliderect(pygame.Rect(i['geometry'].aabb)) for i in items):continue
-                items.append(dict(kind=kind,geometry=g,anchor=anchor,parts={}))
-            quality=(len(items),len({i['anchor']['support'] for i in items}),
-                     -sum(self._anchor_uses.get(i['anchor']['id'],0) for i in items))
-            if best_quality is None or quality>best_quality:best,best_quality=items,quality
-        return best if len(best)>=OBJECTS_PER_ROOM else []
+        base=[k for k in ('vase','jar','bowl','bottle','lamp') if k in self.art.objects]
+        extras=[k for k in self.art.objects if k not in base]
+        supports={'books':('shelf',),'tv':('table','bench'),
+                  'clock':('shelf','sill','table','bench'),'mug':('shelf','sill','table','bench')}
+        # Place constrained items first, then backtrack locally if a wide object
+        # blocks a later anchor. Shapes remain large and non-overlapping.
+        for _ in range(32):
+            extra=[k for k in ('tv','books') if k in extras]
+            pool=[k for k in extras if k not in extra]
+            extra+=self.rng.sample(pool,min(len(pool),OBJECTS_PER_ROOM-len(base)-len(extra)))
+            order=base+extra
+            order+=[self.rng.choice(base) for _ in range(OBJECTS_PER_ROOM-len(order))]
+            self.rng.shuffle(order);order.sort(key=lambda k:len(supports.get(k,range(8))))
+            choices=[]
+            for kind in order:
+                candidates=[]
+                for anchor in self.art.manifest['anchors']:
+                    if kind in supports and anchor['support'] not in supports[kind]:continue
+                    factor={'bowl':.68,'lamp':.95,'bottle':1.04,'tv':.82,'books':.85}.get(kind,1.)
+                    for size in self.rng.sample([.82,.96,1.08],3):
+                        height=max(78,min(132,min(124,h*.21)*factor*size))
+                        g=self.art.geometry(kind,anchor,height)
+                        if g.x<w*.075 or g.right>w*.93 or g.y<104 or g.bottom>h*.94:continue
+                        candidates.append((self._anchor_uses.get(anchor['id'],0)+self.rng.random()*1.2,
+                            dict(kind=kind,geometry=g,anchor=anchor,parts={})))
+                choices.append([item for _,item in sorted(candidates,key=lambda c:c[0])])
+            budget=[600];items=[];used=set()
+            def place(index):
+                if index==len(order):return True
+                for item in choices[index]:
+                    budget[0]-=1
+                    if budget[0]<0:return False
+                    aid=item['anchor']['id'];rect=pygame.Rect(item['geometry'].aabb)
+                    if aid in used or any(rect.inflate(10,10).colliderect(pygame.Rect(i['geometry'].aabb)) for i in items):continue
+                    used.add(aid);items.append(item)
+                    if place(index+1):return True
+                    items.pop();used.remove(aid)
+                return False
+            if place(0):return items
+        return []
 
     def _arm_shot(self):
         object_hit_registry_v2223.cancel_object_queries(self.owner,'light_targets_surface_changed')
@@ -143,7 +163,7 @@ class LightTargetsGame:
         self.phase='settling';self.phase_at=time.monotonic()
         for obj in self.manager.objects:obj.metadata['lamp_token']=self.token
         print('[LAMP-TARGET] '+json.dumps(dict(owner=self.owner,token=self.token,layout_id=self.layout_id,
-            player=self.player+1,shape='visible_part_alpha_polygons',game_version='ceramic-room-parts-3',
+            player=self.player+1,shape='visible_part_alpha_polygons',game_version='living-room-parts-5',
             asset_manifest_sha256=self.art.manifest_sha256,
             objects=[dict(entity_id=i['entity_id'],kind=i['kind'],support=i['anchor']['support'],
                 anchor_id=i['anchor']['id'],geometry=list(i['geometry'].aabb),parts=i['parts']) for i in self.items],
@@ -279,7 +299,7 @@ class LightTargetsGame:
         if outcome == 'HIT':
             self.streak += 1;points=int(obj.metadata.get('points',100) if obj else 100)+25*min(self.streak-1,4)+self._clear_bonus
             self.scores[self.player]+=points
-            part_label={'body':'KROSSAT!','base':'KROSSAT!','neck':'HALSEN!','flower':'BLOMMAN!','lid':'LOCKET!','rim':'KANTEN!','shade':'LAMPSKÄRMEN!'}.get(obj.part_id if obj else '', 'TRÄFF!')
+            part_label={'body':'KROSSAT!','base':'KROSSAT!','neck':'HALSEN!','flower':'BLOMMAN!','lid':'LOCKET!','rim':'KANTEN!','shade':'LAMPSKÄRMEN!','screen':'SKÄRMEN SPRACK!','face':'GLASET SPRACK!','stand':'TV-FOTEN!','foliage':'BLADEN!','left':'BOKEN FÖLL!','middle':'BOKEN FÖLL!','right':'BOKEN FÖLL!','handle':'HANDTAGET!'}.get(obj.part_id if obj else '', 'TRÄFF!')
             self.feedback=f'TRÄFF! {part_label} +{points}  KOMBO ×{self.streak}'
             if self._clear_bonus:self.feedback+=' • RUMMET RENSAT!'
         elif outcome == 'MISS':
@@ -290,7 +310,7 @@ class LightTargetsGame:
             shot_peak_ts=self.active_peak, player=self.player+1, outcome=outcome, points=points,
             shots_used=self.used[self.player], source='SIMULATED' if simulated else 'OBJECT',
             hypothesis_xy=(hypothesis or {}).get('camera_xy'), reason=(result or {}).get('reason'),
-            game_version='ceramic-room-parts-3',object_id=oid,entity_id=obj.entity_id if obj else None,
+            game_version='living-room-parts-5',object_id=oid,entity_id=obj.entity_id if obj else None,
             part_id=obj.part_id if obj else None,impact_game_xy=xy,effect_side=side,clear_bonus=self._clear_bonus,
             broken_object_ids=sorted(self.broken_ids), reaction_not_before_wall_ts=self.reaction_wall_ts,
             wall_ts=time.time())), flush=True)
@@ -339,7 +359,7 @@ class LightTargetsGame:
             screen.blit(self._last_frame, self.viewport.topleft); return
         surf = pygame.Surface(self.viewport.size); surf.fill(BACKGROUND)
         if self.phase in ('intro', 'finished', 'unsupported'):
-            title = 'PANG! • LJUSATELJÉN' if self.phase == 'intro' else ('KLART! ' + ' / '.join(f'Spelare {i+1}: {self.scores[i]}' for i in range(self.players)))
+            title = 'PANG! • VARDAGSRUMMET' if self.phase == 'intro' else ('KLART! ' + ' / '.join(f'Spelare {i+1}: {self.scores[i]}' for i in range(self.players)))
             if self.phase == 'unsupported': title = self.feedback
             if self.phase=='finished' and self.items:
                 self.art.render(surf,self.items,self.broken_ids,effect_sides=self.effect_sides)
@@ -348,7 +368,7 @@ class LightTargetsGame:
             surf.blit(card,(24,100))
             lines = [title, f'{self.players} spelare • {self.shots_per_player} skott var',
                      '1 / 2 spelare    5 / 0 = fem / tio skott', 'ENTER startar. Ett skott på REDO. ESC: meny.',
-                     'Hals, buk eller blomma? Olika delar, olika bonus!',
+                     'Skjut på de lösa föremålen. Delträffar ger bonus.',
                      f'Luftgevär 20 m. M: ljud {"på" if self.sound_enabled else "av"}.']
             if self.phase=='finished' and self.last_outcome:lines.append('Senast: '+self.feedback)
             for i,line in enumerate(lines):surf.blit(self.font.render(line,True,INK),(42,120+i*38))

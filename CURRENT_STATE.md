@@ -1,6 +1,47 @@
 # Current project state
 
-## Ljusjakten / ceramic room — 2026-11-22
+## PANG! living-room version — 2026-11-22
+
+R5 now uses a warm perspective Cycles living room (sofa/bookcase/rug/coffee table)
+and ten object types with 21 visible breakable part types. Eight large loose objects
+are active per room; TV/books are always present and extra plant/clock/mug types
+vary. TV glass cracks, books fall independently, pot/foliage and mug/handle have
+separate outcomes. Furniture/window/wall canvas remain non-scoring scenery.
+API/menu id `light_targets` is unchanged; log version is `living-room-parts-5`.
+
+No detector/model/threshold changes. Protected POST/PRE timing remains unchanged.
+Bounded placement backtracking fixes a real 640x480 layout regression. Contact
+shadow RGB/alpha interpolation is corrected. The 316-PNG package has hashes; all
+31 rendered case images predict >=124.28 DN in the playfield. Thirty layouts fit
+the saved calibration budget (max 591840/1000000 pixels). All 13 relevant test
+modules pass. These are software checks, not new physical accuracy validation.
+
+CC0 external model download is blocked by local DNS, so the assets are original
+procedural models, not downloaded scans. Photorealistic visual acceptance and
+physical >=95% remain unestablished. Preview `/tmp/pang_r5/delivery/room.png`; see
+GAME_NEW_REPORT.md for sources, limitations, results and reproducible commands.
+
+## PANG! round 4 — 2026-11-22
+
+PANG2 (`20261122T161620Z_4b470454`, R3 build `858486d`): operator reports all ten
+object hits; eight awarded, two UNKNOWN, no wrong awards. Saved-query replay matches
+all ten decisions. Shots 8/9 already have the right highest-ranked peak (S 24.21/23.82),
+but core .110/.098 is below .15 and isolation ratio ~1.335 below 1.5. Local PRE is
+smooth and the hole persists in each of three POST frames. No evidence of ongoing
+fragment animation. Simply reducing the ratio to 1.33 also admits the previously
+unverified PANG1 shot-9 point (ratio 1.334117). No detector/threshold/model changes.
+
+R4 assets are now rebuilt with smooth vessel profiles, coated ceramic materials,
+soft key/fill lighting and preserved Cycles color/shading instead of flat recoloring.
+New masks/polygons are exported from the new silhouettes. All 166 images have hashes;
+source proxy floor >=128 DN, eleven rendered playfield previews >=124.31 DN.
+Thirty layouts still fit 642000/1000000 read pixels. This is software validation,
+not a new physical accuracy claim. API/menu id `light_targets`, source recording,
+OBJECT semantics and protected PRE/POST windows are unchanged. Preview:
+`/tmp/pang_r4/preview/room.png`; details in GAME_NEW_REPORT.md. New physical validation
+and operator visual acceptance are still required; >=95% is not established.
+
+### Earlier circle/ceramic room measurements — 2026-11-22
 
 The original circle game was physically tested by the operator: 9/10 air-rifle
 hits awarded, one UNKNOWN, no negative controls. Saved-session approximate crop
