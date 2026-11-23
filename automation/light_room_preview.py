@@ -30,7 +30,7 @@ def main():
     if a.all_parts:
         import json as _json
         manifest=_json.loads((ASSET_ROOT/'manifest.json').read_text())
-        cases += [(k,p) for k,spec in manifest['objects'].items() if k not in ('vase','jar','bowl','bottle','lamp') for p in spec['parts']]
+        cases += [(k,p) for k,spec in manifest['objects'].items() if k!='vase' for p in spec['parts']]
     for kind,part in cases:
         label=part if kind in (None,'vase') else kind+'_'+part
         g=LightTargetsGame('',pygame.Rect(0,0,760,580));g.on_enter()

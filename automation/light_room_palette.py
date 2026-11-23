@@ -89,3 +89,13 @@ def hit_render(image,kind):
     target=np.asarray(HIT_PALETTE.get(kind,HIT_COLOR),dtype=float)
     a[:,:,:3]=np.rint(.45*a[:,:,:3].astype(float)+.55*target).astype(np.uint8)
     return protect_render(Image.fromarray(a))
+
+
+PBR_DISPLAY_GAIN=1.35
+
+def expose_pbr(image,gain=PBR_DISPLAY_GAIN):
+    """Small linear-light display exposure, before the camera floor; alpha untouched."""
+    a=np.asarray(image.convert('RGBA')).copy()
+    linear=(a[:,:,:3].astype(np.float64)/255.)**2.2
+    a[:,:,:3]=np.rint(np.minimum(1.,linear*gain)**(1/2.2)*255).astype(np.uint8)
+    return Image.fromarray(a)

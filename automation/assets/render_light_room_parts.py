@@ -1,6 +1,6 @@
 """Headless CPU Blender room and functional breakable parts; no live scene access.
 blender -noaudio -b --factory-startup -P automation/assets/render_light_room_parts.py -- --out NEW_DIR
-Original procedural meshes; no third-party models included. --room-only for room iteration.
+Optional --polyhaven-root imports selected local CC0/PBR models. --only-part supports bounded exports.
 """
 import argparse
 import json
@@ -20,14 +20,18 @@ def finish():
     # PulseAudio teardown hang in confined headless Blender; never used in GUI.
     sys.stdout.flush();sys.stderr.flush();os._exit(0)
 
-p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--room-only',action='store_true');p.add_argument('--living-room',action='store_true');p.add_argument('--only-kind');p.add_argument('--resume',action='store_true',help='Reuse completed renders in an interrupted raw export')
+p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--room-only',action='store_true');p.add_argument('--living-room',action='store_true');p.add_argument('--polyhaven-root',type=Path);p.add_argument('--only-kind');p.add_argument('--only-part');p.add_argument('--resume',action='store_true',help='Reuse completed renders in an interrupted raw export')
 a=p.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+if a.polyhaven_root:
+    from automation.assets import pang_polyhaven as ph
+    a.living_room=True
 out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
 bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
 s=bpy.context.scene;s.render.engine='CYCLES';s.cycles.device='CPU';s.cycles.samples=32;s.cycles.use_denoising=True
 s.render.threads_mode='FIXED';s.render.threads=2;s.render.resolution_percentage=100
 s.render.image_settings.file_format='PNG';s.render.image_settings.color_mode='RGBA';s.render.film_transparent=False
-s.view_settings.view_transform='Standard';s.view_settings.look='None'
+s.view_settings.view_transform='AgX' if a.polyhaven_root else 'Standard';s.view_settings.look='None'
 s.world.use_nodes=True;s.world.node_tree.nodes['Background'].inputs[0].default_value=(.8,.86,.94,1);s.world.node_tree.nodes['Background'].inputs[1].default_value=.65
 
 def mat(name,color,emission=.025):
@@ -127,6 +131,19 @@ if a.living_room:
     bpy.ops.object.light_add(type='AREA',location=(1.7,2.7,3.5));o=bpy.context.object;o.name='room daylight'
     o.data.energy=400;o.data.size=3.2;o.rotation_euler=(Vector((0,-1,.8))-o.location).to_track_quat('-Z','Y').to_euler()
 
+if a.polyhaven_root:
+    for ob in room:bpy.data.objects.remove(ob,do_unlink=True)
+    room.clear()
+    room,ph_anchors=ph.room(a.polyhaven_root,cube,mat)
+    camera.location=(3.8,-7.2,2.8);camera.rotation_euler=(Vector((0,.1,1.0))-camera.location).to_track_quat('-Z','Y').to_euler()
+    camera.data.type='PERSP';camera.data.lens=50
+    for ob in list(bpy.context.scene.objects):
+        if ob.type=='LIGHT':bpy.data.objects.remove(ob,do_unlink=True)
+    for loc,power,size in [((1.05,1.35,2.25),500,1.8),((-1.5,-3,3.0),100,3.5)]:
+        bpy.ops.object.light_add(type='AREA',location=loc);ob=bpy.context.object;ob.name='PBR daylight'
+        ob.data.energy=power;ob.data.size=size;ob.rotation_euler=(Vector((0,-.5,.6))-ob.location).to_track_quat('-Z','Y').to_euler()
+    s.world.node_tree.nodes['Background'].inputs[1].default_value=.35
+
 s.render.resolution_x=1280;s.render.resolution_y=960
 bpy.context.view_layer.update()
 anchors=[('shelf_left','shelf',(-3.6,2.5,1.25)),('shelf_right','shelf',(-1.7,2.5,1.25)),
@@ -135,19 +152,25 @@ anchors=[('shelf_left','shelf',(-3.6,2.5,1.25)),('shelf_right','shelf',(-1.7,2.5
  ('bench','bench',(-2.6,-.35,.73)),
  ('floor_left','floor',(-2.65,-2.7,.025)),('floor_middle','floor',(-1.0,-2.7,.025)),
  ('floor_right','floor',(1.25,-2.7,.025)),('floor_far_right','floor',(3.4,-2.7,.025))]
+if a.polyhaven_root:anchors=ph_anchors
 layout=[]
 for name,support,xyz in anchors:
     q=world_to_camera_view(s,camera,Vector(xyz));layout.append(dict(id=name,support=support,world=list(xyz),anchor=[q.x,1-q.y]))
 (out/'layout.json').write_text(json.dumps(dict(anchors=layout),indent=2))
-s.view_settings.exposure=-.35
+s.view_settings.exposure=.5 if a.polyhaven_root else -.35
 s.cycles.samples=16 if a.living_room else 32
 if not a.only_kind:render('room.png')
-s.view_settings.exposure=0.0
+s.view_settings.exposure=.5 if a.polyhaven_root else 0.0
 if a.room_only:
     print('ROOM_COMPLETE');finish()
 for o in room:o.hide_render=True
-if a.living_room:
+if a.living_room and not a.polyhaven_root:
     bpy.data.objects['room daylight'].hide_render=True
+if a.polyhaven_root:
+    for ob in list(bpy.context.scene.objects):
+        if ob.type=='LIGHT':bpy.data.objects.remove(ob,do_unlink=True)
+    for loc,power,size in [((-3,-5,8),750,4),((4,1,7),450,5),((1,-6,4),130,2)]:
+        bpy.ops.object.light_add(type='AREA',location=loc);ob=bpy.context.object;ob.data.energy=power;ob.data.size=size;ob.rotation_euler=(Vector((0,0,1))-ob.location).to_track_quat('-Z','Y').to_euler()
 s.render.film_transparent=True;s.render.resolution_x=320;s.render.resolution_y=384
 camera.data.type='ORTHO';camera.location=(3,-9,4.5);camera.rotation_euler=(Vector((0,0,1.1))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.ortho_scale=3.8
 bpy.context.view_layer.update();pivot=world_to_camera_view(s,camera,Vector((0,0,0)))
@@ -161,6 +184,9 @@ profiles={
 colors={'vase':(.12,.62,.47),'jar':(.78,.59,.20),'bowl':(.19,.55,.72),'bottle':(.20,.63,.29),'lamp':(.85,.67,.34)}
 meta=dict(scene='living_room' if a.living_room else 'atelier',schema='light-room-raw-parts-1',blender_version=bpy.app.version_string,pivot=[pivot.x*320,(1-pivot.y)*384],objects={})
 if a.only_kind and (out/'parts.json').exists():meta=json.loads((out/'parts.json').read_text())
+if a.polyhaven_root:
+    meta['asset_provider']='polyhaven';meta['recipe']='automation/assets/render_light_room_parts.py'
+    meta['asset_provenance']=json.loads((a.polyhaven_root/'manifest.json').read_text())
 
 def lathe(name,profile,m):
     # Smooth ceramic silhouette, with shared part endpoints preserved. Radius is
@@ -273,10 +299,11 @@ if a.living_room:
 for name,definition in profiles.items():
     if a.only_kind and name!=a.only_kind:continue
     parts=[];part_meta=[];main_mat=mat(name,colors.get(name,(.65,.70,.45)),.025)
-    if not definition:parts=custom_parts(name)
-    for part,profile,motion in definition:
+    if a.polyhaven_root:parts=ph.make_parts(a.polyhaven_root,name)
+    elif not definition:parts=custom_parts(name)
+    for part,profile,motion in ([] if a.polyhaven_root else definition):
         o,vs,fs,groups=lathe(part,profile,main_mat);parts.append((part,o,vs,fs,groups,motion))
-    if name=='vase':
+    if name=='vase' and not a.polyhaven_root:
         flower_mat=mat('large pale flower',(.94,.78,.36),.18)
         meshes=[]
         # Chunky bloom and stem, no fine leaf textures or multiple tiny flowers.
@@ -292,33 +319,50 @@ for name,definition in profiles.items():
         bpy.context.view_layer.objects.active=stem;bpy.ops.object.join();bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
         me=stem.data;vs=[tuple(v.co) for v in me.vertices];fs=[tuple(p.vertices) for p in me.polygons];gs=[(0,i//16) for i in range(len(fs))]
         parts.append(('flower',stem,vs,fs,gs,'fall'))
+    if a.polyhaven_root:camera.data.ortho_scale=5.6 if name=='bowl' else 3.8
+    object_pivot=world_to_camera_view(s,camera,Vector((0,0,0)))
+    object_pivot_px=[object_pivot.x*s.render.resolution_x,(1-object_pivot.y)*s.render.resolution_y]
     s.cycles.samples=32
     render(name+'.png')
     # Opaque visible-part ownership from the SAME camera, not 3D depth guessed from physical XY.
     saved=[]
     for idx,(part,o,*_) in enumerate(parts):
         saved.append((list(o.data.materials),[p.material_index for p in o.data.polygons]))
-        idmat=bpy.data.materials.new('id');idmat.use_nodes=True;nodes=idmat.node_tree.nodes;nodes.clear()
-        e=nodes.new('ShaderNodeEmission');e.inputs[0].default_value=(*[(1.0 if j==idx else 0.0) for j in range(3)],1)
-        target=nodes.new('ShaderNodeOutputMaterial');idmat.node_tree.links.new(e.outputs[0],target.inputs['Surface'])
-        o.data.materials.clear();o.data.materials.append(idmat)
-        for poly in o.data.polygons:poly.material_index=0
+        if a.polyhaven_root:
+            for index,original in enumerate(list(o.data.materials)):
+                o.data.materials[index]=ph.id_material(original,[(1.0 if j==idx else 0.0) for j in range(3)])
+        else:
+            idmat=bpy.data.materials.new('id');idmat.use_nodes=True;nodes=idmat.node_tree.nodes;nodes.clear()
+            e=nodes.new('ShaderNodeEmission');e.inputs[0].default_value=(*[(1.0 if j==idx else 0.0) for j in range(3)],1)
+            target=nodes.new('ShaderNodeOutputMaterial');idmat.node_tree.links.new(e.outputs[0],target.inputs['Surface'])
+            o.data.materials.clear();o.data.materials.append(idmat)
+            for poly in o.data.polygons:poly.material_index=0
     old_samples=s.cycles.samples;s.cycles.samples=2;s.cycles.use_denoising=False;s.view_settings.view_transform='Raw'
     render(name+'_ids.png')
-    s.cycles.samples=old_samples;s.cycles.use_denoising=True;s.view_settings.view_transform='Standard'
+    s.cycles.samples=old_samples;s.cycles.use_denoising=True;s.view_settings.view_transform='AgX' if a.polyhaven_root else 'Standard'
     for (_,o,*_),(materials,indices) in zip(parts,saved):
         o.data.materials.clear()
         for m in materials:o.data.materials.append(m)
         for poly,index in zip(o.data.polygons,indices):poly.material_index=index
         o.hide_render=True
     for part,ob,vs,fs,groups,motion in parts:
+        if a.only_part and part!=a.only_part:continue
         info=dict(id=part,motion=motion,frames=[])
         if motion=='shatter':
             chunks=[]
             for group in sorted(set(groups)):
-                faces=[f for f,g in zip(fs,groups) if g==group];used=sorted({i for f in faces for i in f})
+                face_indices=[i for i,g in enumerate(groups) if g==group]
+                faces=[fs[i] for i in face_indices];used=sorted({i for f in faces for i in f})
                 c=sum((Vector(vs[i]) for i in used),Vector())/len(used);index={v:i for i,v in enumerate(used)}
                 me=bpy.data.meshes.new('chip');me.from_pydata([Vector(vs[i])-c for i in used],[],[tuple(index[i] for i in f) for f in faces]);me.materials.append(main_mat)
+                if a.polyhaven_root:
+                    me.materials.clear()
+                    for material in ob.data.materials:me.materials.append(material)
+                    for dest,index in zip(me.polygons,face_indices):dest.material_index=ob.data.polygons[index].material_index
+                    for layer in ob.data.uv_layers:
+                        uv=me.uv_layers.new(name=layer.name)
+                        for dest,index in zip(me.polygons,face_indices):
+                            for dl,sl in zip(dest.loop_indices,ob.data.polygons[index].loop_indices):uv.data[dl].uv=layer.data[sl].uv
                 sh=bpy.data.objects.new('chip',me);s.collection.objects.link(sh)
                 for f in me.polygons:f.use_smooth=True
                 chunks.append((sh,c,len(chunks)))
@@ -330,6 +374,11 @@ for name,definition in profiles.items():
                 sp=curve.splines.new('POLY');sp.points.add(2)
                 ang=j*math.tau/7
                 for pt,(x,z) in zip(sp.points,[(0,1.1),(.35*math.cos(ang+.12),1.1+.28*math.sin(ang)),(.85*math.cos(ang),1.1+.5*math.sin(ang))]):pt.co=(x if name=='tv' else x*.58,-.16 if name=='tv' else -.28,z if name=='tv' else .98+(z-1.1)*.9,1)
+                if a.polyhaven_root:
+                    lo,hi=ph.bounds([ob]);center=(lo+hi)/2
+                    if name=='tv':center.x-=(hi.x-lo.x)*.12
+                    for pt in sp.points:
+                        px,_,pz,_=pt.co;pt.co=(center.x+px*(hi.x-lo.x)*.30,lo.y-.015,center.z+(pz-1.1)*(hi.z-lo.z)*.5,1)
                 crack=bpy.data.objects.new('glass fracture',curve);s.collection.objects.link(crack);curve.materials.append(mat('bright fracture',(.88,.88,.79),.08));chunks.append((crack,crack.location.copy(),j))
         else:
             center=sum((Vector(v) for v in vs),Vector())/len(vs)
@@ -350,10 +399,10 @@ for name,definition in profiles.items():
                     sh.hide_render=frame<k;continue
                 direction=Vector((c.x+.1,c.y+.1,0));direction.normalize()
                 travel=(.65*t if motion=='shatter' else .45*t)
-                sh.location=c+direction*travel+Vector((0,0,.45*t-1.4*t*t))
+                sh.location=c+direction*travel+Vector((0,0,.45*t-(max(1.4,c.z+1.) if a.polyhaven_root else 1.4)*t*t))
                 sh.rotation_euler=(t*.8*math.sin(k*2.1+1),t*1.1*math.cos(k*1.3),t*.6)
                 if name=='books':sh.rotation_euler=(t*1.48,t*.12,t*.35)
-                if name in ('books','plant','clock','tv','mug') and sh.type=='MESH':
+                if (a.polyhaven_root or name in ('books','plant','clock','tv','mug')) and sh.type=='MESH':
                     rotation=sh.rotation_euler.to_matrix()
                     bottom=min((rotation@v.co).z for v in sh.data.vertices)+sh.location.z
                     if bottom<.025:sh.location.z+=.025-bottom
@@ -370,7 +419,11 @@ for name,definition in profiles.items():
         info['points']={'flower':200,'neck':150,'lid':150,'rim':125,'shade':150}.get(part,100)
         info['cue']='petal' if part=='flower' else 'topple' if motion=='fall' else 'shatter'
         part_meta.append(info)
-    meta['objects'][name]=dict(parts=part_meta)
+        previous={p['id']:p for p in meta['objects'].get(name,{}).get('parts',[])}
+        previous.update({p['id']:p for p in part_meta})
+        meta['objects'][name]=dict(pivot=object_pivot_px,parts=[previous[p[0]] for p in parts if p[0] in previous])
+        if a.polyhaven_root:meta['objects'][name]['source_assets']=ph.SOURCE_BY_KIND[name]
+        checkpoint=out/'parts.checkpoint.json';checkpoint.write_text(json.dumps(meta,indent=2));checkpoint.replace(out/'parts.json')
     for _,ob,*_ in parts:bpy.data.objects.remove(ob,do_unlink=True)
 (out/'parts.json').write_text(json.dumps(meta,indent=2))
 print('PARTS_ROOM_COMPLETE',out)

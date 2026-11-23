@@ -1,3 +1,5 @@
-Original generated room geometry/render outputs, part sprites, masks and animation frames: CC0 1.0 Universal.
+Poly Haven input models/textures and their rendered derivative assets: CC0 1.0 Universal.
+https://polyhaven.com/license
 https://creativecommons.org/publicdomain/zero/1.0/
-This dedication covers these newly generated assets, not existing project source code or Blender/third-party software.
+Original room shell and authored effects/render outputs: CC0-1.0.
+Existing project source code and Blender software are not relicensed.

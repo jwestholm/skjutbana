@@ -114,7 +114,7 @@ class LightTargetsGame:
         if w<640 or h<480:return []
         base=[k for k in ('vase','jar','bowl','bottle','lamp') if k in self.art.objects]
         extras=[k for k in self.art.objects if k not in base]
-        supports={'books':('shelf',),'tv':('table','bench'),
+        supports={'books':('shelf',),'tv':('table','bench'),'lamp':('table','bench','shelf'),
                   'clock':('shelf','sill','table','bench'),'mug':('shelf','sill','table','bench')}
         # Place constrained items first, then backtrack locally if a wide object
         # blocks a later anchor. Shapes remain large and non-overlapping.
@@ -163,7 +163,7 @@ class LightTargetsGame:
         self.phase='settling';self.phase_at=time.monotonic()
         for obj in self.manager.objects:obj.metadata['lamp_token']=self.token
         print('[LAMP-TARGET] '+json.dumps(dict(owner=self.owner,token=self.token,layout_id=self.layout_id,
-            player=self.player+1,shape='visible_part_alpha_polygons',game_version='living-room-parts-5',
+            player=self.player+1,shape='visible_part_alpha_polygons',game_version='polyhaven-room-parts-6',
             asset_manifest_sha256=self.art.manifest_sha256,
             objects=[dict(entity_id=i['entity_id'],kind=i['kind'],support=i['anchor']['support'],
                 anchor_id=i['anchor']['id'],geometry=list(i['geometry'].aabb),parts=i['parts']) for i in self.items],
@@ -300,6 +300,12 @@ class LightTargetsGame:
             self.streak += 1;points=int(obj.metadata.get('points',100) if obj else 100)+25*min(self.streak-1,4)+self._clear_bonus
             self.scores[self.player]+=points
             part_label={'body':'KROSSAT!','base':'KROSSAT!','neck':'HALSEN!','flower':'BLOMMAN!','lid':'LOCKET!','rim':'KANTEN!','shade':'LAMPSKÄRMEN!','screen':'SKÄRMEN SPRACK!','face':'GLASET SPRACK!','stand':'TV-FOTEN!','foliage':'BLADEN!','left':'BOKEN FÖLL!','middle':'BOKEN FÖLL!','right':'BOKEN FÖLL!','handle':'HANDTAGET!'}.get(obj.part_id if obj else '', 'TRÄFF!')
+            if self.art.manifest.get('asset_provider')=='polyhaven':
+                if obj and obj.part_id=='flower':part_label='BLADEN!'
+                if obj and obj.metadata.get('sprite_kind')=='jar' and obj.part_id=='lid':part_label='MYNNINGEN!'
+                if obj and obj.part_id=='stand':part_label='TV-BASEN!'
+                if obj and obj.metadata.get('sprite_kind')=='bowl' and obj.part_id=='rim':part_label='LOCKET!'
+                if obj and obj.metadata.get('sprite_kind')=='mug' and obj.part_id=='handle':part_label='HANDTAG/FÄSTE!'
             self.feedback=f'TRÄFF! {part_label} +{points}  KOMBO ×{self.streak}'
             if self._clear_bonus:self.feedback+=' • RUMMET RENSAT!'
         elif outcome == 'MISS':
@@ -310,7 +316,7 @@ class LightTargetsGame:
             shot_peak_ts=self.active_peak, player=self.player+1, outcome=outcome, points=points,
             shots_used=self.used[self.player], source='SIMULATED' if simulated else 'OBJECT',
             hypothesis_xy=(hypothesis or {}).get('camera_xy'), reason=(result or {}).get('reason'),
-            game_version='living-room-parts-5',object_id=oid,entity_id=obj.entity_id if obj else None,
+            game_version='polyhaven-room-parts-6',object_id=oid,entity_id=obj.entity_id if obj else None,
             part_id=obj.part_id if obj else None,impact_game_xy=xy,effect_side=side,clear_bonus=self._clear_bonus,
             broken_object_ids=sorted(self.broken_ids), reaction_not_before_wall_ts=self.reaction_wall_ts,
             wall_ts=time.time())), flush=True)

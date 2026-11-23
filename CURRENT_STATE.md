@@ -1,5 +1,27 @@
 # Current project state
 
+## PANG! Poly Haven PBR room — 2026-11-23
+
+R6 replaces the procedural room furnishings and target meshes with 15 selected
+CC0 Poly Haven assets, retaining original UV/PBR textures in Cycles renders.
+The copied 84 dependencies match the supplied originals by SHA256. Sources and
+licenses are in `content/games/pang_polyhaven_sources/`; source plus rendered
+package totals about 29 MB. Ten families provide 21 visible breakable parts and
+316 PNGs, with exact silhouette openings and UV-preserving fracture pieces.
+Eight loose objects remain active; furniture is non-scoring scenery.
+
+API/menu id `light_targets` remains unchanged; log version is
+`polyhaven-room-parts-6`. No engine/detector changes. PRE/POST timing and distinct
+hit/miss/uncertain feedback remain. Light material variants and display exposure
+preserve texture while respecting the camera-level constraint: all 47 exported
+scene/part-response previews predict at least 125.04 DN below the HUD. This is a
+color-model check, not physical validation. Thirty layouts fit the saved ROI
+budget (max 598408/1000000 pixels). All 14 relevant selftest modules pass,
+including eight R6 tests. Preview `/tmp/pang_r6/preview.png`; details and commands
+in `GAME_NEW_REPORT.md`. No camera/projector access or commits. Physical >=95%
+accuracy and Jimmy's visual acceptance remain unverified.
+
+
 ## PANG! living-room version — 2026-11-22
 
 R5 now uses a warm perspective Cycles living room (sofa/bookcase/rug/coffee table)

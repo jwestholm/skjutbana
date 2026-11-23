@@ -1,13 +1,14 @@
 # PANG! – Vardagsrummet
 
-2026-11-22, `claude/latency`, för granskning. Inga commits/push/merge.
+2026-11-23, `claude/latency`, för granskning. Inga commits/push/merge.
 **Kamera/projektor orörda. Nya rummet är inte fysiskt validerat; ≥95 % är målet.**
 
 ## Spelbar version
 
-Ett varmt, perspektiviskt Cycles-vardagsrum med soffa, bokhylla, matta, soffbord,
-mediabänk, dagsljusfönster och väggtavla. **Åtta stora föremål åt gången** ur tio typer:
-vas, kruka, skål, flaska, lampa, TV, böcker, krukväxt, klocka och mugg. Totalt
+Ett ljust, perspektiviskt Cycles-vardagsrum byggt av lokala Poly Haven-modeller
+med PBR-texturer: soffa, bokhylla, soffbord, sidobord, dagsljusfönster och tavelram. **Åtta stora föremål åt gången** ur tio typer:
+bladvas, keramikvas, gryta, slank vas, armlampa, retro-TV, böcker, krukväxt,
+väckarklocka och mjölkkanna. Interna familje-id:n behålls för loggkompatibilitet. Totalt
 21 funktionella deltyper. TV och böcker finns i varje rum; övriga nya typer varierar.
 Placeringar och storlekar varierar mellan spelarturer och när rummet töms.
 Skador och skärvor ligger kvar mellan skotten. Fönster, soffa och väggtavla är
@@ -15,7 +16,7 @@ bakgrundsdekor i denna version; de åtta lösa föremålen är poänggivande må
 1–2 spelare, 5/10 skott, inget tidstvång. ENTER startar, 1/2 spelare, 5/0 skott,
 ESC meny, **M tystar ljuden**.
 
-- Blomskott: blomman faller, vasen står kvar. Halsskott: hals/överdel faller,
+- Bladträff: bladverket faller, vasen står kvar. Halsskott: hals/överdel faller,
   buken står kvar. Bukskott: kroppen krossas och överdelarna lossnar.
 - Lock, skålens kant och lampskärm har egna former och fallsekvenser.
 - Bekräftad del ger 100–200 poäng, svitbonus upp till +100 och +500 för tömt rum.
@@ -27,7 +28,7 @@ ESC meny, **M tystar ljuden**.
 
 Befintliga `GameObject.entity_id/part_id`, `make_breakable_object`, ObjectManager,
 frysta former, OBJECT dense och audio `play_feedback` återanvänds.
-Den enda nya generella motormekaniken är **opt-in `EffectAction.break_parts`**:
+Den tidigare införda mekaniken **opt-in `EffectAction.break_parts`** återanvänds:
 namngivna syskondelar inom samma ägare/entity kan få en uttrycklig strukturell
 brottreaktion. Den skapar inga nya observerade skott eller koordinater. Andra spel
 utan denna action behåller sitt beteende.
@@ -81,7 +82,7 @@ Den äldre R3-förhandsprocessen mättes till cirka 159 MiB topp-RSS och 2,0 s;
 detta är inte en RAM-/tidsmätning av R5 eller hela live-appen.
 Grafik/sönderfall förladdas före mätfönstret; ingen bildläsning i träffreaktionen.
 
-## Tillgångar och Blender-pipeline
+## Tidigare tillgångar och Blender-pipeline (R3–R5)
 
 Leveransen använder **egna procedurmodeller**, inte nedladdade modeller. Nya
 render-/masktillgångar levereras med **CC0-1.0**, se
@@ -418,3 +419,127 @@ inte i spelets levererade sprites.
 `mug_handle_after.png`, övriga delsteg och WAV-filer. Bildmappen är en simulering;
 träffpunkterna väljs inne i respektive form för att testa spelreaktioner och får
 inte användas som mätning av detektorns träffsäkerhet.
+
+## Runda 6 – Poly Haven / PBR, 2026-11-23
+
+**Nuvarande grafik är ersatt med importerade Poly Haven-modeller.** Inga commits,
+push/merge, kamera-, projektor- eller live-Blender-åtkomst. Alla exporter kördes i
+en separat headless Cycles-process med privat `/dev`. API/meny-id `light_targets`
+är bevarat. Användarens befintliga ändringar i menu.json/AI-settings lämnas kvar.
+Loggversionen är `polyhaven-room-parts-6` med ny asset-manifesthash.
+
+### Modellurval, äkta PBR och licenser
+
+27 glTF-paket inventerades read-only. **15 använda modellpaket, 84 originalfiler**
+kopierades till `content/games/pang_polyhaven_sources/`. Samtliga kopior verifierades
+byte för byte mot `/data/skjutbana/assets/polyhaven/`; inga original ändrades.
+Modeller/buffertar och refererade 1k-texturer tar **19 954 336 byte** inklusive
+källmanifest/licensfiler. Endast renderade PNG används av spelet; glTF-texturerna
+laddas inte i live-appen.
+
+| Användning | Poly Haven-id |
+|---|---|
+| Rum | sofa_02, modern_coffee_table_01, Shelf_01, side_table_01, fancy_picture_frame_01 |
+| Vas/blad | ceramic_vase_02, potted_plant_02 |
+| Keramikvas / slank vas | ceramic_vase_01, ceramic_vase_03 |
+| Gryta/lock | ceramic_pot |
+| TV | Television_01 |
+| Tre individuella böcker | book_encyclopedia_set_01 (tre valda volymer) |
+| Krukväxt | potted_plant_02 |
+| Väckarklocka | alarm_clock_01 |
+| Armlampa | desk_lamp_arm_01 |
+| Kanna/handtag med fäste | metal_jug |
+
+Alla dessa inputs är **CC0-1.0** enligt den tillhandahållna källförteckningen och
+[Poly Havens licens](https://polyhaven.com/license). Exakta tillgångslänkar och
+SHA256 per glTF/bin/textur finns i källmappens `SOURCES.md`/`manifest.json` och
+spritepaketets `asset_provenance`. Befintlig projektkod/Blender omlicensieras inte.
+Golvet, väggskalet, fönstret, ljus TV-bild och effektgeometri är egna tillägg;
+de dekorativa möblerna kommer från de listade importerade modellerna.
+
+Importerade roughness-/metall-/normalkartor och UV-koordinater behålls. Diffusfärgen
+får en ljus variant (gamma 0,55, varm ljus inblandning), normalstyrkan mjukas något.
+Kameran är perspektivisk för rummet, Cycles kör CPU/två trådar, AgX, exponering +0,5.
+De separata föremålsrenderingarna får dessutom **1,35 display-linjär förstärkning**
+före kameragolvet. Detta är grafikbehandling, **inte kamera- eller mikrofonförstärkning**.
+Det minskar andelen synliga modellpixlar som klipps till ljusgolvet från 63,1 %
+till 27,3 % och behåller mer av skuggningen/texturen (`exposure_check.json`).
+Originalkartorna ändras inte. TV-bilden och klockvisarna är helt stilla under skottet.
+
+### Delar, silhuetter och reaktioner
+
+Samma ObjectManager, frysta OBJECT-former, projektil-touch och strukturella
+`break_parts` används. **Tio typer / 21 delar**, åtta stora föremål åt gången.
+Rumsmöbler/fönster/tavla är dekor; de lösa föremålen är poänggivande mål.
+
+Meshdelar kapas vid hals, mynning, lock, lampdel eller handtag/fäste. Grytans lock
+har en egen riktig del; den historiska familjen `bowl/rim` används fortfarande i
+loggar. `mug/handle` avser nu kannans övre högra handtag/fäste, inte en påhittad
+mugg. Bladverket beskärs i 3D till tre kompletta importerade blad, vars texturer/UVs
+behålls. Ingen öppning i en färdig träffmask fylls igen för att få en enklare form.
+
+Hål, handtag och öppningar exporteras som raster-exakta konturvandringar eller
+högst åtta delpolygoner. Nollängdskanter förbjuds; raster och motorns befintliga
+ray-test kontrolleras, inklusive en uttömmande tvåhålsfixtur utan pixelavvikelser.
+Ingen motorgeometri behöver ändras. Antialias-/kantosäkerheten är fortfarande
+ungefär en källpixel, utöver fysisk kalibreringsosäkerhet.
+
+Skärvorna är manuella sektorer med **överförda original-UVs och materialindex**,
+inte en platt ersättningsfärg. Fallbanor stannar vid den lokala stödytan. Grytan
+får egen spriteinramning så att handtagen inte kapas. En individuell kamerastorlek
+har egen pivot i manifestet; äldre råpaket använder den befintliga globala fallbacken.
+Importerade texturer spegelvänds inte vid vänsterträff: en liten translation ger
+impulsskillnaden utan att flytta en vänsterbok till höger eller spegla tryck/text.
+TV-/klocksprickor ligger kvar på sin ursprungliga yta.
+
+0,6 s reaktion, skyddad POST till peak+1,2 s och 1,7 s stillhet före nästa REDO är
+bevarade. Armlampan står på bord/bänk/hylla. Ingen detektortröskel, modellauktoritet,
+kamerakonfiguration eller motor-loop ändras. Reaktionerna är författade sprites,
+inte en ny live-rigid-body-motor.
+
+### Reproduktion och förhandsbild
+
+```bash
+# Behövs bara för ett nytt urval; befintlig repokopia kan användas direkt.
+python3 -m automation.stage_pang_polyhaven \
+ /data/skjutbana/assets/polyhaven /tmp/pang_sources_NEW
+/snap/blender/current/blender -noaudio -b --factory-startup \
+ --python automation/assets/render_light_room_parts.py -- \
+ --out /tmp/pang_raw_NEW --polyhaven-root /tmp/pang_sources_NEW
+python3 -m automation.build_light_room_parts /tmp/pang_raw_NEW /tmp/pang_pack_NEW --realistic
+python3 -m automation.recolor_light_room /tmp/pang_pack_NEW /tmp/pang_final_NEW --realistic
+python3 -m automation.light_room_preview --assets /tmp/pang_final_NEW \
+ --out /tmp/pang_preview_NEW --all-parts
+```
+
+`--only-kind` och `--only-part` delar exporten i korta jobb. Atomiska checkpoints
+skrivs efter varje färdig del; `--resume` används endast med samma recept och
+oförändrade råindata. I denna leverans finns färdiga inputbilder i
+`/tmp/pang_r6/raw_delivery/` och ursprungliga/alternativa försök i separata mappar.
+R5:s installerade sprites bevaras i `/tmp/pang_r6/baseline_assets/`.
+
+Huvudbild: **`/tmp/pang_r6/preview.png`**. Alla 21 positiva delreaktioner samt
+MISS/UNKNOWN finns i slutmappen som anges i slutkontrollen nedan. Det är simulerade
+spelreaktioner: inga simulerade klick används som evidens för fysisk träffsäkerhet.
+Nästa fysiska pilot behöver nya träffar, missar och delgränser med operatörsfacit.
+≥95 % och fysisk noll-fel/noll-falska är inte verifierade av denna grafikleverans.
+
+
+### R6 slutkontroll — 2026-11-23
+
+- Installerat: 316 PNG, 10 föremålsfamiljer, 21 brytbara delar. Spritepaket
+  8 996 164 byte; använda originalmodeller med källor/licenser 19 954 336 byte.
+  Totalt 28 950 500 byte (cirka 29 MB); inga oanvända originalmodeller kopieras.
+- Slutlig förhandsbild: `/tmp/pang_r6/preview.png`. Alla 47 bilder (21 positiva
+  delreaktioner, MISS/UNKNOWN och rum) finns i `/tmp/pang_r6/final_delivery/`.
+  Minsta predikterade kameranivå i spelytan under HUD är **125,04 DN**.
+  Detta är färgguidens beräkningsmodell, inte en ny kameramätning.
+  Mätvärden: `/tmp/pang_r6/final_measurements.json`.
+- 30 placeringsfrön klarar den sparade kalibreringens ROI-budget:
+  högst **598 408 / 1 000 000 bildpunkter** (`/tmp/pang_r6/budget_final.json`).
+- **14 självtestmoduler gröna**, inklusive åtta R6-testfall för originalkällor,
+  alfa/exponering, maskhål, polygonkanter och att texturer inte spegelvänds.
+  Modulernas exitkoder finns i `/tmp/pang_r6/release_checks/results.json`.
+- API/meny-id `light_targets`, OBJECT-loggning, breakable parts och skyddade
+  mätfönster är kvar. Ingen detektorändring, ingen commit, ingen fysisk utrustning
+  använd. Fysisk ≥95 % träffsäkerhet är fortfarande ett separat acceptanstest.

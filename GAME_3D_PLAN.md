@@ -154,3 +154,20 @@ fotorealistisk slutkvalitet måste bedömas på renderingen; det här är en lju
 förenklad och mätbar tolkning. Förhandsbild `/tmp/pang_r5/delivery/room.png`.
 Nästa acceptans: Jimmys bildgranskning och nya fysiska skott med negativkontroller,
 kanter och facit. Ingen automatisk modellpromotion eller sänkt acceptansgräns.
+
+
+## R6 genomförd — 2026-11-23
+
+Lokalt tillhandahållna CC0 Poly Haven-modeller används nu: 15 tillgångar,
+84 hashverifierade glTF-beroenden. Cycles-rummet använder verklig soffa, hylla,
+soffbord, sidobord och ram; tio målfamiljer har 21 separata brytbara delar.
+Original-UV, PBR-material och skärvornas UV bevaras. Manuella delsnitt återanvänder
+motorns breakable parts. Silhuettpolygoner bevarar verkliga öppningar; inga hål
+fylls för att få enklare träffformer. Skador/animationer börjar efter mätfönstret.
+
+Ljusa materialvarianter och fast linjär exponering ger 47 förhandsbilder med
+minst 125,04 predikterade DN i spelytan; 30 layouter klarar ROI-budgeten.
+14 självtestmoduler är gröna. Källmodeller cirka 20 MB, spritepaket cirka 9 MB.
+Käll-/licenslistor medföljer. Preview `/tmp/pang_r6/preview.png` och reproduktion i
+`GAME_NEW_REPORT.md`. Fysisk pilot, negativkontroller och Jimmys visuella
+acceptans återstår; färgproxy och simulerade träffar bevisar inte fysisk 95 %.

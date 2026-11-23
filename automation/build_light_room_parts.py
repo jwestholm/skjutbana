@@ -10,7 +10,42 @@ from PIL import Image,ImageDraw,ImageFilter
 from automation.build_light_room_assets import brighten
 
 
-def polygons(mask):
+def _bridged_contours(clean):
+    """Represent holes by doubled bridges through solid pixels; no invented area.
+
+    Both cv2's even/odd rasterizer and the existing engine polygon ray test accept
+    this contour walk. Zero-length edges are forbidden (the engine treats them as
+    boundary hits). Final raster equality is mandatory.
+    """
+    cs,hierarchy=cv2.findContours(clean,cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)
+    if hierarchy is None:return None
+    hierarchy=hierarchy[0];result=[]
+    for index,outer in enumerate(cs):
+        if hierarchy[index][3]>=0:continue
+        path=outer[:,0,:].tolist()
+        for hole_index,hole in enumerate(cs):
+            if hierarchy[hole_index][3]!=index:continue
+            h=hole[:,0,:].tolist();a=np.asarray(path);b=np.asarray(h)
+            distances=((a[:,None,:]-b[None,:,:])**2).sum(2).astype(float)
+            distances[distances<1]=np.inf;flat=distances.ravel();n=min(256,len(flat))
+            nearest=np.argpartition(flat,n-1)[:n];nearest=nearest[np.argsort(flat[nearest])]
+            choice=None
+            for pair in nearest:
+                pi,hi=np.unravel_index(pair,distances.shape)
+                if not np.isfinite(distances[pi,hi]):continue
+                bridge=np.zeros_like(clean);cv2.line(bridge,tuple(path[pi]),tuple(h[hi]),255,1)
+                if np.any((bridge>0)&(clean==0)):continue
+                choice=(pi,hi);break
+            if choice is None:return None
+            pi,hi=choice;walk=h[hi:]+h[:hi]
+            path=path[:pi+1]+walk+[walk[0],path[pi]]+path[pi+1:]
+        if any(path[i]==path[(i+1)%len(path)] for i in range(len(path))):return None
+        result.append(np.asarray(path,dtype=np.int32).reshape(-1,1,2))
+    raster=np.zeros_like(clean);cv2.drawContours(raster,result,-1,255,-1)
+    return result if 1<=len(result)<=8 and np.array_equal(raster,clean) else None
+
+
+def polygons(mask,*,partition_holes=False):
     n,labels,stats,_=cv2.connectedComponentsWithStats(mask.astype(np.uint8))
     clean=np.zeros(mask.shape,np.uint8)
     for i in range(1,n):
@@ -18,21 +53,47 @@ def polygons(mask):
     contours,_=cv2.findContours(clean,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
     if not 1<=len(contours)<=8:raise ValueError('Part needs 1..8 connected silhouettes')
     rebuilt=np.zeros_like(clean);cv2.drawContours(rebuilt,contours,-1,255,-1)
-    if not np.array_equal(rebuilt,clean):raise ValueError('Part silhouette contains an occlusion hole; fix the model')
+    if not np.array_equal(rebuilt,clean):
+        if not partition_holes:raise ValueError('Part silhouette contains an occlusion hole; fix the model')
+        # Exact partition, never fill a handle/leaf opening. A cut through each
+        # hole opens it to a strip boundary; the engine supports up to 8 polygons.
+        hole_mask=(rebuilt>0)&(clean==0)
+        count,_,_,centers=cv2.connectedComponentsWithStats(hole_mask.astype(np.uint8))
+        bridged=_bridged_contours(clean)
+        solutions=[bridged] if bridged is not None else []
+        for axis in (0,1):
+            limits=[0]+sorted(set(int(round(c[1-axis])) for c in centers[1:]))+[clean.shape[axis]]
+            candidate=[]
+            for a,b in zip(limits,limits[1:]):
+                if b<=a:continue
+                section=np.zeros_like(clean)
+                if axis==0:section[a:b]=clean[a:b]
+                else:section[:,a:b]=clean[:,a:b]
+                cs,_=cv2.findContours(section,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+                candidate.extend(cs)
+            if not 1<=len(candidate)<=8 or any(len(c)<3 for c in candidate):continue
+            raster=np.zeros_like(clean);cv2.drawContours(raster,candidate,-1,255,-1)
+            if np.array_equal(raster,clean):solutions.append(candidate)
+        if not solutions:raise ValueError('Imported silhouette cannot fit the exact 8-polygon contract')
+        contours=min(solutions,key=lambda c:sum(len(p) for p in c))
     h,w=clean.shape
     return clean,[[[float(x)/w,float(y)/h] for x,y in c[:,0,:]] for c in contours]
 
 
 def build(raw,output,*,realistic=False):
-    from automation.light_room_palette import protect_render
+    from automation.light_room_palette import protect_render,expose_pbr,PBR_DISPLAY_GAIN
     prepare = protect_render if realistic else brighten
     raw,output=Path(raw),Path(output);output.mkdir(parents=True,exist_ok=False)
     info=json.loads((raw/'parts.json').read_text())
-    m=dict(scene=info.get('scene','atelier'),schema='light-room-parts-2',blender_version=info['blender_version'],
+    if realistic and info.get('asset_provider')=='polyhaven':
+        prepare=lambda image:protect_render(expose_pbr(image))
+    m=dict(asset_provider=info.get('asset_provider','original'),scene=info.get('scene','atelier'),schema='light-room-parts-2',blender_version=info['blender_version'],
            alpha_threshold=128,objects={},anchors=json.loads((raw/'layout.json').read_text())['anchors'],
-           source='automation/assets/render_light_room_parts.py',license='CC0-1.0',
+           source=info.get('recipe','automation/assets/render_light_room_parts.py'),license='CC0-1.0',
            material_pipeline='render_preserving' if realistic else 'legacy_brighten',
            note='Functional parts and sectors are authored manually; Cell Fracture is an optional offline replacement.')
+    if 'asset_provenance' in info:m['asset_provenance']=info['asset_provenance']
+    if realistic and info.get('asset_provider')=='polyhaven':m['model_display_exposure_gain']=PBR_DISPLAY_GAIN
     m['raw_inputs_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(raw.iterdir()) if p.is_file() and p.suffix in ('.png','.json')}
     if (raw/'source_provenance.json').exists():m['raw_provenance']=json.loads((raw/'source_provenance.json').read_text())
     for name,spec in info['objects'].items():
@@ -55,10 +116,13 @@ def build(raw,output,*,realistic=False):
         x,y,w,h=cv2.boundingRect(union);bbox=(x,y,x+w,y+h)
         entry=dict(id_antialias_relabelled_pixels=relabelled,label={'vase':'Blomvas','jar':'Kruka','bowl':'Skål','bottle':'Flaska','lamp':'Lampa','tv':'TV','books':'Böcker','plant':'Krukväxt','clock':'Klocka','mug':'Mugg'}[name],
                    source_bbox=list(bbox),source_size=list(original.size),
-                   pivot=[(info['pivot'][0]-x)/w,(info['pivot'][1]-y)/h],parts={})
+                   pivot=[(spec.get('pivot',info['pivot'])[0]-x)/w,(spec.get('pivot',info['pivot'])[1]-y)/h],parts={})
+        if info.get('asset_provider')=='polyhaven':
+            entry['source_assets']=spec.get('source_assets',[])
+            entry['label']={'mug':'Mjölkkanna','bowl':'Keramikgryta','vase':'Vas med blad','bottle':'Slank vas'}.get(name,entry['label'])
         for idx,part in enumerate(spec['parts']):
             mask=((ownership==idx)&(union>0))[y:y+h,x:x+w]
-            mask,poly=polygons(mask)
+            mask,poly=polygons(mask,partition_holes=info.get('asset_provider')=='polyhaven')
             pixels=full[y:y+h,x:x+w].copy();pixels[:,:,3]=mask
             base=f'{name}_{part["id"]}'
             Image.fromarray(pixels).save(output/(base+'.png'));Image.fromarray(mask).save(output/(base+'_mask.png'))
@@ -78,10 +142,14 @@ def build(raw,output,*,realistic=False):
     room=protect_render(Image.open(raw/'room.png')) if realistic else brighten(Image.open(raw/'room.png'),floor=160)
     room.convert('RGB').save(output/'room.png')
     m['files_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.glob('*.png'))}
-    m['recipes_sha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [Path('automation/build_light_room_parts.py'),Path(m['source'])]}
+    m['recipes_sha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in ([Path('automation/build_light_room_parts.py'),Path(m['source'])]+([Path('automation/assets/pang_polyhaven.py')] if info.get('asset_provider')=='polyhaven' else []))}
     (output/'manifest.json').write_text(json.dumps(m,indent=2)+'\n')
     (output/'SOURCES.md').write_text('''# Asset provenance\n\nAll shipped meshes, room geometry, part masks and animations are original procedural\nproject assets generated by automation/assets/render_light_room_parts.py.\nNo Kenney/Poly Haven/Quaternius model or copyrighted sample is included.\nNo external accounts, downloads or live Blender scene were used.\nGenerated assets only: CC0-1.0; see LICENSE.txt. Existing project source code is not relicensed.\n\nFree external alternatives (not included), checked 2026-11-22:\n- Kenney Furniture Kit: https://kenney.nl/assets/furniture-kit — CC0.\n- Poly Haven Jug 01, Kuutti Siitonen: https://polyhaven.com/a/jug_01 — CC0;\n  https://polyhaven.com/license .\n- Quaternius Ultimate Furniture: https://quaternius.com/packs/ultimatefurniture.html — CC0.\n- Cell Fracture: https://extensions.blender.org/add-ons/cell-fracture/ — GPL-3.0-or-later\n  for the tool, not a model licence. Not installed or copied into the game.\n\nCurrent shards use manually authored functional parts and mesh sectors.\nThe manifest lists hashes for rendered files and exact source recipes.\n''')
-    (output/'LICENSE.txt').write_text('Original generated room geometry/render outputs, part sprites, masks and animation frames: CC0 1.0 Universal.\nhttps://creativecommons.org/publicdomain/zero/1.0/\nThis dedication covers these newly generated assets, not existing project source code or Blender/third-party software.\n')
+    if info.get('asset_provider')=='polyhaven':
+        (output/'SOURCES.md').write_text('# PANG! Poly Haven rendering provenance\n\nImported models/textures: CC0-1.0, https://polyhaven.com/license .\nLight diffuse variants preserve source roughness, metallic, normal and alpha maps.\nSource depot remains unmodified. Manual mesh cuts, UV-preserving sectors, bright TV\nscreen and original room shell/effects are recorded by the recipe hashes.\nRuntime loads sprites, not glTF. Exact per-file hashes are in asset_provenance.\n\n'+''.join('- '+a['id']+': '+a['url']+' — '+a['license']+'\n' for a in info['asset_provenance']['assets']))
+    (output/'LICENSE.txt').write_text('Original generated room geometry/render outputs, part sprites, masks and animation frames: CC0 1.0 Universal.\nhttps://creativecommons.org/publicdomain/zero/1.0/\nThis dedication covers these newly generated assets, not existing project source code or Blender software. Poly Haven model/texture inputs are independently CC0-1.0 (https://polyhaven.com/license).\n')
+    if info.get('asset_provider')=='polyhaven':
+        (output/'LICENSE.txt').write_text('Poly Haven input models/textures and their rendered derivative assets: CC0 1.0 Universal.\nhttps://polyhaven.com/license\nhttps://creativecommons.org/publicdomain/zero/1.0/\nOriginal room shell and authored effects/render outputs: CC0-1.0.\nExisting project source code and Blender software are not relicensed.\n')
     return m
 
 if __name__=='__main__':

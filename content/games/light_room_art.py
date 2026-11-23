@@ -62,9 +62,12 @@ class LightRoomArt:
             frames,offset=self.frames(item['kind'],part,size)
             idx=min(max(int(frame or 0),0),len(frames)-1) if animated else len(frames)-1
             image=frames[idx];x=round(g.x)+offset[0];side=effect_sides.get(oid,1)
-            if side<0 and self.objects[item['kind']]['parts'][part]['motion']!='crack':
+            imported=self.manifest.get('asset_provider')=='polyhaven'
+            motion=self.objects[item['kind']]['parts'][part]['motion']
+            if imported and motion!='crack':x+=round(g.width*.10*(idx+1)/len(frames))*side
+            if not imported and side<0 and motion!='crack':
                 x=round(2*g.center[0]-x-image.get_width());image=pygame.transform.flip(image,True,False)
-            if self.objects[item['kind']]['parts'][part]['motion']=='fall':
+            if not imported and motion=='fall':
                 # Extra lateral impulse from the observed hit side; no change to evidence/XY.
                 x+=round(g.width*.45*(idx+1)/len(frames))*side
             surface.blit(image,(x,round(g.y)+offset[1]))
