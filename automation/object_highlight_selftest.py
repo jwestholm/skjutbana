@@ -53,6 +53,7 @@ class FlagTests(unittest.TestCase):
         with patch.dict(os.environ, {'SKJUTBANA_PANG_OBJECT_HIGHLIGHT':'0', 'SKJUTBANA_PANG_OBJECT_GLOW':'1'}):
             game = LightTargetsGame(Path('content/games'), pygame.Rect(0,0,800,600))
         self.assertFalse(game.object_highlight)
+        self.assertEqual(game.precision_glow['reference_frames'],3)
         game.object_highlight = True
         self.assertEqual(game.precision_flash, 'object_glow')
         self.assertTrue(resolve_policy(game, env={})[0])

@@ -33,6 +33,23 @@ emissions at camera coordinates (2627, 1074) and (2690, 1402), but this replay
 was from the run where object mode had been disabled. The fixed live path still
 needs a fresh shot before claiming gameplay success.
 
+## PANG R8 camera reference capture window — 2026-11-23
+
+The next live session kept object mode enabled, but its initial reference flash
+never reached `ready`: three captures contained 2, 3, and 4 stable frames, while
+PANG required five during a 0.60 s presentation. The game consequently remained
+in settling and dispatched both shots with `objects=0`. PANG now requires three
+reference frames, matching the bounded window the camera can supply. Its active
+measurement continues to require three frames and still highlights only while
+the detector is in `SHOWING`.
+
+Verification: 21 `object_glow`, 12 `object_highlight`, and 19
+`precision_flash` selftests pass. Replaying the recorded glow windows with the
+three-frame reference requirement produced valid captures on attempts two and
+three (plateaus of 3 and 4 frames, delta 80 DN); attempt one had only two
+frames. This is recorded local-glow replay, not gameplay or physical-accuracy
+validation. A fresh live shot is still required.
+
 ## PANG calibration preflight and recorded detector comparison — 2026-11-23
 
 Launching PANG with `--object-highlight` now runs the existing backed-up
