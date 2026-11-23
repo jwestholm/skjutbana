@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import threading
 import time as _time
 from concurrent.futures import Future
 from dataclasses import dataclass, field
@@ -124,6 +125,15 @@ class VirtualExecutor:
             job = self._jobs.pop(0)
             if not job.future.set_running_or_notify_cancel():
                 continue
+            # Live-path fidelity (2026-11-18): several live stages are gated on the CV worker
+            # thread name ("shot-cv-v2224": V2.22.5 FAST extract, V2.24.1 object-local, V2.25.1
+            # region proposal, V2.25.2 freshness, V2.25.3 novelty).  Running jobs on MainThread
+            # silently replayed the FULL/legacy path instead.  SKJUTBANA_REPLAY_LEGACY_THREAD=1
+            # restores the old behaviour for comparison with earlier baselines.
+            thread = threading.current_thread()
+            old_name = thread.name
+            if os.environ.get("SKJUTBANA_REPLAY_LEGACY_THREAD") != "1":
+                thread.name = "shot-cv-v2224-virtual"
             try:
                 with self.clock.frozen_at(job.start):
                     result = job.fn(*job.args, **job.kwargs)
@@ -132,6 +142,8 @@ class VirtualExecutor:
                 job.future.set_result(result)
             except BaseException as exc:  # mirrors ThreadPoolExecutor semantics
                 job.future.set_exception(exc)
+            finally:
+                thread.name = old_name
             ran += 1
             self.executed += 1
         return ran
@@ -155,8 +167,14 @@ class NullExecutor:
         return None
 
 
+# Optional game-object hint for replay experiments (2026-11-19, measurement only):
+# session_replay fills this with dicts {id, game_x, game_y, radius, t0, t1} (game/viewport-local px,
+# wall-time visibility window) when SKJUTBANA_REPLAY_REGION_HINT_PX is set. Empty = no regions.
+REGION_TARGETS: list[dict] = []
+
+
 class _ReplayScene:
-    """Physical SHOT_ONLY-like scene: no regions, no synthetic training flags."""
+    """Physical SHOT_ONLY-like scene: no regions (unless a region-hint experiment is active)."""
     auto_training_enabled = False
     single_synth_round_active = False
     synthetic_trigger_pending = False
@@ -165,7 +183,17 @@ class _ReplayScene:
     wants_hit_scanning = True
 
     def get_hit_regions(self):
-        return ()
+        if not REGION_TARGETS:
+            return ()
+        import time as _t
+        from src.engine.input.hit_regions import HitRegion, object_hit_regions
+        now = _t.time()
+        regions = tuple(HitRegion(object_id=t["id"], x=t["game_x"] - t["radius"], y=t["game_y"] - t["radius"],
+                                  width=2 * t["radius"], height=2 * t["radius"], role="target")
+                        for t in REGION_TARGETS if t["t0"] <= now <= t["t1"])
+        if regions and os.environ.get("SKJUTBANA_REPLAY_REGION_MODE", "regions") == "object_hit":
+            return object_hit_regions(regions)
+        return regions
 
 
 class _ReplayApp:

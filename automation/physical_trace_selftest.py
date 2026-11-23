@@ -14,6 +14,10 @@ from automation.physical_trace_export import export
 from src.engine.physical_trace import PhysicalTraceRecorder, TRACE_SCHEMA, validate_capture_history
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class TraceTests(unittest.TestCase):
     def test_scene_reference_timestamp_cannot_gain_camera_acquisition_identity(self):
         from unittest.mock import patch
@@ -45,6 +49,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import numpy as np
 from automation.physical_trace_selftest import TraceTests
+from automation.trace_test_support import setUpModule
+setUpModule()
 from src.engine.physical_trace import PhysicalTraceRecorder
 r=PhysicalTraceRecorder(sys.argv[1],enabled=True,capture_history=dict(pre_seconds=4.,post_seconds=5.,pre_max_frames=240,post_max_frames=300,max_events=16))
 s=TraceTests().scanner();pixels=np.zeros((4,5),np.uint8)

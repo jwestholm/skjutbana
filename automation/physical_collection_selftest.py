@@ -102,6 +102,7 @@ class CollectionTests(unittest.TestCase):
     exec(compile(prefix,'main.py startup guard','exec'),{})
     faults.assert_called_once_with()
     recorder=PhysicalTraceRecorder(p/'unused')
+    self.addCleanup(recorder.stop_for_exit)
     recorder.configure({'physical_trace_capture_enabled':False,'physical_trace_root':'stale'})
     self.assertTrue(recorder.enabled)
     self.assertEqual(recorder.capture_history['pre_seconds'],4.)

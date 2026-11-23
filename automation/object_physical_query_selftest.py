@@ -123,7 +123,7 @@ class QueryTests(unittest.TestCase):
             shape=game._shape_for_spec(spec,geometry).snapshot(geometry)
             surf=pygame.Surface((180,150));game._draw_duck(surf,pygame.Rect(20,20,w,h),spec)
             rgb=pygame.surfarray.array3d(surf)
-            solid=np.any(rgb!=0,axis=2)&np.any(rgb!=np.array([55,53,40]),axis=2)
+            solid=np.any(rgb!=0,axis=2)&np.any(rgb!=np.array(getattr(can,"SHADOW_LIGHT",(55,53,40))),axis=2)  # exclude the drop shadow
             # Exclude the one-pixel raster boundary, not an added collision margin.
             interior=cv2.erode(solid.astype(np.uint8),np.ones((3,3),np.uint8))
             for x,y in np.argwhere(interior):self.assertTrue(shape_contains(shape,x+.5,y+.5))

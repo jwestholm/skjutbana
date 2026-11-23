@@ -40,6 +40,10 @@ def frozen(boxes=None):
     return snapshot(game=object_hit_regions(boxes or [HitRegion('can',100,60,60,80)]))
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class BridgeTests(unittest.TestCase):
     def call(self,p=None,s=None,**kwargs):
         return mature_candidate_bridge(s or frozen(),lambda x,y:(x,y),p or packet(),2.2,**kwargs)

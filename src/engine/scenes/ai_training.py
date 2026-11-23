@@ -15,6 +15,7 @@ Important behavior:
 from __future__ import annotations
 
 import math
+import os
 import random
 import time
 from typing import Any
@@ -417,6 +418,24 @@ class AITrainingScene(Scene):
                   "validated lens model; recalibrate with `python3 -m automation.bench calibration-check "
                   "--distortion --save`")
             self._auto_cal_result = "Kalibrering behållen (linsmodell skyddad)"
+            # The kept calibration can drift silently (2026-11-19: 6.4 px ≈ 4 mm after re-papering /
+            # projector restart dropped live accuracy 14 -> 5 of ~80). Validate it against the markers
+            # that are on screen right now and warn loudly; never overwrite here.
+            try:
+                from src.engine.input.hit_input import hit_input
+                check = self._calibrator.validate_existing(frame_bgr, hit_input)
+                errors = sorted(float(r["error_camera_px"]) for r in (check.get("points") or [])
+                                if isinstance(r, dict) and r.get("error_camera_px") is not None)
+                if errors:
+                    median = errors[len(errors) // 2]
+                    print(f"[AUTO-CAL] saved calibration marker error median {median:.1f} camera px "
+                          f"(n={len(errors)})")
+                    if median > 3.0:
+                        self._auto_cal_result = (f"VARNING: kalibreringen har glidit {median:.1f} px — kör "
+                                                 "python3 -m automation.bench calibration-check --save")
+                        print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
+            except Exception as exc:
+                print(f"[AUTO-CAL] calibration validation failed: {exc}")
             return True
         try:
             import shutil
@@ -664,6 +683,8 @@ class AITrainingScene(Scene):
         pre_age_ms: float,
     ) -> None:
         """Save pre/post/diff images + animated GIF for offline analysis."""
+        if os.environ.get("SKJUTBANA_TRAINING_SKIP_DIAG_SAVES") == "1":
+            return   # measurement-only control arm (main-loop stall study); default off
         if cv2 is None or np is None:
             print("[SHOT-DIAG] cv2/numpy not available, skipping")
             return
@@ -772,6 +793,8 @@ class AITrainingScene(Scene):
     @staticmethod
     def _save_hole_image(click_camera_xy, post_gray, hole_type: str = "hole", metadata: dict | None = None) -> None:
         """Save the raw post-shot patch as a grayscale PNG with sidecar JSON metadata."""
+        if os.environ.get("SKJUTBANA_TRAINING_SKIP_DIAG_SAVES") == "1":
+            return   # measurement-only control arm (main-loop stall study); default off
         if post_gray is None or np is None:
             return
         try:
@@ -1152,6 +1175,8 @@ class AITrainingScene(Scene):
 
         if batch_mode:
             self._log_round_state(self.current_round_id + 1, "hole_scheduled")
+            self._object_targets = []
+            self._add_object_target((sx, sy))
 
         # Hide cursor before the camera sees the setup.
         self._set_cursor_visible(False)
@@ -1353,6 +1378,10 @@ class AITrainingScene(Scene):
         if not self.auto_training_enabled or not state["rounds"] or screen_xy is None:
             return
         projected = project_screen_point(float(screen_xy[0]), float(screen_xy[1]))
+        for t in (getattr(self, "_object_targets", None) or []):
+            if abs(t["hole"][0] - float(screen_xy[0])) < 0.5 and abs(t["hole"][1] - float(screen_xy[1])) < 0.5:
+                t["fire_ts"] = float(fire_ts)
+                self._all_object_targets = getattr(self, "_all_object_targets", []) + [t]
         state["rounds"][-1]["shots"].append(dict(
             fire_ts=float(fire_ts), screen_x=float(screen_xy[0]), screen_y=float(screen_xy[1]),
             camera_x=float(projected.camera_x), camera_y=float(projected.camera_y)))
@@ -1375,8 +1404,93 @@ class AITrainingScene(Scene):
             x, y = self._choose_auto_screen_point(vp)
             state["burst_queue"].append(dict(fire_ts=t, xy=(int(x), int(y)), spec=dict(spec, x=int(x), y=int(y)),
                                              fired=False, revealed=False, reveal_ts=None))
+            self._add_object_target((int(x), int(y)))
         if state["rounds"]:
             state["rounds"][-1]["burst"] = kind
+
+    # ------------------------------------------------------------------
+    # Game object hint (test of the OBJECT path): SKJUTBANA_AI_TEST_OBJECT_HINT_PX=<screen px radius>
+    # gives every scheduled hole a square target region around an aim point drawn uniformly within
+    # radius/2 of the hole BEFORE the shot (like a game target the shooter aims at).
+    # SKJUTBANA_AI_TEST_OBJECT_MODE=regions (search regions only) | object_hit (OBJECT_HIT query).
+    # ------------------------------------------------------------------
+    def _object_hint_px(self) -> float:
+        try:
+            return max(0.0, float(os.environ.get("SKJUTBANA_AI_TEST_OBJECT_HINT_PX", "0") or 0))
+        except ValueError:
+            return 0.0
+
+    def _add_object_target(self, screen_xy) -> None:
+        r = self._object_hint_px()
+        if r <= 0:
+            return
+        targets = getattr(self, "_object_targets", None)
+        if targets is None:
+            targets = self._object_targets = []
+        ang, dist = random.uniform(0, 2 * math.pi), random.uniform(0, r / 2.0)
+        aim = (float(screen_xy[0]) + dist * math.cos(ang), float(screen_xy[1]) + dist * math.sin(ang))
+        self._object_seq = getattr(self, "_object_seq", 0) + 1
+        targets.append(dict(id=f"aitest_{self._object_seq}", aim=aim, hole=(float(screen_xy[0]), float(screen_xy[1]))))
+        self._ensure_object_listener()
+
+    def get_hit_regions(self):
+        r = self._object_hint_px()
+        targets = getattr(self, "_object_targets", None) or []
+        if r <= 0 or not targets:
+            return ()
+        from src.engine.input.hit_regions import HitRegion, object_hit_regions
+        vp = self.viewport or pygame.Rect(0, 0, 800, 600)
+        regions = tuple(HitRegion(object_id=t["id"], x=t["aim"][0] - vp.x - r, y=t["aim"][1] - vp.y - r,
+                                  width=2 * r, height=2 * r, role="target") for t in targets)
+        if os.environ.get("SKJUTBANA_AI_TEST_OBJECT_MODE", "regions") == "object_hit":
+            return object_hit_regions(regions)
+        return regions
+
+    def _ensure_object_listener(self) -> None:
+        if getattr(self, "_object_listener", None) is not None:
+            return
+        from src.engine.events.event_bus import event_bus
+        self._object_results = []
+
+        def on_event(message):
+            if message.get("event") != "physical.object_result":
+                return
+            data = message.get("data") or {}
+            dec = data.get("object_decision") or {}
+            hyp = dec.get("hypothesis") or {}
+            self._object_results.append(dict(ts=float(message.get("timestamp", time.time())),
+                                             shot_id=data.get("shot_id"), state=dec.get("state"),
+                                             object_id=dec.get("object_id"), reason=dec.get("reason"),
+                                             camera_xy=hyp.get("camera_xy")))
+        self._object_listener = on_event
+        event_bus.subscribe(on_event)
+
+    def _object_report_lines(self) -> list[str]:
+        results = list(getattr(self, "_object_results", []) or [])
+        if not results:
+            return []
+        from collections import Counter
+        states = Counter(r["state"] for r in results)
+        fired = {t["id"]: t for t in (getattr(self, "_all_object_targets", []) or [])}
+        correct = wrong = 0
+        hit_targets = set()
+        for r in results:
+            if r["state"] != "OBJECT_HIT":
+                continue
+            t = fired.get(r["object_id"])
+            if t is not None and 0.0 <= r["ts"] - t.get("fire_ts", -1e9) <= 3.0:
+                correct += 1
+                hit_targets.add(t["id"])
+            else:
+                wrong += 1
+        lines = ["--- Objektläge (målområde ±%.0f px, %s) ---" % (
+                     self._object_hint_px(), os.environ.get("SKJUTBANA_AI_TEST_OBJECT_MODE", "regions")),
+                 "Objektbeslut: " + ", ".join(f"{k}={v}" for k, v in sorted(states.items(), key=str)),
+                 f"OBJECT_HIT rätt objekt: {correct} | fel objekt: {wrong} | skjutna mål med rätt objektträff: "
+                 f"{len(hit_targets)}/{len(fired)}"]
+        self._object_summary = dict(correct=correct, wrong=wrong, targets=len(fired), hit_targets=len(hit_targets),
+                                    states=dict(states), results=results)
+        return lines
 
     def _audio_align_s(self) -> float:
         """Synthetic audio timestamp offset (s) aligning the projected hole with physics."""
@@ -1450,6 +1564,7 @@ class AITrainingScene(Scene):
         if len(s["by_background"]) > 1:
             for bg, v in s["by_background"].items():
                 lines.append(f"  {bg:<16} {v['hits']:>3}/{v['holes']:<3} falska {v['false']}")
+        lines += self._object_report_lines()
         return lines
 
     def _live_write_artifacts(self) -> str | None:
@@ -1463,7 +1578,7 @@ class AITrainingScene(Scene):
         try:
             root.mkdir(parents=True, exist_ok=True)
             path = root / f"ai_test_{time.strftime('%Y%m%dT%H%M%S')}.json"
-            path.write_text(json.dumps(dict(score=self._live_score(), rounds=state["rounds"], hits=state["hits"],
+            path.write_text(json.dumps(dict(score=self._live_score(), object=getattr(self, "_object_summary", None), rounds=state["rounds"], hits=state["hits"],
                                             evidence_level="OPTICAL_PROJECTED_SYNTHETIC_HOLES_LIVE_PATH"), indent=1))
         except Exception as exc:
             print(f"[AI-TEST] could not write run artefacts: {exc}")

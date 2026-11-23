@@ -89,6 +89,9 @@ class HitShapeSpec:
     local_height: float = 1.0
     points: tuple[tuple[float, float], ...] = ()
     parts: tuple['HitShapeSpec', ...] = ()
+    # Opt-in edge rule (absolute game px, not normalized): a shot whose hole (radius = projectile radius on
+    # the screen) touches the shape counts as inside ("the bullet breaks the line").  0 = centre-point test.
+    touch_radius: float = 0.0
 
     @classmethod
     def union(cls, *parts: 'HitShapeSpec') -> 'HitShapeSpec':
@@ -118,6 +121,12 @@ class HitShapeSpec:
         return cls("polygon", 0.0, 0.0, 1.0, 1.0, clean)
 
     def snapshot(self, geometry: ObjectGeometry) -> dict[str, Any]:
+        snap = self._snapshot(geometry)
+        if self.touch_radius and self.touch_radius > 0:
+            snap["touch_radius"] = float(self.touch_radius)
+        return snap
+
+    def _snapshot(self, geometry: ObjectGeometry) -> dict[str, Any]:
         kind = str(self.kind).lower()
         if kind == 'union':
             return {'schema':SCHEMA_VERSION,'kind':'union',
@@ -199,8 +208,21 @@ def _point_in_polygon(x: float, y: float, points: Sequence[tuple[float, float]])
     return inside
 
 
+_TOUCH_DIRS = tuple((math.cos(2 * math.pi * k / 24), math.sin(2 * math.pi * k / 24)) for k in range(24))
+
+
 def shape_contains(snapshot: Mapping[str, Any], x: float, y: float) -> bool:
-    """Exact point collision against a frozen shape snapshot."""
+    """Exact point collision against a frozen shape snapshot.
+
+    With ``touch_radius`` > 0 in the snapshot (opt-in edge rule) the test is "does a disc of that radius
+    around (x, y) touch the shape": the centre or any of 24 points on its rim inside.
+    """
+    r = _finite(snapshot.get("touch_radius")) if snapshot.get("touch_radius") is not None else 0.0
+    if r > 0.0:
+        base = {k: v for k, v in snapshot.items() if k != "touch_radius"}
+        px, py = float(x), float(y)
+        return shape_contains(base, px, py) or any(shape_contains(base, px + r * c, py + r * s)
+                                                    for c, s in _TOUCH_DIRS)
     kind = str(snapshot.get("kind", "rect")).lower()
     px = float(x)
     py = float(y)

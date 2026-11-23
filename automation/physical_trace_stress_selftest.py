@@ -13,6 +13,10 @@ from automation.physical_trace_export import export
 from src.engine.physical_trace import PhysicalTraceRecorder
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class TraceStressTests(unittest.TestCase):
     def scanner(self, frame):
         return SimpleNamespace(

@@ -221,6 +221,7 @@ class AudioPeakDetector:
             self.last_peak_ts = ts
             self._events.append(ev)
             self._pending_dispatch.append(ev)
+        self._note_recording_trigger(ts, "injected")
         return ev
 
     def pending_events_snapshot(self) -> tuple[AudioPeakEvent, ...]:
@@ -656,6 +657,17 @@ class AudioPeakDetector:
                     ev.acquisition['pending_depth_at_enqueue'] = len(self._pending_dispatch) + 1
                 self._events.append(ev)
                 self._pending_dispatch.append(ev)
+            self._note_recording_trigger(event_ts, "audio_peak")
+
+    def _note_recording_trigger(self, ts: float, source: str) -> None:
+        """Shot-window source recording (opt-in) keeps the camera frames around every shot."""
+        recorder = self._source_recorder()
+        note = getattr(recorder, "note_trigger", None)
+        if note is not None:
+            try:
+                note(ts, source)
+            except Exception:
+                pass
 
 
 audio_peak_detector = AudioPeakDetector()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -502,7 +503,7 @@ def _cluster_quality(candidate: dict[str, Any]) -> float:
     return _clip01(0.42 * prior + 0.24 * score + 0.20 * temporal + 0.14 * agreement)
 
 
-def _update_shot_accumulator(
+def _update_shot_accumulator_reference(
     engine: Any,
     *,
     shot_id: int,
@@ -755,6 +756,325 @@ def _update_shot_accumulator(
     return output
 
 
+
+try:
+    from src.engine.camera.spatial_grid import GridIndex as _GridIndexV24
+except ImportError:   # standalone loading (automation/detector_v25_selftest.py loads this file by path)
+    class _GridIndexV24:
+        """Uniform-grid spatial index (cell >= the query radius => a 3x3 cell query is exact).
+
+        Used only to skip far-away comparisons; every surviving comparison uses the same
+        math.hypot and the same tie order (ascending insertion index) as the reference loops.
+        """
+
+        def __init__(self, cell: float) -> None:
+            self.cell = float(max(1e-6, cell))
+            self.cells: dict[tuple[int, int], list[int]] = {}
+            self.where: dict[int, tuple[int, int]] = {}
+
+        def _key(self, x: float, y: float) -> tuple[int, int]:
+            return (int(math.floor(x / self.cell)), int(math.floor(y / self.cell)))
+
+        def insert(self, idx: int, x: float, y: float) -> None:
+            key = self._key(x, y)
+            self.cells.setdefault(key, []).append(idx)
+            self.where[idx] = key
+
+        def move(self, idx: int, x: float, y: float) -> None:
+            key = self._key(x, y)
+            old = self.where.get(idx)
+            if old == key:
+                return
+            if old is not None:
+                bucket = self.cells.get(old)
+                if bucket is not None:
+                    bucket.remove(idx)
+            self.cells.setdefault(key, []).append(idx)
+            self.where[idx] = key
+
+        def near(self, x: float, y: float) -> list[int]:
+            kx, ky = self._key(x, y)
+            out: list[int] = []
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    out.extend(self.cells.get((kx + dx, ky + dy), ()))
+            out.sort()
+            return out
+
+
+
+def _update_shot_accumulator(
+    engine: Any,
+    *,
+    shot_id: int,
+    candidates: list[dict[str, Any]],
+    frame_ts: float,
+    cfg: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Grid-indexed version of _update_shot_accumulator_reference (identical output, 2026-11-18:
+    the O(n*m) Python loops cost ~100 ms per detector job). SKJUTBANA_V24_ACC_REFERENCE=1 runs
+    the reference implementation."""
+    import os as _os
+    if _os.environ.get("SKJUTBANA_V24_ACC_REFERENCE") == "1":
+        return _update_shot_accumulator_reference(engine, shot_id=shot_id, candidates=candidates,
+                                                  frame_ts=frame_ts, cfg=cfg)
+    if shot_id <= 0 or not bool(cfg.get("shot_accumulator_enabled", True)):
+        return candidates
+
+    states = getattr(engine, "_v24_shot_accumulators", None)
+    if not isinstance(states, dict):
+        states = {}
+        engine._v24_shot_accumulators = states
+    clusters: list[dict[str, Any]] = states.setdefault(shot_id, [])
+
+    match_radius = max(2.0, _safe_float(cfg.get("shot_accumulator_match_radius_px", 7.0), 7.0))
+    max_clusters = max(20, _safe_int(cfg.get("shot_accumulator_max_clusters", 420), 420))
+
+    # Only *new camera observations* count as accumulator hits. A candidate that
+    # was itself carried by an older bank must not create artificial persistence.
+    observations = [
+        dict(candidate)
+        for candidate in candidates
+        if _safe_float(candidate.get("candidate_bank_carried", candidate.get("v2_bank_carried", 0.0))) <= 0.5
+        and _safe_float(candidate.get("shot_accumulator_carried", 0.0)) <= 0.5
+    ]
+    observations.sort(key=_cluster_quality, reverse=True)
+
+    # Spatial de-duplication inside one frame.
+    deduped: list[dict[str, Any]] = []
+    dedup_xy: list[tuple[float, float]] = []
+    dedup_grid = _GridIndexV24(3.0)
+    for candidate in observations:
+        cx = _safe_float(candidate.get("camera_x", 0.0))
+        cy = _safe_float(candidate.get("camera_y", 0.0))
+        if any(
+            math.hypot(dedup_xy[j][0] - cx, dedup_xy[j][1] - cy) < 3.0
+            for j in dedup_grid.near(cx, cy)
+        ):
+            continue
+        dedup_grid.insert(len(deduped), cx, cy)
+        dedup_xy.append((cx, cy))
+        deduped.append(candidate)
+
+    matched_clusters: set[int] = set()
+    candidate_cluster: dict[int, dict[str, Any]] = {}
+    cluster_grid = _GridIndexV24(match_radius)
+    for index, cluster in enumerate(clusters):
+        cluster_grid.insert(index, float(cluster["x"]), float(cluster["y"]))
+
+    for candidate in deduped:
+        cx = _safe_float(candidate.get("camera_x", 0.0))
+        cy = _safe_float(candidate.get("camera_y", 0.0))
+        quality = _cluster_quality(candidate)
+
+        best_index = -1
+        best_distance = float("inf")
+        for index in cluster_grid.near(cx, cy):
+            if index in matched_clusters:
+                continue
+            cluster = clusters[index]
+            distance = math.hypot(float(cluster["x"]) - cx, float(cluster["y"]) - cy)
+            if distance <= match_radius and distance < best_distance:
+                best_index = index
+                best_distance = distance
+
+        if best_index < 0:
+            cluster = {
+                "x": cx,
+                "y": cy,
+                "mean_x": cx,
+                "mean_y": cy,
+                "m2": 0.0,
+                "hits": 1,
+                "first_ts": float(frame_ts),
+                "last_ts": float(frame_ts),
+                "best": dict(candidate),
+                "best_quality": quality,
+                "v1_hits": int(_safe_float(candidate.get("detector_v1", 0.0)) > 0.5),
+                "v2_hits": int(_safe_float(candidate.get("detector_v2", 0.0)) > 0.5),
+                "tile_hits": int(_safe_float(candidate.get("v24_tile_probe", 0.0)) > 0.5),
+            }
+            clusters.append(cluster)
+            best_index = len(clusters) - 1
+            cluster_grid.insert(best_index, cx, cy)
+        else:
+            cluster = clusters[best_index]
+            old_hits = max(1, int(cluster.get("hits", 1)))
+            new_hits = old_hits + 1
+            old_x = float(cluster.get("mean_x", cluster.get("x", cx)))
+            old_y = float(cluster.get("mean_y", cluster.get("y", cy)))
+            new_x = old_x + (cx - old_x) / float(new_hits)
+            new_y = old_y + (cy - old_y) / float(new_hits)
+            old_m2 = float(cluster.get("m2", 0.0))
+            displacement_sq = (cx - old_x) * (cx - new_x) + (cy - old_y) * (cy - new_y)
+            cluster["m2"] = max(0.0, old_m2 + displacement_sq)
+            cluster["hits"] = new_hits
+            cluster["mean_x"] = new_x
+            cluster["mean_y"] = new_y
+            cluster["x"] = new_x
+            cluster["y"] = new_y
+            cluster_grid.move(best_index, new_x, new_y)
+            cluster["last_ts"] = float(frame_ts)
+            cluster["v1_hits"] = int(cluster.get("v1_hits", 0)) + int(
+                _safe_float(candidate.get("detector_v1", 0.0)) > 0.5
+            )
+            cluster["v2_hits"] = int(cluster.get("v2_hits", 0)) + int(
+                _safe_float(candidate.get("detector_v2", 0.0)) > 0.5
+            )
+            cluster["tile_hits"] = int(cluster.get("tile_hits", 0)) + int(
+                _safe_float(candidate.get("v24_tile_probe", 0.0)) > 0.5
+            )
+            if quality > float(cluster.get("best_quality", 0.0)):
+                cluster["best"] = dict(candidate)
+                cluster["best_quality"] = quality
+
+        matched_clusters.add(best_index)
+        candidate_cluster[id(candidate)] = clusters[best_index]
+
+    # Prune stale / low-value hypotheses.
+    max_age = max(0.1, _safe_float(cfg.get("shot_accumulator_max_age_s", 0.70), 0.70))
+    clusters[:] = [
+        cluster
+        for cluster in clusters
+        if frame_ts - float(cluster.get("last_ts", frame_ts)) <= max_age
+    ]
+    if len(clusters) > max_clusters:
+        clusters.sort(
+            key=lambda cluster: (
+                int(cluster.get("hits", 1)),
+                float(cluster.get("best_quality", 0.0)),
+                float(cluster.get("last_ts", 0.0)),
+            ),
+            reverse=True,
+        )
+        del clusters[max_clusters:]
+
+    # Annotate current candidates by nearest current cluster. This makes temporal
+    # stability visible to the ranker even when no carry is needed.
+    annotate_grid = _GridIndexV24(match_radius)
+    for index, cluster in enumerate(clusters):
+        annotate_grid.insert(index, float(cluster["x"]), float(cluster["y"]))
+    for candidate in candidates:
+        if _safe_float(candidate.get("shot_accumulator_carried", 0.0)) > 0.5:
+            continue
+        cx = _safe_float(candidate.get("camera_x", 0.0))
+        cy = _safe_float(candidate.get("camera_y", 0.0))
+        best = None
+        best_dist = float("inf")
+        for index in annotate_grid.near(cx, cy):
+            cluster = clusters[index]
+            distance = math.hypot(float(cluster["x"]) - cx, float(cluster["y"]) - cy)
+            if distance <= match_radius and distance < best_dist:
+                best = cluster
+                best_dist = distance
+        if best is None:
+            continue
+        hits = max(1, int(best.get("hits", 1)))
+        spread = math.sqrt(max(0.0, float(best.get("m2", 0.0))) / float(max(1, hits - 1)))
+        stability = math.exp(-spread / 4.0)
+        span = max(0.0, float(best.get("last_ts", frame_ts)) - float(best.get("first_ts", frame_ts)))
+        candidate["shot_accumulator_hits"] = float(hits)
+        candidate["shot_accumulator_span_s"] = span
+        candidate["shot_accumulator_stability"] = _clip01(stability)
+        candidate["shot_accumulator_confirmed"] = 1.0 if hits >= 2 else 0.0
+
+    confirm_hits = max(2, _safe_int(cfg.get("shot_accumulator_confirm_hits", 2), 2))
+    confirm_span = max(0.0, _safe_float(cfg.get("shot_accumulator_confirm_span_s", 0.014), 0.014))
+    single_v1_age = max(0.05, _safe_float(cfg.get("shot_accumulator_single_v1_max_age_s", 0.32), 0.32))
+    single_patch_age = max(0.03, _safe_float(cfg.get("shot_accumulator_single_patch_max_age_s", 0.18), 0.18))
+    single_patch_prior = _clip01(_safe_float(cfg.get("shot_accumulator_single_patch_min_prior", 0.62), 0.62))
+    single_patch_abs = max(0.0, _safe_float(cfg.get("shot_accumulator_single_patch_min_absdiff", 3.2), 3.2))
+    min_v1_score = max(0.0, _safe_float(cfg.get("shot_accumulator_min_v1_score", 4.2), 4.2))
+    min_prior = _clip01(_safe_float(cfg.get("shot_accumulator_min_patch_prior", 0.38), 0.38))
+    carry_slots = max(0, _safe_int(cfg.get("shot_accumulator_carried_slots", 48), 48))
+    output_limit = max(len(candidates), _safe_int(cfg.get("shot_accumulator_output_limit", 288), 288))
+
+    cand_xy = [(_safe_float(c.get("camera_x", 0.0)), _safe_float(c.get("camera_y", 0.0))) for c in candidates]
+    cand_grid = _GridIndexV24(4.5)
+    for j, (qx, qy) in enumerate(cand_xy):
+        cand_grid.insert(j, qx, qy)
+    carry_options: list[tuple[float, dict[str, Any]]] = []
+    for cluster in clusters:
+        hits = max(1, int(cluster.get("hits", 1)))
+        age = max(0.0, frame_ts - float(cluster.get("last_ts", frame_ts)))
+        span = max(0.0, float(cluster.get("last_ts", frame_ts)) - float(cluster.get("first_ts", frame_ts)))
+        best_candidate = dict(cluster.get("best", {}))
+        if not best_candidate:
+            continue
+        best_score = _safe_float(best_candidate.get("score", 0.0))
+        prior = _safe_float(best_candidate.get("v24_patch_prior", _patch_prior(best_candidate)))
+        v1_hits = int(cluster.get("v1_hits", 0))
+        repeated = hits >= confirm_hits and span >= confirm_span
+        strong_single_v1 = (
+            hits == 1
+            and v1_hits >= 1
+            and age <= single_v1_age
+            and (best_score >= min_v1_score or prior >= min_prior)
+        )
+        # A compact, locally hole-like temporal patch may only be visible in one
+        # camera frame. Carry such a hypothesis very briefly even if it came
+        # from V2/tile rather than V1. The high patch-prior + absdiff gate keeps
+        # this stricter than ordinary candidate generation.
+        strong_single_patch = (
+            hits == 1
+            and age <= single_patch_age
+            and prior >= single_patch_prior
+            and _safe_float(best_candidate.get("v2_absdiff", best_candidate.get("v24_patch_core_abs", 0.0))) >= single_patch_abs
+        )
+        if not repeated and not strong_single_v1 and not strong_single_patch:
+            continue
+
+        cx = float(cluster.get("x", 0.0))
+        cy = float(cluster.get("y", 0.0))
+        if any(
+            math.hypot(cand_xy[j][0] - cx, cand_xy[j][1] - cy) < 4.5
+            for j in cand_grid.near(cx, cy)
+        ):
+            continue
+
+        spread = math.sqrt(max(0.0, float(cluster.get("m2", 0.0))) / float(max(1, hits - 1)))
+        stability = math.exp(-spread / 4.0)
+        confidence = (
+            1.25 * min(4, hits)
+            + 1.30 * float(cluster.get("best_quality", 0.0))
+            + 0.50 * min(3, v1_hits)
+            + 0.25 * min(3, int(cluster.get("v2_hits", 0)))
+            + 0.20 * min(3, int(cluster.get("tile_hits", 0)))
+            + 0.45 * stability
+            - 0.80 * age
+        )
+        carry_options.append((confidence, cluster))
+
+    carry_options.sort(key=lambda item: item[0], reverse=True)
+    output = [dict(candidate) for candidate in candidates]
+    for _confidence, cluster in carry_options[:carry_slots]:
+        if len(output) >= output_limit:
+            break
+        best = dict(cluster.get("best", {}))
+        hits = max(1, int(cluster.get("hits", 1)))
+        spread = math.sqrt(max(0.0, float(cluster.get("m2", 0.0))) / float(max(1, hits - 1)))
+        stability = math.exp(-spread / 4.0)
+        best["camera_x"] = float(cluster.get("x", best.get("camera_x", 0.0)))
+        best["camera_y"] = float(cluster.get("y", best.get("camera_y", 0.0)))
+        best["shot_accumulator_hits"] = float(hits)
+        best["shot_accumulator_span_s"] = max(
+            0.0,
+            float(cluster.get("last_ts", frame_ts)) - float(cluster.get("first_ts", frame_ts)),
+        )
+        best["shot_accumulator_stability"] = _clip01(stability)
+        best["shot_accumulator_confirmed"] = 1.0 if hits >= confirm_hits else 0.0
+        best["shot_accumulator_carried"] = 1.0
+        best["score"] = max(
+            3.8,
+            0.90 * _safe_float(best.get("score", 4.0)) + min(1.5, 0.25 * max(0, hits - 1)),
+        )
+        if "v26_rank_excess" in best:   # H6 (opt-in) ranking field, same 0.90 scale
+            best["v26_rank_excess"] = 0.90 * _safe_float(best.get("v26_rank_excess"), 0.0)
+        output.append(best)
+
+    return output
+
+
 def _attach_benchmark_seed(record: dict[str, Any]) -> None:
     gt = record.get("ground_truth")
     if not isinstance(gt, dict) or gt.get("benchmark_seed") is not None:
@@ -913,6 +1233,7 @@ def patch_candidate_generator_class(candidate_generator_cls: type) -> None:
             self._v24_last_context = context
             for candidate in candidates:
                 _annotate_candidate(candidate, context=context, cfg=cfg)
+            self._v24_last_tile_probes_ts = float(kwargs["frame_ts"])
             self._v24_last_tile_probes = _tile_probe_candidates(
                 self,
                 scanner=kwargs["scanner"],
@@ -948,6 +1269,13 @@ def patch_candidate_generator_class(candidate_generator_cls: type) -> None:
                     _annotate_candidate(candidate, context=context, cfg=cfg)
 
             tile_probes = [dict(candidate) for candidate in getattr(self, "_v24_last_tile_probes", [])]
+            # SKJUTBANA_V24_FRESH_TILE_PROBES=1 (default off, 2026-11-20): FAST extraction never refreshes the
+            # probes, so without this guard the probes of the last FULL extraction (possibly an earlier shot)
+            # are merged into every later frame.  Only merge probes measured on this very frame.
+            if os.environ.get("SKJUTBANA_V24_FRESH_TILE_PROBES") == "1":
+                probe_ts = getattr(self, "_v24_last_tile_probes_ts", None)
+                if probe_ts is None or abs(float(probe_ts) - frame_ts) > 1e-6:
+                    tile_probes = []
             reserve = max(0, _safe_int(cfg.get("tile_probe_reserved_slots", 40), 40))
             nms_radius = max(1.0, _safe_float(cfg.get("tile_probe_nms_radius_px", 4.0), 4.0))
             current = _merge_reserved(current, tile_probes, reserve=reserve, radius=nms_radius)

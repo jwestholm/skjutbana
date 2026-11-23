@@ -2,7 +2,7 @@
 
 ## CURRENT capture method — 2026-11-18 (read this first)
 
-1. Game window on the projector, nothing else using the camera. Optional calibration check:
+1. Game window on the projector, nothing else using the camera. ALWAYS run a calibration check first (drift of 4 mm was observed after re-papering / projector restart, 2026-11-19):
    `python3 -m automation.bench calibration-check` (validate) / `--save` (recalibrate with
    backup + lens model).
 2. Start with source recording and the pilot flags:

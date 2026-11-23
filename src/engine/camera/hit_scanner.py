@@ -6,6 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import numpy as np
 
 from src.engine.audio.audio_peak_detector import AudioPeakEvent, audio_peak_detector
@@ -274,7 +275,7 @@ class HitScanner:
         new_frames = camera_manager.get_new_frames_since_last_pickup()
         if new_frames:
             for cf in new_frames:
-                gray_f = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY)
+                gray_f = _detector_gray(cf.frame_bgr)
                 self.frame_history.append(ScanportFrame(timestamp=cf.timestamp, gray=gray_f))
             # Use the newest frame for detection
             frame_bgr = new_frames[-1].frame_bgr
@@ -311,11 +312,11 @@ class HitScanner:
             is_new_frame = self._last_frame_ts is None or abs(frame_ts - self._last_frame_ts) > 1e-6
             if is_new_frame:
                 self._last_frame_ts = frame_ts
-                gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                gray = _detector_gray(frame_bgr)
                 self.frame_history.append(ScanportFrame(timestamp=frame_ts, gray=gray))
                 self.debug_frames["camera_gray"] = gray
             else:
-                gray = self.frame_history[-1].gray if self.frame_history else cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+                gray = self.frame_history[-1].gray if self.frame_history else _detector_gray(frame_bgr)
 
         now = time.time()
 
@@ -495,7 +496,7 @@ class HitScanner:
         if best is None:
             best = ring[0]
 
-        self.pre_shot_snapshot = cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
+        self.pre_shot_snapshot = _detector_gray(best.frame_bgr)
         self.pre_shot_snapshot_ts = best.timestamp
         self._pre_shot_snapshot_source = "camera_ring"
         self._pre_shot_snapshot_timestamp_semantics = "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"
@@ -854,7 +855,7 @@ class HitScanner:
         if ring and len(ring) >= 5:
             best = select_pre_background_frame_v1(ring, earliest_peak_ts)
             if best is not None:
-                return cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY)
+                return _detector_gray(best.frame_bgr)
 
         # Fallback: frame_history
         cutoff_latest = earliest_peak_ts - 0.20

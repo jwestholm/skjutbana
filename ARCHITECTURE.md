@@ -1085,6 +1085,20 @@ Capture plumbing set by automation (do not set by hand): `PHYSICAL_CAPTURE_BINDI
 `PHYSICAL_TRACE_ROOT`, `PHYSICAL_CAPTURE_HISTORY`, `KOMPETENSPROV_TEST`, `GT_CAPTURE_ROOT`,
 `OBJECT_CROP_ROOT`, `OBJECT_MATURE_CAPTURE`, `RENDER_HISTORY_ROOT`.
 
+## Opt-in structural GameObject parts — 2026-11-22
+
+Functional parts reuse GameObject.entity_id/part_id, frozen projected shapes and
+make_breakable_object. EffectAction.break_parts explicitly propagates structural
+failure to named active siblings within the source owner/entity; it depletes their
+durability and emits object.broken with cause=structural. It creates no shot.hit
+or observed coordinate and awards no score. Reaction depth/once guards remain
+shared with existing reactions. Games without that action keep their behaviour.
+Ljusateljén uses visible rendered part masks and the normal OBJECT ambiguity rule;
+it does not infer fictional depth from physical XY. Resting fragments are behind
+active parts; moving fragments and known feedback audio run only after queries
+close and the protected POST window ends. Audio playback uses existing timing
+provenance, never an unmeasured microphone veto.
+
 
 ## Bounded offline candidate training — 2026-11-22
 

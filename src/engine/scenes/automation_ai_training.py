@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 
 import json
 import random
@@ -396,6 +397,8 @@ class AutomationAITrainingScene(AITrainingScene):
     def _save_v216_shot(self, snapshot: dict[str, Any] | None, ranked_candidates: list[dict[str, Any]], round_id: int) -> None:
         if snapshot is None:
             return
+        if os.environ.get("SKJUTBANA_TRAINING_SKIP_DIAG_SAVES") == "1":
+            return   # measurement-only control arm (main-loop stall study); default off
         recorder = getattr(self, "_v216_candidate_recorder", None)
         if recorder is None:
             return

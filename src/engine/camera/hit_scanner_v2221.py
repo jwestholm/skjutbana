@@ -20,6 +20,7 @@ import time
 from typing import Any
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import os
 
 import numpy as np
@@ -339,7 +340,7 @@ def install_v2221_hit_scanner_patch() -> None:
                     geometry.crop_x0:geometry.crop_x1,
                 ]
                 if bgr_crop.size:
-                    return cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2GRAY)
+                    return _detector_gray(bgr_crop)
             except Exception:
                 pass
 

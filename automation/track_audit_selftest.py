@@ -10,6 +10,10 @@ from src.engine.offline.track_replay import current_exact_replay, reconstruct_le
 def candidate(x,score=10,**extra):
     return dict(camera_x=float(x),camera_y=30.,score=float(score),timestamp=100.1,**extra)
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class Tests(unittest.TestCase):
     def scanner(self,enabled=True):
         s=HitScanner();s.physical_trace_capture_enabled=enabled;s.last_trace_pipeline_shot_id=1

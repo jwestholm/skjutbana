@@ -36,6 +36,10 @@ def frame(seq=1,t=2,pixels=None):
             published_monotonic=t+.002,receive_wall_ts=t,backend_name='SYNTHETIC',backend_timestamps_raw=None))
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class Tests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(dir='/data/skjutbana/evaluation_runs');self.addCleanup(self.temp.cleanup)

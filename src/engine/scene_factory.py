@@ -83,3 +83,20 @@ def build_scene_from_item(item: MenuItem, return_menu_state: dict | None = None)
         return _wrap(LedSettingsScene(bg_color=item.bg_color), item, return_menu_state)
 
     raise ValueError(f"Unknown item type: {item.type}")
+
+
+def game_scene_from_menu_id(item_id: str):
+    """Automation uses the same registered items/factory as the menu; no arbitrary script paths."""
+    from src.engine.content_loader import load_menu, MenuFolder, MenuItem
+    from pathlib import Path
+    def find(node):
+        if isinstance(node, MenuItem):
+            return node if node.id == item_id and node.type == 'game' else None
+        if isinstance(node, MenuFolder):
+            for child in node.children:
+                match = find(child)
+                if match is not None: return match
+        return None
+    item = find(load_menu(Path('content/menu.json')).root)
+    if item is None: raise ValueError('Unknown registered game id: ' + str(item_id))
+    return build_scene_from_item(item)

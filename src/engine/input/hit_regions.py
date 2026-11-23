@@ -37,7 +37,7 @@ def hit_context_snapshot_for_shot(shot_id: int):
 
 def object_query_regions(regions, *, top_k=3, margin_camera_px=36., owner=None,
                          surface_after_ts=None, require_presented_surface=False,
-                         result_semantics=None):
+                         result_semantics=None, evidence_method=None):
     """Request OBJECT over these shot-frozen regions. Margin never expands collision.
 
     Results arrive as EventBus ``physical.object_result`` and remain available
@@ -46,6 +46,9 @@ def object_query_regions(regions, *, top_k=3, margin_camera_px=36., owner=None,
     if int(top_k)<1: raise ValueError('OBJECT top_k must be positive')
     config=dict(mode='OBJECT',top_k=min(3,int(top_k)),
         margin_camera_px=max(0.,min(128.,float(margin_camera_px))))
+    if evidence_method is not None:
+        if evidence_method != 'dense': raise ValueError('Unknown OBJECT evidence method')
+        config['evidence_method'] = evidence_method
     if owner is not None: config['owner']=str(owner)
     if result_semantics is not None:
         if result_semantics != 'OBJECT_HIT': raise ValueError('Unknown object result semantics')

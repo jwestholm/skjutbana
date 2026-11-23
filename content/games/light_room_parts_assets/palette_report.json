@@ -1,0 +1,92 @@
+{
+  "schema": "pang-local-palette-7",
+  "baseline_report_sha256": "1f8c0735f42cede6789ff6ec287784b2b036a76e28130d49d624265d6fbbfa75",
+  "room_scope": "natural Cycles plates, no global image lift or floor",
+  "target_scope": "paint/enamel variants of the inherited R6 target PNGs; alpha unchanged",
+  "local_background": {
+    "floor_dn": 124,
+    "margin_px": 12,
+    "feather_px": 32,
+    "shape": "visible silhouette"
+  },
+  "room_stats": {
+    "living_0": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.28157161058543,
+      "predicted_dn_p05": 59.647722973825,
+      "predicted_dn_median": 104.0220298162031,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        179.475009765625,
+        170.98291259765625,
+        159.88929036458333
+      ],
+      "mean_channel_span": 20.089283040364585
+    },
+    "living_1": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.357175463660795,
+      "predicted_dn_p05": 59.292529361482394,
+      "predicted_dn_median": 102.97652472365112,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        180.3485546875,
+        172.0567236328125,
+        161.14193115234374
+      ],
+      "mean_channel_span": 19.70845703125
+    },
+    "kitchen_0": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.032342444687444,
+      "predicted_dn_p05": 63.09404688309941,
+      "predicted_dn_median": 112.7818441842219,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        179.754345703125,
+        176.93183349609376,
+        168.47719970703125
+      ],
+      "mean_channel_span": 13.387639973958333
+    },
+    "kitchen_1": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.326193920700135,
+      "predicted_dn_p05": 64.52148927475014,
+      "predicted_dn_median": 112.78777368132964,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        180.3265478515625,
+        177.66903483072917,
+        169.1858341471354
+      ],
+      "mean_channel_span": 13.259236653645834
+    },
+    "study_0": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.1378022803546,
+      "predicted_dn_p05": 58.791259550179674,
+      "predicted_dn_median": 109.48161684344541,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        178.6030419921875,
+        175.55966471354168,
+        170.0537646484375
+      ],
+      "mean_channel_span": 13.31108154296875
+    },
+    "study_1": {
+      "pixels": 1228800,
+      "predicted_dn_min": 37.364503246303535,
+      "predicted_dn_p05": 63.117082115598414,
+      "predicted_dn_median": 109.49313612748469,
+      "predicted_dn_max": 203.0,
+      "mean_rgb": [
+        180.11209554036458,
+        177.23063151041666,
+        171.8949951171875
+      ],
+      "mean_channel_span": 13.093662109375
+    }
+  }
+}

@@ -1,5 +1,140 @@
 # Current project state
 
+## Local dev integration through PANG R7 — 2026-11-23
+
+On the operator's instruction, `dev` now combines `codex/astra-2` (67b888d)
+and the committed `claude/latency` work through PANG R7 (48e913e). Both
+architecture/state additions are preserved. The nightly conflict retains the
+newer frozen-manifest, bounded-memory supervisor; regression environments come
+from the frozen manifest rather than the superseded automatic-growth config.
+
+Integration exposed test-fixture assumptions: private tmpfs has less than the
+production 20 GB reserve; synthetic trace fixtures now mock available capacity.
+The existing low-space/error tests still override that mock. The extracted-loop
+test includes the actual opt-in timing helper, capture fixtures reap their writer
+and provenance threads, and reservation testing holds placeholder jobs out of the
+writer queue. No production disk limit or detector behavior was weakened.
+`python3 -m automation.run_selftests --jobs 2`: **167/167 modules passed** after
+these fixes; `git diff --check` passed. Tests use dummy SDL and isolated private
+`/dev`, `/tmp`, `/data` and networking; no physical validation was performed.
+R8 is still running in the other worktree and is not included in this checkpoint.
+No push or branch deletion was performed.
+
+## PANG! R7 room variety and local display safety — 2026-11-23
+
+Three natural-contrast Cycles room templates (living/kitchen/study), two
+furnishings each, replace the globally lifted background. Ten active objects,
+perspective-based sizes, a dedicated TV cabinet, smaller pots/floor vases,
+filled/light-backed shelving, rug and side furniture. Persistent recent room
+and target-position history spreads layouts across the safe board area. Only
+target silhouettes plus their immediate surroundings retain a camera-proxy
+floor; pixels outside protection remain identical to the natural room plates.
+
+Thirty ten-target layouts cover all six rooms: minimum protected-region proxy
+121.87 DN; max local background edits 22.4%; saved-calibration ROI
+max 438462/1000000 pixels. All 15 relevant test modules pass, including
+50 cases in the final game suites. Fifteen original CC0 assets remain hashed;
+322 PNGs plus model sources total about 37.2 MB. API/menu `light_targets` stays;
+logs now include `room_id` and `polyhaven-rooms-7`. No engine/detector changes,
+commits or camera/projector use. Physical >=95% accuracy remains unverified.
+Previews `/tmp/pang_r7/living.png`, `kitchen.png`, `study.png`; reproduction and
+limits in `GAME_NEW_REPORT.md`. R6 and interim measurements are preserved.
+
+
+## PANG! Poly Haven PBR room — 2026-11-23
+
+R6 replaces the procedural room furnishings and target meshes with 15 selected
+CC0 Poly Haven assets, retaining original UV/PBR textures in Cycles renders.
+The copied 84 dependencies match the supplied originals by SHA256. Sources and
+licenses are in `content/games/pang_polyhaven_sources/`; source plus rendered
+package totals about 29 MB. Ten families provide 21 visible breakable parts and
+316 PNGs, with exact silhouette openings and UV-preserving fracture pieces.
+Eight loose objects remain active; furniture is non-scoring scenery.
+
+API/menu id `light_targets` remains unchanged; log version is
+`polyhaven-room-parts-6`. No engine/detector changes. PRE/POST timing and distinct
+hit/miss/uncertain feedback remain. Light material variants and display exposure
+preserve texture while respecting the camera-level constraint: all 47 exported
+scene/part-response previews predict at least 125.04 DN below the HUD. This is a
+color-model check, not physical validation. Thirty layouts fit the saved ROI
+budget (max 598408/1000000 pixels). All 14 relevant selftest modules pass,
+including eight R6 tests. Preview `/tmp/pang_r6/preview.png`; details and commands
+in `GAME_NEW_REPORT.md`. No camera/projector access or commits. Physical >=95%
+accuracy and Jimmy's visual acceptance remain unverified.
+
+
+## PANG! living-room version — 2026-11-22
+
+R5 now uses a warm perspective Cycles living room (sofa/bookcase/rug/coffee table)
+and ten object types with 21 visible breakable part types. Eight large loose objects
+are active per room; TV/books are always present and extra plant/clock/mug types
+vary. TV glass cracks, books fall independently, pot/foliage and mug/handle have
+separate outcomes. Furniture/window/wall canvas remain non-scoring scenery.
+API/menu id `light_targets` is unchanged; log version is `living-room-parts-5`.
+
+No detector/model/threshold changes. Protected POST/PRE timing remains unchanged.
+Bounded placement backtracking fixes a real 640x480 layout regression. Contact
+shadow RGB/alpha interpolation is corrected. The 316-PNG package has hashes; all
+31 rendered case images predict >=124.28 DN in the playfield. Thirty layouts fit
+the saved calibration budget (max 591840/1000000 pixels). All 13 relevant test
+modules pass. These are software checks, not new physical accuracy validation.
+
+CC0 external model download is blocked by local DNS, so the assets are original
+procedural models, not downloaded scans. Photorealistic visual acceptance and
+physical >=95% remain unestablished. Preview `/tmp/pang_r5/delivery/room.png`; see
+GAME_NEW_REPORT.md for sources, limitations, results and reproducible commands.
+
+## PANG! round 4 — 2026-11-22
+
+PANG2 (`20261122T161620Z_4b470454`, R3 build `858486d`): operator reports all ten
+object hits; eight awarded, two UNKNOWN, no wrong awards. Saved-query replay matches
+all ten decisions. Shots 8/9 already have the right highest-ranked peak (S 24.21/23.82),
+but core .110/.098 is below .15 and isolation ratio ~1.335 below 1.5. Local PRE is
+smooth and the hole persists in each of three POST frames. No evidence of ongoing
+fragment animation. Simply reducing the ratio to 1.33 also admits the previously
+unverified PANG1 shot-9 point (ratio 1.334117). No detector/threshold/model changes.
+
+R4 assets are now rebuilt with smooth vessel profiles, coated ceramic materials,
+soft key/fill lighting and preserved Cycles color/shading instead of flat recoloring.
+New masks/polygons are exported from the new silhouettes. All 166 images have hashes;
+source proxy floor >=128 DN, eleven rendered playfield previews >=124.31 DN.
+Thirty layouts still fit 642000/1000000 read pixels. This is software validation,
+not a new physical accuracy claim. API/menu id `light_targets`, source recording,
+OBJECT semantics and protected PRE/POST windows are unchanged. Preview:
+`/tmp/pang_r4/preview/room.png`; details in GAME_NEW_REPORT.md. New physical validation
+and operator visual acceptance are still required; >=95% is not established.
+
+### Earlier circle/ceramic room measurements — 2026-11-22
+
+The original circle game was physically tested by the operator: 9/10 air-rifle
+hits awarded, one UNKNOWN, no negative controls. Saved-session approximate crop
+replay reproduces all ten live decisions. The shadow model's ambiguity comes from
+high probabilities both inside and outside the target, not a reused object id.
+No detector threshold or model authority was changed from that sample.
+
+PANG1 (20261122T151030Z_e3f0e267): 7 awarded air-rifle hits, no wrong awards,
+three UNKNOWN. Saved-query math reproduces all ten decisions. White-photo/time-
+series review associates two new holes with shots 8/10 outside every active and
+original object; shot 9 has no newly verified hole. Its high-scoring model point
+has only 3.3 DN white-photo contrast (review holes: 17–30 DN). PRE is stable;
+there is no evidence of animation contaminating those windows. This is an
+exploratory reviewed session, not a new accuracy guarantee or full scheduling replay.
+
+R3 now shows eight objects at varied sizes with saturated, camera-proxy-constrained
+colors against a neutral gray room. Exported target pixels predict >=128 DN;
+eleven rendered preview images have a playfield minimum of 121.1 DN after blending.
+Normal/partial/broken states are explicit; partial entities change color. Hit/miss/
+UNKNOWN have separate feedback and cues. Break animation is 0.6 s (20 fps) versus
+1.2 s; result dwell 0.95 s versus 1.7 s. PRE 1.7 s and protected peak+1.2 s POST
+are unchanged. No detector threshold or model authority changed. Thirty layouts
+fit the saved 4K calibration's query budget (max 642000/1000000 read pixels).
+
+The R3 display/denser layouts are **not physically validated** and >=95% has not
+been established. Old images and sessions are preserved; recoloring references
+the frozen v2 manifest. Menu/API id and launcher remain compatible. See
+GAME_3D_PLAN.md and GAME_NEW_REPORT.md for measurements and reproduction commands.
+
+
 ## Nightly resource repair — 2026-11-22
 
 Cron remains paused by the operator. Candidate training now uses streamed, content-addressed

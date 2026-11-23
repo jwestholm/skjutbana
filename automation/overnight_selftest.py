@@ -8,6 +8,10 @@ from src.engine.ai.canonical_challenger import CanonicalChallenger,digest,transf
 from src.engine.ai.training_v223.model import RankModelV223
 from src.engine.ai.training_v223.schema import CandidateTrainingRow,ShotTrainingRecord
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class Tests(unittest.TestCase):
     def test_conditional_denominator_and_unavailable(self):
         def r(s,xs):

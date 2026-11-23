@@ -103,6 +103,15 @@ def main(argv=None) -> int:
     if raw and raw[0] == "calibration-check":
         from automation.bench.calibration_check import main as calibration_main
         return calibration_main(raw[1:])
+    if raw and raw[0] == "evidence-bench":
+        from automation.bench.evidence_bench import main as evidence_bench_main
+        return evidence_bench_main(raw[1:])
+    if raw and raw[0] == "hole-max":
+        from automation.bench.hole_likeness import max_main
+        return max_main(raw[1:])
+    if raw and raw[0] == "shot-timing":
+        from automation.bench.shot_timing import main as shot_timing_main
+        return shot_timing_main(raw[1:])
     if raw and raw[0] == "hole-likeness-emissions":
         from automation.bench.hole_likeness import emissions_main
         return emissions_main(raw[1:])
@@ -144,10 +153,14 @@ def main(argv=None) -> int:
                         help="shift synthetic_audio pulses (optical rig: ~+0.025)")
         ra = rp.parse_args(raw[1:])
         from automation.bench.session_replay import replay
-        result = replay(Path(ra.session), Path(ra.output), use_current_settings=ra.use_current_settings,
-                        worker_cost_s=ra.worker_cost_s, tolerance_px=ra.tolerance_px,
-                        pulse_offset_s=ra.pulse_offset_s, export_candidates=ra.export_candidates,
-                        wall_clock_profile=ra.wall_clock_profile)
+        from automation import disk_guard
+        # disk guard: refuse to start when < estimate + 20 GB would remain (reclaims declared temp first)
+        with disk_guard.maybe_experiment(Path(ra.output), estimate_gb=1.5 if ra.export_candidates else 0.2,
+                                         label=f"replay {Path(ra.session).name}"):
+            result = replay(Path(ra.session), Path(ra.output), use_current_settings=ra.use_current_settings,
+                            worker_cost_s=ra.worker_cost_s, tolerance_px=ra.tolerance_px,
+                            pulse_offset_s=ra.pulse_offset_s, export_candidates=ra.export_candidates,
+                            wall_clock_profile=ra.wall_clock_profile)
         score = result.get("score")
         print(json.dumps(dict(frames=result["frames"], pcm_blocks=result["pcm_blocks"],
                               audio_events=result["audio_events"], emissions=len(result["emissions"]),
@@ -164,7 +177,9 @@ def main(argv=None) -> int:
         return 0
     if args.command == "synth":
         from automation.bench.synth_runner import run
-        run(args)
+        from automation import disk_guard
+        with disk_guard.maybe_experiment(Path(args.output), estimate_gb=1.0, label=f"synth {args.variant}"):
+            run(args)
         return 0
     if args.command == "compare":
         result = compare(Path(args.baseline), Path(args.candidate))

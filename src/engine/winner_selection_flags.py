@@ -221,19 +221,53 @@ H11_STAMP_PROFILE = (0.9237, 0.8437, 0.6733, 0.462, 0.2442, 0.1045, 0.046, 0.017
 _H11_KERNEL = None
 
 
-def h11_kernel():
-    """Zero-mean, unit-norm 29x29 matched filter from H11_STAMP_PROFILE."""
+_H11_SCALED: dict = {}
+
+
+def h11_kernel(scale: float = 1.0):
+    """Zero-mean, unit-norm 29x29 matched filter from H11_STAMP_PROFILE (profile radius x scale)."""
     global _H11_KERNEL
-    if _H11_KERNEL is None:
-        import numpy as np
-        yy, xx = np.mgrid[-14:15, -14:15]
-        rr = np.hypot(xx, yy)
-        k = np.interp(rr, np.arange(len(H11_STAMP_PROFILE)), H11_STAMP_PROFILE, right=0.0)
-        inside = rr <= 14
-        k[inside] -= k[inside].mean()
-        k[~inside] = 0.0
-        _H11_KERNEL = (k / np.sqrt((k ** 2).sum())).astype(np.float32)
-    return _H11_KERNEL
+    if scale == 1.0 and _H11_KERNEL is not None:
+        return _H11_KERNEL
+    if scale != 1.0 and scale in _H11_SCALED:
+        return _H11_SCALED[scale]
+    import numpy as np
+    yy, xx = np.mgrid[-14:15, -14:15]
+    rr = np.hypot(xx, yy)
+    k = np.interp(rr / float(scale), np.arange(len(H11_STAMP_PROFILE)), H11_STAMP_PROFILE, right=0.0)
+    inside = rr <= 14
+    k[inside] -= k[inside].mean()
+    k[~inside] = 0.0
+    k = (k / np.sqrt((k ** 2).sum())).astype(np.float32)
+    if scale == 1.0:
+        _H11_KERNEL = k
+    else:
+        _H11_SCALED[scale] = k
+    return k
+
+
+def _h11_noise_cfg():
+    try:
+        big, small = (int(v) for v in os.environ.get("SKJUTBANA_H11_NOISE_RING", "61,21").split(","))
+        floor = float(os.environ.get("SKJUTBANA_H11_NOISE_FLOOR", "0.5"))
+        return big, small, floor
+    except ValueError:
+        return 61, 21, 0.5
+
+
+_H11_NOISE = _h11_noise_cfg()
+
+
+def h11_scales() -> tuple:
+    """Experiment (2026-11-20, default off): SKJUTBANA_H11_SCALES="0.75,1,1.35" -> SNR = max over
+    kernel scales (AR15 vs airgun hole sizes)."""
+    text = os.environ.get("SKJUTBANA_H11_SCALES", "").strip()
+    if not text:
+        return (1.0,)
+    try:
+        return tuple(float(v) for v in text.split(",") if v.strip())
+    except ValueError:
+        return (1.0,)
 
 
 def h11_snr_map(darkening, absdiff):
@@ -242,15 +276,18 @@ def h11_snr_map(darkening, absdiff):
     import numpy as np
     signed = (2.0 * np.asarray(darkening, dtype=np.float32) - np.asarray(absdiff, dtype=np.float32))
     signed = signed - cv2.blur(signed, (41, 41))
-    mf = cv2.filter2D(signed, cv2.CV_32F, h11_kernel())
+    scales = h11_scales()
+    mf = cv2.filter2D(signed, cv2.CV_32F, h11_kernel(scales[0]))
+    for sc in scales[1:]:
+        mf = np.maximum(mf, cv2.filter2D(signed, cv2.CV_32F, h11_kernel(sc)))
     # Noise from an ANNULUS (61x61 window minus the central 21x21): the blob itself must not
     # inflate its own noise, otherwise every isolated blob saturates at the same SNR
     # (seen 2026-11-18: noise candidates ~13-14 regardless of amplitude).  Floor 0.5 grey.
     sq = signed * signed
-    big, small = 61, 21
+    big, small, floor = _H11_NOISE   # experiment knobs SKJUTBANA_H11_NOISE_RING="61,21", _NOISE_FLOOR=0.5
     ring = (cv2.blur(sq, (big, big)) * (big * big) - cv2.blur(sq, (small, small)) * (small * small))
     ring = np.maximum(ring / float(big * big - small * small), 0.0)
-    noise = np.maximum(np.sqrt(ring), 0.5)
+    noise = np.maximum(np.sqrt(ring), floor)
     return mf / noise
 
 
@@ -304,6 +341,10 @@ def _cached_snr(darkening, absdiff):
 
 
 H11_MAP_VERSION = "hole_morph_v2map_v1"
+try:
+    _H11_SAMPLE_R = max(0, int(os.environ.get("SKJUTBANA_H11_SAMPLE_R", "2")))
+except ValueError:
+    _H11_SAMPLE_R = 2
 
 
 def attach_h11(candidates: list, darkening, absdiff, x0: int, y0: int, snr=None) -> None:
@@ -329,7 +370,8 @@ def attach_h11(candidates: list, darkening, absdiff, x0: int, y0: int, snr=None)
             py = int(round(float(candidate["camera_y"]) - y0))
         except (KeyError, TypeError, ValueError):
             continue
-        ya, yb, xa, xb = max(0, py - 2), min(h, py + 3), max(0, px - 2), min(w, px + 3)
+        rad = _H11_SAMPLE_R   # experiment knob SKJUTBANA_H11_SAMPLE_R (default 2 = 5x5)
+        ya, yb, xa, xb = max(0, py - rad), min(h, py + rad + 1), max(0, px - rad), min(w, px + rad + 1)
         if yb > ya and xb > xa:
             observation = CandidateEvidence(EVIDENCE_FAMILY, H11_MAP_VERSION, float(snr[ya:yb, xa:xb].max()))
             observation.write_fields(candidate, "ev_hole_morph", "snr")

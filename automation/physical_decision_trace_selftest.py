@@ -24,6 +24,10 @@ def candidate(x: float, *, sid: int = 7, **extra):
     }
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class DecisionTraceTests(unittest.TestCase):
     def scanner(self, *, trace: bool):
         scanner = HitScanner()

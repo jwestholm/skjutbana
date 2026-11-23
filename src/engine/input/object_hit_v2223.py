@@ -868,10 +868,17 @@ class ObjectHitRegistryV2223:
         ring=camera.get_ring_snapshot()
         for snap in sorted(pending,key=lambda s:s.peak_ts):
             query=snap.object_query
-            next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts),default=math.inf)
+            # Under SKJUTBANA_OBJECT_DENSE a second audio peak shortly after this one (muzzle report + impact,
+            # CO2 double report; measured live 65-80 ms) belongs to the same shot and must not cut this query.
+            from src.engine.camera.object_physical_query import _dense_enabled, _denv
+            pair_s=_denv("SKJUTBANA_OBJECT_DENSE_PAIR_S",0.15) if getattr(query, "dense_enabled", _dense_enabled()) else 0.0  # followers 64-97 ms; AR15 doubles >=228 ms
+            deadline_s = getattr(query, "deadline_s", DEADLINE_S)
+            next_peak=min((s.peak_ts for s in self._snapshots.values() if s.peak_ts>snap.peak_ts+pair_s),default=math.inf)
             frames=sorted((f for f in ring if f.timestamp>query.last_frame_ts and query.peak_ts<=f.timestamp<next_peak
                 and f.timestamp<=now),key=lambda f:f.timestamp)
-            for frame in frames[:2]:  # at most two relevant frames per query per main tick
+            if pair_s and not query.final and now>=snap.peak_ts+deadline_s+1.0:
+                query.finish_deadline(now)   # hard cap checked before any work
+            for frame in frames[:8 if pair_s else 2]:  # bounded frames per query per main tick (dense: catch up after stalls)
                 if query.final:
                     break
                 try:
@@ -880,8 +887,22 @@ class ObjectHitRegistryV2223:
                     # An optional scoped query must never interrupt CURRENT.
                     query.finish('UNCERTAIN','object_query_error:'+type(exc).__name__)
             decision_now=now+time.perf_counter()-tick_started
-            if not query.final and (decision_now>=snap.peak_ts+DEADLINE_S or decision_now>=next_peak):
-                query.finish_deadline(decision_now)
+            if not query.final and (decision_now>=snap.peak_ts+deadline_s or decision_now>=next_peak):
+                if not pair_s or frames[8:] == [] or decision_now>=snap.peak_ts+deadline_s+1.0:
+                    query.finish_deadline(decision_now)
+            if query.final and pair_s:
+                # Follower of a paired peak: never publish before the owner (first peak) has published,
+                # so a fast UNKNOWN from the follower cannot consume the game's shot window.
+                owner_pending=any(s is not snap and s.object_query is not None and not s.object_query.published
+                    and snap.peak_ts-pair_s<=s.peak_ts<snap.peak_ts for s in self._snapshots.values())
+                if owner_pending:
+                    continue
+                owner=[s for s in self._snapshots.values() if s is not snap and s.object_query is not None
+                    and snap.peak_ts-pair_s<=s.peak_ts<snap.peak_ts]
+                if owner and not query.published:
+                    # explicit pair ownership: consumers must not count the follower as its own shot
+                    query.result['paired_follower_of']=int(getattr(owner[0],'shot_id',0) or 0) or None
+                    query.result['gameplay_owner']=False
             if query.final:
                 query.published=True
                 dispatch_started=time.perf_counter()

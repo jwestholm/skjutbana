@@ -26,6 +26,17 @@ AUTOMATION_EVENT = pygame.event.custom_type()
 
 class App:
     def __init__(self) -> None:
+        # Hypothesis (default off, 2026-11-19): OpenCV's process-wide thread pool (4 on this
+        # 4-core host) competes with camera decode, rendering and the CV worker; live worker CPU
+        # was +100 ms and elapsed +300 ms vs offline. SKJUTBANA_CV2_THREADS=<n> sets it at startup.
+        _cv_threads = os.environ.get("SKJUTBANA_CV2_THREADS")
+        if _cv_threads:
+            try:
+                import cv2 as _cv2
+                _cv2.setNumThreads(int(_cv_threads))
+                print(f"[PERF] cv2.setNumThreads({int(_cv_threads)}) -> {_cv2.getNumThreads()}", flush=True)
+            except Exception as exc:
+                print(f"[PERF] SKJUTBANA_CV2_THREADS ignored: {exc}", flush=True)
         self._exit_guard = process_shutdown.active
         if self._exit_guard is not None:
             self._exit_guard.app = self  # also covers partially initialized apps
@@ -173,6 +184,8 @@ class App:
             hit_scanner.update(dt)
             self._update_window_caption()
             self.scene.render(self.screen)
+            from src.engine import display_floor
+            display_floor.apply(self.screen, self.scene)
             pygame.display.flip()
 
         if self._exit_guard is not None:
@@ -223,6 +236,10 @@ class App:
             self._handle_set_window_pos(command)
             return
 
+        if command.command == "startGame":
+            self._handle_start_game(command)
+            return
+
         if command.command == "startAITraining":
             self._handle_start_ai_training(command)
             return
@@ -232,6 +249,20 @@ class App:
             return
 
         command.reply_error(f"Unknown command: {command.command}")
+
+    def _handle_start_game(self, command):
+        """Queued main-thread start of a registered menu game."""
+        try:
+            args = command.args
+            item_id = args['id'] if isinstance(args, dict) else args[0] if isinstance(args, list) and len(args) == 1 else None
+            if not isinstance(item_id, str) or not item_id: raise ValueError('Expected {"id": "menu_game_id"}')
+            from src.engine.scene_factory import game_scene_from_menu_id
+            scene = game_scene_from_menu_id(item_id)
+            self._switch_to(scene)
+        except Exception as exc:
+            command.reply_error(f'startGame failed: {exc}')
+            return
+        command.reply_success({'id': item_id})
 
     def _handle_set_window_pos(self, command: AutomationCommand) -> None:
         """Handle send_command('setWindowPos', [x, y])."""

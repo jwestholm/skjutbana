@@ -66,6 +66,29 @@ SHOTS_PER_PLAYER = 5
 PLAYERS = (1, 2)
 
 SHELF_HEIGHT_CM = 135.0
+# Table height varies per player turn so new rounds do not land in old (patched) holes on the
+# physical screen.  Range is the table's leg length in cm at the target distance; the rendered
+# shelf must also move at least TABLE_MIN_MOVE_TARGET_H tallest-target heights from the last turns.
+TABLE_HEIGHT_RANGE_CM = (35.0, 260.0)
+TABLE_MIN_MOVE_TARGET_H = 2.5
+# The old fixed 135 cm table wore out (and taped over) that band of the screen: always keep away from it.
+TABLE_WORN_HEIGHTS_CM = (SHELF_HEIGHT_CM,)
+# The whole table also slides sideways a little per turn (metres at the target distance), never so far that a
+# target leaves the screen (TABLE_SIDE_MARGIN_PX), and at least TABLE_MIN_SIDE_MOVE_TARGET_W widest-target
+# widths from the recent turns when possible.
+TABLE_SIDE_RANGE_M = (-0.45, 0.45)
+# Edge rule (Jimmy 2026-11-22): "if the bullet breaks the line it is a hit".  The hole on the screen has the
+# real projectile diameter (4.5 mm pellet / BB), so a target counts when that disc touches its shape.
+# SKJUTBANA_CAN_EDGE_HITS=0 restores the centre-point test.
+PROJECTILE_DIAMETER_MM = 4.5
+# Background gamma for hole visibility (hole lab 2026-11-22); 1.0 = original colours.
+BG_GAMMA = 0.5
+TABLE_SIDE_MARGIN_PX = 40
+TABLE_MIN_SIDE_MOVE_TARGET_W = 1.5
+# Recent shelf positions survive restarts so a new game does not land where the last one ended.
+TABLE_HISTORY_PATH = os.environ.get(
+    "SKJUTBANA_CAN_TABLE_HISTORY",
+    os.path.expanduser("~/.local/state/skjutbana/can_table_recent.json"))
 HORIZON_Y_NORM = 0.43
 HUD_HEIGHT = 132
 
@@ -115,12 +138,14 @@ TARGET_SPECS = (
     TargetSpec(
         "mini_can", "MINIBURK", "Liten men dryg",
         5.0, 8.0, 225, "can",
-        (75, 153, 210), (29, 78, 120), "can",
+        (75, 153, 210), (95, 150, 200), "can",
     ),
     TargetSpec(
         "soda_can", "LÄSKBURK", "Klassikern",
         6.6, 11.5, 125, "can",
-        (205, 74, 62), (121, 31, 27), "can",
+        # 2026-11-22 lighter red (was (205,74,62)/(121,31,27)): projector red is nearly black to the camera;
+        # measured weakest-hole SNR 3.6 -> 13.3 (front) and 3.0 -> 8.7 (dark side) on real holes.
+        (240, 120, 110), (205, 115, 100), "can",
     ),
     TargetSpec(
         "toilet_roll", "TOARULLE", "Krisberedskap",
@@ -130,22 +155,22 @@ TARGET_SPECS = (
     TargetSpec(
         "gold_can", "GULDBURK", "Helt onödigt blank",
         6.6, 11.5, 300, "can",
-        (245, 191, 57), (153, 102, 16), "can",
+        (245, 191, 57), (205, 160, 70), "can",
     ),
     TargetSpec(
         "rubber_duck", "GUMMIANKA", "Kvack +250",
         11.5, 10.0, 250, "duck",
-        (250, 211, 56), (235, 130, 31), "ellipse",
+        (250, 211, 56), (240, 170, 70), "ellipse",
     ),
     TargetSpec(
         "beans_xxl", "BÖNBURK XXL", "Stor. Inte smart.",
         10.0, 15.0, 100, "can",
-        (115, 173, 87), (50, 93, 42), "can",
+        (115, 173, 87), (120, 165, 100), "can",
     ),
     TargetSpec(
         "sardines", "SARDINER", "Låg profil",
         12.5, 3.5, 275, "tin",
-        (143, 177, 191), (59, 91, 106), "rect",
+        (143, 177, 191), (120, 160, 175), "rect",
     ),
 )
 
@@ -161,6 +186,8 @@ GROUND_BOTTOM = (53, 73, 48)
 TEXT = (247, 246, 239)
 MUTED = (202, 206, 201)
 PANEL = (12, 18, 22)
+# Light shadow for targets/plates near the shooting area (colour guide: no dark areas where shots land).
+SHADOW_LIGHT = (150, 170, 140)
 PANEL_2 = (23, 31, 36)
 AMBER = (255, 190, 70)
 GOOD = (105, 235, 145)
@@ -305,6 +332,11 @@ class ShootStuffGame:
         self._subscribed = False
         self._target_geometry: dict[str, tuple[float, float, float, float]] = {}
         self._shelf_y = float(self.viewport.h * 0.66)
+        self._shelf_height_cm = SHELF_HEIGHT_CM
+        self._rack_shift_m = 0.0
+        self._recent_shelf_ys: list[float] = []
+        self._recent_shift_xs: list[float] = []
+        self._load_table_history()
         self._last_resolution_line = ""
         self._last_hit_shot_id = None
         self._background_cache = None
@@ -341,7 +373,11 @@ class ShootStuffGame:
             hit_input.subscribe(self._on_hit)
             self._subscribed = True
 
-        self.distance_m = max(self._minimum_distance_m(), DEFAULT_DISTANCE_M)
+        try:  # launcher/operator override of the start distance (in-game distance keys still work)
+            start_m = float(os.environ.get("SKJUTBANA_CAN_DISTANCE_M", DEFAULT_DISTANCE_M))
+        except ValueError:
+            start_m = DEFAULT_DISTANCE_M
+        self.distance_m = max(self._minimum_distance_m(), min(MAX_DISTANCE_M, start_m))
         self.distance_m = self._snap_distance(self.distance_m)
         self._start_match()
 
@@ -425,7 +461,97 @@ class ShootStuffGame:
         )
         return max(2.0, width_px), max(2.0, height_px)
 
-    def _projected_shelf_y(self) -> float:
+    def _shelf_y_bounds(self) -> tuple[float, float]:
+        max_target_h = max(self._projected_size_px(s)[1] for s in TARGET_SPECS)
+        sign_h = max(58, int(self.viewport.h * 0.08))
+        # room above the targets for the distance sign, below the HUD
+        return float(HUD_HEIGHT + max_target_h + sign_h + 34 + 8), float(self.viewport.h - 64)
+
+    def _load_table_history(self) -> None:
+        try:
+            data = json.load(open(TABLE_HISTORY_PATH))
+            if data.get("viewport") == [self.viewport.w, self.viewport.h]:
+                self._recent_shelf_ys = [float(y) for y in data.get("shelf_ys", [])][-6:]
+                self._recent_shift_xs = [float(x) for x in data.get("shift_xs", [])][-6:]
+        except Exception:
+            pass
+
+    def _save_table_history(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(TABLE_HISTORY_PATH), exist_ok=True)
+            tmp = TABLE_HISTORY_PATH + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(dict(viewport=[self.viewport.w, self.viewport.h], shelf_ys=self._recent_shelf_ys[-6:],
+                               shift_xs=self._recent_shift_xs[-6:]), fh)
+            os.replace(tmp, TABLE_HISTORY_PATH)
+        except Exception as exc:
+            print(f"[CAN-TABLE] history not saved: {exc}", flush=True)
+
+    def _rack_extent_px(self, shift_m: float) -> tuple[float, float]:
+        xs = []
+        for spec, lateral_m in zip(TARGET_SPECS, TARGET_LATERAL_OFFSETS_M):
+            w = self._projected_size_px(spec)[0]
+            c = self._target_center_x(lateral_m + shift_m, raw=True)
+            xs += [c - w * 0.5, c + w * 0.5]
+        return min(xs), max(xs)
+
+    def _pick_table_side(self) -> None:
+        """Slide the whole table sideways for this turn, keeping every target on screen."""
+        old = self._rack_shift_m
+        self._rack_shift_m = 0.0
+        base = self._target_center_x(0.0, raw=True)
+        max_w = max(self._projected_size_px(s)[0] for s in TARGET_SPECS)
+        min_move = TABLE_MIN_SIDE_MOVE_TARGET_W * max_w
+        best = None
+        for _ in range(60):
+            m = self.rng.uniform(*TABLE_SIDE_RANGE_M)
+            lo, hi = self._rack_extent_px(m)
+            if lo < TABLE_SIDE_MARGIN_PX or hi > self.viewport.w - TABLE_SIDE_MARGIN_PX:
+                continue
+            dx = self._target_center_x(m, raw=True) - base
+            gap = min((abs(dx - p) for p in self._recent_shift_xs[-3:]), default=1e9)
+            if best is None or gap > best[0]:
+                best = (gap, m, dx)
+            if gap >= min_move:
+                break
+        self._rack_shift_m = best[1] if best is not None else 0.0
+        if best is None:
+            self._rack_shift_m = old if old else 0.0
+            return
+        self._recent_shift_xs.append(best[2])
+        print(f"[CAN-TABLE] player={self.player} side_shift_m={best[1]:+.2f} side_shift_px={best[2]:+.0f} "
+              f"move_px={best[0] if best[0] < 1e9 else 0:.0f}", flush=True)
+
+    def _pick_table_height(self) -> None:
+        """New random leg length for this turn (fixed 135 cm with SKJUTBANA_CAN_FIXED_TABLE=1)."""
+        if os.environ.get("SKJUTBANA_CAN_FIXED_TABLE") == "1":
+            self._shelf_height_cm = SHELF_HEIGHT_CM
+            self._rack_shift_m = 0.0
+            return
+        self._pick_table_side()
+        max_target_h = max(self._projected_size_px(s)[1] for s in TARGET_SPECS)
+        min_move = TABLE_MIN_MOVE_TARGET_H * max_target_h
+        lo, hi = self._shelf_y_bounds()
+        best = None
+        for _ in range(60):
+            cm = self.rng.uniform(*TABLE_HEIGHT_RANGE_CM)
+            y = self._projected_shelf_y(cm)
+            if not (lo <= y <= hi):
+                continue
+            avoid = self._recent_shelf_ys[-3:] + [self._projected_shelf_y(c) for c in TABLE_WORN_HEIGHTS_CM]
+            gap = min(abs(y - p) for p in avoid)
+            if best is None or gap > best[0]:
+                best = (gap, cm, y)
+            if gap >= min_move:
+                break
+        if best is not None:
+            self._shelf_height_cm = best[1]
+            self._recent_shelf_ys.append(best[2])
+            self._save_table_history()
+            print(f"[CAN-TABLE] player={self.player} table_height_cm={best[1]:.0f} shelf_y={best[2]:.0f} "
+                  f"move_px={best[0] if best[0] < 1e9 else 0:.0f}", flush=True)
+
+    def _projected_shelf_y(self, height_cm: float | None = None) -> float:
         geometry = self._projection_geometry()
         ground_y = projected_ground_anchor_y_px(
             self.distance_m,
@@ -434,7 +560,7 @@ class ShootStuffGame:
             horizon_y_norm=HORIZON_Y_NORM,
         )
         shelf_height_wall_cm = projected_size_on_wall_cm(
-            SHELF_HEIGHT_CM,
+            self._shelf_height_cm if height_cm is None else height_cm,
             self.distance_m,
             geometry.wall_distance_m,
         )
@@ -450,10 +576,10 @@ class ShootStuffGame:
             min(float(self.viewport.h - 64), float(shelf_y)),
         )
 
-    def _target_center_x(self, lateral_offset_m: float) -> float:
+    def _target_center_x(self, lateral_offset_m: float, raw: bool = False) -> float:
         geometry = self._projection_geometry()
         offset_px = projected_lateral_offset_px(
-            lateral_offset_m,
+            lateral_offset_m + (0.0 if raw else self._rack_shift_m),
             self.distance_m,
             self.local_viewport,
             geometry,
@@ -463,6 +589,18 @@ class ShootStuffGame:
     # ------------------------------------------------------------------
     # GameObject rack
     # ------------------------------------------------------------------
+
+    def _touch_radius_px(self) -> float:
+        """Projectile radius on the physical screen, in game px (the hole is real size, not distance-scaled)."""
+        if os.environ.get("SKJUTBANA_CAN_EDGE_HITS", "1") == "0":
+            return 0.0
+        geometry = self._projection_geometry()
+        px_per_mm = self.local_viewport.w / (geometry.viewport_physical_width_cm * 10.0)
+        return 0.5 * PROJECTILE_DIAMETER_MM * px_per_mm
+
+    def _with_edge_rule(self, shape: HitShapeSpec) -> HitShapeSpec:
+        r = self._touch_radius_px()
+        return replace(shape, touch_radius=r) if r > 0 else shape
 
     def _shape_for_spec(self, spec: TargetSpec, geometry=None) -> HitShapeSpec:
         if spec.draw_kind == 'duck':
@@ -523,7 +661,7 @@ class ShootStuffGame:
                 owner=f"player_{self.player}",
                 entity_id=f"rack_p{self.player}",
                 part_id=spec.target_id,
-                shape=self._shape_for_spec(spec,geometry),
+                shape=self._with_edge_rule(self._shape_for_spec(spec,geometry)),
                 tags={
                     "shoot_stuff",
                     f"distance_{int(self.distance_m)}m",
@@ -541,8 +679,8 @@ class ShootStuffGame:
             )
             obj.world = WorldPlacement(
                 distance_m=self.distance_m,
-                world_x_m=float(lateral_m),
-                world_y_m=SHELF_HEIGHT_CM / 100.0,
+                world_x_m=float(lateral_m + self._rack_shift_m),
+                world_y_m=self._shelf_height_cm / 100.0,
                 world_z_m=self.distance_m,
                 metadata={
                     "physical_width_cm": spec.width_cm,
@@ -637,6 +775,8 @@ class ShootStuffGame:
         self._retire_object_queries('game_round_or_distance_changed')
         self._round_token += 1
         self.player = player
+        self._pick_table_height()
+        self._rebuild_visual_world()
         self._build_rack()
         self.phase = "intro"
         self.phase_until = time.monotonic() + INTRO_SECONDS
@@ -1042,6 +1182,23 @@ class ShootStuffGame:
         self._shelf_y = self._projected_shelf_y()
         self._build_background()
 
+    def _detection_brighten(self, surf):
+        """Brighten the background for hole visibility (2026-11-22 hole lab: gamma 0.5 turned 786 false
+        blobs on this background into 10 with the same recall).  SKJUTBANA_CAN_BG_GAMMA=1 restores the old look."""
+        try:
+            gamma = float(os.environ.get("SKJUTBANA_CAN_BG_GAMMA", BG_GAMMA))
+        except ValueError:
+            gamma = BG_GAMMA
+        if not math.isfinite(gamma) or not 0.2 <= gamma <= 3.0:   # invalid override -> safe default
+            gamma = BG_GAMMA
+        if abs(gamma - 1.0) < 1e-3:
+            return surf
+        lut = (255.0 * (np.arange(256) / 255.0) ** gamma).round().astype(np.uint8)
+        arr = pygame.surfarray.pixels3d(surf)
+        arr[...] = lut[arr]
+        del arr
+        return surf
+
     def _build_background(self) -> None:
         surf = pygame.Surface((self.viewport.w, self.viewport.h)).convert()
         w, h = surf.get_size()
@@ -1113,7 +1270,7 @@ class ShootStuffGame:
             surf.blit(txt, txt.get_rect(center=sign_rect.center))
 
         shelf_rect = pygame.Rect(
-            int(w * 0.08),
+            int(w * 0.08 + self._target_center_x(0.0) - self._target_center_x(0.0, raw=True)),
             int(self._shelf_y),
             int(w * 0.84),
             16,
@@ -1148,7 +1305,7 @@ class ShootStuffGame:
             )
             surf.blit(joke, joke.get_rect(center=(w // 2, h - 18)))
 
-        self._background_cache = surf
+        self._background_cache = self._detection_brighten(surf)
 
     @staticmethod
     def _vertical_gradient(surface, rect, top, bottom) -> None:
@@ -1225,7 +1382,7 @@ class ShootStuffGame:
             self._draw_target(surf, rect, spec)
 
             if self.font_tiny is not None:
-                points = self.font_tiny.render(str(spec.points), True, (241, 231, 196))
+                points = self.font_tiny.render(str(spec.points), True, (70, 60, 45))
                 plate_w = max(24, points.get_width() + 8)
                 plate = pygame.Rect(
                     rect.centerx - plate_w // 2,
@@ -1233,7 +1390,7 @@ class ShootStuffGame:
                     plate_w,
                     max(17, points.get_height() + 3),
                 )
-                pygame.draw.rect(surf, (50, 43, 33), plate, border_radius=3)
+                pygame.draw.rect(surf, (238, 232, 210), plate, border_radius=3)
                 surf.blit(points, points.get_rect(center=plate.center))
 
     def _draw_target(self, surf: pygame.Surface, rect: pygame.Rect, spec: TargetSpec) -> None:
@@ -1252,7 +1409,7 @@ class ShootStuffGame:
     def _draw_can(self, surf, rect, spec) -> None:
         radius = max(2, rect.width // 5)
         shadow = rect.move(max(1, rect.width // 8), max(1, rect.height // 18))
-        pygame.draw.rect(surf, (26, 30, 29), shadow, border_radius=radius)
+        pygame.draw.rect(surf, SHADOW_LIGHT, shadow, border_radius=radius)
         pygame.draw.rect(surf, spec.secondary, rect, border_radius=radius)
         inner = rect.inflate(-max(2, rect.width // 7), -max(2, rect.height // 18))
         if inner.width > 1 and inner.height > 1:
@@ -1272,12 +1429,12 @@ class ShootStuffGame:
         )
 
     def _draw_roll(self, surf, rect, spec) -> None:
-        pygame.draw.ellipse(surf, (60, 61, 57), rect.move(2, 2))
+        pygame.draw.ellipse(surf, SHADOW_LIGHT, rect.move(2, 2))
         pygame.draw.ellipse(surf, spec.primary, rect)
         inner = rect.inflate(-max(4, rect.width // 3), -max(4, rect.height // 3))
         if inner.width > 0 and inner.height > 0:
-            pygame.draw.ellipse(surf, (91, 82, 68), inner)
-            pygame.draw.ellipse(surf, (35, 32, 28), inner, 1)
+            pygame.draw.ellipse(surf, (180, 168, 140), inner)
+            pygame.draw.ellipse(surf, (150, 140, 115), inner, 1)
         pygame.draw.arc(surf, spec.secondary, rect.inflate(-2, -2), 0.5, 4.7, 2)
 
     def _draw_duck(self, surf, rect, spec) -> None:
@@ -1286,7 +1443,7 @@ class ShootStuffGame:
         def ellipse_rect(p):
             return pygame.Rect(round(p['x']),round(p['y']),max(1,round(p['width'])),max(1,round(p['height'])))
         body,head=map(ellipse_rect,parts[:2])
-        pygame.draw.ellipse(surf, (55, 53, 40), body.move(2, 2))
+        pygame.draw.ellipse(surf, SHADOW_LIGHT, body.move(2, 2))
         pygame.draw.ellipse(surf, spec.primary, body)
         pygame.draw.ellipse(surf, spec.primary, head)
         beak = [(round(x),round(y)) for x,y in parts[2]['points']]
@@ -1300,7 +1457,7 @@ class ShootStuffGame:
         )
 
     def _draw_tin(self, surf, rect, spec) -> None:
-        pygame.draw.rect(surf, (35, 40, 42), rect.move(2, 2), border_radius=3)
+        pygame.draw.rect(surf, SHADOW_LIGHT, rect.move(2, 2), border_radius=3)
         pygame.draw.rect(surf, spec.primary, rect, border_radius=3)
         pygame.draw.rect(surf, spec.secondary, rect, 2, border_radius=3)
         inset = rect.inflate(-max(2, rect.width // 10), -max(2, rect.height // 4))

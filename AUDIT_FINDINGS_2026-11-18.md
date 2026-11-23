@@ -634,3 +634,181 @@ transition and checks that the saved frame is retained. This reproduces the
 failure mechanism behind the extra missing-frame entry in §§15 and 22.
 All 145 selftest modules passed in the isolated three-process run, including
 the process-signal, resource-cleanup, capture-wrapper and checkpoint tests.
+
+## 24. 2026-11-19: merge, flaky selftest, live per-shot timing log
+- **Merged** into `codex/physical-ai-lab-foundation` (de0b1f1): claude/latency (replay live-path fix,
+  grid speedups) + codex/astra-2 (test runner, bounded shutdown flag, audit index, evidence contract,
+  latency_report, image_context). Audit conflict resolved by taking astra-2's file (verified: contains
+  every line of the claude/latency audit). `python3 -m automation.run_selftests`: 147/147 twice.
+- **OPEN — flaky `automation.physical_collection_selftest`**: occasionally exits 143 (SIGTERM) when run
+  as a plain process (2 of ~10 runs; once inside run_selftests, once directly), never in its own session
+  (`setsid`, 4/4) nor via `python3 -m unittest`. Individual tests pass. Suspects: the new SIGTERM
+  forwarding tests (`signal.raise_signal(SIGTERM)` relies on `_run_capture` having installed its handler)
+  or a concurrent selftest run sending SIGTERM to a process group. Not reproduced deterministically.
+- **New diagnostic `SKJUTBANA_SHOT_TIMING_LOG=1`** (`src/engine/shot_timing_log.py`, hooks in
+  shot_async_v2224.apply_result and shot_critical_v2223.update_finished): one JSONL line per finished
+  audio shot with every applied detector job (frame age, submit age, queue, worker, applied age, stages,
+  candidates) and the event timing fields. Analysis: `python3 -m automation.bench shot-timing LOG`.
+  Selftest `automation/shot_timing_log_selftest.py`. Replay smoke test works (virtual times); the
+  physical replay shows 42 audio shots for 22 real shots (second CO2 peak) — 20 end "missed".
+- **TODO (user, verify later): live check of `SKJUTBANA_BOUNDED_SHUTDOWN=1`** with the camera open
+  under load (does it release the camera within 15 s; no orphan process). Not yet run.
+
+## 25. 2026-11-19 live timing (idle host) and silent calibration drift
+**Per-shot live timing** (`SKJUTBANA_SHOT_TIMING_LOG=1`, F2 AI-test 48 rounds, load avg 0.07, H11 off;
+`/data/skjutbana/shot_timing/live_f2_base_20261119T075019Z.jsonl`), matched shots, median:
+analysed frame +168 ms after the peak → job submitted +195 ms → **worker 562 ms** (`generate` 390 ms, of
+which `_register_current` 73 ms) → result applied on the main thread +812 ms → confirmation/selection
++180 ms → **hit 1032 ms** (p90 1665). AI-test = 1 job per shot (synthetic audio has one peak). The worker
+is the dominant cost and is slower live (≈560–630 ms) than offline on the same path (≈348 ms median,
+Codex §20) — GIL/CPU contention with camera decode + rendering is the main suspect.
+**Calibration drift:** live accuracy had dropped to 4–6/77–89 with median error 3.3–4.6 mm. calibration-check:
+saved calibration marker error median 6.35 px (≈4 mm; 1.65 px on 2026-11-18 morning), mean offset −5.9 px x
+— after re-papering and projector restarts. Recalibrated with backup
+(`/data/skjutbana/backups/settings.backup_20261119T091343_571393.json`; lens model LOO median 1.13 screen px;
+validation median 1.31 px). Live F2 afterwards: **11/83, median error 1.2 mm** (white_grid 5/6) — accuracy back.
+The AI-test auto-calibration had seen the markers but silently KEPT the drifted lens calibration. It now
+validates the kept calibration against the on-screen markers and prints/shows a warning when the median
+error exceeds 3 px (`ai_training._try_auto_calibrate`). Recommendation: run `bench calibration-check` before
+every physical session (runbook).
+
+## 26. 2026-11-19 why the live worker is slow: contention measurements (idle host, F2 48 rounds each)
+New diagnostics in `_run_job`: `stages_ms['job_thread_cpu_ms']` (worker thread CPU, excludes OpenCV helper
+threads) and `job_elapsed_ms`; the shot-timing log also records `cv2_threads` (4 by default on this host).
+
+| run | worker thread CPU (median) | worker elapsed (median / p90) | hit (matched, median / p90) | correct |
+|---|---|---|---|---|
+| offline replay, same code path | 253 | 251 / 314 | — | — |
+| live default (cv2 4 threads) | 351 | 555 / 724 | 1024 / 1735 | 19/84 |
+| live `SKJUTBANA_CV2_THREADS=1` | 358 | 509 / 645 | 1003 / 1724 | 16/86 |
+| live `SKJUTBANA_CV2_THREADS=2` | 355 | 511 / 702 | 922 / 1316 | 14/79 |
+| live `SKJUTBANA_AI_SHADOW_OFF=1` | 354 | 524 / 679 | 911 / 1574 | 19/80 |
+
+Live costs ~+100 ms more worker CPU (cache/memory-bandwidth contention — the camera thread decodes,
+rotates and converts 4K MJPG at 25 fps) and ~+200 ms of waiting (GIL/scheduling). Fewer OpenCV threads
+and skipping the shadow-only AI observation each save only ~30–45 ms of worker elapsed; run-to-run noise
+on the hit time is ±50–100 ms. Both flags are default OFF (new: `SKJUTBANA_CV2_THREADS`, `SKJUTBANA_AI_SHADOW_OFF`;
+the latter stops AI-memory training observations, no hit decision uses them).
+Larger options (need design + validation): camera decode cost (grayscale/reduced decode changes inputs and
+hole scale → detector validation), moving the CV worker to its own process (Codex: persistent child owning
+generator state, explicit snapshots, start with copied messages before shared memory).
+
+## 27. 2026-11-19 colour channels, H13 detector luma, and the offline MAX evaluator
+**Colour study** (matched-filter SNR at GT, local gain fit; physical AR15 + AI-test sessions;
+`/data/skjutbana/evaluation_runs/color_channels_20261119/`): CIE L* beats plain grey for real holes —
+physical AR15 median SNR gray 169, Lab L 221, **L*-LUT on grey 226 (+34 %)**; black 8→14 (L), grey 26→37 (L),
+white_grid 303→342 (L); plain white/checker slightly lower. The LUT version costs ~1 ms per frame.
+**H13 `SKJUTBANA_DETECTOR_LUMA=L`** (default off): new `src/engine/camera/detector_luma.py::detector_gray`;
+all nine live BGR→grey conversions (hit_scanner ×5, hit_scanner_v2221, shot_critical_v2223 ×2,
+object_physical_query) now go through it so PRE and POST always match. Caveat: the AI-test board
+reference (`ai_training` white/black exposures) still uses plain grey. Paired replay (live path, new
+calibration): physical fresh paper 14/22 → 14, taped 9/13 → 9, AI-test 21/78 → 22, moving 3/24 → 5;
+no regressions, small gains — the SNR gain at GT does not yet translate into more hits in the chain.
+**Offline MAX evaluator** `python3 -m automation.bench hole-max SESSIONS [--channel L] [--region-radius-px R]`
+(dense matched filter, multi-frame PRE, all POST frames to next shot or 1 s; OBJECT hint = circle around
+an aim point randomly offset ≤ R/2 from GT, seeded before scoring): 7 sessions, 213 shots —
+full viewport gray 68 (32 %), L 70 (33 %); **with a 60 px (~4 cm) object region gray 115 (54 %), L 118 (55 %)**;
+real AR15 holes 11/15 → 12/15 with the region. The object hint is by far the largest single gain. In the
+projected rig grey/black/dark backgrounds and several photos stay at ~0 (projected AR15 holes invisible to
+the camera) — the rig, not the detector, caps those. (Label "physical" in that output = the five
+optical-holes validation sessions, which have no background field.)
+
+## 28. 2026-11-19 game object hints (OBJECT path), evidence nightly started
+**AI-test object hint** (`SKJUTBANA_AI_TEST_OBJECT_HINT_PX`, `SKJUTBANA_AI_TEST_OBJECT_MODE=regions|object_hit`,
+default off): every scheduled hole gets a square target around an aim point drawn within r/2 of the hole
+before the shot. Live (r = 35 screen px ≈ 4 cm): `regions` → ordinary hits 3/79 (vs 11–19 without),
+only 29 shots got a decision, worker median 840 ms; `object_hit` → of 37 shot queries OBJECT_HIT 14,
+UNKNOWN 22 (13 insufficient change, 5 deadline exceeded), multiple-objects 3, NO_OBJECT_HIT 1; the main loop
+slowed so much that F2 stopped at 26/48 rounds (no object-id correctness scored).
+**Replay region hint** (new `SKJUTBANA_REPLAY_REGION_HINT_PX`, `_REPLAY_REGION_MODE`, `_REPLAY_REGION_SEED`;
+virtual_runtime.REGION_TARGETS via session_replay): with r = 35 the same chain IMPROVES — physical 14→15/22,
+AI-test 21→28/78, moving 3→5/24 (FAST extract is replaced by the v251 region proposals in those shots).
+So the live collapse is a live-only effect (load/latency: region path heavier; decisions not reached in time),
+not a property of the evidence. Next: live regions run on an idle host with the shot-timing log.
+**Evidence nightly** started in a separate root `/data/skjutbana/nightly_evidence` (live-path replay,
+MIN_POST_AGE 0.15, `SKJUTBANA_H11_FULL_ROI_MAP=1` + `SKJUTBANA_HOLE_EVIDENCE=1` as candidate features,
+holdout = physical AR15 fresh paper + the 5 validation sessions + 98e68fe9; 4 AI-test sessions with GT
+from the drifted calibration excluded via new config `exclude_sessions`; new config `pilot_env_override`).
+
+### §28b Evidence nightly result + CO2 labelling bug (2026-11-19)
+
+- `label_session_candidates` gave the physical CO2 sessions **0 labelled candidates**: truth matches the
+  first of the two CO2 audio peaks (66-94 ms apart) but causal ownership hands the candidates to the second.
+  Fix: an event within `CO2_PAIR_S=0.12` s of a truth-matched event inherits its truth; the shot group uses the
+  producing event. Old exports kept in `/data/skjutbana/nightly_evidence/dataset_mislabelled_co2_20261119/`.
+  The regular `/data/skjutbana/nightly` root has the same bug for its CO2 sessions (not re-exported yet).
+- Evidence nightly (`/data/skjutbana/nightly_evidence/2026-11-19_relabel/`; H11 V2-map + patch evidence fields,
+  live-path replay, MIN_POST_AGE 0.15): holdout top-1 **model 161/285 vs live score 154/285**, AUC 0.973 vs 0.921.
+  Physical AR15 11/15 vs 10/15 (13 have a correct candidate), 98e68fe9 13/24 vs 7/24, synthetic equal
+  (double 27/36 vs 30/36 is the model's weak spot). OFFLINE_REPLAY_ONLY_UNVALIDATED; not live authority.
+- The validation sessions 1701..1704 are limited by **candidate recall** (5/8/4/11 of 24 shots have any correct
+  candidate), not by ranking — the selector cannot fix them.
+
+### §29 Live object regions, idle host (2026-11-19 13:2x-13:4x)
+
+AI test 48 rounds, all backgrounds, calibration median 1.31 px, shot-timing log on
+(`/data/skjutbana/shot_timing/{noregions,regions,regions_failopen}_20261119.jsonl`).
+
+| arm | correct | false/extra | timing-log missed | worker median |
+|---|---|---|---|---|
+| no regions | 20/85 | 44 | 19 | 505 ms |
+| regions r=35 | 18/86 | 26 | 34 | 576 ms |
+| regions + `SKJUTBANA_REGION_AUTHORITY_FAIL_OPEN=1` | 22/88 | 21 | 39 | 650 ms |
+
+- The earlier live collapse (3/79) did not reproduce: it was host load, not the region path.
+- With regions the V2.25.3 registered-region authority replaces the base/H11 selector; 42 shots waited for a
+  full rescue (requested at 1.8 s) and missed. The new default-off fail-open flag (delegate to the base selector
+  after 0.9 s, `_S` overrides) removes the rescue waits; replay unchanged (AI-test 29=29, physical 16 vs 15,
+  moving 5=5). Live the misses did not drop: the base selector has nothing better either.
+- Net: regions halve false emissions (44 -> 21-26) at equal correct hits. The correct-hit ceiling (~20/86) is
+  candidate recall (no correct candidate exists), consistent with §28b. Black background: 0 correct in all arms.
+- Region path costs ~70 ms extra worker CPU per job (REGION-POOL median 83 ms).
+
+### §30 Recall/first-loss study on live AI-test sessions (2026-11-19, offline replay)
+
+Sessions 20261119T1223/1227/1336/1343 (live AI test, all backgrounds). Scripts: session scratchpad
+(visibility_probe.py, firstloss.py, h14_offline*.py); outputs `/data/skjutbana/evaluation_runs/{recall_bg,h12_recall,firstloss}_20261119*`.
+- Visibility probe (MF SNR at GT vs 200 random points): ~20/85 shots visible but without a candidate
+  (moving, bubbles, coord_grid, scroll, checker); black/dark/checker_anim holes essentially invisible -> flash only.
+- H12 n=8: candidate recall 68 -> 81/174, emissions 61 -> 63; n=30 / min SNR 5 add nothing.
+- First loss (174 shots, H11+H12): ok 60, no candidate 82, selection rank 19 (chosen track same onset frame,
+  94-985 px away, slightly higher H11), no audio event 11 (REPLAY artefact: live injects synthetic peaks directly,
+  replay re-detects mixed pulses), other 2.
+- H14 (re-rank earliest-onset tracks by multi-frame MF SNR, post median up to 0.35/0.6/1.0 s, top-K 3..all,
+  ±4 px local search): **falsified** - 92-115 vs base 121/330 events. Not wired.
+- MAX evaluator (whole-viewport dense MF peak) 172/348 vs chain ~37 %: its wins are largely shots where the
+  chain has NO track at GT (any GT track: 166/330), i.e. proposal location, not ranking.
+
+### §31 H15 dense second opinion (2026-11-19, replay; default OFF)
+
+`src/engine/shot_dense_h15.py`, `SKJUTBANA_H15_DENSE=1` (hook in `shot_fast_v2225.detect_v2225`). At peak+0.6 s
+one job on the existing detector worker: H11-profile matched filter over the viewport on
+D = 1 - median(post)/median(pre) (frames from `scanner.frame_history`, POST bounded by next peak+0.10).
+Accepted only if score >= 16, >= 1.15x the next peak, core <= 0.4, bipolar <= 1 (rule fitted on AI-test dev
+sessions 1223/1227, holdout 1336/1343: 84 vs 80 always-dense vs 65 chain, wrong H15 picks 88 -> 12); else the
+ordinary selector decides. The shot waits for H15 until the result or 1.3 s (explicit, bounded).
+Replay, live-path, H11 rank + H13 L, `/data/skjutbana/evaluation_runs/h15_replay_20261119/`:
+
+| session | base correct/false | H15 correct/false |
+|---|---|---|
+| AI 1343 | 30/52 | 43/40 |
+| AI 1336 | 36/48 | 46/40 |
+| AI 1223 | 35/50 | 46/39 |
+| AI 1227 | 31/48 | 38/41 |
+| AI 1623 (18 nov) | 29/46 | 35/40 |
+| moving 1702 | 6/18 | 8/16 |
+| physical AR15 fresh | 16/4 | 15/6 |
+| physical AR15 taped | 9/9 | 10/9 |
+| **total 485** | **192 (39.6 %) / 275** | **241 (49.7 %) / 232** |
+
+Decisions arrive ~0.8-0.9 s after the peak in replay (worker cost modelled). Without the acceptance rule H15 raised
+physical false emissions 4 -> 14 / 9 -> 22 (CO2 echo and no-impact events always produced a pick). NOT live-verified.
+
+§31 addendum (after Codex review): spatial 24 px exclusion removed; state reset per scanner/frame shape with
+generation-checked jobs; deadline enforced on first sight of the result; authority track carries the real POST
+window (first/last POST frame, n POST frames); no unsafe PRE fallback - doubles use PRE after prev+0.20 s, else the
+ordinary PRE window with ONLY the previous shot's own decided XY excluded (burst ownership); second peak of a CO2
+pair gets no H15 job and the pair is one shot (no second emission of a hole its partner already reported).
+Physical after the fixes: fresh 16/22 false 5 (base 16/4), taped 9/13 false 7 (base 9/9). Reviewed version (h15v5), all 8
+sessions: **241/485 (49.7 %) correct, 228 false** vs base 192/485 (39.6 %), 275 false. AI 1336 46/40, 1343 43/40,
+1227 37/42, 1223 46/39, 1623 36/39, moving 8/16; physical fresh 16/5, taped 9/7.

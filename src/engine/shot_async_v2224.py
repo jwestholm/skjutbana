@@ -366,6 +366,7 @@ class AsyncDetectorV2224:
         submitted_mono: float,
     ) -> DetectorJobResultV2224:
         started = time.monotonic()
+        cpu_started = time.thread_time()   # diagnostic: worker-thread CPU vs elapsed (GIL/contention)
         stages: dict[str, float] = {}
         _PROFILE_TLS.stages = stages
         error = ""
@@ -383,6 +384,9 @@ class AsyncDetectorV2224:
         finally:
             _PROFILE_TLS.stages = None
         finished = time.monotonic()
+        # Thread CPU excludes OpenCV helper threads; compare with elapsed = finished - started.
+        stages["job_thread_cpu_ms"] = (time.thread_time() - cpu_started) * 1000.0
+        stages["job_elapsed_ms"] = (finished - started) * 1000.0
         return DetectorJobResultV2224(
             shot_id=int(shot_id),
             frame_ts=float(frame_ts),
@@ -511,6 +515,8 @@ class AsyncDetectorV2224:
                           result_frame_timestamp=float(result.frame_ts))
             break
         scanner.last_candidates = [dict(c) for c in result.candidates]
+        from src.engine import shot_timing_log as _stl
+        _stl.record_job(result)   # diagnostic only (SKJUTBANA_SHOT_TIMING_LOG=1)
         if getattr(scanner, "physical_trace_capture_enabled", False):
             scanner.last_trace_pipeline = copy.deepcopy(result.trace_pipeline)
             scanner.last_trace_pipeline_shot_id = int(result.shot_id)
@@ -865,6 +871,11 @@ def _install_async_ai_shadow_patch() -> None:
         return enabled and mode in async_modes and _setting_bool("async_ai_shadow_enabled_v2224", True)
 
     def patched_observe(self, scanner, event=None):
+        if os.environ.get("SKJUTBANA_AI_SHADOW_OFF") == "1":
+            # Hypothesis (default off, 2026-11-19): the shadow-only AI observation thread competes
+            # with the CV worker for the GIL/CPU (replay never runs it: NullExecutor). Skipping it
+            # changes no hit decision in train_only/advisory modes; it stops AI memory training data.
+            return None
         if _async_mode(self):
             # Snapshot only; heavy patch extraction/ranking runs elsewhere.
             ai_shadow_worker_v2224.submit(self, scanner, explicit_event=event)
@@ -889,6 +900,8 @@ def _install_async_ai_shadow_patch() -> None:
         return original_choose(self, default_x, default_y, shot_id=shot_id)
 
     def patched_mark(self, shot_id: int, state: str = "finished"):
+        if os.environ.get("SKJUTBANA_AI_SHADOW_OFF") == "1":
+            return None
         if _async_mode(self):
             # Bootstrap calls mark immediately after emission.  Do not race the
             # worker's context construction; record terminal state and let the
@@ -948,14 +961,18 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     from src.engine.camera.camera_manager import camera_manager
     from src.engine.camera.hit_scanner import hit_scanner
     from src.engine.shot_critical_v2223 import shot_critical_controller_v2223 as controller
+    from src.engine.loop_stall_probe import mark as _mark   # no-op unless SKJUTBANA_STALL_PROBE
 
     new_peak = controller.begin_pending_audio(app, audio_peak_detector)
     controller.prepare_object_snapshot(hit_scanner, app.scene, new_peak)
+    _mark('sp_audio_dispatch+object_snapshot')
 
     t0 = time.perf_counter()
     audio_peak_detector.update()
     audio_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_audio_update')
     controller.discover_scanner_events(hit_scanner, app.scene)
+    _mark('sp_discover_events_1')
     if render_history is not None:
         from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
         from src.engine.input.hit_input import hit_input
@@ -968,9 +985,11 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     t0 = time.perf_counter()
     camera_manager.update()
     camera_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_camera_update')
 
     from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
     object_hit_registry_v2223.advance_object_queries(hit_scanner, camera_manager)
+    _mark('sp_object_queries')
 
     # HitScanner.update is cheap on the main thread: frame bookkeeping +
     # result integration. _detect_frame_candidates() submits/harvests the
@@ -978,6 +997,7 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     t0 = time.perf_counter()
     hit_scanner.update(dt)
     scanner_main_ms = (time.perf_counter() - t0) * 1000.0
+    _mark('sp_hit_scanner_update')
     controller.discover_scanner_events(hit_scanner, app.scene)
     controller.note_stage(
         audio_dispatch_ms=audio_ms if new_peak is not None else 0.0,
@@ -988,6 +1008,26 @@ def shot_path_step(app: Any, dt: float, *, render_history: Any = None, gt_review
     controller.evaluate_object_shadow(hit_scanner)
     controller.update_finished(hit_scanner)
     return dict(new_peak=new_peak, audio_ms=audio_ms, camera_ms=camera_ms, scanner_ms=scanner_main_ms)
+
+
+_LOOP_STATS: dict[str, list] = {"work": [], "dt": []}
+
+
+def _loop_timing(t0: float, dt: float) -> None:
+    """SKJUTBANA_LOOP_TIMING=1 (default off, measurement only): main-loop work time (after the frame
+    pacing tick up to the flip) and frame interval; prints p50/p95/p99/max every 600 iterations."""
+    if os.environ.get("SKJUTBANA_LOOP_TIMING") != "1":
+        return
+    st = _LOOP_STATS
+    st["work"].append((time.monotonic() - t0) * 1000.0)
+    st["dt"].append(dt * 1000.0)
+    if len(st["work"]) >= 600:
+        import numpy as _np
+        w, d = _np.array(st["work"]), _np.array(st["dt"])
+        print(f"[LOOP] n={len(w)} work_ms p50={_np.percentile(w, 50):.1f} p95={_np.percentile(w, 95):.1f} "
+              f"p99={_np.percentile(w, 99):.1f} max={w.max():.1f} | interval_ms p50={_np.percentile(d, 50):.1f} "
+              f"p95={_np.percentile(d, 95):.1f} p99={_np.percentile(d, 99):.1f} max={d.max():.1f}", flush=True)
+        st["work"].clear(); st["dt"].clear()
 
 
 def install_v2224_runtime(AppClass: Any) -> None:
@@ -1041,6 +1081,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     raise ValueError('Render-history capture requires a separate ordinary gameplay process')
                 from automation.physical_render_history import from_environment
                 render_history = from_environment()
+            from src.engine import loop_stall_probe as _stall   # measurement only; no-op unless SKJUTBANA_STALL_PROBE
             while self.running and (guard is None or not guard.requested):
                 if getattr(self, '_optical_lab', None) is not None:
                     # Explicit research-only loop: no audio/scanner/game authority.
@@ -1059,6 +1100,8 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 # audio latency.
                 audio_pending = controller.pending_audio(audio_peak_detector)
                 dt = self.clock.tick(0 if audio_pending else FPS) / 1000.0
+                _loop_t0 = time.monotonic()
+                _stall.begin()
 
                 # The complete shot path (audio dispatch -> camera pickup ->
                 # object queries -> HitScanner -> controller bookkeeping) is one
@@ -1066,7 +1109,9 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 from src.engine.shot_async_v2224 import shot_path_step
                 precision_flash.pre_step(self)
                 lens_model.apply_pending()   # background lens fit -> saved on the main thread
+                _stall.mark('pre_step')
                 step = shot_path_step(self, dt, render_history=render_history, gt_review=gt_review)
+                _stall.mark('shot_path_step')
                 # Opt-in precision flash (no-op unless the scene asks for exact XY).
                 precision_flash.frame_hook(self, step.get('new_peak'))
 
@@ -1090,6 +1135,7 @@ def install_v2224_runtime(AppClass: Any) -> None:
 
                 if not self.running:
                     break
+                _stall.mark('flash_hook+events')
 
                 freeze_simulation = controller.should_defer_scene_work(self.scene, hit_scanner)
                 if not freeze_simulation:
@@ -1097,16 +1143,24 @@ def install_v2224_runtime(AppClass: Any) -> None:
                     if switch:
                         self._switch_to(switch.new_scene)
 
+                _stall.mark('scene_update')
                 self._update_window_caption()
                 self.scene.render(self.screen)
+                _stall.mark('scene_render')
+                from src.engine import display_floor
+                display_floor.apply(self.screen, self.scene)
                 precision_flash.render_hook(self.screen)
                 if render_history is not None:
                     render_flip_start=time.monotonic()
+                _stall.mark('overlays')
                 pygame.display.flip()
+                _stall.mark('flip')
                 if render_history is not None:
                     render_history.call('presented',self.screen,self.scene,
                         render_flip_start,time.monotonic(),time.time())
                 controller.mark_visible_after_flip(self.scene)
+                _loop_timing(_loop_t0, dt)
+                _stall.end()
                 if gt_review is not None:
                     from src.engine.input.object_hit_v2223 import object_hit_registry_v2223
                     gt_review.observe(self, hit_scanner, camera_manager, object_hit_registry_v2223,

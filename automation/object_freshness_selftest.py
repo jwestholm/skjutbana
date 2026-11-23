@@ -17,6 +17,10 @@ from src.engine.input.hit_regions import HitRegion, object_hit_regions
 from src.engine.physical_trace import PhysicalTraceRecorder, get_object_crop_recorder
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class FreshnessTests(unittest.TestCase):
     @staticmethod
     def pixels(value=140):

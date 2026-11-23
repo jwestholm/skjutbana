@@ -13,6 +13,10 @@ from automation import physical_gt_capture_selftest as fixtures
 from automation import physical_trace_label_crops as originals
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class ArithmeticTests(unittest.TestCase):
     def test_exact_affine_uint8_prediction(self):
         b=np.full((17,19,3),10,np.uint8);w=np.full_like(b,214)

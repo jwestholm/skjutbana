@@ -14,6 +14,9 @@ from automation import physical_trace_label as label
 from automation import physical_trace_label_crops as crops
 
 
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class GTLabelStartupTests(unittest.TestCase):
     def setUp(self):
         # Reuse the existing writer/lifecycle fixture to match the real capture

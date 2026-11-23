@@ -19,6 +19,10 @@ spec=importlib.util.spec_from_file_location('kompetensprov_contract_test_game',G
 import sys
 game_module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=game_module;spec.loader.exec_module(game_module)
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class GameContractTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):

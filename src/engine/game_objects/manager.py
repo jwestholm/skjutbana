@@ -430,6 +430,22 @@ class ObjectManager:
 
     def _execute_action(self, obj: GameObject, source_event: GameObjectEvent, action: EffectAction) -> None:
         kind = str(action.kind)
+        if kind == "break_parts":
+            # Explicit structural dependencies, not a second inferred hit or score.
+            wanted = set(action.params.get("part_ids", ()))
+            for part in self.objects:
+                if (part is obj or not part.active or part.owner != obj.owner
+                        or part.entity_id != obj.entity_id or part.part_id not in wanted):
+                    continue
+                if part.damage_model is not None:
+                    for layer in part.damage_model.layers:
+                        layer.current = 0.0
+                # Disable before reactions: cyclic dependencies cannot re-enter it.
+                part.active = False
+                self._emit(part, "object.broken", shot_id=source_event.shot_id,
+                           payload={"cause": "structural", "source_part_id": obj.part_id,
+                                    "source_object_id": obj.object_id})
+            return
         if kind == "set_state":
             obj.state = str(action.name)
             self.events.emit(GameObjectEvent(

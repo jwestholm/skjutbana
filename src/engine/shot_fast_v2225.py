@@ -1248,6 +1248,9 @@ def _install_local_confirmation_patch() -> None:
     def detect_v2225(self, gray: np.ndarray, frame_ts: float):
         if os.environ.get("SKJUTBANA_LATE_REPROPOSE_S"):
             _maybe_submit_late_repropose(self, gray, frame_ts)
+        if os.environ.get("SKJUTBANA_H15_DENSE") == "1":   # H15 dense second opinion (default off)
+            from src.engine import shot_dense_h15
+            shot_dense_h15.on_frame(self, gray, frame_ts)
         if not _CONFIG.local_confirm_enabled:
             return previous_detect(self, gray, frame_ts)
 

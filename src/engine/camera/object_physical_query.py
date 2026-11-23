@@ -10,10 +10,12 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict
 import math
+import os
 import time
 from types import SimpleNamespace
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import numpy as np
 
 from src.engine.camera.analysis_geometry_v2221 import AnalysisGeometryV2221
@@ -30,6 +32,37 @@ MAX_COMPONENTS = 24
 PER_OBJECT_HYPOTHESES = 3
 PER_OBJECT_COMPONENTS = 2
 DEADLINE_S = .35
+if os.environ.get("SKJUTBANA_OBJECT_DENSE") == "1":
+    # dense decision needs two POST frames >= 0.15 s after the shot; allow a little more time
+    DEADLINE_S = float(os.environ.get("SKJUTBANA_OBJECT_DENSE_DEADLINE_S", "1.2"))
+
+
+def _dense_enabled():
+    """SKJUTBANA_OBJECT_DENSE=1 (default off): decide OBJECT shots with the H15 dense dot search
+    (PRE/POST medians, radial matched filter, local-RMS normalisation) inside the frozen object
+    crops instead of the persistence/freshness change rule."""
+    return os.environ.get("SKJUTBANA_OBJECT_DENSE") == "1"
+
+
+def _dense_dx(game_x):
+    """SKJUTBANA_OBJECT_DENSE_GAME_DX: 'c0' or 'c0,c1,c2' -> c0 + c1*u + c2*u^2, u=(x-380)/380 clamped to the
+    fitted range |u|<=0.63 (game x 141..618)."""
+    raw = os.environ.get("SKJUTBANA_OBJECT_DENSE_GAME_DX")
+    if not raw:
+        return 0.0
+    try:
+        c = [float(v) for v in raw.split(",")]
+    except ValueError:
+        return 0.0
+    u = max(-0.63, min(0.63, (game_x - 380.0) / 380.0))
+    return sum(ci * u ** i for i, ci in enumerate(c))
+
+
+def _denv(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
 CONTEXT_PX = 8
 _yy,_xx=np.ogrid[-8:9,-8:9]
 _d2=_xx**2+_yy**2
@@ -38,7 +71,7 @@ _RING=(_d2>=16)&(_d2<=64)
 
 
 def _gray(frame):
-    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame.copy()
+    return _detector_gray(frame) if frame.ndim == 3 else frame.copy()
 
 
 class ObjectPhysicalQuery:
@@ -57,6 +90,10 @@ class ObjectPhysicalQuery:
         self.game_regions = deepcopy(tuple(snapshot.game_regions))
         self.object_hit_requested = any(r.metadata.get('physical_query',{}).get(
             'result_semantics') == 'OBJECT_HIT' for r in self.game_regions)
+        requested_dense = any(r.metadata.get('physical_query', {}).get('evidence_method') == 'dense'
+                              for r in self.game_regions)
+        self.dense_enabled = _dense_enabled() or requested_dense
+        self.deadline_s = _denv('SKJUTBANA_OBJECT_DENSE_DEADLINE_S', 1.2) if self.dense_enabled else DEADLINE_S
         self.camera_to_game = camera_to_game
         self.capture_crop=capture_crop
         self.capture_result=capture_result
@@ -101,7 +138,25 @@ class ObjectPhysicalQuery:
             self.finish('UNCERTAIN', 'recent_surface_too_old')
         else:
             self._prepare(pre_frames[-3:])
+            self._model_prepare(pre_frames[-3:])
         self.prepare_ms = (time.perf_counter() - started) * 1000
+
+    def _model_prepare(self, pre_frames):
+        """SHADOW only (SKJUTBANA_OBJECT_DENSE_MODEL): per-region PRE crops for the candidate-peak model."""
+        self.model_tiles = []
+        if self.final or not (self.dense_enabled and self.object_hit_requested):
+            return
+        try:
+            from src.engine.camera.dense_peak_model import live_model, tile_bounds
+            if live_model() is None:
+                return
+            for r in self.regions:
+                x0, y0, x1, y1 = tile_bounds([r.x, r.y, r.width, r.height])
+                pre = np.stack([_gray(f.frame_bgr[y0:y1, x0:x1]) for f in pre_frames]).astype(np.float32)
+                self.model_tiles.append(dict(bounds=(x0, y0, x1, y1), pre=pre, post=[]))
+        except Exception as exc:   # shadow must never affect the query
+            self.model_tiles = []
+            self.dense_model = dict(error=type(exc).__name__)
 
     def _prepare(self, pre_frames):
         roi_started=time.perf_counter()
@@ -176,7 +231,11 @@ class ObjectPhysicalQuery:
                 self.freshness_ms.append((time.perf_counter()-freshness_started)*1000.)
             self.pre_activity |= np.count_nonzero((noise>3.)&(mask>0))>=2
             valid_pixels=int(np.count_nonzero(mask))
-            self.tiles.append(dict(geometry=geometry,mask=mask,valid_pixels=valid_pixels,pre=reference,
+            if self.dense_enabled:
+                dense_pre=np.median(stack,axis=0).astype(np.float32) if len(stack)>1 else stack[0]
+            else:
+                dense_pre=None
+            self.tiles.append(dict(dense_pre=dense_pre,dense_post=[],geometry=geometry,mask=mask,valid_pixels=valid_pixels,pre=reference,
                 noise=noise,previous=None,previous_ts=None,object_ids=window.object_ids,
                 pre_envelope=envelope,pre_registration=pre_registration,
                 pre_photometric_offsets=photometric_offsets,previous_new=None))
@@ -351,19 +410,23 @@ class ObjectPhysicalQuery:
             return self.result
         ts = float(frame.timestamp)
         now = time.time() if delivered_ts is None else float(delivered_ts)
-        if now >= self.peak_ts+DEADLINE_S:
+        # Dense flag: a main-loop stall must not discard frames already in the ring; the frame-timestamp
+        # deadline below still bounds the window.
+        if now >= self.peak_ts+self.deadline_s and not (self.dense_enabled and self.object_hit_requested):
             return self.finish_deadline(now)
         if ts > now or ts < self.peak_ts or ts <= self.last_frame_ts:
             return self.result
-        if ts > self.peak_ts+DEADLINE_S:
+        if ts > self.peak_ts+self.deadline_s:
             return self.finish_deadline(now)
         if frame.frame_bgr.shape[:2] != self.frame_shape:
             return self.finish('UNCERTAIN','camera_geometry_changed')
         started = time.perf_counter()
-        stop_after=started+self.peak_ts+DEADLINE_S-now
+        stop_after=started+self.peak_ts+self.deadline_s-now
         self.first_post_ts = ts if self.first_post_ts is None else self.first_post_ts
         self.last_frame_ts = ts
         self.frames += 1
+        if self.dense_enabled and self.object_hit_requested:
+            return self._dense_observe(frame, ts, now, started)
         candidates = []
         production = {}
         def over_budget():
@@ -546,6 +609,168 @@ class ObjectPhysicalQuery:
             return self.finish_deadline(finished_at)
         return self.payload('UNCERTAIN','awaiting_persistence',finished_at)
 
+    def _model_shadow(self, tiles):
+        """Score candidates with the SHADOW model (background thread); logs what it WOULD award.
+        Never changes the decision; the rule decision is already final when this runs."""
+        if not tiles:
+            return
+        # let the main thread publish the rule decision and render the reaction first (GIL contention)
+        time.sleep(_denv("SKJUTBANA_OBJECT_DENSE_MODEL_DELAY_S", 0.6))
+        t0 = time.perf_counter()
+        try:
+            from src.engine.camera.dense_peak_model import dedupe, live_model, tile_peaks
+            model = live_model()
+            rows = []
+            for bright in ((False, True) if model.uses_bright else (False,)):
+                part = []
+                for mt in tiles:
+                    if not mt['post']:
+                        continue
+                    x0, y0 = mt['bounds'][:2]
+                    part += [(cx, cy, s, f + ([1.0 if bright else 0.0] if model.uses_bright else []))
+                             for cx, cy, s, f in tile_peaks(mt['pre'], np.stack(mt['post']), x0, y0, bright=bright)]
+                rows += dedupe(part)
+            if not rows:
+                self.dense_model = dict(state='no_candidates')
+                return
+            ps = model.p([r[3] for r in rows])
+            cands = []
+            for (cx, cy, s, _f), p in zip(rows, ps):
+                g = self._dense_game(cx, cy)
+                inside = []
+                for region in self.regions:
+                    original = next((r for r in self.game_regions if r.object_id == region.object_id), None)
+                    shape = (original.metadata.get('v250_object_snapshot', {}).get('shape') if original else None)
+                    if g is not None and shape and shape_contains(shape, *g):
+                        inside.append(region.object_id)
+                cands.append(dict(p=float(p), s=float(s), cx=float(cx), cy=float(cy),
+                                  game_xy=None if g is None else [float(g[0]), float(g[1])], inside=inside))
+            cands.sort(key=lambda c: -c['p'])
+            best = cands[0]
+            outs = {(c['inside'][0] if len(c['inside']) == 1 else ('AMBIG' if c['inside'] else None))
+                    for c in cands if c['p'] >= model.ambig_p}
+            if best['p'] < model.tau:
+                would, why = None, 'below_tau'
+            elif len(outs) > 1 or 'AMBIG' in outs:
+                would, why = None, 'ambiguous'
+            elif len(best['inside']) == 1:
+                would, why = best['inside'][0], 'award'
+            else:
+                would, why = None, 'outside'
+            self.dense_model = dict(state='scored', would_award=would, reason=why, tau=model.tau,
+                                    best=best, top=cands[:3], ms=(time.perf_counter() - t0) * 1000.)
+        except Exception as exc:   # shadow must never affect the query
+            self.dense_model = dict(state='error', error=type(exc).__name__)
+        dm = self.dense_model
+        b = dm.get('best') or {}
+        import sys as _sys   # one write per line: never interleaves with the main thread's log lines
+        _sys.stdout.write(f"[OBJECT-DENSE-MODEL] shot={self.shot_id} state={dm.get('state')} would_award={dm.get('would_award')} "
+                          f"reason={dm.get('reason')} best_p={b.get('p')} best_inside={b.get('inside')} "
+                          f"best_game_xy={b.get('game_xy')} ms={dm.get('ms')}\n")
+        _sys.stdout.flush()
+
+    def _dense_game(self, cx, cy):
+        """camera->game for the dense decision plus an optional measured constant x correction
+        (SKJUTBANA_OBJECT_DENSE_GAME_DX, game px; fitted on projected dots for one calibration)."""
+        g = self.camera_to_game(cx, cy) if self.camera_to_game else None
+        if g is None:
+            return None
+        return (float(g[0]) + _dense_dx(float(g[0])), float(g[1]))
+
+    def _dense_observe(self, frame, ts, now, started):
+        """H15-style decision on the frozen object crops (flag SKJUTBANA_OBJECT_DENSE)."""
+        from src.engine.shot_dense_h15 import dense_top, _core_bipolar
+        min_age = _denv("SKJUTBANA_OBJECT_DENSE_POST_AGE_S", 0.35)  # hole must be visible: projectile flight + projector/camera latency
+        need = int(_denv("SKJUTBANA_OBJECT_DENSE_POST_FRAMES", 3))
+        if ts - self.peak_ts >= min_age:
+            for tile in self.tiles:
+                tile['dense_post'].append(_gray(tile['geometry'].crop_array(frame.frame_bgr)).astype(np.float32))
+            for mt in getattr(self, 'model_tiles', []):
+                if len(mt['post']) < need:
+                    x0, y0, x1, y1 = mt['bounds']
+                    mt['post'].append(_gray(frame.frame_bgr[y0:y1, x0:x1]).astype(np.float32))
+        n_post = len(self.tiles[0]['dense_post']) if self.tiles else 0
+        self.processing_ms.append((time.perf_counter()-started)*1000.)
+        if n_post < need:
+            return self.payload('UNCERTAIN', 'awaiting_dense_post', now)
+        peaks = []
+        for tile in self.tiles:
+            pre_m = tile['dense_pre']
+            posts = tile['dense_post']
+            post_m = np.median(np.stack(posts), axis=0).astype(np.float32) if len(posts) > 1 else posts[0]
+            if pre_m.shape[0] < 24 or pre_m.shape[1] < 24:
+                continue
+            mask = tile['mask']
+            for x, y, sc in dense_top(pre_m, post_m, top_n=6):
+                xi, yi = int(round(x)), int(round(y))
+                if not (0 <= yi < mask.shape[0] and 0 <= xi < mask.shape[1]) or mask[yi, xi] == 0:
+                    continue
+                core, bip = _core_bipolar(pre_m, post_m, x, y)
+                cx, cy = tile['geometry'].local_to_camera(x, y)
+                g = self._dense_game(cx, cy)
+                peaks.append(dict(s=float(sc), core=float(core), bipolar=float(bip), cx=float(cx), cy=float(cy),
+                                  game_xy=None if g is None else [float(g[0]), float(g[1])]))
+        peaks.sort(key=lambda d: -d['s'])
+        self.dense_peaks = peaks[:6]
+        if getattr(self, 'model_tiles', None):
+            # SHADOW off the main thread: never delays the gameplay decision
+            import threading
+            tiles, self.model_tiles = self.model_tiles, []
+            threading.Thread(target=self._model_shadow, args=(tiles,), name='dense-model-shadow', daemon=True).start()
+        s_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_S", 11.0)
+        r_min = _denv("SKJUTBANA_OBJECT_DENSE_MIN_RATIO", 1.15)
+        # A peak "looks like a hole" when its darkening core is clear; bipolar (bright+dark edge)
+        # structure is only required to be low for moderate cores.  Ratio is taken against the next
+        # hole-like peak, not against weak edge-noise peaks.
+        min_core = _denv("SKJUTBANA_OBJECT_DENSE_MIN_CORE", 0.15)
+        strong_core = _denv("SKJUTBANA_OBJECT_DENSE_STRONG_CORE", 0.4)
+        max_bip = _denv("SKJUTBANA_OBJECT_DENSE_MAX_BIPOLAR", 1.8)
+        holey = [p for p in peaks if p['core'] >= min_core and (p['core'] >= strong_core or p['bipolar'] <= max_bip)]
+        ok = False
+        s2 = 0.0
+        if holey:
+            top = holey[0]
+            s2 = holey[1]['s'] if len(holey) > 1 else 0.0
+            ok = top['s'] >= s_min and (s2 <= 0 or top['s'] / s2 >= r_min)
+        if not ok and peaks:
+            # Strong, isolated peak accepted regardless of core depth: real holes can be much shallower
+            # than projected dots (physical median core ~0.09).  Ratio is against the next peak of any kind.
+            strong_s = _denv("SKJUTBANA_OBJECT_DENSE_ISOLATED_S", 18.0)
+            strong_r = _denv("SKJUTBANA_OBJECT_DENSE_ISOLATED_RATIO", 1.5)
+            t0 = peaks[0]
+            s2 = peaks[1]['s'] if len(peaks) > 1 else 0.0
+            if t0['s'] >= strong_s and (s2 <= 0 or t0['s'] / s2 >= strong_r):
+                top, ok = t0, True
+        self.per_object = []
+        if not ok:
+            self.hypotheses = []
+            return self.finish('UNCERTAIN', 'dense_no_accepted_dot', now)
+        cx, cy = top['cx'], top['cy']
+        game_xy = self._dense_game(cx, cy)
+        associations = []
+        for region in self.regions:
+            original = next((r for r in self.game_regions if r.object_id == region.object_id), None)
+            shape = (original.metadata.get('v250_object_snapshot', {}).get('shape') if original else None)
+            exact = None
+            if game_xy is not None and shape:
+                exact = shape_contains(shape, *game_xy)
+            elif game_xy is not None and original is not None:
+                gx, gy = game_xy
+                exact = (original.x <= gx < original.x + original.width and original.y <= gy < original.y + original.height)
+            dx = max(region.x - cx, 0., cx - region.right); dy = max(region.y - cy, 0., cy - region.bottom)
+            associations.append(dict(object_id=region.object_id, inside_camera_aabb=dx == 0 and dy == 0,
+                                     camera_aabb_distance_px=math.hypot(dx, dy), inside_exact_shape=exact))
+        cand = dict(camera_xy=[cx, cy], game_xy=list(game_xy) if game_xy else None, evidence_score=top['s'],
+                    confidence=None, confidence_semantics='h15_dense_matched_filter_score', confirmed=True,
+                    persistent_local_change=True, evidence_decision='h15_dense_dot', producer='OBJECT_DENSE_H15',
+                    frame_ts=ts, regions=associations, dense=dict(top=top, second_s=s2, post_frames=n_post))
+        self.hypotheses = [cand]
+        for oid in sorted({a['object_id'] for a in associations}):
+            self.per_object.append(dict(object_id=oid, candidates=[cand], decision='dense'))
+        if self.first_hypothesis_ts is None:
+            self.first_hypothesis_ts = now
+        return self.finish('PHYSICAL_HIT', 'h15_dense_dot', now)
+
     def finish_deadline(self, now=None):
         # Preserve the latest physical support at an OBJECT_HIT deadline.
         # The object resolver may still correctly return UNKNOWN when several
@@ -570,6 +795,8 @@ class ObjectPhysicalQuery:
             candidate_count=self.candidate_count,post_frames=self.frames,pre_frame_ts=self.pre_times,
             examined_candidate_count=self.examined_candidate_count,
             pre_activity_context=self.pre_activity,
+            dense_peaks=getattr(self,'dense_peaks',None),
+            dense_model=getattr(self,'dense_model',None),
             peak_ts=self.peak_ts,first_post_ts=self.first_post_ts,decision_ts=now,
             timing=dict(prepare_ms=getattr(self,'prepare_ms',0.),processing_ms=list(self.processing_ms),
                 roi_prepare_ms=self.roi_prepare_ms,pre_prepare_ms=self.pre_prepare_ms,
@@ -590,6 +817,14 @@ class ObjectPhysicalQuery:
             self.result['object_decision']=self._object_decision(status,reason)
             self.result['timing']['object_decision_ms']=(time.perf_counter()-started)*1000.
         self.tiles.clear()  # immediately release PRE/POST arrays; only bounded diagnostics survive
+        if self.dense_enabled and self.object_hit_requested:
+            try:
+                pk = [(round(d['s'], 1), round(d['core'], 2), round(d['bipolar'], 2)) for d in (getattr(self, 'dense_peaks', None) or [])[:4]]
+                print(f"[OBJECT-DENSE] shot={self.shot_id} status={status} reason={reason} frames={self.frames} "
+                      f"decision_ms={self.result['timing']['audio_to_decision_ms']:.0f} "
+                      f"first_post_ms={self.result['timing']['audio_to_first_frame_ms']} peaks={pk}", flush=True)
+            except Exception as exc:
+                print('[OBJECT-DENSE] log failed', exc, flush=True)
         if self.capture_result:
             self.capture_result(self.shot_id,self.result)
         return self.result

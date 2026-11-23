@@ -54,6 +54,18 @@ class EffectAction:
         return cls("set_active", "", {"active": bool(active)})
 
     @classmethod
+    def break_parts(cls, *part_ids: str) -> "EffectAction":
+        """Explicit structural failure of sibling parts, never another physical hit.
+
+        Scope is the source object's owner and entity_id. Nothing opts in unless
+        a game attaches this action to a reaction (normally object.broken).
+        """
+        ids = tuple(dict.fromkeys(str(p).strip() for p in part_ids))
+        if not ids or any(not p for p in ids):
+            raise ValueError("break_parts requires named part ids")
+        return cls("break_parts", "", {"part_ids": ids})
+
+    @classmethod
     def remove(cls) -> "EffectAction":
         return cls("remove", "", {})
 

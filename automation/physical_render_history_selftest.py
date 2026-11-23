@@ -22,6 +22,10 @@ from automation import physical_render_history as r
 from automation.physical_collection import prepare_can_play
 
 
+# Synthetic captures use controlled free space; live disk policy is unchanged.
+from automation.trace_test_support import setUpModule, tearDownModule
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(dir='/data/skjutbana/evaluation_runs')
@@ -202,6 +206,7 @@ class RenderTests(unittest.TestCase):
         """Execute the actual installed loop with inert device services; no hardware."""
         tree=ast.parse(Path('src/engine/shot_async_v2224.py').read_text())
         run=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='run_v2224')
+        timing=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_loop_timing')
         sequences=[]
         for enabled in [False,True]:
             steps=[]
@@ -230,8 +235,9 @@ class RenderTests(unittest.TestCase):
                 'src.engine.input.object_hit_v2223':S(object_hit_registry_v2223=registry),
                 'src.engine.input.hit_input':S(hit_input=self.mapper),
                 'automation.physical_render_history':S(from_environment=factory)}
-            ns=dict(time=time,os=os,async_detector_v2224=object(),_shutdown_workers=Mock())
-            exec(compile(ast.Module(body=[deepcopy(run)],type_ignores=[]),'<installed loop>','exec'),ns)
+            ns=dict(time=time,os=os,async_detector_v2224=object(),_shutdown_workers=Mock(),
+                _LOOP_STATS=dict(work=[],dt=[]))
+            exec(compile(ast.Module(body=[deepcopy(timing),deepcopy(run)],type_ignores=[]),'<installed loop>','exec'),ns)
             with patch.dict(os.environ,{'SKJUTBANA_RENDER_HISTORY_ROOT':'fixture'} if enabled else {},clear=True),patch.dict('sys.modules',modules):
                 ns['run_v2224'](app)
             if enabled:

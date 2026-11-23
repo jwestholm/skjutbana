@@ -15,6 +15,7 @@ import time
 from typing import Any, Mapping, Sequence
 
 import cv2
+from src.engine.camera.detector_luma import detector_gray as _detector_gray
 import numpy as np
 
 from src.engine.input.object_hit_v2223 import object_hit_registry_v2223, viewport_center_prior
@@ -304,6 +305,8 @@ class ShotCriticalControllerV2223:
             timing.detector_done_ts = now
             self._just_finished.append(sid)
             e2e = max(0.0, (now - timing.peak_ts) * 1000.0)
+            from src.engine import shot_timing_log as _stl
+            _stl.record_finish(sid, state, timing.peak_ts, e2e, ev)   # diagnostic only
             print(
                 f"[V2.22.3 LATENCY] shot={sid} state={state} "
                 f"dispatch={timing.dispatch_delay_ms:.1f}ms camera={timing.camera_update_ms:.1f}ms "
@@ -421,7 +424,7 @@ def _averaged_pre_v2223(scanner: Any, ring: Sequence[Any], best: Any, peak_ts: f
         return None
     acc = None
     for cf in frames:
-        g = cv2.cvtColor(cf.frame_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        g = _detector_gray(cf.frame_bgr).astype(np.float32)
         acc = g if acc is None else acc + g
     scanner._pre_shot_average_frames = len(frames)
     return np.clip(acc / len(frames) + 0.5, 0, 255).astype(np.uint8)
@@ -441,7 +444,7 @@ def _install_recent_pre_snapshot() -> None:
             try:
                 averaged = _averaged_pre_v2223(self, ring, best, float(peak_ts))
                 self.pre_shot_snapshot = (averaged if averaged is not None
-                                          else cv2.cvtColor(best.frame_bgr, cv2.COLOR_BGR2GRAY))
+                                          else _detector_gray(best.frame_bgr))
                 self.pre_shot_snapshot_ts = float(best.timestamp)
                 self._pre_shot_snapshot_source = "camera_ring"
                 self._pre_shot_snapshot_timestamp_semantics = "APPLICATION_RECEIVE_TIME_NOT_EXPOSURE"
@@ -665,6 +668,8 @@ def install_v2223_runtime(AppClass: Any) -> None:
 
             self._update_window_caption()
             self.scene.render(self.screen)
+            from src.engine import display_floor
+            display_floor.apply(self.screen, self.scene)
             pygame.display.flip()
             controller.mark_visible_after_flip(self.scene)
 
