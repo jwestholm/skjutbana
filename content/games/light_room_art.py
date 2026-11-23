@@ -6,28 +6,31 @@ import pygame
 from src.engine.game_objects import ObjectGeometry
 
 ASSET_ROOT=Path(__file__).resolve().parent/'light_room_parts_assets'
+NATURAL_ASSET_ROOT=ASSET_ROOT.with_name('light_room_natural_assets')
 
 
 class LightRoomArt:
-    def __init__(self,size):
-        data=(ASSET_ROOT/'manifest.json').read_bytes()
+    def __init__(self,size,*,natural=False):
+        self.natural=bool(natural)
+        self.root=NATURAL_ASSET_ROOT if natural else ASSET_ROOT
+        data=(self.root/'manifest.json').read_bytes()
         self.manifest=json.loads(data);self.manifest_sha256=hashlib.sha256(data).hexdigest()
         self.objects=self.manifest['objects'];self.size=size
         self.rooms=self.manifest.get('rooms',[])
         self.room_id=None;self._plates={}
-        self.background=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/'room.png')),size)
+        self.background=pygame.transform.smoothscale(pygame.image.load(str(self.root/'room.png')),size)
         self._plate=self.background.copy()
         self._shadows={};self._raw={};self._scaled={};self._raw_hit={};self._scaled_hit={};self._raw_frames={};self._frames={}
         for name,spec in self.objects.items():
             for part,p in spec['parts'].items():
-                self._raw[name,part]=pygame.image.load(str(ASSET_ROOT/p['sprite']))
-                self._raw_hit[name,part]=pygame.image.load(str(ASSET_ROOT/p.get('hit_sprite',p['sprite'])))
-                self._raw_frames[name,part]=[pygame.image.load(str(ASSET_ROOT/f)) for f in p['frames']]
+                self._raw[name,part]=pygame.image.load(str(self.root/p['sprite']))
+                self._raw_hit[name,part]=pygame.image.load(str(self.root/p.get('hit_sprite',p['sprite'])))
+                self._raw_frames[name,part]=[pygame.image.load(str(self.root/f)) for f in p['frames']]
 
     def select_room(self,room):
-        self.room_id=room['id'];self.room_template=room['template']
+        self.room_id=room['id'];self.room_template=room['template'];self.room_spec=room
         if room['id'] not in self._plates:
-            self._plates[room['id']]=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/room['image'])),self.size)
+            self._plates[room['id']]=pygame.transform.smoothscale(pygame.image.load(str(self.root/room['image'])),self.size)
         self._plate=self._plates[room['id']]
         self.background=self._plate.copy();self.manifest['anchors']=room['anchors']
 
@@ -42,7 +45,8 @@ class LightRoomArt:
         for item in items:
             size=(round(item['geometry'].width),round(item['geometry'].height))
             if self.manifest.get('scene')=='living_room' and size not in self._shadows:
-                shadow=pygame.Surface((16,6),pygame.SRCALPHA);shadow.fill((194,198,190,0));pygame.draw.ellipse(shadow,(194,198,190,65),(1,1,14,4))
+                color=(28,23,17) if self.natural else (194,198,190)
+                shadow=pygame.Surface((16,6),pygame.SRCALPHA);shadow.fill((*color,0));pygame.draw.ellipse(shadow,(*color,65),(1,1,14,4))
                 self._shadows[size]=pygame.transform.smoothscale(shadow,(max(12,round(size[0]*.95)),max(5,round(size[1]*.12))))
             for part in self.objects[item['kind']]['parts']:
                 for raw,cache in ((self._raw,self._scaled),(self._raw_hit,self._scaled_hit)):
@@ -54,7 +58,7 @@ class LightRoomArt:
             if self.rooms:
                 import numpy as np
                 item['display_mask']=np.maximum.reduce([pygame.surfarray.array_alpha(self._scaled[item['kind'],p,size])>=128 for p in self.objects[item['kind']]['parts']]).astype(np.uint8)
-        if self.rooms:
+        if self.rooms and not self.natural:
             from content.games.light_room_safety import local_background
             self.background,self.safety_weight=local_background(self._plate,items)
 
@@ -65,7 +69,7 @@ class LightRoomArt:
             sx,sy=size[0]/(x1-x0),size[1]/(y1-y0)
             fs=(round(spec['source_size'][0]*sx),round(spec['source_size'][1]*sy))
             if (name,part) not in self._raw_frames:
-                self._raw_frames[name,part]=[pygame.image.load(str(ASSET_ROOT/p)) for p in spec['parts'][part]['frames']]
+                self._raw_frames[name,part]=[pygame.image.load(str(self.root/p)) for p in spec['parts'][part]['frames']]
             self._frames[key]=([pygame.transform.smoothscale(f,fs) for f in self._raw_frames[name,part]],
                                (-round(x0*sx),-round(y0*sy)))
         return self._frames[key]

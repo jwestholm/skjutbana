@@ -1149,11 +1149,12 @@ def install_v2224_runtime(AppClass: Any) -> None:
                 _stall.mark('scene_render')
                 from src.engine import display_floor
                 display_floor.apply(self.screen, self.scene)
-                precision_flash.render_hook(self.screen)
+                precision_flash.render_hook(self.screen,self.scene)
                 if render_history is not None:
                     render_flip_start=time.monotonic()
                 _stall.mark('overlays')
                 pygame.display.flip()
+                precision_flash.presented_hook(time.time())
                 _stall.mark('flip')
                 if render_history is not None:
                     render_history.call('presented',self.screen,self.scene,

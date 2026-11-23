@@ -10,7 +10,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--api', action='store_true', help='start registered game in an already running app')
     p.add_argument('--menu', action='store_true', help='launch app in its ordinary menu with capture enabled')
+    p.add_argument('--object-highlight','--object-glow',dest='object_glow',action='store_true',help='Opt in to local target highlights and natural materials')
     a = p.parse_args(argv)
+    if a.api and a.object_glow:p.error('Choose G in the game intro for an already running API instance; client environment cannot change the server.')
+    if a.object_glow:os.environ['SKJUTBANA_PANG_OBJECT_HIGHLIGHT']='1'
     os.chdir(REPO)
     if str(REPO) not in sys.path: sys.path.insert(0,str(REPO))
     if a.api:

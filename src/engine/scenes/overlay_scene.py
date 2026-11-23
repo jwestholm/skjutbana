@@ -35,6 +35,22 @@ class OverlayScene(Scene):
             callback(result)
 
     @property
+    def object_highlight(self):
+        return getattr(self.inner, "object_highlight", False) is True
+
+    @property
+    def precision_glow(self):
+        return getattr(self.inner, 'precision_glow', None)
+
+    def get_precision_glow_context(self):
+        callback=getattr(self.inner, 'get_precision_glow_context', None)
+        return callback() if callable(callback) else None
+
+    def on_precision_glow_state(self, state):
+        callback=getattr(self.inner, 'on_precision_glow_state', None)
+        if callable(callback):callback(state)
+
+    @property
     def precision_flash(self):
         return getattr(self.inner, "precision_flash", "auto")
 

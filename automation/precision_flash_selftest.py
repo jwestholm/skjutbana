@@ -186,7 +186,8 @@ class StateMachineTests(unittest.TestCase):
         self._run_flash(fl, clock, cam, [])
         fl.on_peak(clock.t)
         fl.hold_ordinary_hit(5, 6)
-        fl.sync_policy(_Scene("exact", "off"))
+        fl.scene.precision_flash="off"
+        fl.sync_policy(fl.scene)
         self.assertEqual(emitted, [(5.0, 6.0)])
         self.assertFalse(fl.hold_ordinary_hit(7, 8))
 

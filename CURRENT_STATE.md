@@ -1,5 +1,30 @@
 # Current project state
 
+## PANG R8 object-highlight mode — 2026-11-23
+
+Local `dev` now contains the recovered R8 work: three natural room templates,
+three furnishing variants each, and a 318-PNG bundle with nine distinct room
+plates. PANG opts into `object_highlight` only when requested; default scenes
+retain the existing behavior. The engine highlights exact active object
+silhouettes with a restrained same-hue lightening and a thin pale-yellow ring.
+The wider per-object circles are reserved for optical measurement. The display
+returns to the normal palette as soon as the brief measurement presentation
+ends, while asynchronous evidence processing continues. Legacy
+`precision_flash=object_glow` and `--object-glow` remain compatible; explicit
+`off` wins. Damage can shrink the active highlight but cannot enlarge the
+frozen measurement mask or borrow new reference pixels.
+
+Verification so far: all nine natural room render exports completed; three
+software previews (living room, kitchen, study) exercise the simulated
+highlight and gameplay reaction; 11 `object_highlight`, 19 `object_glow`, and
+19 `precision_flash` selftests pass. The full isolated suite passes **169/169
+modules**. A 12-seed digital bench (336 cases) had zero unexpected awards;
+48/48 strong hits and five other scenario classes matched expectations, while
+the deliberately weak signal abstained UNKNOWN in 48/48 cases. The digital
+bench evaluates pixels and timing only; it is not physical/source-session
+replay. Local commit is pending. No camera or projector was started, and
+physical >=95% accuracy/visual acceptance remain unverified.
+
 ## Local dev integration through PANG R7 — 2026-11-23
 
 On the operator's instruction, `dev` now combines `codex/astra-2` (67b888d)
@@ -17,7 +42,7 @@ writer queue. No production disk limit or detector behavior was weakened.
 `python3 -m automation.run_selftests --jobs 2`: **167/167 modules passed** after
 these fixes; `git diff --check` passed. Tests use dummy SDL and isolated private
 `/dev`, `/tmp`, `/data` and networking; no physical validation was performed.
-R8 is still running in the other worktree and is not included in this checkpoint.
+R8 was recovered from its interrupted worktree into this local `dev` checkout.
 No push or branch deletion was performed.
 
 ## PANG! R7 room variety and local display safety — 2026-11-23

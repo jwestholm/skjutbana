@@ -1,6 +1,7 @@
 """Ljusjakten: bright pre-rendered ceramics, frozen OBJECT targets and post-decision break effects."""
 from __future__ import annotations
 from dataclasses import replace
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,10 @@ class LightTargetsGame:
 
     def __init__(self, game_root, viewport):
         self.viewport = viewport.copy()
+        self.object_highlight=os.environ.get('SKJUTBANA_PANG_OBJECT_HIGHLIGHT',
+            os.environ.get('SKJUTBANA_PANG_OBJECT_GLOW','0'))=='1'
+        self.precision_glow=dict(color=(230,220,150),radius_px=12,reference_s=.40,measurement_s=.18,min_interval_s=2.)
+        self._glow_ready=False;self._glow_regions=();self._glow_state='show_targets'
         self.manager = ObjectManager()
         self.rng = random.Random()
         self.owner = 'light_targets:' + uuid.uuid4().hex
@@ -90,7 +95,7 @@ class LightTargetsGame:
         if self._subscribed: return
         self.font = pygame.font.Font(None, 23)
         self.big = pygame.font.Font(None, 38)
-        self.art = LightRoomArt(self.viewport.size)
+        self.art = LightRoomArt(self.viewport.size,natural=self._uses_glow())
         self._load_room_history()
         self._sounds = build_sounds()
         event_bus.subscribe(self._on_object_event)
@@ -114,6 +119,31 @@ class LightTargetsGame:
         self.scores = [0, 0]; self.used = [0, 0];self.last_outcome=None
         self.player = 0; self.streak = 0; self._slots = []
         self._next_target()
+
+    @property
+    def object_highlight(self):
+        return self.precision_flash == "object_glow"
+
+    @object_highlight.setter
+    def object_highlight(self, enabled):
+        if not isinstance(enabled, bool):
+            raise ValueError("object_highlight requires a boolean")
+        self.precision_flash = "object_glow" if enabled else "off"
+
+    def _uses_glow(self):
+        from src.engine.precision_flash import resolve_policy
+        return self.precision_flash=='object_glow' and resolve_policy(self)[0]
+
+    def get_precision_glow_context(self):
+        if not self._uses_glow() or not self.items or self.phase in ('intro','finished','unsupported'):return None
+        settings=load_range_projection_settings();width_mm=10.*float(settings.get('viewport_physical_width_cm',90))
+        height_mm=10.*float(settings.get('viewport_physical_height_cm',width_mm/10*self.viewport.h/self.viewport.w))
+        return dict(key=self.owner+':'+str(self.layout_id),viewport=list(self.viewport),
+            regions=self._glow_regions,active_regions=tuple(self.manager.get_hit_regions()),mm_per_px=(width_mm/self.viewport.w,height_mm/self.viewport.h))
+
+    def on_precision_glow_state(self,state):
+        self._glow_ready=bool(state.get('ready'));self._glow_state=str(state.get('state','unknown'))
+        if self.phase in ('settling','live','waiting'):self._render_key=None
 
     def _load_room_history(self):
         if self._history_loaded:return
@@ -160,14 +190,16 @@ class LightTargetsGame:
     def _choose_layout(self):
         w,h=self.viewport.size
         if w<640 or h<480:return []
-        if self.art.rooms:
+        if self.art.rooms and not self.art.natural:
             import numpy as np
             from content.games.light_room_safety import camera_proxy
             plate_dn=camera_proxy(pygame.surfarray.array3d(self.art._plate))
         base=[k for k in (('vase','bottle','plant') if self.art.rooms else ('vase','jar','bowl','bottle','lamp')) if k in self.art.objects]
-        extras=[k for k in self.art.objects if k not in base]
+        allowed=getattr(self.art,'room_spec',{}).get('kinds',tuple(self.art.objects))
+        base=[k for k in base if k in allowed]
+        extras=[k for k in self.art.objects if k not in base and k in allowed]
         supports={'books':('shelf',),'tv':(('tv_bench',) if self.art.rooms else ('table','bench')),'lamp':('table','bench','shelf'),
-                  'clock':('shelf','sill','table','bench'),'mug':('shelf','sill','table','bench')}
+                  'clock':('shelf','sill','table','bench'),'mug':('shelf','sill','table','bench'),'frame':('shelf','sill','table','bench')}
         # Place constrained items first, then backtrack locally if a wide object
         # blocks a later anchor. Shapes remain large and non-overlapping.
         for _ in range(32):
@@ -175,7 +207,7 @@ class LightTargetsGame:
             pool=[k for k in extras if k not in extra]
             extra+=self.rng.sample(pool,min(len(pool),OBJECTS_PER_ROOM-len(base)-len(extra)))
             order=base+extra
-            order+=[self.rng.choice(base) for _ in range(OBJECTS_PER_ROOM-len(order))]
+            order+=[self.rng.choice(getattr(self.art,'room_spec',{}).get('repeat_kinds',base)) for _ in range(OBJECTS_PER_ROOM-len(order))]
             self.rng.shuffle(order);order.sort(key=lambda k:len(supports.get(k,range(8))))
             choices=[]
             for kind in order:
@@ -188,13 +220,13 @@ class LightTargetsGame:
                     for size in self.rng.sample([.82,.96,1.08],3):
                         height=max(78,min(132,min(124,h*.21)*factor*size))
                         if self.art.rooms:
-                            metres={'vase':.46,'jar':.33,'bowl':.24,'bottle':.40,'lamp':.52,'tv':.85,'books':.31,'plant':.55,'clock':.29,'mug':.34}[kind]
+                            metres={'vase':.46,'jar':.33,'bowl':.24,'bottle':.40,'lamp':.52,'tv':.85,'books':.31,'plant':.55,'clock':.29,'mug':(.22 if self.art.natural else .34),'frame':.28}[kind]
                             minimum=60 if kind in ('books','bottle','vase') else 40
                             height=max(minimum,min(125,h*anchor['unit_height']*metres*size))
                         g=self.art.geometry(kind,anchor,height)
                         if g.x<w*.075 or g.right>w*.93 or g.y<104 or g.bottom>h*.94:continue
                         lighting_cost=0.
-                        if self.art.rooms:
+                        if self.art.rooms and not self.art.natural:
                             area=pygame.Rect(g.aabb).inflate(24,24).clip(pygame.Rect(0,104,w,h-104))
                             patch=plate_dn[area.x:area.right,area.y:area.bottom]
                             # A game may choose naturally bright display bays. This
@@ -230,7 +262,7 @@ class LightTargetsGame:
         self.phase='settling';self.phase_at=time.monotonic()
         for obj in self.manager.objects:obj.metadata['lamp_token']=self.token
         print('[LAMP-TARGET] '+json.dumps(dict(owner=self.owner,token=self.token,layout_id=self.layout_id,
-            player=self.player+1,shape='visible_part_alpha_polygons',game_version='polyhaven-rooms-7',room_id=self.art.room_id,
+            player=self.player+1,shape='visible_part_alpha_polygons',game_version='polyhaven-object-glow-8' if self.art.natural else 'polyhaven-rooms-7',room_id=self.art.room_id,
             asset_manifest_sha256=self.art.manifest_sha256,
             objects=[dict(entity_id=i['entity_id'],kind=i['kind'],support=i['anchor']['support'],
                 anchor_id=i['anchor']['id'],geometry=list(i['geometry'].aabb),parts=i['parts']) for i in self.items],
@@ -263,6 +295,8 @@ class LightTargetsGame:
                     asset_manifest_sha256=self.art.manifest_sha256)
                 self.manager.add(obj)
         self.target=self.items[0]['geometry'];self.color=PALETTE[self.layout_id%len(PALETTE)]
+        self._glow_regions=deepcopy(tuple(self.manager.get_hit_regions()))
+        self._glow_ready=False;self._glow_state="show_targets"
         self.art.prepare_round(self.items)
         self._remember_room();self._arm_shot()
 
@@ -278,7 +312,7 @@ class LightTargetsGame:
         if self.phase not in ('live', 'waiting'): return ()
         regions = tuple(replace(r, metadata={**r.metadata, 'lamp_owner':self.owner,
                            'lamp_token':self.token}) for r in self.manager.get_hit_regions())
-        return object_hit_regions(regions, owner=self.owner, evidence_method='dense', top_k=3,
+        return object_hit_regions(regions, owner=self.owner, evidence_method='object_glow' if self.art.natural else 'dense', top_k=3,
             margin_camera_px=36, surface_after_ts=self.presented_ts, require_presented_surface=True)
 
     def on_frame_presented(self, timestamp):
@@ -321,6 +355,8 @@ class LightTargetsGame:
                                   r.metadata.get('lamp_token') == self.token for r in snap.game_regions): return
         self._seen.add(sid)
         resolution, hypothesis = self.manager.resolve_object_query(result)
+        if hypothesis is None and result.get('evidence_method')=='object_glow' and result.get('object_decision',{}).get('state')=='NO_OBJECT_HIT':
+            hypothesis=result['object_decision'].get('hypothesis')
         hit = bool(resolution is not None and resolution.interactions)
         decision = result.get('object_decision', {}).get('state', 'UNKNOWN')
         outcome = 'HIT' if hit else ('MISS' if decision == 'NO_OBJECT_HIT' else 'UNKNOWN')
@@ -343,7 +379,7 @@ class LightTargetsGame:
     def _finish(self, outcome, sid, result, hypothesis, simulated=False):
         self.phase = 'result'; self.phase_at = time.monotonic();self.last_outcome=outcome
         # Even an early positive decision must not alter the protected POST projection.
-        hold = 0.0 if simulated or self.active_peak is None else max(0.0, self.active_peak + 1.2 - time.time())
+        hold = 0.0 if simulated or self.active_peak is None or (result or {}).get('evidence_method')=='object_glow' else max(0.0, self.active_peak + 1.2 - time.time())
         self.reaction_at = self.phase_at + hold
         self.reaction_wall_ts = time.time() + hold
         self._reaction_visible=False;self._reaction_presented=False;self._reaction_start_mono=None
@@ -378,22 +414,24 @@ class LightTargetsGame:
             if self._clear_bonus:self.feedback+=' • RUMMET RENSAT!'
         elif outcome == 'MISS':
             self.streak = 0; points = 0; self.feedback = 'MISS – ingen verifierad målträff'
+            distance=(result or {}).get('object_decision',{}).get('distance_mm')
+            if distance is not None:self.feedback=f'MISS – {distance:.1f} mm från objektet'
         else:
             self.streak = 0; points = 0; self.feedback = 'OSÄKERT ? – ingen träff utdelad'
         print('[LAMP-RESULT] '+json.dumps(dict(owner=self.owner, token=self.token, shot_id=sid,
             shot_peak_ts=self.active_peak, player=self.player+1, outcome=outcome, points=points,
             shots_used=self.used[self.player], source='SIMULATED' if simulated else 'OBJECT',
-            hypothesis_xy=(hypothesis or {}).get('camera_xy'), reason=(result or {}).get('reason'),
-            game_version='polyhaven-rooms-7',room_id=self.art.room_id,object_id=oid,entity_id=obj.entity_id if obj else None,
+            hypothesis_xy=(hypothesis or {}).get('camera_xy'), miss_distance_mm=(result or {}).get('object_decision',{}).get('distance_mm') if outcome=='MISS' else None, reason=(result or {}).get('reason'),
+            game_version='polyhaven-object-glow-8' if self.art.natural else 'polyhaven-rooms-7',room_id=self.art.room_id,object_id=oid,entity_id=obj.entity_id if obj else None,
             part_id=obj.part_id if obj else None,impact_game_xy=xy,effect_side=side,clear_bonus=self._clear_bonus,
             broken_object_ids=sorted(self.broken_ids), reaction_not_before_wall_ts=self.reaction_wall_ts,
             wall_ts=time.time())), flush=True)
 
     def update(self, dt):
         now = time.monotonic()
-        if self.phase == 'settling' and self.presented_ts is not None and self.presented_mono is not None and now-self.presented_mono >= PRE_SETTLE_S:
+        if self.phase == 'settling' and self.presented_ts is not None and self.presented_mono is not None and now-self.presented_mono >= PRE_SETTLE_S and (not self._uses_glow() or self._glow_ready):
             self.phase = 'live';self.ready_wall_ts=time.time()
-        elif self.phase == 'waiting' and now-self.phase_at > 4:
+        elif self.phase == 'waiting' and now-self.phase_at > (8.5 if self._uses_glow() else 4):
             # Engine result lost/cancelled: explicitly UNKNOWN, never an invented miss.
             self._finish('UNKNOWN', self.active_shot, dict(reason='game_wait_timeout'), None)
         elif self.phase == 'result' and self._reaction_start_mono is not None and now-self._reaction_start_mono >= RESULT_DWELL_S:
@@ -407,6 +445,12 @@ class LightTargetsGame:
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:return None
+        if event.key==pygame.K_g and self.phase in ('intro','finished','settling'):
+            self.object_highlight = not self.object_highlight
+            self.art=LightRoomArt(self.viewport.size,natural=self._uses_glow())
+            self._last_frame=None;self._render_key=None
+            if self.phase=='settling':self._next_target()
+            return None
         if event.key==pygame.K_m:
             self.sound_enabled=not self.sound_enabled
             if not self.sound_enabled:
@@ -442,7 +486,7 @@ class LightTargetsGame:
             surf.blit(card,(24,100))
             lines = [title, f'{self.players} spelare • {self.shots_per_player} skott var',
                      '1 / 2 spelare    5 / 0 = fem / tio skott', 'ENTER startar. Ett skott på REDO. ESC: meny.',
-                     'Skjut på de lösa föremålen. Delträffar ger bonus.',
+                     'G: målupplysning '+('PÅ' if self._uses_glow() else 'AV')+' • Delträffar ger bonus.',
                      f'Luftgevär 20 m. M: ljud {"på" if self.sound_enabled else "av"}.']
             if self.phase=='finished' and self.last_outcome:lines.append('Senast: '+self.feedback)
             for i,line in enumerate(lines):surf.blit(self.font.render(line,True,INK),(42,120+i*38))
@@ -457,6 +501,7 @@ class LightTargetsGame:
             colors={'HIT':((35,140,80),(255,255,245)),'MISS':((235,165,45),INK),'UNKNOWN':((40,90,160),(255,255,245))}
             banner,text=colors.get(self.last_outcome,((192,196,190),INK)) if self.phase=='result' else ((192,196,190),INK)
             pygame.draw.rect(surf,banner,(0,0,self.viewport.w,64))
+            if self._uses_glow() and self.phase=='settling':status='VISA MÅLEN – '+{'show_targets':'titta på målen','ready':'referens klar','measuring':'mäter','no_frames':'kamerabilder saknas'}.get(self._glow_state,'väntar på stabil mätbild')
             if self.art.rooms:status+=' • '+{'living':'Vardagsrum','kitchen':'Kök','study':'Arbetsrum'}[self.art.room_template]
             if self.phase=='live' and self.last_outcome:status+=' • senast '+{'HIT':'TRÄFF','MISS':'MISS','UNKNOWN':'OSÄKERT'}[self.last_outcome]
             surf.blit(self.font.render(header,True,text),(18,8))

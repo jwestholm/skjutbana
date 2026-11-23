@@ -1,0 +1,5 @@
+Poly Haven input models/textures and their rendered derivative assets: CC0 1.0 Universal.
+https://polyhaven.com/license
+https://creativecommons.org/publicdomain/zero/1.0/
+Original room shell and authored effects/render outputs: CC0-1.0.
+Existing project source code and Blender software are not relicensed.

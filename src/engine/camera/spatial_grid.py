@@ -49,4 +49,3 @@ class GridIndex:
                 out.extend(self.cells.get((kx + dx, ky + dy), ()))
         out.sort()
         return out
-

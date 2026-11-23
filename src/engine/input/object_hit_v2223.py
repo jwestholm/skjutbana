@@ -785,6 +785,16 @@ class ObjectHitRegistryV2223:
         ids={r.object_id for r in requested}
         scoped=replace(snap,game_regions=tuple(requested),
             camera_regions=tuple(r for r in snap.camera_regions if r.object_id in ids))
+        if config.get('evidence_method')=='object_glow':
+            from src.engine.precision_object_glow import ObjectGlowQuery
+            from src.engine.precision_flash import attach_object_glow
+            snap.object_query=ObjectGlowQuery(scoped,time.time)
+            if config.get('result_semantics')!='OBJECT_HIT':snap.object_query.finish(reason='object_glow_requires_OBJECT_HIT')
+            elif snap.object_cancel_reason:snap.object_query.finish(reason=snap.object_cancel_reason)
+            else:
+                try:attach_object_glow(snap.object_query)
+                except Exception as exc:snap.object_query.finish(reason='object_glow_prepare_error:'+type(exc).__name__)
+            return
         ring=camera.get_ring_snapshot()
         # Prefer the latest safe surface, not the historical default 350 ms old
         # image. Never borrow a surface preceding another recorded shot.
@@ -868,6 +878,19 @@ class ObjectHitRegistryV2223:
         ring=camera.get_ring_snapshot()
         for snap in sorted(pending,key=lambda s:s.peak_ts):
             query=snap.object_query
+            if getattr(query,'evidence_method',None)=='object_glow':
+                # Only precision_flash's measured local image may finish this query.
+                # No dense deadlines, next-peak boundary or CURRENT fail-open.
+                if not query.final and now-query.peak_ts>8.:
+                    query.finish(reason='object_glow_registry_timeout')
+                if query.final:
+                    query.published=True
+                    dispatch_started=time.perf_counter()
+                    event_bus.emit('physical.object_result',query.result,source='OBJECT')
+                    query.result['timing']['event_bus_delivery_ms']=(time.perf_counter()-dispatch_started)*1000.
+                    print('[OBJECT-HIT] '+__import__('json').dumps(query.compact_record(gameplay=snap.object_gameplay,
+                        current=snap.object_current),separators=(',',':')),flush=True)
+                continue
             # Under SKJUTBANA_OBJECT_DENSE a second audio peak shortly after this one (muzzle report + impact,
             # CO2 double report; measured live 65-80 ms) belongs to the same shot and must not cut this query.
             from src.engine.camera.object_physical_query import _dense_enabled, _denv

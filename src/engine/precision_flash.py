@@ -51,7 +51,7 @@ import numpy as np
 PRECISION_LEVELS = ("SHOT", "HIT_MISS", "OBJECT", "ZONE", "EXACT")
 LEVEL_ALIASES = {"shot_only": "SHOT", "exact": "EXACT", "region": "OBJECT"}
 AGGREGATIONS = ("per_burst", "series")
-FLASH_PREFERENCES = ("auto", "off", "on")
+FLASH_PREFERENCES = ("auto", "off", "on", "object_glow")
 
 
 def canonical_level(value: Any, shot_input_mode: Any = None) -> str:
@@ -120,7 +120,10 @@ def resolve_policy(scene: Any, env: dict | None = None) -> tuple[bool, str, str]
     forced = str(env.get("SKJUTBANA_PRECISION_FLASH", "") or "").lower()
     if preference == "off" or forced == "off":
         return False, precision, preference
-    if preference == "on" or forced == "on":
+    # Per-game opt-in; explicit scene/environment off above always wins.
+    if getattr(scene, "object_highlight", False) is True:
+        preference = "object_glow"
+    if preference in ("on", "object_glow") or forced == "on":
         return True, precision, preference
     if precision == "EXACT":
         return True, precision, preference
@@ -165,7 +168,7 @@ def average_gray(frames: list, rect) -> np.ndarray:
     return np.mean([_gray(f, rect) for f in frames], axis=0).astype(np.float32)
 
 
-def find_new_holes(reference: np.ndarray, post: np.ndarray, cfg: FlashConfig, *, max_holes: int = 8):
+def find_new_holes(reference: np.ndarray, post: np.ndarray, cfg: FlashConfig, *, max_holes: int = 8, valid_mask=None):
     """New dark blobs in ``post`` relative to ``reference`` (both flash-lit, same crop).
 
     Relative darkening ``1 - post/ref`` cancels the projector's brightness
@@ -176,7 +179,12 @@ def find_new_holes(reference: np.ndarray, post: np.ndarray, cfg: FlashConfig, *,
     import cv2
     ref = np.maximum(reference, 8.0)
     ratio = post / ref
-    trend = cv2.GaussianBlur(ratio, (0, 0), cfg.blur_sigma_px)
+    if valid_mask is None:
+        trend = cv2.GaussianBlur(ratio, (0, 0), cfg.blur_sigma_px)
+    else:
+        weights=np.asarray(valid_mask,dtype=np.float32)
+        trend=cv2.GaussianBlur(ratio*weights,(0,0),cfg.blur_sigma_px)/np.maximum(
+            cv2.GaussianBlur(weights,(0,0),cfg.blur_sigma_px),1e-6)
     rel = ratio / np.maximum(trend, 1e-3)
     dark = cv2.GaussianBlur(1.0 - rel, (0, 0), 0.8)
     valid = reference > 25.0                                   # outside the lit area: no evidence
@@ -185,6 +193,10 @@ def find_new_holes(reference: np.ndarray, post: np.ndarray, cfg: FlashConfig, *,
         k = 2 * int(cfg.edge_margin_px) + 1
         lit = cv2.erode(lit.astype(np.uint8), np.ones((k, k), np.uint8)) > 0
     valid &= lit
+    if valid_mask is not None:
+        scoped=np.asarray(valid_mask,dtype=np.uint8)
+        if cfg.edge_margin_px>0:scoped=cv2.erode(scoped,np.ones((2*int(cfg.edge_margin_px)+1,)*2,np.uint8),borderType=cv2.BORDER_CONSTANT,borderValue=0)
+        valid &= scoped>0
     dark[~valid] = 0.0
     sample = dark[valid]
     med = float(np.median(sample)) if sample.size else 0.0
@@ -204,6 +216,11 @@ def find_new_holes(reference: np.ndarray, post: np.ndarray, cfg: FlashConfig, *,
             continue
         holes.append(dict(x=float((xs * weights).sum() / total), y=float((ys * weights).sum() / total),
                           peak=float(weights.max()), mass=total, area=area))
+        if valid_mask is not None:
+            radius=max(4,int(stats[label,cv2.CC_STAT_WIDTH]),int(stats[label,cv2.CC_STAT_HEIGHT]))
+            patch=dark[max(0,int(ys.min())-radius):int(ys.max())+radius+1,
+                       max(0,int(xs.min())-radius):int(xs.max())+radius+1]
+            holes[-1]['bipolar_change']=bool(float(-patch.min())>=threshold)
     holes.sort(key=lambda h: h["mass"], reverse=True)
     return holes[:max_holes], dict(threshold=threshold, noise_mad=mad)
 
@@ -224,9 +241,10 @@ class PrecisionFlash:
     IDLE, ARMED, FLASHING, CAPTURING, MEASURING = "IDLE", "ARMED", "FLASHING", "CAPTURING", "MEASURING"
 
     def __init__(self, cfg: FlashConfig | None = None, *, clock=time.time, camera=None,
-                 emit=None, scanport=None, log=print):
+                 emit=None, scanport=None, log=print, monotonic=time.monotonic):
         self.cfg = cfg or FlashConfig()
         self.clock = clock
+        self.monotonic = monotonic
         self.camera = camera
         # capture the unfiltered ring now (live wiring later hides flash frames from detection)
         self.ring_source = getattr(camera, "get_ring_snapshot", None)
@@ -261,29 +279,45 @@ class PrecisionFlash:
         self.flash_count = 0
         self.reference_attempts = 0
         self.last_reference_attempt = -1e9
+        self.mode=None;self._glow=None;self._generation=0;self._last_glow_error=None
 
     # ----------------------------------------------------------------- policy
     def sync_policy(self, scene: Any) -> None:
-        enabled, precision, _ = resolve_policy(scene)
-        if enabled != self.enabled:
-            self.log(f"[PRECISION-FLASH] {'ENABLED' if enabled else 'DISABLED'} precision={precision}")
-            if not enabled:
-                self._release_held("DISABLED")
+        enabled, precision, preference = resolve_policy(scene)
+        mode='object_glow' if preference=='object_glow' else 'flash'
+        changed=enabled!=self.enabled or mode!=self.mode or scene is not self.scene
+        if changed:
+            self._generation+=1
+            if self._glow is not None:self._glow.disable('policy_or_scene_changed')
+            retired=(self.scene is not None and scene is not self.scene) or (self.mode is not None and mode!=self.mode)
+            # A delayed hit belongs to its old scene/method, never a new game.
+            if not retired:
+                self._release_held('POLICY_CHANGED')
                 if self.next_burst is not None:
-                    for x, y, _ in self.next_burst.held:
-                        if self.emit is not None:
-                            self.emit(x, y)
-                self.state, self.burst, self.next_burst = self.IDLE, None, None
-            self.reference = None if not enabled else self.reference
-            self.reference_attempts = 0
-            self.enabled_since = self.clock() if enabled else None
-        self.enabled, self.precision = enabled, precision
-        self.aggregation = resolve_aggregation(scene)
-        self.scene = scene
+                    for x,y,_ in self.next_burst.held:
+                        if self.emit is not None:self.emit(x,y)
+            self.state,self.burst,self.next_burst=self.IDLE,None,None
+            self.reference=None;self.pending_reference=False;self.pending_series=False
+            with self._lock:self._result=None
+            if self.flash_windows and self.flash_windows[-1][1] is None:
+                self.flash_windows[-1]=(self.flash_windows[-1][0],self.clock())
+            self.reference_attempts=0;self.enabled_since=self.clock() if enabled else None
+            self.log(f'[PRECISION-FLASH] mode={mode} enabled={enabled} precision={precision}')
+        self.enabled,self.precision,self.mode,self.scene=enabled,precision,mode,scene
+        self.aggregation=resolve_aggregation(scene)
+        if enabled and mode=='object_glow':
+            if self._glow is None:
+                from src.engine.precision_object_glow import ObjectGlow
+                self._glow=ObjectGlow(self)
+            try:self._glow.sync(scene)
+            except Exception as exc:
+                self._glow.disable('invalid_glow_context:'+type(exc).__name__)
+                if str(exc)!=self._last_glow_error:self.log('[OBJECT-GLOW] context unavailable: '+str(exc))
+                self._last_glow_error=str(exc)
 
     def holds_ordinary_hits(self) -> bool:
         # series mode: ordinary hits stay live; the series flash is a separate result
-        return self.enabled and self.reference is not None and self.aggregation != "series"
+        return self.enabled and (self.mode=="object_glow" or (self.reference is not None and self.aggregation != "series"))
 
     def flush_series(self) -> bool:
         """Series end (e.g. ceasefire): one flash that measures every new hole since the reference."""
@@ -298,6 +332,10 @@ class PrecisionFlash:
     # ----------------------------------------------------------------- inputs
     def on_peak(self, peak_ts: float) -> None:
         if not self.enabled:
+            return
+        if self.mode=='object_glow':
+            self.last_peak_ts=max(self.last_peak_ts,float(peak_ts))
+            if self._glow is not None:self._glow.on_peak(float(peak_ts))
             return
         peak_ts = float(peak_ts)
         if any(abs(peak_ts - p) < 1e-6 for p in self._seen_peaks):
@@ -326,6 +364,7 @@ class PrecisionFlash:
         """Return True when the ordinary hit is withheld (flash is the XY authority)."""
         if not self.holds_ordinary_hits():
             return False
+        if self.mode=="object_glow":return True  # local OBJECT authority, never release CURRENT guesses
         now = self.clock()
         for first, last, resolved in self.resolved_bursts[-8:]:
             if resolved <= now <= resolved + self.cfg.hold_release_grace_s:
@@ -340,6 +379,7 @@ class PrecisionFlash:
 
     def excludes_frame(self, ts: float) -> bool:
         """True for camera frames that may show the flash (hidden from ordinary detection)."""
+        if self._glow is not None and self._glow.excludes_frame(ts):return True
         if not self.flash_windows:
             return False
         for on, off in self.flash_windows[-4:]:
@@ -350,6 +390,9 @@ class PrecisionFlash:
     # ----------------------------------------------------------------- main thread tick
     def tick(self) -> None:
         if not self.enabled:
+            return
+        if self.mode=="object_glow":
+            if self._glow is not None:self._glow.tick()
             return
         now = self.clock()
         if self.reference is None and self.state == self.IDLE and self.burst is None and self.next_burst is None:
@@ -405,6 +448,7 @@ class PrecisionFlash:
         self.flash_windows = (self.flash_windows + [(now, None)])[-8:]
 
     def is_flashing(self) -> bool:
+        if self.mode=="object_glow":return self.enabled and self._glow is not None and self._glow.enabled and self._glow.state=="SHOWING"
         return self.enabled and self.state == self.FLASHING
 
     def render(self, screen, area=None) -> None:
@@ -414,6 +458,9 @@ class PrecisionFlash:
         viewport is projected onto the board too, and moving content there
         would otherwise differ between reference and post flash.
         """
+        if self.mode=="object_glow":
+            if self._glow is not None:self._glow.render(screen)
+            return
         if self.is_flashing():
             screen.fill(self.cfg.color, area)
 
@@ -443,6 +490,7 @@ class PrecisionFlash:
             expected = min(30, max(1, sum(1 for p in self.series_peaks if p < on)))
         rect = self._rect()
         reference = self.reference
+        generation=self._generation
 
         def work():
             try:
@@ -451,7 +499,7 @@ class PrecisionFlash:
                 result = dict(valid=False, reason=f"ERROR:{type(exc).__name__}:{exc}")
             result.update(flash_on_ts=on, flash_off_ts=off, reference_flash=is_reference)
             with self._lock:
-                self._result = result
+                if generation==self._generation:self._result = result
 
         self._worker = threading.Thread(target=work, name="precision-flash", daemon=True)
         self._worker.start()
@@ -660,7 +708,7 @@ def _wire(controller: PrecisionFlash) -> None:
 
         def filtered(_original=original):
             frames = _original()
-            if not controller.flash_windows:
+            if not controller.flash_windows and controller._glow is None:
                 return frames
             return [cf for cf in frames if not controller.excludes_frame(cf.timestamp)]
 
@@ -709,8 +757,24 @@ def frame_hook(app: Any, new_peak: Any) -> None:
     controller.tick()
 
 
-def render_hook(screen) -> None:
+def render_hook(screen, scene=None) -> None:
     controller = _CONTROLLER
-    if controller is None or not controller.is_flashing():
-        return
+    if controller is None:return
+    current=controller.scene if scene is None else scene
+    if current is not controller.scene or not resolve_policy(current)[0]:controller.sync_policy(current)
+    if not controller.is_flashing():return
     controller.render(screen)
+
+
+def presented_hook(timestamp=None):
+    """After the real display flip: timestamp when the local mask became visible/absent."""
+    controller=_CONTROLLER
+    if controller is not None and controller._glow is not None:
+        controller._glow.presented(controller.clock() if timestamp is None else float(timestamp))
+
+
+def attach_object_glow(query):
+    controller=_CONTROLLER
+    if controller is None or not controller.enabled or controller.mode!='object_glow' or controller._glow is None:
+        query.finish(reason='object_glow_disabled')
+    else:controller._glow.attach(query)

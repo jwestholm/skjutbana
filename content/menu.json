@@ -460,9 +460,9 @@
           },
           {
             "id": "light_targets",
-            "title": "PANG! – Ljusateljén, luftgevär 20 m",
+            "title": "PANG! – Vardagsrummet, luftgevär 20 m",
             "type": "game",
-            "description": "Ha sönder ett ljust rum! Åtta tydligt färgade föremål i olika storlekar på golv, bord, hylla och fönsterbräda. Buk, hals, blomma och lock går sönder olika. Delbonus, kombos, skärvor och ljud efter beslut. 1–2 spelare, 5/10 skott. Fysisk verifiering återstår.",
+            "description": "Ha sönder vardagsrummet! TV, böcker, krukväxter, muggar och ljus keramik i varierade placeringar. Skärmar spricker, böcker faller och krukor krossas. Delbonus, kombos, skärvor och ljud efter beslut. 1–2 spelare, 5/10 skott. Fysisk verifiering återstår.",
             "preview": "content/games/light_room_parts_assets/room.png",
             "script": "content/games/light_targets_game.py",
             "path": "",

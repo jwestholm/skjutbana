@@ -1062,6 +1062,18 @@ rules. The trace records nearby tracks excluded by the producer predicate.
 - **Precision levels and flash:** `src/engine/precision_flash.py`; games declare
   `hit_precision` (SHOT/HIT_MISS/OBJECT/ZONE/EXACT) and `hit_aggregation` (per_burst/series);
   see ROADMAP.md top. Flash frames are hidden from ordinary detection.
+- **Object highlight:** the optional `object_highlight=True` scene/game flag
+  selects `src/engine/precision_object_glow.py` for local optical OBJECT
+  evidence. It freezes exact visible silhouettes and a separate wider
+  measurement mask, records presentation/config provenance, and returns
+  UNKNOWN when evidence or clock/timing checks are insufficient. Its brief
+  display uses same-hue silhouette lightening plus thin pale-yellow per-object
+  rings; the larger measurement circles are not drawn. Normal scene colors
+  return after presentation while the worker finishes. Default is off; explicit
+  `PRECISION_FLASH=off` has priority. PANG's `object_highlight` flag and
+  `--object-highlight` enable it; legacy `object_glow`/`--object-glow` remain
+  aliases. This path has synthetic pixel/timing checks and a recorded-evidence
+  measurement replay, not a full gameplay replay or physical validation.
 - **Real-hole stamps:** `src/engine/offline/hole_stamps.py` + `/data/skjutbana/hole_library/`
   (offline bench `hole_model="stamps"`, AI test scene projected holes).
 - **Winner-selection experiments:** `src/engine/winner_selection_flags.py` (all default off).

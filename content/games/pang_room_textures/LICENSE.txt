@@ -1,0 +1,4 @@
+All bitmap inputs and derived crops: Poly Haven CC0 1.0.
+https://polyhaven.com/license
+https://creativecommons.org/publicdomain/zero/1.0/
+Exact sources/hashes/crops: SOURCES.json.

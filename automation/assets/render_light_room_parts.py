@@ -21,11 +21,13 @@ def finish():
     sys.stdout.flush();sys.stderr.flush();os._exit(0)
 
 p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--room-only',action='store_true');p.add_argument('--living-room',action='store_true');p.add_argument('--polyhaven-root',type=Path);p.add_argument('--only-kind');p.add_argument('--only-part');p.add_argument('--resume',action='store_true',help='Reuse completed renders in an interrupted raw export')
-p.add_argument('--room-template',choices=('living','kitchen','study'));p.add_argument('--furnishing',type=int,choices=(0,1),default=0)
+p.add_argument('--natural-materials',action='store_true');p.add_argument('--normal-only',action='store_true');p.add_argument('--room-style',choices=('r7','r8'),default='r7')
+p.add_argument('--room-template',choices=('living','kitchen','study'));p.add_argument('--furnishing',type=int,choices=(0,1,2),default=0)
 a=p.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 if a.polyhaven_root:
     from automation.assets import pang_polyhaven as ph
+    ph.NATURAL_MATERIALS=a.natural_materials
     a.living_room=True
 out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
 bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
@@ -136,16 +138,25 @@ if a.polyhaven_root:
     for ob in room:bpy.data.objects.remove(ob,do_unlink=True)
     room.clear()
     if a.room_template:
-        from automation.assets.pang_room_variants import room as variant_room
+        if a.room_style=='r8':
+            from automation.assets.pang_rooms_r8 import room as variant_room
+        else:
+            from automation.assets.pang_room_variants import room as variant_room
         room,ph_anchors=variant_room(a.polyhaven_root,cube,mat,a.room_template,a.furnishing)
     else:room,ph_anchors=ph.room(a.polyhaven_root,cube,mat)
-    camera.location=(3.8,-7.2,2.8);camera.rotation_euler=(Vector((0,.1,1.0))-camera.location).to_track_quat('-Z','Y').to_euler()
+    camera.location=(3.8,-7.2,2.8)
+    if a.room_style=='r8':camera.location={'living':(4.5,-8.5,3.2),'kitchen':(5.4,-7.5,4.3),'study':(5.5,-7.0,3.3)}.get(a.room_template,(3.8,-7.2,2.8))
+    camera.rotation_euler=(Vector((0,.1,1.0))-camera.location).to_track_quat('-Z','Y').to_euler()
     camera.data.type='PERSP';camera.data.lens=50
     for ob in list(bpy.context.scene.objects):
         if ob.type=='LIGHT':bpy.data.objects.remove(ob,do_unlink=True)
-    for loc,power,size in [((1.05,1.35,2.25),500,1.8),((-1.5,-3,3.0),100,3.5)]:
+    lighting=[((1.05,1.35,2.25),500,1.8),((-1.5,-3,3.0),100,3.5)]
+    if a.room_style=='r8':lighting={'living':[((-1.4,1.3,2.4),450,2.2),((2,-3,3),110,4)],'kitchen':[((1.6,1.3,2.3),650,2.0),((-2,-2,3),220,4)],'study':[((1.7,1.3,2.4),400,1.8),((-1,-2,3),75,3)]}[a.room_template]
+    for loc,power,size in lighting:
         bpy.ops.object.light_add(type='AREA',location=loc);ob=bpy.context.object;ob.name='PBR daylight'
-        ob.data.energy=power;ob.data.size=size;ob.rotation_euler=(Vector((0,-.5,.6))-ob.location).to_track_quat('-Z','Y').to_euler()
+        ob.data.energy=power;ob.data.size=size
+        if a.room_style=='r8':ob.data.color={'living':(1,.87,.69),'kitchen':(.86,.94,1),'study':(1,.78,.56)}[a.room_template]
+        ob.rotation_euler=(Vector((0,-.5,.6))-ob.location).to_track_quat('-Z','Y').to_euler()
     s.world.node_tree.nodes['Background'].inputs[1].default_value=.35
 
 s.render.resolution_x=1280;s.render.resolution_y=960
@@ -175,7 +186,9 @@ if a.polyhaven_root:
     for ob in list(bpy.context.scene.objects):
         if ob.type=='LIGHT':bpy.data.objects.remove(ob,do_unlink=True)
     for loc,power,size in [((-3,-5,8),750,4),((4,1,7),450,5),((1,-6,4),130,2)]:
-        bpy.ops.object.light_add(type='AREA',location=loc);ob=bpy.context.object;ob.data.energy=power;ob.data.size=size;ob.rotation_euler=(Vector((0,0,1))-ob.location).to_track_quat('-Z','Y').to_euler()
+        bpy.ops.object.light_add(type='AREA',location=loc);ob=bpy.context.object;ob.data.energy=power;ob.data.size=size
+        if a.room_style=='r8':ob.data.color={'living':(1,.87,.69),'kitchen':(.86,.94,1),'study':(1,.78,.56)}[a.room_template]
+        ob.rotation_euler=(Vector((0,0,1))-ob.location).to_track_quat('-Z','Y').to_euler()
 s.render.film_transparent=True;s.render.resolution_x=320;s.render.resolution_y=384
 camera.data.type='ORTHO';camera.location=(3,-9,4.5);camera.rotation_euler=(Vector((0,0,1.1))-camera.location).to_track_quat('-Z','Y').to_euler();camera.data.ortho_scale=3.8
 bpy.context.view_layer.update();pivot=world_to_camera_view(s,camera,Vector((0,0,0)))
@@ -190,7 +203,7 @@ colors={'vase':(.12,.62,.47),'jar':(.78,.59,.20),'bowl':(.19,.55,.72),'bottle':(
 meta=dict(scene='living_room' if a.living_room else 'atelier',schema='light-room-raw-parts-1',blender_version=bpy.app.version_string,pivot=[pivot.x*320,(1-pivot.y)*384],objects={})
 if a.only_kind and (out/'parts.json').exists():meta=json.loads((out/'parts.json').read_text())
 if a.polyhaven_root:
-    meta['asset_provider']='polyhaven';meta['recipe']='automation/assets/render_light_room_parts.py'
+    meta['asset_provider']='polyhaven';meta['natural_materials']=a.natural_materials;meta['recipe']='automation/assets/render_light_room_parts.py'
     meta['asset_provenance']=json.loads((a.polyhaven_root/'manifest.json').read_text())
 
 def lathe(name,profile,m):
@@ -272,7 +285,7 @@ def custom_parts(name):
             bpy.ops.object.transform_apply(location=False,rotation=False,scale=True);meshes.append(ob)
         parts.append(mesh_part('foliage',combine(meshes),'fall'))
     elif name=='mug':
-        glaze=mat('mug turquoise glaze',(.18,.58,.64),.02)
+        glaze=mat('mug ivory ceramic' if a.natural_materials else 'mug turquoise glaze',(.72,.68,.56) if a.natural_materials else (.18,.58,.64),.02)
         ob,vs,fs,gs=lathe('mug body',[(0,.42),(.12,.47),(1.12,.49),(1.22,.52)],glaze)
         parts.append(('body',ob,vs,fs,gs,'shatter'))
         vertices=[];faces=[]
@@ -300,11 +313,13 @@ def custom_parts(name):
 
 if a.living_room:
     profiles.update({k:[] for k in ('tv','books','plant','clock','mug')})
+if a.natural_materials:profiles['frame']=[]
 
 for name,definition in profiles.items():
     if a.only_kind and name!=a.only_kind:continue
     parts=[];part_meta=[];main_mat=mat(name,colors.get(name,(.65,.70,.45)),.025)
-    if a.polyhaven_root:parts=ph.make_parts(a.polyhaven_root,name)
+    if a.natural_materials and name=='mug':parts=custom_parts(name)
+    elif a.polyhaven_root:parts=ph.make_parts(a.polyhaven_root,name)
     elif not definition:parts=custom_parts(name)
     for part,profile,motion in ([] if a.polyhaven_root else definition):
         o,vs,fs,groups=lathe(part,profile,main_mat);parts.append((part,o,vs,fs,groups,motion))
@@ -351,6 +366,7 @@ for name,definition in profiles.items():
         for poly,index in zip(o.data.polygons,indices):poly.material_index=index
         o.hide_render=True
     for part,ob,vs,fs,groups,motion in parts:
+        if a.normal_only:continue
         if a.only_part and part!=a.only_part:continue
         info=dict(id=part,motion=motion,frames=[])
         if motion=='shatter':
@@ -427,7 +443,7 @@ for name,definition in profiles.items():
         previous={p['id']:p for p in meta['objects'].get(name,{}).get('parts',[])}
         previous.update({p['id']:p for p in part_meta})
         meta['objects'][name]=dict(pivot=object_pivot_px,parts=[previous[p[0]] for p in parts if p[0] in previous])
-        if a.polyhaven_root:meta['objects'][name]['source_assets']=ph.SOURCE_BY_KIND[name]
+        if a.polyhaven_root:meta['objects'][name]['source_assets']=(['standing_picture_frame_01'] if name=='frame' else ['television_02'] if a.natural_materials and name=='tv' else [] if a.natural_materials and name=='mug' else ph.SOURCE_BY_KIND[name])
         checkpoint=out/'parts.checkpoint.json';checkpoint.write_text(json.dumps(meta,indent=2));checkpoint.replace(out/'parts.json')
     for _,ob,*_ in parts:bpy.data.objects.remove(ob,do_unlink=True)
 (out/'parts.json').write_text(json.dumps(meta,indent=2))

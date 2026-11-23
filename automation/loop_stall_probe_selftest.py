@@ -3,14 +3,28 @@ with phases, main-thread stack samples naming the stalling function, and gc even
 Run: PYTHONPATH=. python3 automation/loop_stall_probe_selftest.py
 """
 import importlib, json, os, sys, tempfile, threading, time
+from unittest.mock import patch
 
 
-def slow_function():
-    t = time.monotonic()
-    while time.monotonic() - t < 0.3:
-        sum(range(1000))
+def slow_function(probe):
+    # Wait for the real watchdog, then do measurable CPU work after its first
+    # sample. A fixed 300 ms spin can end before a loaded host schedules it.
+    start = time.monotonic()
+    sampled_cpu = None
+    while time.monotonic() - start < 15.0:
+        sum(range(10000))
+        with probe._lock:
+            sampled = bool(probe.samples)
+        if sampled and sampled_cpu is None:
+            sampled_cpu = time.thread_time()
+        if (time.monotonic() - start >= .3 and sampled_cpu is not None
+                and time.thread_time() - sampled_cpu >= .08):
+            return
+        time.sleep(0)
+    raise AssertionError(f'watchdog did not collect stacks and CPU within fifteen seconds: samples={len(probe.samples)}')
 
 
+@patch.dict(os.environ, {'SKJUTBANA_STALL_PROBE_MS':'150'})
 def main():
     os.environ.pop("SKJUTBANA_STALL_PROBE", None)
     import src.engine.loop_stall_probe as p
@@ -22,7 +36,7 @@ def main():
         os.environ["SKJUTBANA_STALL_PROBE"] = d + "/s.jsonl"
         p = importlib.reload(p)
         p.begin(); p.mark("fast"); p.end()                    # short iteration: not recorded
-        p.begin(); p.mark("a"); slow_function(); p.mark("slow_phase"); p.end()
+        p.begin(); p.mark("a"); slow_function(p._PROBE); p.mark("slow_phase"); p.end()
         rows = [json.loads(l) for l in open(d + "/s.jsonl")]
         assert len(rows) == 1, rows
         r = rows[0]

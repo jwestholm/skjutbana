@@ -1,13 +1,46 @@
 # PANG! – rummen
 
-2026-11-23, `claude/latency`, för granskning. Inga commits/push/merge.
-**Kamera/projektor orörda. Nya rummet är inte fysiskt validerat; ≥95 % är målet.**
+2026-11-23, lokal `dev`-integration. Ingen push.
+**Kamera/projektor orörda. ≥95 % fysisk träffsäkerhet och visuell acceptans är inte verifierade.**
 
-**Senaste leverans: R7 (2026-11-23).** Tre rum × två möbleringar, tio aktiva
-föremål, naturlig rumskontrast och lokalt färgskydd. Se R7-avsnittet sist för
-aktuella mått och reproduktion; R3–R6 nedan beskriver tidigare leveranser.
-Förhandsbilder: [vardagsrum](/tmp/pang_r7/living.png),
-[kök](/tmp/pang_r7/kitchen.png), [arbetsrum](/tmp/pang_r7/study.png).
+**Senaste leverans: R8 (2026-11-23).** Tre rum × tre möbleringar, naturliga
+rumstexturer och valfri `object_highlight`-presentation. Se R8-avsnittet först;
+R3–R7 nedan beskriver tidigare leveranser.
+Förhandsbild: [/tmp/pang-dev-r8-pastel-living/show_targets.png](/tmp/pang-dev-r8-pastel-living/show_targets.png).
+
+## R8 — naturliga rum och diskret målupplysning (2026-11-23)
+
+- Nio naturliga rumsversioner (`living|kitchen|study` × tre möbleringar) med
+  318 paketerade PNG-filer. Möbler och objekt använder lokala CC0 Poly Haven-
+  källor; vägg- och golvytor använder dokumenterade CC0-atlasutsnitt där en
+  separat arkitekturtextur inte fanns tillgänglig. Manifestet låser fil- och
+  recept-hashar. R7-paketet lämnades separat.
+- Motorflaggan `object_highlight` är av som standard. PANG-spelet kan slå på den
+  via `SKJUTBANA_PANG_OBJECT_HIGHLIGHT=1`, `--object-highlight` eller G i spelet.
+  `--object-glow` och den äldre `SKJUTBANA_PANG_OBJECT_GLOW` fungerar som alias.
+  En uttrycklig `precision_flash=off`/miljö-off stänger av presentationen.
+- Endast objektens frysta synliga silhuetter ljusas upp, i en mildare skala av
+  samma ursprungliga färg. Varje objekt får en tunn ljusgul ring. De större
+  cirklarna används bara för mätning och visas inte som fyllda fält. Markeringen
+  försvinner direkt efter den korta mätvisningen; återstående analys kan fortsätta
+  i bakgrunden. Skador får bara minska den frysta ytan.
+- `automation.pang_glow_preview` renderar mjukvaruförhandsbilder och ett
+  simulerat klick. Tre rumstyper har granskats visuellt; alla nio naturliga
+  rumsbilder exporterades. Detta är inte kameradata eller fysisk träffvalidering.
+- Självtesterna för `object_highlight` (11), `object_glow` (19) och
+  `precision_flash` (19) passerar; hela sviten klarade 169/169 moduler.
+  Digital pixel-/tidsprobe använde 12 frön × fyra bakgrunder × sju scenarier
+  (336 fall), syntetisk 720×480-kamerabild och Gaussian-darkening, inte verkliga
+  hålstämplar. Tydlig träff, närmiss, gammalt+nytt, inget hål, utanför mask och
+  ljusning matchade förväntan i 48/48 fall vardera; den avsiktligt svaga
+  signalen blev UNKNOWN i 48/48 fall. Inga oväntade träffutdelningar. Detta är
+  digital pixel-/tidsverifiering, inte fysisk noggrannhet eller full
+  source-session replay.
+
+Källor: `content/games/light_room_natural_assets/`,
+`automation/assets/pang_rooms_r8.py`, `automation/object_glow_bench.py` och
+`automation/object_glow_replay.py`. Operatörsprov med kamera/projektor behövs
+fortfarande för faktisk synlighet, timing och träffsäkerhet.
 
 
 ## Spelbar version

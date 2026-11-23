@@ -31,6 +31,22 @@ class GameScene(Scene):
             callback(result)
 
     @property
+    def object_highlight(self):
+        return getattr(self.game, "object_highlight", False) is True
+
+    @property
+    def precision_glow(self):
+        return getattr(self.game, 'precision_glow', None)
+
+    def get_precision_glow_context(self):
+        callback=getattr(self.game, 'get_precision_glow_context', None)
+        return callback() if callable(callback) else None
+
+    def on_precision_glow_state(self, state):
+        callback=getattr(self.game, 'on_precision_glow_state', None)
+        if callable(callback):callback(state)
+
+    @property
     def precision_flash(self):
         # "auto" | "off" | "on"; "off" always wins (see src/engine/precision_flash.py).
         return getattr(self.game, "precision_flash", "auto")

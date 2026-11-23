@@ -1,0 +1,57 @@
+{
+  "schema": "pang-polyhaven-sources-1",
+  "license_url": "https://polyhaven.com/license",
+  "assets": [
+    {
+      "id": "Sofa_01",
+      "url": "https://polyhaven.com/a/Sofa_01",
+      "license": "CC0-1.0",
+      "files_sha256": {
+        "Sofa_01_1k.gltf": "dc9d331a24fc8994606ae5a283826cb28feb3166782f59d006d0f10cc92cc830",
+        "Sofa_01.bin": "c8af86de6db09a6d49703e0e51cf8acafa23fb2ee945e66a48225dced3a154e1",
+        "textures/Sofa_01_nor_gl_1k.jpg": "1d89009f9fba3b6967d63cb718606b3049d2423bc031da12ee228718a0571e84",
+        "textures/Sofa_01_diff_1k.jpg": "1772047e7887a9ec44878e0720eda0829abfa744dec6ca03b492a31c4dc51cab",
+        "textures/Sofa_01_arm_1k.jpg": "fc5db69e4cf5cf9f881b2d134fae69c4e3b1a96378f131752ef48060bf0c5e39"
+      }
+    },
+    {
+      "id": "CoffeeTable_01",
+      "url": "https://polyhaven.com/a/CoffeeTable_01",
+      "license": "CC0-1.0",
+      "files_sha256": {
+        "CoffeeTable_01_1k.gltf": "c0b7ce378fc13886c220236941b4d258389d252e337297dc89505b80e43617fb",
+        "CoffeeTable_01.bin": "1b047e37723ad62b6a204465b22b9fd40936957cee255f20ee65312db227fb11",
+        "textures/CoffeeTable_01_nor_gl_1k.jpg": "0aa55f510be698c7c0e2c0c2deff2a4e892a9343da98bb901daa84e104883de7",
+        "textures/CoffeeTable_01_diff_1k.jpg": "170967df5c50342bb5f0273d1fb99f22cef80a0e7f50264e16dec75d1b2830ba",
+        "textures/CoffeeTable_01_arm_1k.jpg": "b8d7dfe15a11ba361919840f00f360d1133f985ff4321b2e891cf941eb5b51c0"
+      }
+    },
+    {
+      "id": "standing_picture_frame_01",
+      "url": "https://polyhaven.com/a/standing_picture_frame_01",
+      "license": "CC0-1.0",
+      "files_sha256": {
+        "standing_picture_frame_01_1k.gltf": "cd8a0326db53a48c918940c9a7ad016236d825a6b487e5d312fcac33897074bc",
+        "standing_picture_frame_01.bin": "bdaf666c5011671c55d5661171d2395cee7d80f1558e92760c663050cba39b49",
+        "textures/standing_picture_frame_01_nor_gl_1k.jpg": "75899a4f4bc80ec69383b148076c054fb1d61f0bf62a32bb913bc151f1d26f04",
+        "textures/standing_picture_frame_01_diff_1k.jpg": "e9d1030940b00ed576cafd704f7fc44226a255ed8d2db5ef3b8fd02d5521a763",
+        "textures/standing_picture_frame_01_arm_1k.jpg": "1092eae6ea8c312fbb3acdd3ab90e80a83658b9a593ff8c8412151dbddac2250",
+        "textures/standing_picture_frame_01_artwork_nor_gl_1k.jpg": "2b1cabd85ed19872b1df2d509a8906fea80003925ae71e773b1fb0f6010ffbf0",
+        "textures/standing_picture_frame_01_artwork_diff_1k.jpg": "d65a41f6391563f3c5e35b66fb6a96949d166072d174406223412ac4dfb0c11e",
+        "textures/standing_picture_frame_01_artwork_rough_1k.jpg": "62d875e9427f5d71f1bb4d9dc9569e34465bfd3067b8b13f5644b73e23a09fa3"
+      }
+    },
+    {
+      "id": "television_02",
+      "url": "https://polyhaven.com/a/television_02",
+      "license": "CC0-1.0",
+      "files_sha256": {
+        "television_02_1k.gltf": "8e7d7cb6bbdb5713b7d4ed21ece7c0f9c41912359c2c0f5065b7e77f5bf4cdcf",
+        "television_02.bin": "73f1d3519f7bdacca24c892e2614ff756d5d27f5c33fb518cb8aac9154fa710b",
+        "textures/television_02_nor_gl_1k.jpg": "d241001bb67ffe262612ff46930d62f751c425b6e9be8704e762c2dc5b48e536",
+        "textures/television_02_diff_1k.jpg": "216bc64108a79f3728e4f0fa2927da2491a3c3f5c619c8d48418c2aad84afb5e",
+        "textures/television_02_arm_1k.jpg": "7fa42cc4ce2b2a09e2889aaf7897265a79223cad2f3267e035884c96ab37d48b"
+      }
+    }
+  ]
+}

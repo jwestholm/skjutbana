@@ -8,6 +8,7 @@ SOURCE_BY_KIND={'vase':['ceramic_vase_02','potted_plant_02'],'jar':['ceramic_vas
  'bowl':['ceramic_pot'],'bottle':['ceramic_vase_03'],'lamp':['desk_lamp_arm_01'],
  'tv':['Television_01'],'books':['book_encyclopedia_set_01'],'plant':['potted_plant_02'],
  'clock':['alarm_clock_01'],'mug':['metal_jug']}
+NATURAL_MATERIALS=False
 ROOM_SOURCES=['sofa_02','modern_coffee_table_01','Shelf_01','side_table_01','fancy_picture_frame_01']
 
 
@@ -36,6 +37,9 @@ def lighten(material,amount):
 
 
 def load(root,name,height=None,location=(0,0,0),rotation=0,light=.65):
+    if NATURAL_MATERIALS:light=None
+    root=Path(root)
+    if NATURAL_MATERIALS and not (root/name).exists():root=root.with_name('pang_polyhaven_r8_sources')
     before=set(bpy.context.scene.objects)
     bpy.ops.import_scene.gltf(filepath=str(next((Path(root)/name).resolve().glob('*.gltf'))))
     imported=list(set(bpy.context.scene.objects)-before);objects=[o for o in imported if o.type=='MESH']
@@ -97,7 +101,7 @@ def id_material(original,color):
     tree.links.new(mix.outputs[0],out.inputs['Surface']);return m
 
 
-def television_on(ob):
+def television_on(ob,modern=False):
     # The screen rectangle is in this model's documented diffuse UV atlas, not game/GT XY.
     for m in ob.data.materials:
         b=next((n for n in m.node_tree.nodes if n.type=='BSDF_PRINCIPLED'),None)
@@ -105,16 +109,16 @@ def television_on(ob):
         tree=m.node_tree;nodes=tree.nodes;links=tree.links
         uv=nodes.new('ShaderNodeTexCoord');sep=nodes.new('ShaderNodeSeparateXYZ');links.new(uv.outputs['UV'],sep.inputs[0])
         gates=[]
-        for socket,op,threshold in [(sep.outputs['X'],'GREATER_THAN',.033),(sep.outputs['X'],'LESS_THAN',.352),
-                                    (sep.outputs['Y'],'GREATER_THAN',.05),(sep.outputs['Y'],'LESS_THAN',.277)]:
+        for socket,op,threshold in [(sep.outputs['X'],'GREATER_THAN',.690 if modern else .033),(sep.outputs['X'],'LESS_THAN',.985 if modern else .352),
+                                    (sep.outputs['Y'],'GREATER_THAN',.765 if modern else .05),(sep.outputs['Y'],'LESS_THAN',.985 if modern else .277)]:
             n=nodes.new('ShaderNodeMath');n.operation=op;links.new(socket,n.inputs[0]);n.inputs[1].default_value=threshold;gates.append(n.outputs[0])
         mask=gates[0]
         for g in gates[1:]:
             n=nodes.new('ShaderNodeMath');n.operation='MULTIPLY';links.new(mask,n.inputs[0]);links.new(g,n.inputs[1]);mask=n.outputs[0]
         ramp=nodes.new('ShaderNodeValToRGB');links.new(sep.outputs['Y'],ramp.inputs[0])
-        ramp.color_ramp.elements[0].position=.05;ramp.color_ramp.elements[0].color=(.36,.68,.32,1)
-        ramp.color_ramp.elements[1].position=.277;ramp.color_ramp.elements[1].color=(.5,.78,.94,1)
-        mid=ramp.color_ramp.elements.new(.15);mid.color=(.85,.82,.58,1)
+        ramp.color_ramp.elements[0].position=.765 if modern else .05;ramp.color_ramp.elements[0].color=(.36,.68,.32,1)
+        ramp.color_ramp.elements[1].position=.985 if modern else .277;ramp.color_ramp.elements[1].color=(.5,.78,.94,1)
+        mid=ramp.color_ramp.elements.new(.87 if modern else .15);mid.color=(.85,.82,.58,1)
         mix=nodes.new('ShaderNodeMixRGB');links.new(mask,mix.inputs[0]);links.new(b.inputs['Base Color'].links[0].from_socket,mix.inputs[1]);links.new(ramp.outputs[0],mix.inputs[2]);links.new(mix.outputs[0],b.inputs['Base Color'])
         emit=nodes.new('ShaderNodeMixRGB');links.new(mask,emit.inputs[0]);emit.inputs[1].default_value=(0,0,0,1);links.new(ramp.outputs[0],emit.inputs[2]);links.new(emit.outputs[0],b.inputs['Emission Color']);b.inputs['Emission Strength'].default_value=.7
 
@@ -168,9 +172,13 @@ def make_parts(root,name):
         for o in selected:o.data.transform(Matrix.Translation(-center))
         return [part(p,o,'fall') for p,o in zip(('left','middle','right'),selected)]
     if name=='tv':
-        ob=join(load(root,'Television_01',2.),'TV');television_on(ob)
+        ob=join(load(root,'television_02' if NATURAL_MATERIALS else 'Television_01',2.),'TV')
+        television_on(ob,modern=NATURAL_MATERIALS)
         lower=sliced(ob,'TV base',2,upper=.24);upper=sliced(ob,'TV body',2,lower=.24);bpy.data.objects.remove(ob,do_unlink=True)
         return [part('screen',upper,'crack'),part('stand',lower,'fall')]
+    if name=='frame':
+        ob=join(load(root,'standing_picture_frame_01',1.8),'standing picture frame')
+        return [part('picture',ob,'fall')]
     if name=='clock':
         return [part('face',join(load(root,'alarm_clock_01',1.9),'clock'),'crack')]
     if name=='lamp':

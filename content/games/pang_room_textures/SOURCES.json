@@ -1,0 +1,177 @@
+{
+  "derivation": "UV atlas crops, not new standalone texture downloads",
+  "assets": [
+    {
+      "id": "oak",
+      "license": "CC0-1.0",
+      "url": "https://polyhaven.com/a/modern_coffee_table_01",
+      "maps": {
+        "color": {
+          "file": "oak_color.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_diff_1k.jpg",
+          "source_sha256": "069b89dd3ef03ddcbb7b2e6a124b1903aa7848394509121aa19f87bd0ef0218c",
+          "crop_xyxy": [
+            811,
+            150,
+            845,
+            590
+          ],
+          "sha256": "9c7d2fcea5d25ecc5fc5a0b5a13dfef4e4f6714039875afd806953f90b8c7049"
+        },
+        "normal": {
+          "file": "oak_normal.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_nor_gl_1k.jpg",
+          "source_sha256": "43e0d317d0f8418b130c0058c645225ee83b808b1dc0e5e7236bead3bdd77139",
+          "crop_xyxy": [
+            811,
+            150,
+            845,
+            590
+          ],
+          "sha256": "1e8fdf4bee155de617fed4107e48d812d0b9c47a01d6de47c51ce96eb08f3a27"
+        },
+        "rough": {
+          "file": "oak_rough.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_rough_1k.jpg",
+          "source_sha256": "8013b48b0ebb845907f840afcae9cbc915a5205ac82ed99cbba31771febacb0f",
+          "crop_xyxy": [
+            811,
+            150,
+            845,
+            590
+          ],
+          "sha256": "18d07a119066fb322bd23bf845b5e568aa783c85855c8135c210228ba5704d19"
+        }
+      }
+    },
+    {
+      "id": "stone",
+      "license": "CC0-1.0",
+      "url": "https://polyhaven.com/a/modern_coffee_table_01",
+      "maps": {
+        "color": {
+          "file": "stone_color.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_diff_1k.jpg",
+          "source_sha256": "069b89dd3ef03ddcbb7b2e6a124b1903aa7848394509121aa19f87bd0ef0218c",
+          "crop_xyxy": [
+            45,
+            780,
+            180,
+            900
+          ],
+          "sha256": "38bd17ca0a66f73e1927f0da7b2466b449a72b8670cfa9185d04f54a162b6ffd"
+        },
+        "normal": {
+          "file": "stone_normal.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_nor_gl_1k.jpg",
+          "source_sha256": "43e0d317d0f8418b130c0058c645225ee83b808b1dc0e5e7236bead3bdd77139",
+          "crop_xyxy": [
+            45,
+            780,
+            180,
+            900
+          ],
+          "sha256": "6d8ea818d000609fb1fd175e07869bdca0b01a14aedb931abf296aa9d39b0eee"
+        },
+        "rough": {
+          "file": "stone_rough.png",
+          "source": "content/games/pang_polyhaven_sources/modern_coffee_table_01/textures/modern_coffee_table_01_rough_1k.jpg",
+          "source_sha256": "8013b48b0ebb845907f840afcae9cbc915a5205ac82ed99cbba31771febacb0f",
+          "crop_xyxy": [
+            45,
+            780,
+            180,
+            900
+          ],
+          "sha256": "b0ef034b55cc5324b9af04a17702be8e6b380ae28064f6f791d81d25a968084d"
+        }
+      }
+    },
+    {
+      "id": "plaster",
+      "license": "CC0-1.0",
+      "url": "https://polyhaven.com/a/ceramic_vase_01",
+      "maps": {
+        "color": {
+          "file": "plaster_color.png",
+          "source": "content/games/pang_polyhaven_sources/ceramic_vase_01/textures/ceramic_vase_01_diff_1k.jpg",
+          "source_sha256": "5f7d22178b74a59fe92aa0ccc958b897e2fb80df514eb28b97000097c0e71beb",
+          "crop_xyxy": [
+            64,
+            200,
+            475,
+            950
+          ],
+          "sha256": "b5b445a53366eba05a74516652f4dfb191a8016b97340064977422b1b85ecb71"
+        },
+        "normal": {
+          "file": "plaster_normal.png",
+          "source": "content/games/pang_polyhaven_sources/ceramic_vase_01/textures/ceramic_vase_01_nor_gl_1k.jpg",
+          "source_sha256": "c35b59d15e0f08db44b0bc8a5870bc65ae781819e5abf0447996d0faf05b7722",
+          "crop_xyxy": [
+            64,
+            200,
+            475,
+            950
+          ],
+          "sha256": "427c8b05ee5d8d45df936239da8fcb160be01b8fe463e6a115df0802f0310359"
+        },
+        "arm": {
+          "file": "plaster_arm.png",
+          "source": "content/games/pang_polyhaven_sources/ceramic_vase_01/textures/ceramic_vase_01_arm_1k.jpg",
+          "source_sha256": "121469880a7900513717685e9035dfc1b04613f85c778ab4e9dba98c1675d660",
+          "crop_xyxy": [
+            64,
+            200,
+            475,
+            950
+          ],
+          "sha256": "525cce01f4f6dca1f4c36e62f15e7fb58e2a2fd99fdfd0e32e3c733063265066"
+        }
+      }
+    },
+    {
+      "id": "fabric",
+      "license": "CC0-1.0",
+      "url": "https://polyhaven.com/a/Sofa_01",
+      "maps": {
+        "color": {
+          "file": "fabric_color.png",
+          "source": "content/games/pang_polyhaven_r8_sources/Sofa_01/textures/Sofa_01_diff_1k.jpg",
+          "source_sha256": "1772047e7887a9ec44878e0720eda0829abfa744dec6ca03b492a31c4dc51cab",
+          "crop_xyxy": [
+            300,
+            530,
+            700,
+            680
+          ],
+          "sha256": "e94cb2e234b25a8cd8f5ea2e7625a93976cc2f1265f0057be3fbc649fefb3e16"
+        },
+        "normal": {
+          "file": "fabric_normal.png",
+          "source": "content/games/pang_polyhaven_r8_sources/Sofa_01/textures/Sofa_01_nor_gl_1k.jpg",
+          "source_sha256": "1d89009f9fba3b6967d63cb718606b3049d2423bc031da12ee228718a0571e84",
+          "crop_xyxy": [
+            300,
+            530,
+            700,
+            680
+          ],
+          "sha256": "4b3642696cb2d1dc5fc3cd8463fd8961269d5b09537e493e6ccbae36a0765903"
+        },
+        "arm": {
+          "file": "fabric_arm.png",
+          "source": "content/games/pang_polyhaven_r8_sources/Sofa_01/textures/Sofa_01_arm_1k.jpg",
+          "source_sha256": "fc5db69e4cf5cf9f881b2d134fae69c4e3b1a96378f131752ef48060bf0c5e39",
+          "crop_xyxy": [
+            300,
+            530,
+            700,
+            680
+          ],
+          "sha256": "a7f3e2d82962325382d59376d7df79fdabde8d5c669e5979c6ff829ce90f7076"
+        }
+      }
+    }
+  ]
+}

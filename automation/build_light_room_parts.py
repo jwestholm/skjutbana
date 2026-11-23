@@ -85,15 +85,19 @@ def build(raw,output,*,realistic=False):
     prepare = protect_render if realistic else brighten
     raw,output=Path(raw),Path(output);output.mkdir(parents=True,exist_ok=False)
     info=json.loads((raw/'parts.json').read_text())
-    if realistic and info.get('asset_provider')=='polyhaven':
+    if info.get('natural_materials'):
+        prepare=lambda image:image.convert('RGBA')
+    elif realistic and info.get('asset_provider')=='polyhaven':
         prepare=lambda image:protect_render(expose_pbr(image))
     m=dict(asset_provider=info.get('asset_provider','original'),scene=info.get('scene','atelier'),schema='light-room-parts-2',blender_version=info['blender_version'],
            alpha_threshold=128,objects={},anchors=json.loads((raw/'layout.json').read_text())['anchors'],
            source=info.get('recipe','automation/assets/render_light_room_parts.py'),license='CC0-1.0',
            material_pipeline='render_preserving' if realistic else 'legacy_brighten',
            note='Functional parts and sectors are authored manually; Cell Fracture is an optional offline replacement.')
+    m['natural_materials']=bool(info.get('natural_materials'))
     if 'asset_provenance' in info:m['asset_provenance']=info['asset_provenance']
-    if realistic and info.get('asset_provider')=='polyhaven':m['model_display_exposure_gain']=PBR_DISPLAY_GAIN
+    if realistic and info.get('asset_provider')=='polyhaven' and not info.get('natural_materials'):m['model_display_exposure_gain']=PBR_DISPLAY_GAIN
+    if info.get('natural_materials'):m['material_pipeline']='natural_PBR_no_floor_no_tint_no_gain'
     m['raw_inputs_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(raw.iterdir()) if p.is_file() and p.suffix in ('.png','.json')}
     if (raw/'source_provenance.json').exists():m['raw_provenance']=json.loads((raw/'source_provenance.json').read_text())
     for name,spec in info['objects'].items():
@@ -114,12 +118,13 @@ def build(raw,output,*,realistic=False):
                 if stats[k,cv2.CC_STAT_AREA]<=4 and np.all(union[island]>0):
                     relabelled+=int(island.sum());ownership[island]=idx
         x,y,w,h=cv2.boundingRect(union);bbox=(x,y,x+w,y+h)
-        entry=dict(id_antialias_relabelled_pixels=relabelled,label={'vase':'Blomvas','jar':'Kruka','bowl':'Skål','bottle':'Flaska','lamp':'Lampa','tv':'TV','books':'Böcker','plant':'Krukväxt','clock':'Klocka','mug':'Mugg'}[name],
+        entry=dict(id_antialias_relabelled_pixels=relabelled,label={'vase':'Blomvas','jar':'Kruka','bowl':'Skål','bottle':'Flaska','lamp':'Lampa','tv':'TV','books':'Böcker','plant':'Krukväxt','clock':'Klocka','mug':'Mugg','frame':'Tavelram'}[name],
                    source_bbox=list(bbox),source_size=list(original.size),
                    pivot=[(spec.get('pivot',info['pivot'])[0]-x)/w,(spec.get('pivot',info['pivot'])[1]-y)/h],parts={})
         if info.get('asset_provider')=='polyhaven':
             entry['source_assets']=spec.get('source_assets',[])
             entry['label']={'mug':'Mjölkkanna','bowl':'Keramikgryta','vase':'Vas med blad','bottle':'Slank vas'}.get(name,entry['label'])
+        if info.get('natural_materials') and name=='mug':entry.update(label='Mugg',source_assets=[])
         for idx,part in enumerate(spec['parts']):
             mask=((ownership==idx)&(union>0))[y:y+h,x:x+w]
             mask,poly=polygons(mask,partition_holes=info.get('asset_provider')=='polyhaven')
@@ -139,7 +144,7 @@ def build(raw,output,*,realistic=False):
             entry['parts'][part['id']]=dict(sprite=base+'.png',mask=base+'_mask.png',polygons=poly,
                 frames=paths,motion=part['motion'],detach=part['detach'],points=part['points'],cue=part['cue'])
         m['objects'][name]=entry
-    room=protect_render(Image.open(raw/'room.png')) if realistic else brighten(Image.open(raw/'room.png'),floor=160)
+    room=(Image.open(raw/'room.png').convert('RGBA') if info.get('natural_materials') else protect_render(Image.open(raw/'room.png'))) if realistic else brighten(Image.open(raw/'room.png'),floor=160)
     room.convert('RGB').save(output/'room.png')
     m['files_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(output.glob('*.png'))}
     m['recipes_sha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in ([Path('automation/build_light_room_parts.py'),Path(m['source'])]+([Path('automation/assets/pang_polyhaven.py')] if info.get('asset_provider')=='polyhaven' else []))}
