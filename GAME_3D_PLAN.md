@@ -171,3 +171,15 @@ minst 125,04 predikterade DN i spelytan; 30 layouter klarar ROI-budgeten.
 Käll-/licenslistor medföljer. Preview `/tmp/pang_r6/preview.png` och reproduktion i
 `GAME_NEW_REPORT.md`. Fysisk pilot, negativkontroller och Jimmys visuella
 acceptans återstår; färgproxy och simulerade träffar bevisar inte fysisk 95 %.
+
+
+## R7 genomförd — 2026-11-23
+
+Tre rumsmallar (vardagsrum, kök, arbetsrum) × två möbleringar med naturlig PBR-
+kontrast, golv-/möbelankare i meter, TV-bänk och mindre grytor/golvvaser. Tio
+skjutbara föremål; historik över rum och målcentrer sparas som i burkspelet.
+Ingen global bildljusning: endast mål och närmaste omgivning skyddas. Alla
+stödda upplösningar och 30 layouter klarar färgproxy/ROI-budget. 15 självtest-
+moduler gröna. Bilder `/tmp/pang_r7/living.png`, `kitchen.png`, `study.png`;
+slutvärden och reproduktion i `GAME_NEW_REPORT.md`. Ingen fysisk utrustning
+använd; visuell acceptans och fysisk träffsäkerhet är fortfarande separata krav.

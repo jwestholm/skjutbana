@@ -15609,147 +15609,228 @@
   },
   "anchors": [
     {
-      "id": "shelf_left",
-      "support": "shelf",
-      "world": [
-        -1.78,
-        1.38,
-        0.9423
-      ],
-      "anchor": [
-        0.36741986870765686,
-        0.4352520704269409
-      ]
-    },
-    {
-      "id": "shelf_right",
-      "support": "shelf",
-      "world": [
-        -1.32,
-        1.38,
-        0.9423
-      ],
-      "anchor": [
-        0.4205883741378784,
-        0.44221436977386475
-      ]
-    },
-    {
-      "id": "sill_left",
+      "id": "sill_0",
       "support": "sill",
       "world": [
-        0.55,
-        1.5,
-        1.285
+        0.4,
+        1.43,
+        1.32
       ],
       "anchor": [
-        0.6688799858093262,
-        0.40282875299453735
-      ]
+        0.6442654132843018,
+        0.39573174715042114
+      ],
+      "unit_height": 0.20093119144439697
     },
     {
-      "id": "sill_right",
+      "id": "sill_1",
       "support": "sill",
       "world": [
-        1.55,
-        1.5,
-        1.285
+        1.52,
+        1.43,
+        1.32
       ],
       "anchor": [
-        0.8162358999252319,
-        0.41847139596939087
-      ]
+        0.8089159727096558,
+        0.41295355558395386
+      ],
+      "unit_height": 0.21229463815689087
     },
     {
-      "id": "table_left",
+      "id": "shelf_0",
+      "support": "shelf",
+      "world": [
+        -1.4200000000000002,
+        1.3,
+        0.39
+      ],
+      "anchor": [
+        0.4042667746543884,
+        0.5413232743740082
+      ],
+      "unit_height": 0.1796412169933319
+    },
+    {
+      "id": "shelf_1",
+      "support": "shelf",
+      "world": [
+        -1.4200000000000002,
+        1.3,
+        0.94
+      ],
+      "anchor": [
+        0.40315482020378113,
+        0.44345957040786743
+      ],
+      "unit_height": 0.18388420343399048
+    },
+    {
+      "id": "shelf_2",
+      "support": "shelf",
+      "world": [
+        -1.4200000000000002,
+        1.3,
+        1.49
+      ],
+      "anchor": [
+        0.4020167291164398,
+        0.343295693397522
+      ],
+      "unit_height": 0.18827909231185913
+    },
+    {
+      "id": "tv_console",
+      "support": "tv_bench",
+      "world": [
+        -1.2,
+        -0.68,
+        0.635
+      ],
+      "anchor": [
+        0.26354748010635376,
+        0.58542799949646
+      ],
+      "unit_height": 0.21962422132492065
+    },
+    {
+      "id": "coffee_0",
       "support": "table",
       "world": [
         0.18,
-        -0.55,
-        0.38999998569488525
+        -0.63,
+        0.39
       ],
       "anchor": [
-        0.4753372073173523,
-        0.6725053489208221
-      ]
+        0.4685761034488678,
+        0.6776114106178284
+      ],
+      "unit_height": 0.2322109341621399
     },
     {
-      "id": "table_right",
+      "id": "coffee_1",
       "support": "table",
       "world": [
-        0.83,
-        -0.55,
-        0.38999998569488525
+        1.0,
+        -0.63,
+        0.39
       ],
       "anchor": [
-        0.5795175433158875,
-        0.6947359144687653
-      ]
+        0.6022372841835022,
+        0.7064569890499115
+      ],
+      "unit_height": 0.2431965172290802
     },
     {
-      "id": "bench",
+      "id": "right_0",
       "support": "bench",
       "world": [
-        -1.3,
-        -0.55,
-        0.5506622791290283
+        1.5,
+        -1.43,
+        0.6
       ],
       "anchor": [
-        0.26375052332878113,
-        0.5940499305725098
-      ]
+        0.6331964731216431,
+        0.7358338236808777
+      ],
+      "unit_height": 0.27943480014801025
     },
     {
-      "id": "floor_left",
-      "support": "floor",
+      "id": "right_1",
+      "support": "bench",
       "world": [
-        -1.9,
-        -1.55,
-        0.01
+        2.12,
+        -1.43,
+        0.6
       ],
       "anchor": [
-        0.07846733182668686,
-        0.7508914470672607
-      ]
-    },
-    {
-      "id": "floor_middle",
-      "support": "floor",
-      "world": [
-        -0.62,
-        -1.75,
-        0.01
+        0.7618253827095032,
+        0.7646125555038452
       ],
-      "anchor": [
-        0.23330192267894745,
-        0.8182266503572464
-      ]
+      "unit_height": 0.291406512260437
     },
     {
-      "id": "floor_right",
+      "id": "floor_0",
       "support": "floor",
       "world": [
-        0.7,
         -1.85,
-        0.01
+        -1.5,
+        0.015
       ],
       "anchor": [
-        0.44145849347114563,
-        0.8926280066370964
-      ]
+        0.0910828560590744,
+        0.7481197416782379
+      ],
+      "unit_height": 0.22315773367881775
     },
     {
-      "id": "floor_far_right",
+      "id": "floor_1",
+      "support": "floor",
+      "world": [
+        -0.7,
+        -1.75,
+        0.015
+      ],
+      "anchor": [
+        0.2211592197418213,
+        0.813489705324173
+      ],
+      "unit_height": 0.2442033588886261
+    },
+    {
+      "id": "floor_2",
+      "support": "floor",
+      "world": [
+        0.65,
+        -1.9,
+        0.015
+      ],
+      "anchor": [
+        0.4270919859409332,
+        0.8938300088047981
+      ],
+      "unit_height": 0.26973656564950943
+    },
+    {
+      "id": "floor_3",
       "support": "floor",
       "world": [
         1.9,
-        -1.4,
-        0.01
+        -2.0,
+        0.015
       ],
       "anchor": [
-        0.7128075957298279,
-        0.9112607762217522
-      ]
+        0.666834831237793,
+        0.9810485057532787
+      ],
+      "unit_height": 0.2970372848212719
+    },
+    {
+      "id": "floor_outer_left",
+      "support": "floor",
+      "world": [
+        -2.05,
+        -1.05,
+        0.015
+      ],
+      "anchor": [
+        0.11893918365240097,
+        0.7114956080913544
+      ],
+      "unit_height": 0.21126163005828857
+    },
+    {
+      "id": "floor_outer_right",
+      "support": "floor",
+      "world": [
+        2.55,
+        -0.7,
+        0.015
+      ],
+      "anchor": [
+        0.8870328068733215,
+        0.8723271638154984
+      ],
+      "unit_height": 0.2629387825727463
     }
   ],
   "source": "automation/assets/render_light_room_parts.py",
@@ -16251,247 +16332,253 @@
     "manual_edits": "3 complete real leaves; physical lid/neck/upper-handle cuts; grounded fragments; per-object camera pivot; original UVs/PBR maps/opacity"
   },
   "files_sha256": {
-    "books_left.png": "234844c25e08e985d23c75b2df80b2c9ada6ee8b64e78f18fe0021d959e76aa0",
-    "books_left_00.png": "84b5ba734eec0d4e5e6d0e98360015045805476751be3b580d4b0b2775a312fe",
-    "books_left_01.png": "b65dac52b56a10fb370ce6179634aad8c043269fc06424c620bbcc13e50fa64b",
-    "books_left_02.png": "3e39fff8b566f220adb7f3e96dce095967caf5d4abcdeb74355f8f3c3c6e3d8b",
-    "books_left_03.png": "2162869254f01b225dea8841a15cb49ee01366fd1dd559992303d8524d0252a8",
-    "books_left_04.png": "b91324795cdd398e1725c9603555b486d588fc715041867c1e752db6f34a7119",
-    "books_left_05.png": "f0c7081c029325364b3655ce65d43585efe63183d17d3e0843f5d166604323f2",
-    "books_left_06.png": "379e52a2d28ca2ba978ba51c8f47054faa38527599e519e8aca7a7e31cb651d0",
-    "books_left_07.png": "57d99c42ca20c96d7f7460596cfa1bcbd4ff9231d6db9ad14880ad6927754b88",
-    "books_left_08.png": "5205466cfbb2c0daae9e5e7c2e5eb374e416da57cf0f87e0a779caf91ffce8d0",
-    "books_left_09.png": "0aa6b7fd335a494e562f42936a1621fd1e26e12ff6d47f0bfddecfa80ce6cf41",
-    "books_left_10.png": "bb4335907971348102e3063b35c550be7f76278cf83eac2881f665725da04b52",
-    "books_left_11.png": "b1491bc7b82a1bdd9c6804da7cd4b0d82f6f6a30eb988fd882ee18c01055d3d2",
-    "books_left_hit.png": "234844c25e08e985d23c75b2df80b2c9ada6ee8b64e78f18fe0021d959e76aa0",
+    "books_left.png": "b82fa6668cbd687880d816c1a55a0f94bb6ce07d4aad73a5947ba4554060cc24",
+    "books_left_00.png": "3fab799257844c75724829c37c8ab9b3029294ac288433bc8b2efd285d11a105",
+    "books_left_01.png": "2fcd7e8aa015f1c9d6cf94bcd69af81604e9433cb1c7a1815b89737047851b70",
+    "books_left_02.png": "4ae89f3df6530c81a013a2d569a80194285e2d701ef1f269b3dc3e3cbed89f85",
+    "books_left_03.png": "8fc5d241c8fe03e5e6c93ea26d532360447d446436ffe541b8d410121feee131",
+    "books_left_04.png": "faa60a6c481efc6554a808ce79dbfb225f339a796696c005694a369a6e03fbd8",
+    "books_left_05.png": "490005c0f5d1d5a844bdf7d54d318df8038b67bad0f1afac564f993b14103450",
+    "books_left_06.png": "6143cd5e35afb1b2ec32f478b52aa2aaee77dfc3905576790a4aa52c4f5dc9f1",
+    "books_left_07.png": "b28c175669dfdc2abd0b2a6ee52818bc2b98c6f39c19c0dc49be7807ff57be30",
+    "books_left_08.png": "efa853ce4a7a47ee40883738221081344341abbc9b946a8f197204b6df5c1ad9",
+    "books_left_09.png": "54c936c8c5a0f2e2be523c3dd155145f64d4281bbc18cac83b1487e965e5b409",
+    "books_left_10.png": "3c5ce418c2dc3f5ddc77a9a4c7c87b7ee98c25d2afa2ba0bc8e96075551ac210",
+    "books_left_11.png": "6f6fbc98b9e7329b84a0cf6edc4c33a814bf6ee79919a03d48cd46854f09fb06",
+    "books_left_hit.png": "b82fa6668cbd687880d816c1a55a0f94bb6ce07d4aad73a5947ba4554060cc24",
     "books_left_mask.png": "4708e5a61bb92accb09f49f50b2a59eb37784139e899ec1d0bda3a8d9387ea7f",
-    "books_middle.png": "fe32d098c6fee2153a01a1412b6b81134bf29d5b77b7cf320b4aa101bfc1d975",
-    "books_middle_00.png": "e9bb35cf43cb60119214ff6bfbdf3cde0e527bbff27c370070afaabdea805399",
-    "books_middle_01.png": "d4cf94ed520a093e252010cf9baca5b3f1ce04fb202517bba98fd9401d1c2d80",
-    "books_middle_02.png": "bbc40b8eb7785a41fa6b5b9fe99db96fa8cd497c6a3297eb1efac95cdb8b335c",
-    "books_middle_03.png": "41241ecca88021b64ef42bdbd059d9a8419b37e0dfc4c3ec75cd0be45bbfb687",
-    "books_middle_04.png": "975b9858902f0599e183a0a026aad7138c7f7c05fac48c16815ce471151d48fc",
-    "books_middle_05.png": "836cf0fc5e3c0cf3eee30931ded1c0135b01bc0469e2bed3bade225386248bb3",
-    "books_middle_06.png": "6032eee00c9ef9f5aefb2728d4e89a7d750b9ae5021c7632bb9b5646959f89c8",
-    "books_middle_07.png": "b90f0551e3857fd651e1d9ff3e8257ce2849e557cb262a0c16767fb9a6795ff3",
-    "books_middle_08.png": "d3bea18c0133fc1a432fb70a267e4cf60714863723c9ec5faa992acd03a07a37",
-    "books_middle_09.png": "ffee06e954fcb90e6ea14c8d092bdfeacf1cf8eb05bf66042f3b9d86d85070d9",
-    "books_middle_10.png": "6878b9dbb275f6c9a2268e8476492f9312b14876d7797a6c94fe80760b759c8a",
-    "books_middle_11.png": "bd15bf16703c8352d59d6193780dc1fd6a6646f2a8c9d40e690e5c4c76c4976e",
-    "books_middle_hit.png": "fe32d098c6fee2153a01a1412b6b81134bf29d5b77b7cf320b4aa101bfc1d975",
+    "books_middle.png": "977ee3db52f20acb47272c060c04622d19187865b226cf67cf69eb47059fad85",
+    "books_middle_00.png": "b54d26201e528d7a01fbce1d7e3703cbb6a6b4a1e8e90e4ea08cc4d9551534d4",
+    "books_middle_01.png": "75233ce549740af5b586a31050cb0acf84f5aca31226ef6dbd627c2453ca4e09",
+    "books_middle_02.png": "83884d72f07381237ba5e827f28f1b7c2c8dc9a429e26ac9fe9e2688e6d0247d",
+    "books_middle_03.png": "439da249be62097ea521a5156856750571f68ba9307dd402618dc440a440403d",
+    "books_middle_04.png": "850cfdfeae55e2eba34c91443c1f00370387105c463b9b68fce5e2c5b082d3d7",
+    "books_middle_05.png": "34d26b1caa3e03634e6c2f858fdb3bc42a35a57c83424aa40715ef8b45f25215",
+    "books_middle_06.png": "e1f07badc88055716a99cd26cb9f859b1cc7a46586564d602416c3840fcce723",
+    "books_middle_07.png": "2f6d006688ec8ea1d6cf84eec0c724e5d023c3684348452ada309d6da7ba4084",
+    "books_middle_08.png": "9cf7462619166e685824bc83e452e34876094327b3be04bdbf5ddf91b7ec0d14",
+    "books_middle_09.png": "bebd8bf3f35b271c389236fd914becd402d44793788714f1ea2c9baa675201e4",
+    "books_middle_10.png": "03c7b15dd63814b0dcc6d07306defdff3abcce83b33e6e682de4ad7d546ee5b9",
+    "books_middle_11.png": "763d0dc1cb33f9ee3d423969f4162d873295f71061ff38bfe904766d95388249",
+    "books_middle_hit.png": "977ee3db52f20acb47272c060c04622d19187865b226cf67cf69eb47059fad85",
     "books_middle_mask.png": "45f122cfdeb0c499b1720a7c2228f0d63b1b7a08b3d37af4a1423cdfcd78d327",
-    "books_right.png": "5745470d84516c787635f3d52e4e31e0e9eaf31ed8064ada1260236f414e76df",
-    "books_right_00.png": "cd400d5396d845ec771baf92be9a8ca243ad6d668529a5e4765b54b9485f8023",
-    "books_right_01.png": "f7b0b221afff09964bcc06583b1bfeb4b5579d558950228968d731a5751ee0d0",
-    "books_right_02.png": "7dc217754a2b817d792885811a52f5f33f4439234278a9b20e50d35c9639c432",
-    "books_right_03.png": "43e588c2f53990b9c4e95c7f35044db1166b5346ade4995f60b058bcba2ded0a",
-    "books_right_04.png": "03085809276977c3e604a935fad7688d74a3bdac85dbf373cb5a7a77bac4ad41",
-    "books_right_05.png": "3d6267e7e23c5ec86a4874d940d253bc06070a5f3ef9227bc05e25fa38247a57",
-    "books_right_06.png": "e37bcd67d962261a80df367e4ae03e9ab711b0a7c518fb7fcdeee6a7e3bca6d1",
-    "books_right_07.png": "1444bd716908e59b78af277af90a6fa6ed30712738719de907393ddb459474bd",
-    "books_right_08.png": "94566aa24bab7b894738eeb7a874a4fae05a9d15879ac4640b38409133b8f4c8",
-    "books_right_09.png": "4ef2ff49b29739f01dbdc416933b33525ed6bbba4a0cabcd4f0c673c7861abfc",
-    "books_right_10.png": "4595200a021345939ae375d96cc88afbbbe4dfb89ed647bca4e5a1abe7d07e56",
-    "books_right_11.png": "67113928a5fd74959afd6b6c7635acc78a0e07a22c966802d48ee6bec38cd52d",
-    "books_right_hit.png": "5745470d84516c787635f3d52e4e31e0e9eaf31ed8064ada1260236f414e76df",
+    "books_right.png": "ac907065747d27505c4eb3413fe0f0727d5684a29c52482713b7ba2aaefee311",
+    "books_right_00.png": "097d4e6d5c0814976c2476b649d0260badf24b4815c4c81866774e6740e260c5",
+    "books_right_01.png": "e50d080dc37b226feb60ad0a2a5bddbabb9cdc964ef4e9f0d11725c8e44b3ef5",
+    "books_right_02.png": "d0049711c55f551137bdc7a0e39df7b64e10230cfb066037c059dc12ba3db572",
+    "books_right_03.png": "e1541b383d0659e82346f341eb8ffa67876f69dbd6d6d3024f2583752a973e5e",
+    "books_right_04.png": "842621a92da7028e356943528d87e8bc12ed8b6f751e1c9244268b3a64812f23",
+    "books_right_05.png": "acc5c04c939613ea0f26c6f75b38bad5dd9300bc0233a668eee595aab69c5ed3",
+    "books_right_06.png": "050bf866ad6d78a57d83ac02a235dd48f5c8b42ccc0005d910171b077badfe70",
+    "books_right_07.png": "4b5d54d3df4d82025ac0afec0361975dfbe9ce463ecde3e03a8cc405afe6e22f",
+    "books_right_08.png": "b3f6f07ef955c9b8bbb28fc306293693e3ed7fba4435815b8dd3a8409a1ba4ae",
+    "books_right_09.png": "f57e62aca83a080a4421ec0411823866a6a4b3a09e95558c6e62d0bc8da095c3",
+    "books_right_10.png": "c5d0a4798718bd7e3238978bbf48c9b28cdcc78ad40ddafcfccc702c2d34bb0f",
+    "books_right_11.png": "dc148d628a736cc402dabe253e285cfa19add4417cfb8680c67f66b349cf482b",
+    "books_right_hit.png": "ac907065747d27505c4eb3413fe0f0727d5684a29c52482713b7ba2aaefee311",
     "books_right_mask.png": "77cb0f5d96ee7c6e72f9fc49ae234df73c78a18b5e4e81ef944a2a9b88fb0b25",
-    "bottle_body.png": "c3df7c0e4dc59a0406b7c4403940480f3252ac8fb935176bf80e849a95c0aa4b",
-    "bottle_body_00.png": "47fbb224ab1370b46f7f353ef572aa1cb17f44229e292a478bbec2f36a56f219",
-    "bottle_body_01.png": "3a7354af3aab4824cd22c2be33463f91059dc2993483500e20772d331762c215",
-    "bottle_body_02.png": "88861eaa34a435f226baa13db376b1e64fbf040a01950dd81ab35ddd96cd3ca7",
-    "bottle_body_03.png": "7b00ffd27d2f3bc1a52cd7899f9096d5fb82e3143d9a6722fdcd09aa242e7d80",
-    "bottle_body_04.png": "4a5fc898cb58f7a746617a4604de31376eafa13a420b6357a9db12dca3403382",
-    "bottle_body_05.png": "32749b004de3f72b469e59652e41305578586460458a94b87559e202a7000f01",
-    "bottle_body_06.png": "c30ec2d7decd838eb7235f890822c64982d688d605905904c40da4a3940c95c8",
-    "bottle_body_07.png": "75410042a2e8a624a6b1f587be939808673e53d2d8d8ee06535c57cdbd6afcfe",
-    "bottle_body_08.png": "94d5e1ab32a77e7531f7ca953cb17c56105a07d004a6a7737ad69805873b5435",
-    "bottle_body_09.png": "a96c876fbc830845810f26e0da84f2e0332214fd60a9d6acc4e9202e182270b4",
-    "bottle_body_10.png": "e6fd402e8a848bef04e1111ebc220c1697126360478b8d24df599f4e3cd5c9a7",
-    "bottle_body_11.png": "25dfeefdeeb7ba1f10574b62672e43e6c7e5c774432580306d566c5a6943460f",
-    "bottle_body_hit.png": "c3df7c0e4dc59a0406b7c4403940480f3252ac8fb935176bf80e849a95c0aa4b",
+    "bottle_body.png": "1de45bfcda0f2a1a84f4ba7aa56a0a59d4991c3a4f0755e6e5cff2f3dc520391",
+    "bottle_body_00.png": "1f9272a29a3e2c61f33cca4a2b8ad14e22c27da9d9321f58ff5f4265659e7206",
+    "bottle_body_01.png": "cb7c54f6341a2da7c2831e088139712da5cc54d53715c986e385c6181f998468",
+    "bottle_body_02.png": "c1fcdd2b93c7c9a4c51a80112f32184273373e4ccb8b91a43fa7c1b7f12f96ae",
+    "bottle_body_03.png": "8c12effaad2a4800e28eb1821210a5bf6ef6d1ce4ed13c384805fb55ffe52665",
+    "bottle_body_04.png": "b8a3ec8fc110e4336d3236782ab3f5bab9217a3bc4c2a21f8624318e99c56307",
+    "bottle_body_05.png": "846b7ec2469d37c7568cab6f22392dd8cd529242bf6bbed7a0dc8c7e8a71a36f",
+    "bottle_body_06.png": "2ff032d1e5c3c793dca2e52a9ea2727a7271a142121061e5cb805c2c12fb5d76",
+    "bottle_body_07.png": "9630f63def285a1c7eca65a97c0a086cd0fc4e6c3a4ebed7e5bc5219122f1f56",
+    "bottle_body_08.png": "7689adc8ef8fc307ce1210936bf3ecbb21b03ecc677d2836202d81cb84f07837",
+    "bottle_body_09.png": "7c4e66bb2c2f971f851319d6fde474abc78f94256841f3d0d84a21f845a0f06a",
+    "bottle_body_10.png": "ebb1370a9d9cf164d71a608f738d2d190adc42238b3796e4b393ad6b6bb688cd",
+    "bottle_body_11.png": "99360983c8973743ac144282d2967576341c1b4a30e32132bb1a6c9c22d8e9a8",
+    "bottle_body_hit.png": "1de45bfcda0f2a1a84f4ba7aa56a0a59d4991c3a4f0755e6e5cff2f3dc520391",
     "bottle_body_mask.png": "395f6c7bb63e7d471b8aa2220cc0e4836a12edb357d230bcd7a3ce7f7ba2b726",
-    "bottle_neck.png": "8bc17bc8207b69b53a138d4cdaf334e7e4f95871cd3555d5e6d7d2fa068b9396",
-    "bottle_neck_00.png": "bb354239e9cbfdf354e4487846137cb0157c6eb5ffa566e78fb071563e77f084",
-    "bottle_neck_01.png": "1128f3cfc869ce0331f4abe778141e7d74a0550ed5e29ef0d9bccf23ef0ce167",
-    "bottle_neck_02.png": "42c905b1503b0ae3cd6f25c5b667741353552bf0017e696cbe1834b851680041",
-    "bottle_neck_03.png": "f891602a74ed0c40d5eeecf3c7748257e5bc80416162c82be5a3266420f26e9b",
-    "bottle_neck_04.png": "a2c320b779917922dde6a8005ea3ba3bbe49fac0f1c6b872a372908f0c5d8c3a",
-    "bottle_neck_05.png": "8cb936cfc9edcecd6516d1f7016930074e50b16fb6f4462862f3a60e9fbf7b1f",
-    "bottle_neck_06.png": "e0b7396242a2113f3a49a4555b2ffcec4dd39bcb5380baa70ad452a5524b952b",
-    "bottle_neck_07.png": "af4b5af6f9b70ff7ffde03366328feaafcb0609a40325ad537045f8784a61688",
-    "bottle_neck_08.png": "38de6b8ace392229861c9115c9791188766409fec71b6e0257eb0562c1b2d992",
-    "bottle_neck_09.png": "65b963a4f382090dc623df3ffe6268df95a073bfc1f298fba83af9d368d9aa39",
-    "bottle_neck_10.png": "262c5d35b960e7505cd956b4bdf52e42709186cf9bfbbb9d4216061e0a9713fa",
-    "bottle_neck_11.png": "4aff341dafe7802cf49a2f80ba23d381092c404358badca5084c2a46fb13729c",
-    "bottle_neck_hit.png": "8bc17bc8207b69b53a138d4cdaf334e7e4f95871cd3555d5e6d7d2fa068b9396",
+    "bottle_neck.png": "a91873680d888b48b2bba51a642c2837c309c0a409baff1e65f73ec5f179b507",
+    "bottle_neck_00.png": "242701ba7951c28a3f71e89be9fe4ba23702ad4e9e58ba293939da7bd17e3eae",
+    "bottle_neck_01.png": "3755ea7231420524403b3848368fe61748519f661037d8aae5af2b69bd6d8a8e",
+    "bottle_neck_02.png": "dd680c8e8f79d53d8d03df313de2ce9f342810deee31178f260afdb7118fa3b5",
+    "bottle_neck_03.png": "10b98c4a65ad8c11a163552b932323dea6683ab4b5c85ce60473d28cd04a3078",
+    "bottle_neck_04.png": "7fc7c5eeb12bc48659699d57abaa90946973f87c825f467082cedc90bda7adde",
+    "bottle_neck_05.png": "0c6e62b44a5273c28c89a47714f4e674c5d06233eb3a0ca511850f7e96d90dcb",
+    "bottle_neck_06.png": "8648a0f2cdf3f407c5e6aee0ec9c1284487c1880e041965cc9a2d62777bbfbf1",
+    "bottle_neck_07.png": "dd1e83ffbc2bc9f52288f8bcad15fe2756ba7f63b28de84f641f67be2392da73",
+    "bottle_neck_08.png": "f7c5cc2b49129be5691f4019b2ec9a800d3bb1686ebc383df469ab1f1a465f5c",
+    "bottle_neck_09.png": "f26e110a8f8412f2bc1213a24d88733fb36cb4a978d562c9f019dc2d04b67533",
+    "bottle_neck_10.png": "9c0798054c8c732f9f526a8f833c7b31e65ce2fa74014ae20b7b20c36cf58c0c",
+    "bottle_neck_11.png": "b699ec5cdb53518a942e1e8d1ce196482adae7160229b2ca7e295d158c714fbd",
+    "bottle_neck_hit.png": "a91873680d888b48b2bba51a642c2837c309c0a409baff1e65f73ec5f179b507",
     "bottle_neck_mask.png": "408aa847bf885d6bea75cab95fba5f5c2ad32111bb4bfa5426af752c42d9cf58",
-    "bowl_body.png": "5fdc7cf103fb19d9663f5848656e2d29470f2f99675d468d46e1529275a9e2d2",
-    "bowl_body_00.png": "ee68bf79cb672ce000daf769c3b6478113b4796d1f31972025fe75c5d4f518e6",
-    "bowl_body_01.png": "52ee217061b19f024172d5d72a7522e8db4c46ee5855429fe5d9d8175ba9636d",
-    "bowl_body_02.png": "d7a2b27eac7ae3886d855c8d56b5f1085d89a37d4b8de1aad3f4738802adbe67",
-    "bowl_body_03.png": "21007d474e91faa256cd9584ba1f026f49b4d7dd0d7a88352245536f4ca33a27",
-    "bowl_body_04.png": "a605cb95a3ab5efddbe158a59d797baa7b96449148fb252891d869bf4e029f69",
-    "bowl_body_05.png": "09a1827394f96bc054ea495436b90258a32fab200e2ab9225ea5541b8786c4c9",
-    "bowl_body_06.png": "e5ec4b94eec0ad5401b54f3d933c29ec9f4c85e3b69519f0371855e3d86288db",
-    "bowl_body_07.png": "cc300e00425d03a087ea14f43316f5d49d1ca8a72360977fe690969fda06089f",
-    "bowl_body_08.png": "e217f03c4b37e9a5652e01e54289e60f481c3dbecb2ecec03ba5d0a704961e4b",
-    "bowl_body_09.png": "73a147fed10543b5deaf6953a1a5993b68a321edc09e8476cb0a3a003d7e5a80",
-    "bowl_body_10.png": "215df3a0097da0fb82a80ddde43f080d1dae691fd3d076e40b8a415d4fffd39f",
-    "bowl_body_11.png": "5f058731bc8182271010dfef25c472145233c415e027bb767764c44ab2e2d4fb",
-    "bowl_body_hit.png": "5fdc7cf103fb19d9663f5848656e2d29470f2f99675d468d46e1529275a9e2d2",
+    "bowl_body.png": "e156a00b5dd36b44dc461bb9a36f78fd4847b18cb4d63fdae076a9245c0a068c",
+    "bowl_body_00.png": "b131bd0ef29cee2f26892253b7eca998a1faa7f04e9be3b9c86b3e3dac430a07",
+    "bowl_body_01.png": "4ff84bc227067e683cbd464a8e8b15d458f63356f58ae65ca7dba4af34e31230",
+    "bowl_body_02.png": "ca58746e3e443f65ff4438810941ab5677d545d71ed1b878e7941aa1c177f105",
+    "bowl_body_03.png": "1b7192937b66c25c8d6f6bfc85da807bd1a18e8bcde62204c802c17addb8f10a",
+    "bowl_body_04.png": "4fd614a9917832b232f92fbc947d8a1faf74e01dd4e5780c43e2581b4fcffc5b",
+    "bowl_body_05.png": "2d0b75b81b0e74a1c8503bc8831a227d3a6ede0c78c263723d80d11241d312b3",
+    "bowl_body_06.png": "2dc2acc27a865b15e471e295eae8813b01944f2ea757f350feee22a203e80a19",
+    "bowl_body_07.png": "054346f74d73c46ed2eafdeb33ad93ed2474cdcf384ce538ac797b9090acbd23",
+    "bowl_body_08.png": "26c48a8d4b25fb67cce733305931f92dcbd49935c989fa5b2f9c979862f17d58",
+    "bowl_body_09.png": "300247d8342b5b82021468a6c669b2fa3d62904faff08eba04b80b65d6dc3765",
+    "bowl_body_10.png": "81b741e9d5e9d5d147fca87392a4c5fd5022df1537ed699caf6de04d5c54094b",
+    "bowl_body_11.png": "630779a56e00188f8972a40cc87c6b2232dace6479cc807d5277955bc9c9c165",
+    "bowl_body_hit.png": "e156a00b5dd36b44dc461bb9a36f78fd4847b18cb4d63fdae076a9245c0a068c",
     "bowl_body_mask.png": "ad3fa73c14837f921f2e21238b719156e1c44fd1445bb1a28c83afde1725d350",
-    "bowl_rim.png": "2de031303c48d25ad094439e781f92603263f76d9cd95dc49378c58dbd05742d",
-    "bowl_rim_00.png": "152255dccb49cded83743604332ee2e0f47891fd491e3ee431afe150507fe1ee",
-    "bowl_rim_01.png": "fc4df7887b97e8c78cdbe4ec8a70ea9da4cd20f1a8f0dbc58a8d338ff8058189",
-    "bowl_rim_02.png": "9a100a072ae35dee7052c99cfaf83d344007092c9e8ffdef528720a28260eed4",
-    "bowl_rim_03.png": "f115e3f509ac54ab231d7df400f2642145c244fd6a18599fc5aabcf5954a81da",
-    "bowl_rim_04.png": "bfabdb6a627bc3da5a5d7030a13df65887a46f30c953089512e07440f747e7a6",
-    "bowl_rim_05.png": "4ddd93002e3038aa3c3519eefef0c7cc6467bf0ab100fd20e5700bbdf717c8e7",
-    "bowl_rim_06.png": "c499eb81d3b9774119c38193e90991f640225827235b933ab600243e67fee55f",
-    "bowl_rim_07.png": "77fe1fdb1620c5cc0d405270f2f8bebbfa702ba2ef474c4796bf09a419db3f0a",
-    "bowl_rim_08.png": "3e832aa3edebeedf1350130fcfc5a805c38a6af25268979976c96b3fc1e50ab5",
-    "bowl_rim_09.png": "f8d52c6c05d6537ceedea7896e8b8454717baf43ce41472ef79b144edca94a99",
-    "bowl_rim_10.png": "02123964df689dc63d2b424cec8d363a666e2e2e5267c927e76ed8eabd66bf84",
-    "bowl_rim_11.png": "696d3ac8c8e1e32b9c097886756aedcc4a5db1e7819aea5b7a717458522f24f4",
-    "bowl_rim_hit.png": "2de031303c48d25ad094439e781f92603263f76d9cd95dc49378c58dbd05742d",
+    "bowl_rim.png": "664db644b9e4d9543ce65fc5e31aaa63cfa5424f8ef0651e11acac8bc69a95c5",
+    "bowl_rim_00.png": "a31f998e2e845fc35bb3ee8aaac2dd8c481a5b3ddaeb03939d6dcd42a25c173e",
+    "bowl_rim_01.png": "1e8f916441ced2cc13ded692e6e60f7c25b051240f76489e1af28419392a9608",
+    "bowl_rim_02.png": "0b66df6635eb4aaae8cb4fcde0f822a25030a380bb4ccac067381d582cf29520",
+    "bowl_rim_03.png": "49697bde353fc624adfab676bd2ecbca4d14b838d783a333d4502a4255b2fc17",
+    "bowl_rim_04.png": "e3ff924a2d40bb09c096a4f73fcce3f8867caca2b7b479da82b9c74eec4ea12f",
+    "bowl_rim_05.png": "d2e3d6390f8868c62def2dc2ec06c1f8c51da60707cd964c00548fa1a25077c3",
+    "bowl_rim_06.png": "a551bfbdcdf931651d8fb30edc7cf5b86b63260c5061e50ca9d2330cd87faf84",
+    "bowl_rim_07.png": "9a38113b7eea3c7566512836999a6a65811731611d8960f4a69740ce2d1a6704",
+    "bowl_rim_08.png": "e73bf98a723909548f005b6b24022e40263e7cc04c35a05cae979f5924ca031d",
+    "bowl_rim_09.png": "034425a02ea6dceef1ad8aed888b95dd0b456723c2c74ed636659b872c8948d0",
+    "bowl_rim_10.png": "0f62b54897b0e5cf3d71b485ac215206a657ae3536009402adeef706e751a925",
+    "bowl_rim_11.png": "80d1ac0dad79d47e1278bd0ea19ad190dace59f4cdf0d0b56fa4ce8e9aaedcfd",
+    "bowl_rim_hit.png": "664db644b9e4d9543ce65fc5e31aaa63cfa5424f8ef0651e11acac8bc69a95c5",
     "bowl_rim_mask.png": "384fb193d3ea27b7ca0020ca83108bc55c00081e24a3d4234891ac33fd103fb5",
-    "clock_face.png": "58f1cafe1b140af161f5cfa8db5db69c9c12667dc9109d76162b206fa518c479",
-    "clock_face_00.png": "78772509131cd20b69acb56aa204bcdb3153c857d339b8afe1f6bff91621f369",
-    "clock_face_01.png": "e8b1b0a8aed0a917e359549005562f246ab4e439a3e63f1d54fb906552c4b7b5",
-    "clock_face_02.png": "57a54a33ae98a8ceccccc57db5dff14db2edb3007860fddbc5677752a748abff",
-    "clock_face_03.png": "7304491a5e2491923df7775db65448a13b487e05b42f7e6d5d20d187e989749e",
-    "clock_face_04.png": "74be90d70c6c2f40627af4efd058c5db67a72f9e7761cd70b751c0d665836a79",
-    "clock_face_05.png": "f36d956ba3ee1c82f493a4999afe33d3b86ad504c30ee98730e2776d64562405",
-    "clock_face_06.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_07.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_08.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_09.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_10.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_11.png": "389fcbf2250c8dab4bff353e5708ad0f2d5a2a44040472a8c640cf0cbb51536a",
-    "clock_face_hit.png": "58f1cafe1b140af161f5cfa8db5db69c9c12667dc9109d76162b206fa518c479",
+    "clock_face.png": "93b5b5427ffc555df011aa2b0ee179c21cd4314a88d1d0974e832689de3aa348",
+    "clock_face_00.png": "080b8a2ddfb632bc80bfd588c04e215ca087b6d7b0ecf4bafa4d5e2d664e6398",
+    "clock_face_01.png": "321e848a6872bd5890c56c452eccde88f93f8e9a92c3ee9b5bedbda8abe031d7",
+    "clock_face_02.png": "25e40b1c646b18bd77a3bf8c74482f1c580193ef4527cff4e3fac4bd96be650b",
+    "clock_face_03.png": "6351e9fb536b75198ac632da95df531fc66d490e0b5b296d1cee3df18a87ef2c",
+    "clock_face_04.png": "87039a29d1f1093ed7b0eaec0dabff4e5646f45449dd336a1745b7b5aa32283e",
+    "clock_face_05.png": "26a6fed66e96835afda24cc9ee161e15980463e8433d3b346d5ca5f2963f347e",
+    "clock_face_06.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_07.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_08.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_09.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_10.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_11.png": "59172f52cc9bffca76008304c1d7c8a6faa1aa348ae80dde6ddc05a9038e60b7",
+    "clock_face_hit.png": "93b5b5427ffc555df011aa2b0ee179c21cd4314a88d1d0974e832689de3aa348",
     "clock_face_mask.png": "c6f6e57f57e69b6ae7439f7eec37368be3c8bcf1563cf55def2f6226789b79e1",
-    "jar_body.png": "11a90c3583bcb90f83e05acd7c314431c97e710c1bfde784c95771e6d4c0e840",
-    "jar_body_00.png": "96f54a1cc944d0b064e35123bce750cfa6cd0f3e35079cd08066168c877ae1fc",
-    "jar_body_01.png": "c54732a4021888eb582bff06b55374347232712307f86acfb81e2f78d5315e06",
-    "jar_body_02.png": "75a9f0aa8bcebda48fd947d2cbe68b5823bf735a6a1d60d4d5701a06155e6ffa",
-    "jar_body_03.png": "4f3bdb02743dcc513c323c1b2a6daf7744030ebd04b9de7ae38e706c5ad1bc4d",
-    "jar_body_04.png": "29a06f37497d05a1af2185b9e3c7783524114c8a86d695f35b3ec9d714bfea21",
-    "jar_body_05.png": "23d080cac67215b3060db102b9f1122b4cb1dd6a11693806de5e8cd0c4088390",
-    "jar_body_06.png": "5e37096786be1a73dce754cc2aa0e1ddf024920919142ee03c6f0ebdea2a4f0c",
-    "jar_body_07.png": "980694438a6df425122f7b2b89abbe616f1b184805678b6396a47e9cafd7670d",
-    "jar_body_08.png": "80907f15c75eceb3e595013f0439bca4cac07ccae8f2a13eadd743e7dfdc36b2",
-    "jar_body_09.png": "8ce0feb0d4d90df2eb445f91f4dfbf0d036a550a55b68038497429081211d6a1",
-    "jar_body_10.png": "1bac7af44c0dc606c9b7d9af9c39354596ed98e35b487d5ad6b44b76d8161a76",
-    "jar_body_11.png": "7f55a3b2ef4b438d594842253ef69736b3363962cc2c08c04673f3e1292d96ee",
-    "jar_body_hit.png": "11a90c3583bcb90f83e05acd7c314431c97e710c1bfde784c95771e6d4c0e840",
+    "jar_body.png": "fa76e46b997a1841e3435ea269f62c7448738a925991467f4275a4684fd97fda",
+    "jar_body_00.png": "7dcca84c4988b7fabe327d378e0321c9a821b3308f8d30eb5df7d58bcb45e23a",
+    "jar_body_01.png": "13cf9b33b91c44728c2279f878e512187fb0dac08c9e676e538bd67fda14a3f0",
+    "jar_body_02.png": "03a00bf43b919bd5c6f44e268cc95199609f7736d8d8f3f950a510f0b16e879c",
+    "jar_body_03.png": "44b4983497d83ae8525841797b2eecaf6c424d2e720fad7ae52918f57617387a",
+    "jar_body_04.png": "3205d760e8051bc8389efa8ba02c4fe50939a0065b80fac4554696cddf2d3f08",
+    "jar_body_05.png": "1d9eae52631dac83b853a7af7a4d903df7b739f04a562bb644bf807a14f734f8",
+    "jar_body_06.png": "41ca0f209ee3c1c0057496ffe7f849069235ecd5aafeaa6eb43291a3dfc3b2bf",
+    "jar_body_07.png": "32702610c8d5a16ce853bc82f5916ebbf49b1783ab2bd403fbe93015d5ec825e",
+    "jar_body_08.png": "1a500dfd1c6ea15d385b53e29a2c6fed6c72f14f6d76916e78480e0f95eedb20",
+    "jar_body_09.png": "754d370df1df78b092f52a8d626874e40a176b435d89dfd7fe58dd2f619d4b92",
+    "jar_body_10.png": "0f6ed78d00c0d39aeb1bdfef655fd9147799ab6fd9c37dca52fc9659512cd630",
+    "jar_body_11.png": "bb18d834b2af90bf858b62d8c9714f99b6943a5853a17e6cecd75c6bd7e7042b",
+    "jar_body_hit.png": "fa76e46b997a1841e3435ea269f62c7448738a925991467f4275a4684fd97fda",
     "jar_body_mask.png": "4bc3b34fe1bf2c0f55e774926639ce8889108e0a98bed7c864f60e1683aadbeb",
-    "jar_lid.png": "a1374e9bb14518d198cb3c07bfabb04caf95e10d09d86a6ce26d5cf6ff02bcff",
-    "jar_lid_00.png": "9496ffb4063c4e8d9b6ed0cd9586451a76a0358a44c932b6d688ac9218d88b6b",
-    "jar_lid_01.png": "461333ea7290aeee69c660d6a157246b9a15b2fea3e1a024676bba4efe5564a5",
-    "jar_lid_02.png": "a3b0c6a98ecee53c34e190fe84f86d2d76a9011f711a19cf85092ffb2cbfaade",
-    "jar_lid_03.png": "b2fe799861abdc8399a8ae6c7703313a9a7fd1c5f24720de5489451e3b351fd7",
-    "jar_lid_04.png": "05b0ec21bda8f3058042b21fe6eede2db465817187af8d2497150590fd838c9e",
-    "jar_lid_05.png": "e14d10cb8ddfbcd9f941bb7a2f97fee497b705d8ca41063eef66b13e78ff6473",
-    "jar_lid_06.png": "d6928318ef0511c58faad8e9b1b7bae70f3d3f64764cffdd4b293f9a354107f0",
-    "jar_lid_07.png": "082ec263c3447f17a2bf5973ee045999aa60f2267c027257a3f057c955d87714",
-    "jar_lid_08.png": "c43354913942a74ff713754a2a8c293bbcda2a2b7a2a33c1d6f55f5fcc8b7a11",
-    "jar_lid_09.png": "132d43ba025138d0d8ad2148aff9d679100d46b977ef91496a99ee96475837c5",
-    "jar_lid_10.png": "6c1c889c87cf9bfa202bb6a5e3044470b456908cb83a5e6c12dc576d22734834",
-    "jar_lid_11.png": "7b0db2becebbc4294773fe803d71f30f39bb6e7fe859733ab7d79aa409830486",
-    "jar_lid_hit.png": "a1374e9bb14518d198cb3c07bfabb04caf95e10d09d86a6ce26d5cf6ff02bcff",
+    "jar_lid.png": "4102a0d3b5da37a6426f276a0a16934ac9ab6733532dee7130e80ff46342e656",
+    "jar_lid_00.png": "78bb14f16ef7b76332458b754403768c25ba1903299aeb3b01326a1c702df770",
+    "jar_lid_01.png": "80091101f7f2df004eec2996febcfa7130df5e7188ff82bf36a0dfb6d43ea24e",
+    "jar_lid_02.png": "36f721522ca2949bb791970608a819e3a3f6f50fa72d42e7e7b733e4015ab383",
+    "jar_lid_03.png": "e58d42490d59bfe75c82b411492cfa851f3a8786d89438808cfa152149c8aba2",
+    "jar_lid_04.png": "0370afdff2e8cf72a2868664d9594ab6d642b9b440b00b0f35613d91716027d4",
+    "jar_lid_05.png": "441d67f594050b5c166c8c06499b55abebe9bae3f86f1082b1becd168e2375e0",
+    "jar_lid_06.png": "394a3d08a7e5306d7f187e48b2501ac441273a953da0cb464e6996e68054aec7",
+    "jar_lid_07.png": "fae32dccbe02361fd9ca48a23f9a7ddac5edda37c84f899c43345a44288dd511",
+    "jar_lid_08.png": "c421fa308f824d33d47115a464011a55a962704ea7824a60619a35f5affe1801",
+    "jar_lid_09.png": "0f777b1dfd4cd027bd2ffd5ab616177b578c6ed63df3a229cb063b5288c3b35e",
+    "jar_lid_10.png": "0d64ba419a051ac3bd8824760bf333b4ca95485eff89e55c62d6528e389bae26",
+    "jar_lid_11.png": "7fa5764bf62549936a95c21e5ed22e9518f12301db45da1f3f666b8a852650b9",
+    "jar_lid_hit.png": "4102a0d3b5da37a6426f276a0a16934ac9ab6733532dee7130e80ff46342e656",
     "jar_lid_mask.png": "11a37423640a82dcf159f25b3278ee58d12a456923cb2dd959382e20cfb5fa63",
-    "lamp_base.png": "aa39ca2a8627a9c4ed48a7ad6825fc37e64d3f29b4709d4f517ab8fced9e3205",
-    "lamp_base_00.png": "3c420a910fda5d872de558da7a61d8df84370e11726fc3f7071cfc67d5356985",
-    "lamp_base_01.png": "553db27abefb57708c9c582868e70ca9597b10d905fc4ecf839797e2383d031b",
-    "lamp_base_02.png": "5a1ad6328ce45d9a6e933c50d808cb80a5b051e75be4eebfd48f6e5025528081",
-    "lamp_base_03.png": "9edc2010a6df3976c3fd569a945ffced8c8b4cb8f27f03d71bbc612c3ead40a3",
-    "lamp_base_04.png": "6be44a2a84acc8aa8e34e8c98f19802e735a06af59504337718b54e93bcbcb10",
-    "lamp_base_05.png": "579c3ae675238072709155924c039ea7986cfe6140ac989f2befd883ae2118f4",
-    "lamp_base_06.png": "d87654b884d7d82d490d520d7c54ec1a762b72d856baaede34ae909aa981ce71",
-    "lamp_base_07.png": "76ee24e6078e8177778c25e8e25d9dc634a8d9693d80d6992fdffddb49da51b6",
-    "lamp_base_08.png": "99cbcc9ebb1f754a395c5e0e78533dee3182ba767676e47d56bde21d4a22281f",
-    "lamp_base_09.png": "5b1ec5343890a827c2fc8d9da68ec1acfb9dab37b74c35fd2a0da53088e28d9d",
-    "lamp_base_10.png": "d5d05849bab95cc1858d3cd60e27efc48684e54052918b5133918792601e4f42",
-    "lamp_base_11.png": "6bbfecb71ee8de839ac1b9a001646daa9f9de91be194ace40511992a2b2b5a67",
-    "lamp_base_hit.png": "aa39ca2a8627a9c4ed48a7ad6825fc37e64d3f29b4709d4f517ab8fced9e3205",
+    "lamp_base.png": "10e9acfcec2f3ededc3368f637d9bc03bc3adb2b5c052ff73132b632dc660a97",
+    "lamp_base_00.png": "13c1522576b3e3e0b6be7e2e178755df3e5958a104ffeda0e922f5705658edde",
+    "lamp_base_01.png": "afcc48b21942047f6b91a7a9d98df97d0def079153257e63080211efe183ba02",
+    "lamp_base_02.png": "aa32fb38d05562c7f150a7eae5c547215b94f7b6fe3bc6ba29b492b9626bf4f6",
+    "lamp_base_03.png": "f612f282a8c71bc9c935701106c4ca0ce829fedabefa96befd0e4f399ac7d35c",
+    "lamp_base_04.png": "8a6a216055b38abac3ba228d0c34282960fe81e86efd0d1dfdc49258be6a5696",
+    "lamp_base_05.png": "1d447aee4f20889b4df48e0babae7f074d5b910dca0987433cc9fe70bf6e401d",
+    "lamp_base_06.png": "faf75f0ebb13dc1846325cb8d2b5ff7c9c840012bffb84938d4a834dc32c25b4",
+    "lamp_base_07.png": "44f0f87d0243626c1038eded99b60c1b9647a143c900f7e07cb1071e16c2f8ed",
+    "lamp_base_08.png": "e6da5032f47388f74f62e818e8634550cad149e1d55290669eb8a6abd0924e8f",
+    "lamp_base_09.png": "0c02b469207c5a95679b1e6cb3723973e7a62096d0b5bb6c306f764d2cb40657",
+    "lamp_base_10.png": "c54541d95f53c4673ee904e197a3d2a4dda02baa83347ae14fc055a31fe1ef95",
+    "lamp_base_11.png": "8b1abdee0f2689d023081818f6720a064141c32a159a4d485877d1cca59dac21",
+    "lamp_base_hit.png": "10e9acfcec2f3ededc3368f637d9bc03bc3adb2b5c052ff73132b632dc660a97",
     "lamp_base_mask.png": "0320bafc67cb69217f97335ded09c1d7a819be7dac58969c777d50167992f539",
-    "lamp_shade.png": "2874d9cc6885672f5ff94e5f803229c8811fb633bf26899143bb63d081115644",
-    "lamp_shade_00.png": "3dc9bd29b084667b8f7b3750ed95246cbe68e8dcb867e06d3e49b47fcdcfd3a3",
-    "lamp_shade_01.png": "33cec9eccf1bbe05dfa85a5614a2f6cfe0014052c195c016fc58fcfa30b0faed",
-    "lamp_shade_02.png": "efa097c37726da98d9c0ce57f0dd5f66302ad989d7207387290652c8dae86662",
-    "lamp_shade_03.png": "f4556a3cc0373e822854a56d8a01b10584228a8ee9669c13ab6685f5af497569",
-    "lamp_shade_04.png": "200f503fb45b7726ed036b47fd00c39ee6b471db7095497b464189ea98a06509",
-    "lamp_shade_05.png": "6f35aa41e27494bc6bebfe93ff789c7c5620155119cf12bba2eac76d1a512e94",
-    "lamp_shade_06.png": "8a0b9db166827712d1ee312baaec5c05f1584443f6cd84e1f478a4991c1b24b6",
-    "lamp_shade_07.png": "08f61fed8156757fb8ae76954a1ddda3f1665e23579e9bcaf014e9d0857b0882",
-    "lamp_shade_08.png": "b52184c4c702868a993c1c21677137d8e76a38ecf95f1088f26586c20af159b2",
-    "lamp_shade_09.png": "991a8179b4878ce45efd0eb56e533a2b55c842f7da95b65062e3f04c1e53d076",
-    "lamp_shade_10.png": "bb022a6d61370b7ac669611bc61a39668c7cce2bd30d57416608065e41ae9705",
-    "lamp_shade_11.png": "6856fb7ad42d7d94844369e54022f75228e1536868b6e046b7a05fe0c5e1f514",
-    "lamp_shade_hit.png": "2874d9cc6885672f5ff94e5f803229c8811fb633bf26899143bb63d081115644",
+    "lamp_shade.png": "7a599ffb400aabece255baf5a1d473dbf0cdcbc0932beaeac0b80c852b67bbd1",
+    "lamp_shade_00.png": "fe7d4fac6a34c479c5475bbab7e9eff236a32098b920c6abda7946b6d69cf49b",
+    "lamp_shade_01.png": "68a64527b23cb967629ecaa56bf9db5ef8fd97eaf40d35035f2331a70fc64d73",
+    "lamp_shade_02.png": "da71195c86913fdf5693e5ff5389980fdcaa9a1a69e4265e1839d047fb7dbe5c",
+    "lamp_shade_03.png": "594c33e92d28dea7aff692a93826620014c021d5f645b08b59e5e696a9911803",
+    "lamp_shade_04.png": "a399055ce645990ff53ed482cfa00551c89d698974580b60e1d4842a2cde7409",
+    "lamp_shade_05.png": "5e7772952f750e7e77d937798475f0a69e7a441a06451a5a3eaceda9af7c7e89",
+    "lamp_shade_06.png": "8ebf8edfa216e6e317001b5d47ac1d82c5aff14047fb97eccf6856dff2430c6b",
+    "lamp_shade_07.png": "bb0c365be7d79452dbcceb43f98192a25d3e29d1966002d702358639f24d3de8",
+    "lamp_shade_08.png": "751454a7b21d17578b0c41c3846b5e16923dd5b5ef2da66618642a3baca31cb6",
+    "lamp_shade_09.png": "07911795483c12b964243fdeac1c750857eafcccb9c47b188aa28c9de6033abd",
+    "lamp_shade_10.png": "a151a65773a970db287b5da0c7b7a81175a9c6bd690a560f47a8de8564ef426c",
+    "lamp_shade_11.png": "b6afa5d752835182ec79e9e33343498798e0725138d28be3167a2759feb0dce9",
+    "lamp_shade_hit.png": "7a599ffb400aabece255baf5a1d473dbf0cdcbc0932beaeac0b80c852b67bbd1",
     "lamp_shade_mask.png": "c7b550cc95f6b6531a7a2921eefa4c7362cb6324692871835a7d68148ec5d66b",
-    "mug_body.png": "4af4716f936a0b3da0a700d4c0992231eda776b6e83811193cd8cc1833e259e1",
-    "mug_body_00.png": "75cd1836d13f96c79271e8078ef24868c69c194108e8ef8ac018f0ee4933b7da",
-    "mug_body_01.png": "a7cb5da23555a6029d700dc1b12ecf45ce69c3d5d740af9ff4df3c4ac45c45bc",
-    "mug_body_02.png": "6cb22ccae7fba0aad4a763286271fa752d330b19485385df7f2623e341bd967e",
-    "mug_body_03.png": "5c3e0d0a90fee8902055664b6746d7790b7c7758e9e9ea9aaffc00da31ece23b",
-    "mug_body_04.png": "22477b2bc2fc7f34dafa645ffd626f455a0624e0bf6bfd2a3f22a72b7fb62bec",
-    "mug_body_05.png": "1c0bfafe38a41756b458660a67e3bba62c6d35883605cf00db96918a2de8417a",
-    "mug_body_06.png": "d779ed0d60fc48f49d3923b2d6b2a7a5b29daf3955ccbea762e1a8b3701d0bf8",
-    "mug_body_07.png": "c106da870c45c039c591f87fe69445c0c0bbbf67205fce309eb25d558b9ea8b1",
-    "mug_body_08.png": "58ac447c4b34345558de6b18313b62a3663e0271941f77279fd309ed4e46a544",
-    "mug_body_09.png": "4e9f93f8250a3cdc4fd91cc85a02a6deda35ad773ac8ae2aac3738091c8c5c28",
-    "mug_body_10.png": "47b34a5f35f254864a4d15e7eb2f9e5eb0d9e6a9c7cf2b20308110889e3bbedc",
-    "mug_body_11.png": "73a6aa926195e4a3508a127faa76742cb9a042cea8ec83e0d5eb97ee7dcbd645",
-    "mug_body_hit.png": "4af4716f936a0b3da0a700d4c0992231eda776b6e83811193cd8cc1833e259e1",
+    "mug_body.png": "19d6eba84ba75e54e363f755919e992ca35b1dc94bd90414b99fc50ff2961fe9",
+    "mug_body_00.png": "c4b5b569643eef0a299c38cf17a01a273e350ab5dd72a8d91e6a6d7a0c14c506",
+    "mug_body_01.png": "975d5aa01b0d6f32b0a1c2bc2a8295b1ebe7f146eac60803af4981610fb15178",
+    "mug_body_02.png": "72f3244b95218044ba069df3f6e01ab0adc65a674abf2c39b9e471c4e84d383f",
+    "mug_body_03.png": "59fa4676fe9cd6dde1bc1cf3e9536ac311c7466eab65a048ebd3e4edb4bd7e90",
+    "mug_body_04.png": "023a465847ca49b403675d01dfc0a2bacd50fdd24ed252a764994e09620ba790",
+    "mug_body_05.png": "05e6c6e7bf50a8f319a2cac684e375d8aea9189b769a0735d216426b17f029b9",
+    "mug_body_06.png": "cfbde9983cde394b6eb6e5cefdaeb44eb6975a56d3e170420484281c985e37de",
+    "mug_body_07.png": "2bbab6d9b85fd9cec6add6e3f8b9ed39c291e137ab6e1f589915906e8776fbd5",
+    "mug_body_08.png": "5779610d0efab267a227117c5817a2f336eee1c2e4d67cac783d3d047a62ec47",
+    "mug_body_09.png": "b85abf6e3aca67a2aecf16070621d613fb1f3240ad51fe2ad1f3cf5142358186",
+    "mug_body_10.png": "4cc5458ad9e8c11aa310653b3dd490f8633e66b4362251d4e05a696245c3c640",
+    "mug_body_11.png": "2fba5bc39838d442f61a9868974fd037b125b0eb9e774cc17b3c170211c92161",
+    "mug_body_hit.png": "19d6eba84ba75e54e363f755919e992ca35b1dc94bd90414b99fc50ff2961fe9",
     "mug_body_mask.png": "d687ecd51ecb6cbbd159efe743d1b2c77118ffb03d1bab90083328d5cf0cbb98",
-    "mug_handle.png": "09f30918ea53c615cca3e2535aab0c96dbd139aacc76d55a211bae025711f767",
-    "mug_handle_00.png": "4c0bccd10e6bf781fe714bbc8a9fa1600a53fcd4b0bfbfc1087f4244da0d9b95",
-    "mug_handle_01.png": "5a3ccb347c7d0ecce77b1c346e7295294a9bf31ff145e7a87ec36aefdffa7653",
-    "mug_handle_02.png": "a1e4dbeaf8da01d1717f854422c93676ec272746174e7a03bbd244e87ab05477",
-    "mug_handle_03.png": "e06f5bc965c6456ef7e870488012fa42d0be708f52fa4a08c45ec23b95336743",
-    "mug_handle_04.png": "05986a78854fac48e69f39bce6dc973834ebdde8821138656fbaadf0c04b7c62",
-    "mug_handle_05.png": "03d3adf8aaa5114d566afcf7f7256577ee178b9d0dae58c1c0a3f76d0f18730c",
-    "mug_handle_06.png": "7d0ba087cc4789c425d6020ca79a17bf10b4f904df6154d479dab77a5b4b653d",
-    "mug_handle_07.png": "5705b64160d87332dc77ce1647c398a75b72d2fb053c42808785fa74d070a74b",
-    "mug_handle_08.png": "3a72be16045fe5acabb8c39e5b27817848157ae01aca07801654813a04857608",
-    "mug_handle_09.png": "cb12546b11c95bef00785a760c0f78d4d5ed2072a77909f221323ffc2ba85a5a",
-    "mug_handle_10.png": "683e44ef6e959d71d485115c834b36cddc23165faff3f5b235bf1308a0d34579",
-    "mug_handle_11.png": "44d0e2aa3d45bae202c0479ec90abf24163e107b5cc1f10d191425a77357c12e",
-    "mug_handle_hit.png": "09f30918ea53c615cca3e2535aab0c96dbd139aacc76d55a211bae025711f767",
+    "mug_handle.png": "e88e656cd5160edca70f9be7689432449d5891b01376d9aa3b6f7639ba81e21d",
+    "mug_handle_00.png": "08714acbb5c67aa9321325a1b589c8030635fdf8cb9eb9a763f1a6c7b34ba7d9",
+    "mug_handle_01.png": "8a9c377f954603f23d3bf17dd3b1ee89d264617f08bb4ecc1768280eb557285c",
+    "mug_handle_02.png": "4b3089f947c35c7d64ad48f3e9681cc176afd2549062dd07586ee7e0c88274cd",
+    "mug_handle_03.png": "1f2fce1bf151a6a27e8a75c7c906432d6f414141b2f13e69d44fc6373ebca986",
+    "mug_handle_04.png": "6989627449d8393a89f34deb79a45b31fbe92b02b7ca92bb9469778c783ed6c5",
+    "mug_handle_05.png": "82a59ac4423624b9220e13f85a2edd3a3144bdb866b7c6bc91b0a1a912378492",
+    "mug_handle_06.png": "b0b20fb6589c823d30717eedd5f6710e0b887c19b529403f065f997eaf8d49ee",
+    "mug_handle_07.png": "47fb0511ed47b1bd8731364fb770501d4b2f850f792e0d9e27070556e7386fa8",
+    "mug_handle_08.png": "729668239300116b24d355b92d3ee23ad973ec0df5b45ae8df0bfe25b55e7d71",
+    "mug_handle_09.png": "c079c20e47bc650069d3be0619c2f231c43722865f7976a54f627fa344b766c5",
+    "mug_handle_10.png": "dacad975aa2db850878a1eb1092f9fa278461568a8f7a466717989ad27c3e76a",
+    "mug_handle_11.png": "f48f3900a257d3c4e82b9439165a049cba3687ddf40935eb72cb81f61fd96a72",
+    "mug_handle_hit.png": "e88e656cd5160edca70f9be7689432449d5891b01376d9aa3b6f7639ba81e21d",
     "mug_handle_mask.png": "449e71e5b857d9305c6deea4940439bb7abbe4191af0616e5ac07fa0de33ee13",
-    "plant_body.png": "f6059d17d928caad7d49ecae2cd8efac2d27cdd546e4ba7fea463e0c3ce1a434",
-    "plant_body_00.png": "f97bb561ef6b5b8f5e6a39c530c782df9a369b4029eee1b2f8a7f68952961f5a",
-    "plant_body_01.png": "fa24bd5f9f90982a1342f991cdb18a223a7e458c2193f036c9a7eaa5d92469f1",
-    "plant_body_02.png": "4731794ae3f2e6ac3f75c390ee6a0aa707c9f6f57d5233e1cbe36a4f9f5a3eaf",
-    "plant_body_03.png": "63a720959a031ecb358bb1e4c8ea49a43540e7d4503e5bcfbd91a461a15ec8ac",
-    "plant_body_04.png": "3b42d33011073690d38270818f61fc5b424bdec389708fd6f57f81b19f803588",
-    "plant_body_05.png": "b801550ebe063294d2e19dd8c42c6c0038b4a31ab4954300722f6572c9098e65",
-    "plant_body_06.png": "5312b5a8b8b85db07788ced2dd9ce41cd521b9dccab2a7736c72267df0de1106",
-    "plant_body_07.png": "9f26a100a27c47985388cca47e5cafe311083e7e995f8edcbbb1e463877c4336",
-    "plant_body_08.png": "f17a2814c940f45036dc384884589ae76a10bf89ebf647f2828fc1f016300a17",
-    "plant_body_09.png": "566d1382924704038e7f982770aec96a079be9a4a6d4d2629f36996affe109d8",
-    "plant_body_10.png": "008bcae5b150de711135b4e64a056c0af75b37da5593d6260d690e51df185bbd",
-    "plant_body_11.png": "d2598fd3e0f1f8173228039cc4e790cf7eb403090fe092e5bf49435117338c33",
-    "plant_body_hit.png": "f6059d17d928caad7d49ecae2cd8efac2d27cdd546e4ba7fea463e0c3ce1a434",
+    "plant_body.png": "02ad4157134fa293b2c551a4eb91cb604090fd2edad65af180fd8d2ba24b41da",
+    "plant_body_00.png": "3870f85d74c67e68f9c938696f2a2752969b66f184f7793c9ba113128e9b5496",
+    "plant_body_01.png": "d7e6a19bb1210b5e11fc2a354aada0d0d0ee7162d89e981df1a06731bb6728dc",
+    "plant_body_02.png": "708075a901859d73388c31f1bcf7d6830f76c32ed45fb6e614a067712174f1c6",
+    "plant_body_03.png": "ba94cefc10c96a18d960654ed2522bfa807163548d7811bc5a5c25de5f4ef281",
+    "plant_body_04.png": "24398ce56718193ac9de47b9b0cce4f42b3beedb4cf162993d8ed009a3d8aa32",
+    "plant_body_05.png": "046698304a8302b3272e19a83fc61642fb36d1aed55f5e8892fc945239e7fd1e",
+    "plant_body_06.png": "3572a7901b8db5727a63b8a27180c8c8cc9dcb06ca85663f0e9fe9b1770640a5",
+    "plant_body_07.png": "e86563c8e1c44dbf1c18a1b9432ded576a00331658cd0ba2c361ca07245cf958",
+    "plant_body_08.png": "4917f1a6753971c60e00756692947490df8ff8a9073d3a135d778553a49a2763",
+    "plant_body_09.png": "ab932e6082c8181d7e53f10b63d4b6ec9891f10c5b515bfb309aba8c0d1d170d",
+    "plant_body_10.png": "5ec2979314bbcf53e43951e4136711234c7dc3deb81da1df90250aece1dae99a",
+    "plant_body_11.png": "0c09973790fb8658cd9e40cbbde9fa83e6fdbcfbbe94680eb801afc62ff5c1cc",
+    "plant_body_hit.png": "02ad4157134fa293b2c551a4eb91cb604090fd2edad65af180fd8d2ba24b41da",
     "plant_body_mask.png": "37a4d8282ef069b93376a8f96772122a5bb70c9950979f27169d3e75d6970e77",
-    "plant_foliage.png": "73702bdd068873e418484722d232fb9f2a319f345666f29f710e081edb71de42",
-    "plant_foliage_00.png": "1de0ce3210f606013b1913a6eff20cb909898945767487295de8fac540117f8f",
-    "plant_foliage_01.png": "195b7785a0da5fa33a9026d8c65c3811da4dc8bd67aac82eb17c0c42a3438f26",
-    "plant_foliage_02.png": "bbeab5eae7df3d6b80eb3e4aa70a8d21883e237b989e30177b7ab1e6b19cafe3",
-    "plant_foliage_03.png": "b28bdd27be020054d2cbe037097d31770020f987bf538e4447248902a221c8d2",
-    "plant_foliage_04.png": "4c8c81e29af27b78cdddbc63aba90a2d5894b45a314be4a5e7b17b106dc16f9a",
-    "plant_foliage_05.png": "139e2abb4f5f4b0f74bd2abc78e79fa8b168b2f473009a073c270fa47eb08339",
-    "plant_foliage_06.png": "655ba7321854f0eb8661fd6ff9dfa02ba4d513f4df4361cc07d060920083ef44",
-    "plant_foliage_07.png": "4e77eef0e82487f4352fe880333bc2ad4c0d570ca6516c0cad73480eae4bf458",
-    "plant_foliage_08.png": "a1b16bc742484819ed552bd06ad4d5f9e73048a0f93e4b39a9f9151802ae6354",
-    "plant_foliage_09.png": "8f2a1b78322cc8e9d398d293535acfac71c2d0ff5d0e597b126de5c9e246e775",
-    "plant_foliage_10.png": "309f0f8ae25090fb21ba42bc8ba449d81a94b73d4d5797cd605f0c4563aa5017",
-    "plant_foliage_11.png": "51fdd4d3388351e3a137878c414c0b81166f90ca51cf8cb0c7287c73d8891a07",
-    "plant_foliage_hit.png": "73702bdd068873e418484722d232fb9f2a319f345666f29f710e081edb71de42",
+    "plant_foliage.png": "44f690e04a95a36a7957a74074a278b495f0edac56badf9278ffac04f68943a3",
+    "plant_foliage_00.png": "69dbd585a4e64327d9f1cd71a2a881159ebf4ccb991a343ff79110a473c6ef41",
+    "plant_foliage_01.png": "0ff1211e458347858ce9c20d17b891c3272537d5c99ab7b7d150893bafeeb942",
+    "plant_foliage_02.png": "6e9ce003cb940d4ac74ea7ab8150b279d7cfd522d6c97b9b655200fa0d44835a",
+    "plant_foliage_03.png": "99da8e03a73a42bc71e1e79e49a68d252c2d63dd608248fe79d99d4b8dd976e5",
+    "plant_foliage_04.png": "2b48f27c5a7ab94bd3d7deeaa64e5b1a70e39500db8573db3cb99e69cde06981",
+    "plant_foliage_05.png": "fa7f4f5a3440ca4bfef548724f679da8aabe26a7a4d1b150f6577ac29ac6dade",
+    "plant_foliage_06.png": "9555d0eeb0a6102e227602d75872c4ec1ba529e6928c4a10b1d1acb239f4ce84",
+    "plant_foliage_07.png": "4e2d300f8685a0a5f9234ab73afc5a25916278da209d2a10235b283be8ba2c8c",
+    "plant_foliage_08.png": "defb2e0eb2193e45e8505211d48d3b41f59348e9cba6e3d3f2e5c63887499419",
+    "plant_foliage_09.png": "1bb4459bfcfe3993e2361fd96c805d1e9e54c2af5b96e03c51761403fa605d2b",
+    "plant_foliage_10.png": "4851d8c901266ef6c6542ae39456697ce7616ef02a7de6c2d023155d235dff16",
+    "plant_foliage_11.png": "5ac46fd01a2ce989782a87879736cc792b09be43ce03f604bb7a2315b1f9eabb",
+    "plant_foliage_hit.png": "44f690e04a95a36a7957a74074a278b495f0edac56badf9278ffac04f68943a3",
     "plant_foliage_mask.png": "3bfad49f0ae97bf4f968e3859bbc5ca828704140f1f2a90a444dff9fcb51bbf2",
-    "room.png": "1cabe774170dff964ea903b74319dcb7fa4ed4aa735986e1b017db65eaf4e25c",
+    "room.png": "5c0c169318a79645bc69069a057e4989fd9652474d0b910b315c94fc83a0ef88",
+    "room_kitchen_0.png": "6b19b22d4b34f3a7d971ed5ac76c266d8fb696a732a3ed8c7cca0b0c043162b0",
+    "room_kitchen_1.png": "f23c8970dba150c5c96e39a428d62c05bbca5fb75ba2698a58dc4fffabdae3af",
+    "room_living_0.png": "5c0c169318a79645bc69069a057e4989fd9652474d0b910b315c94fc83a0ef88",
+    "room_living_1.png": "55898f9c9122fefdcc21b5cb0483ac7c938864ed11620afe4e583d419483ea6c",
+    "room_study_0.png": "a0c4f7a1b9269f3c405d1e472e8ed491ad9cdbb1e1ac0bf6e5446af6ed7e3765",
+    "room_study_1.png": "f9e390dfe6f4d9525cdd68c14888f305c4e9ce052ccece888624b1433c127e2c",
     "tv_screen.png": "0da47ab866ced3fab60eaae8003a05171693fa86ee31ee0f0aa3adea997a1776",
     "tv_screen_00.png": "3dabf4e1711ba6dfc8f68e20d4a81d61a186a88cdf312ecb5890fda394ffe112",
     "tv_screen_01.png": "4545aeda492526e3122959ce88852718ce0bbd7dfe7e0f0f2f99f49fe825684f",
@@ -16522,50 +16609,50 @@
     "tv_stand_11.png": "5fb4bae92cd719d2d8ec01e2c777c24313ee97a22e6bfd5c4140a3bb8c0eb70b",
     "tv_stand_hit.png": "cc074d98a1b2d67f863865b92395aeb51fc7b8f800d08f01e19eb3c157025f6f",
     "tv_stand_mask.png": "1cb2d2be0c34dcf0fd09df57d2e9df71757375d35fc6a794c529402e2bb32a5f",
-    "vase_body.png": "6742501f39a94b0b9ddd1d1590ad53816eb81be024d685f8978855067daf7e40",
-    "vase_body_00.png": "d0e41f5b8509318119208f5e4acb8e1491162d45cb37fae10e0ad6e952757c65",
-    "vase_body_01.png": "34e81b5b02512e467a934e34e6c4e5387dc65adb815e34115282237b584cfefe",
-    "vase_body_02.png": "7c4da9e64c1ee111b762337cacbd618c04ed42349ffd56a94e0209857a7fed24",
-    "vase_body_03.png": "f5576683c52f82806a30eb23796235be5c8c07a6ea4cdefaaef928f54a1eb815",
-    "vase_body_04.png": "e0fbe272e5181904c2ef96fa263a80f1f7f8a43d620606544bb8c10c8d00cd69",
-    "vase_body_05.png": "259799ec1bbc22c824f57a96b2c984944d5f26952d386bb768ac47c4f7731923",
-    "vase_body_06.png": "82971f2ef949469395dad1c955514e5f44b1b5803266e6d66d8f12987b8a983d",
-    "vase_body_07.png": "6c287442d77f8b2d8a7693c910f0427881d6709c63273b89879ca089f903f024",
-    "vase_body_08.png": "915fd36a8b5c5efabb7373b9ba5f4d24efd0b3da03bf79ba06de37531005aa73",
-    "vase_body_09.png": "69bd68b162cca9aaf02095088981cb348070238f8d31964973738d312b9b285d",
-    "vase_body_10.png": "85f64fa41cefcb434db6dcd8fbe95220bff765d745b33666787d1ccfc3c7a2cd",
-    "vase_body_11.png": "470007184ae1954e0948aeb37beb74489e39cddd1251b168576cfd9fd18d0d55",
-    "vase_body_hit.png": "6742501f39a94b0b9ddd1d1590ad53816eb81be024d685f8978855067daf7e40",
+    "vase_body.png": "652d4329d3f602668ad5f2f623dccab76d6f950baf70886f8548db86da90bec3",
+    "vase_body_00.png": "848b01a6e174ac9311706d21f2a6ea7e1c6570fce695aef0e4a20710a930313a",
+    "vase_body_01.png": "3fb4ac0ea511c0e773374f51d47d55ac41864247c81e6d6d557b29a08f606224",
+    "vase_body_02.png": "a4f31655a01354c5a4eedb98605b695cd85bccb2b0949491a78de6b9f4a909fa",
+    "vase_body_03.png": "64a822b0286516f2142edf599efa83f4b2010bb6ed329fb93231bfaba21e0b77",
+    "vase_body_04.png": "a48c91cea5d12eff9c642ba9adeb82d356be89f2a642e539172e42f914c87809",
+    "vase_body_05.png": "a9a5ec5898a0ee80c99ed1d03ac37e51abbf5be6df6588c1dc48ab03e63cec90",
+    "vase_body_06.png": "10eab0f0a6888f9a90e7e9154cfd1bbfe536005c01b5149e8730bbbd7c9596b6",
+    "vase_body_07.png": "67625ef3d010cfaeb3d457fe0aa46ed94f870ef7508aec428fe62f7178a5ff9f",
+    "vase_body_08.png": "1f64ca878d809b142a352bcd162a6d4d48a5c512756ac953999dd9ba50b67b74",
+    "vase_body_09.png": "70c86606a1ed138f95b78b1723d26832e915b99b8f27a2fb7a8bba5df5a063ad",
+    "vase_body_10.png": "10b35c559ad14409a28863390a6bed215e9d1b6b8f9101ae56eb40a44d6d8fb9",
+    "vase_body_11.png": "95b387e439c2ce2d31d6cd00a8b181dc679789c1ef9dc6471bb13d50d276856c",
+    "vase_body_hit.png": "652d4329d3f602668ad5f2f623dccab76d6f950baf70886f8548db86da90bec3",
     "vase_body_mask.png": "a5d3e656396752a5598930c3e9942af297d79675d18be7e4afdfd9da8dca1d14",
-    "vase_flower.png": "1d2dd8db867917c8b89ac64f2c54d43c968c849e9aa72d3059d85a0794ec4fbb",
-    "vase_flower_00.png": "9036213ca50941796e9190de369dd57d57f4011d500ebe50cf9dab696742787f",
-    "vase_flower_01.png": "9a5a4164bfb93febc4393ff585dae9b0a34c137ec5f822dce69362f4c7afe749",
-    "vase_flower_02.png": "7b99ce5cec5254f8ed7fd32016dfe0d8eedf71e6b832c4345f342affd1753163",
-    "vase_flower_03.png": "4cfb9f9097ffe06d0df7d5f4987ffb59e617e98ef7ef7b70626783d717fe4dd2",
-    "vase_flower_04.png": "789d504889c07484eda7b5cd706204ad84543b517468299778a74bb3e8bc49da",
-    "vase_flower_05.png": "f8baaa024d193de01dbc00a27b77ce7cc3a42307d0b0b830edeeba74a6097e78",
-    "vase_flower_06.png": "ec112d0a4ac0e9ddd300d2c82e5a40f4bfd75411a4b6f433215ccb0439e1f289",
-    "vase_flower_07.png": "8750874c0553bc3e7e2db7f83d50ec71e32241728ad06e0dc55383b9ef75bb91",
-    "vase_flower_08.png": "6da34cfbd881cd6d593a97352ce943f4b55e0ab657b51567bb0fe92a550dff42",
-    "vase_flower_09.png": "27dc7d1bf08fe4392c7583c3571bd3027e041dbd6295f602e2878efa8d26a1fc",
-    "vase_flower_10.png": "9999a7a4c2bf545e1483736bc83aee11c1eb21900044f718e3c56101e467dc56",
-    "vase_flower_11.png": "7ddcd8c01f10e9c9c92df30642a69ba377f8172e941270316dc1b1bde917a6d4",
-    "vase_flower_hit.png": "1d2dd8db867917c8b89ac64f2c54d43c968c849e9aa72d3059d85a0794ec4fbb",
+    "vase_flower.png": "2f265111a5836d56df04f04056a834009f60addad2ffca26958a12e0941d3e97",
+    "vase_flower_00.png": "d9a1fdc99b44bd9321faf5d553fb92497acb8551749c8369e2c6cd2202105315",
+    "vase_flower_01.png": "c2ba019f44aa35e660c3caf36413f54bcf5f80621787ef53ff9e0b58ba55636f",
+    "vase_flower_02.png": "945a348e7412b664e7cb3d13a13a0ccea1c723dff9a8a486909ece5ab8ab5b2d",
+    "vase_flower_03.png": "552407e9e80bbb83c34883a5c50d9d081d1701f5d89a888bbe102692060312a6",
+    "vase_flower_04.png": "eb7ce5870cbd2e534c6bccd0849f55c953c2658cbfec7d096dbf9d70dd831379",
+    "vase_flower_05.png": "3f70d19212c13e9776a190a9a4cc7a5003a0b4a76a5b6c849b2235af56377072",
+    "vase_flower_06.png": "f56031702a951c2371b12943afb44a1456d1d02dadc2c7faf9aeb4a5f6cfdf42",
+    "vase_flower_07.png": "d875e45666ac2d3407f2ba561877b06509b9926b0eb096e78f0d95804d06b4ee",
+    "vase_flower_08.png": "8522ef5d7a3f8e00b5fbf8543f0c192eb3584d609d4ad3b4828f0ad1393238b7",
+    "vase_flower_09.png": "86a69266e04235a23234c19f91f0e7c18ef61e4307b09945c96698c594f8ba9c",
+    "vase_flower_10.png": "b8a2870387ea278278441cfa2ae2397af9fd45429835bcd7be918864f3eb6c78",
+    "vase_flower_11.png": "fde430ebb27795db99ea818bfb2bacab6243e992c30995ce7cef4249bba7071c",
+    "vase_flower_hit.png": "2f265111a5836d56df04f04056a834009f60addad2ffca26958a12e0941d3e97",
     "vase_flower_mask.png": "339797e98db7aca057f8fa8481f60f791443a4170b4e27a6e25c55ebb2fb0e2e",
-    "vase_neck.png": "cd8c85edb6013cc79cd1afacb1df224a95b55ed197aa023721a570fb993cdb28",
-    "vase_neck_00.png": "6cbf0cb3f303cd5a752655288ad8d60e0e13c3e936ae657e5ffd3c13670c0b11",
-    "vase_neck_01.png": "6cef99997c3996420de9f354702534de134f4c0e5ca7f34aa9d06df5c3a184b5",
-    "vase_neck_02.png": "72e15a4116d3fc302ad57f40170e16947719914eab84976d472a84f3b6ff44b7",
-    "vase_neck_03.png": "9a7dc7a86d4ef6173856fc151d52fc95aa17995a419c83be391bba1ce6ba6e05",
-    "vase_neck_04.png": "1fec1b438d146080a08ce3a5b0928a46b94bb2c80a2012c58eb7c4b6c2d04ab2",
-    "vase_neck_05.png": "df3dc31f7a110d5962dab8d5103d53757e0132cce2c6adb8dde42a8b1257474d",
-    "vase_neck_06.png": "f4f62e1fae0d8aac2861186afe5922fd197998001ee53e4655664fb8413ff4d7",
-    "vase_neck_07.png": "849b1ba17cea778ede537e0e4113e64da7818ead2df5077a9673a4e71f1aca5b",
-    "vase_neck_08.png": "004380df7ac69c2fdb9b1aeee76c90daf1b64203b093a31b8764b549cb6d027c",
-    "vase_neck_09.png": "005e1f694ccb8a15f9daba8adddfc53d19a580a15dbdc2c25cc0b1bbba97c064",
-    "vase_neck_10.png": "b169bfe3f69057e1c17fe9504aa1dbc132e8a2e2beee46d3cb8fc375b0182450",
-    "vase_neck_11.png": "52d0adc2279c961361db3bb51792e57542f19fcaff3a9669c4eb3db67441dab3",
-    "vase_neck_hit.png": "cd8c85edb6013cc79cd1afacb1df224a95b55ed197aa023721a570fb993cdb28",
+    "vase_neck.png": "4000025e47290cb069c2515c7a81dc51eac546a5f0c6986d3fdd7da771456199",
+    "vase_neck_00.png": "d539346be365d1d736ac0124d81ab57cffea200b902d1cfb761412e6d748ecaf",
+    "vase_neck_01.png": "92a997a2d64b089467fb398a4a1167352b98590a6cec728f60b3a3a3839c6b44",
+    "vase_neck_02.png": "ecfffa43bc7623a2b78e2632871adc39d69c2eb2aee93ba66fa1fb02be04bee1",
+    "vase_neck_03.png": "4dedfb63d8da98dc9a5cb615795fd64e75d17bde78d56ed74354309d0f7b5f0c",
+    "vase_neck_04.png": "f32a60d67206513cc2260c763f4cee957ca8d0bd85ddfd4e60571769ce237d20",
+    "vase_neck_05.png": "23a5e4f5b485cfec24e28589cbf38c2cc8e65ad007948e51c71f1b291cb72d0a",
+    "vase_neck_06.png": "561e5a43af54fd63240ed656e371199f1c8f7f3afc86c5ad7648e15131526c64",
+    "vase_neck_07.png": "39445cf5b4bc8cf42a909bcb1ce186d928353b918e849495112d7179ac1e2be3",
+    "vase_neck_08.png": "1e7d916d7fcec1a113234ad40e0315e518e910ebdbaf33c2cc1623a8386d1a20",
+    "vase_neck_09.png": "06bc449afeac333e8e52674c7c0e2b5945788c5d9a9485861ee5b438edd399e7",
+    "vase_neck_10.png": "492764d6e7f39419daf49813ee2df2ff1dbe53a676f0690c3ce6ac169f7a7d71",
+    "vase_neck_11.png": "362a49e3cae614abdec65d5cc4a0530d7cdff34bafa86459782fdf64109fbe81",
+    "vase_neck_hit.png": "4000025e47290cb069c2515c7a81dc51eac546a5f0c6986d3fdd7da771456199",
     "vase_neck_mask.png": "3079251457d439a733948f2a60eda898c68d389c6a6950494fa784e8fc911e72"
   },
   "recipes_sha256": {
@@ -16578,10 +16665,1635 @@
     "floor": 128.0,
     "render_preserving": true,
     "baseline_manifest_sha256": "bd568174f5bb2e9160e1fa46afed9f32f8d655e5bb82026c5349b5766f524d86",
-    "hit_state": "missing_parts_and_debris"
+    "hit_state": "missing_parts_and_debris",
+    "scope": "target_sprites_only; background floor124 only within active target silhouette+12px, feather32px"
   },
   "palette_recipes_sha256": {
     "automation/recolor_light_room.py": "e6dbefa69d7c665037a3778dff84d0520d00f8b8a5507ef7351dae0ccee780bd",
     "automation/light_room_palette.py": "2f945723f4cf088118cc926327feec17181c44373e48853c8a2c33b2d883067e"
+  },
+  "baseline_manifest_sha256": "a44ac90307df95d527cc8ceb9b6b02a86340bb5d4fd6bc7d67cc13fdfc9bc231",
+  "target_glazes": {
+    "colors": {
+      "vase": [
+        65,
+        225,
+        155
+      ],
+      "jar": [
+        240,
+        220,
+        75
+      ],
+      "bowl": [
+        70,
+        220,
+        240
+      ],
+      "bottle": [
+        50,
+        225,
+        190
+      ],
+      "plant": [
+        235,
+        220,
+        145
+      ],
+      "lamp": [
+        245,
+        225,
+        90
+      ],
+      "mug": [
+        125,
+        225,
+        240
+      ],
+      "clock": [
+        240,
+        225,
+        160
+      ],
+      "books": [
+        245,
+        225,
+        160
+      ]
+    },
+    "scope": "target material/color variants only; PBR shading and alpha retained"
+  },
+  "model_display_exposure_scope": "inherited R6 target sprites only; none on new room plates",
+  "objects_per_room": 10,
+  "rooms": [
+    {
+      "id": "living_0",
+      "template": "living",
+      "label": "Vardagsrum",
+      "furnishing": 0,
+      "image": "room_living_0.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.4,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.6442654132843018,
+            0.39573174715042114
+          ],
+          "unit_height": 0.20093119144439697
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.52,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.8089159727096558,
+            0.41295355558395386
+          ],
+          "unit_height": 0.21229463815689087
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4042667746543884,
+            0.5413232743740082
+          ],
+          "unit_height": 0.1796412169933319
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.40315482020378113,
+            0.44345957040786743
+          ],
+          "unit_height": 0.18388420343399048
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4020167291164398,
+            0.343295693397522
+          ],
+          "unit_height": 0.18827909231185913
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            -1.2,
+            -0.68,
+            0.635
+          ],
+          "anchor": [
+            0.26354748010635376,
+            0.58542799949646
+          ],
+          "unit_height": 0.21962422132492065
+        },
+        {
+          "id": "coffee_0",
+          "support": "table",
+          "world": [
+            0.18,
+            -0.63,
+            0.39
+          ],
+          "anchor": [
+            0.4685761034488678,
+            0.6776114106178284
+          ],
+          "unit_height": 0.2322109341621399
+        },
+        {
+          "id": "coffee_1",
+          "support": "table",
+          "world": [
+            1.0,
+            -0.63,
+            0.39
+          ],
+          "anchor": [
+            0.6022372841835022,
+            0.7064569890499115
+          ],
+          "unit_height": 0.2431965172290802
+        },
+        {
+          "id": "right_0",
+          "support": "bench",
+          "world": [
+            1.5,
+            -1.43,
+            0.6
+          ],
+          "anchor": [
+            0.6331964731216431,
+            0.7358338236808777
+          ],
+          "unit_height": 0.27943480014801025
+        },
+        {
+          "id": "right_1",
+          "support": "bench",
+          "world": [
+            2.12,
+            -1.43,
+            0.6
+          ],
+          "anchor": [
+            0.7618253827095032,
+            0.7646125555038452
+          ],
+          "unit_height": 0.291406512260437
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.85,
+            -1.5,
+            0.015
+          ],
+          "anchor": [
+            0.0910828560590744,
+            0.7481197416782379
+          ],
+          "unit_height": 0.22315773367881775
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.7,
+            -1.75,
+            0.015
+          ],
+          "anchor": [
+            0.2211592197418213,
+            0.813489705324173
+          ],
+          "unit_height": 0.2442033588886261
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.65,
+            -1.9,
+            0.015
+          ],
+          "anchor": [
+            0.4270919859409332,
+            0.8938300088047981
+          ],
+          "unit_height": 0.26973656564950943
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            1.9,
+            -2.0,
+            0.015
+          ],
+          "anchor": [
+            0.666834831237793,
+            0.9810485057532787
+          ],
+          "unit_height": 0.2970372848212719
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -2.05,
+            -1.05,
+            0.015
+          ],
+          "anchor": [
+            0.11893918365240097,
+            0.7114956080913544
+          ],
+          "unit_height": 0.21126163005828857
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.55,
+            -0.7,
+            0.015
+          ],
+          "anchor": [
+            0.8870328068733215,
+            0.8723271638154984
+          ],
+          "unit_height": 0.2629387825727463
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "5c0c169318a79645bc69069a057e4989fd9652474d0b910b315c94fc83a0ef88",
+        "layout.json": "2b454c32d7aa44c3eb709bf0f3bd697e219357205dd4bc27a3c1a46fd776c759"
+      }
+    },
+    {
+      "id": "living_1",
+      "template": "living",
+      "label": "Vardagsrum",
+      "furnishing": 1,
+      "image": "room_living_1.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.050000000000000044,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.5964087843894958,
+            0.39072614908218384
+          ],
+          "unit_height": 0.19762533903121948
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.17,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.755472719669342,
+            0.4073635935783386
+          ],
+          "unit_height": 0.2086079716682434
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4479540288448334,
+            0.5487223267555237
+          ],
+          "unit_height": 0.18252325057983398
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.44733938574790955,
+            0.44930458068847656
+          ],
+          "unit_height": 0.18690776824951172
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4467100203037262,
+            0.34751051664352417
+          ],
+          "unit_height": 0.19145208597183228
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            -0.75,
+            -0.68,
+            0.635
+          ],
+          "anchor": [
+            0.32556888461112976,
+            0.5976211726665497
+          ],
+          "unit_height": 0.22490331530570984
+        },
+        {
+          "id": "coffee_0",
+          "support": "table",
+          "world": [
+            0.18,
+            -0.63,
+            0.39
+          ],
+          "anchor": [
+            0.4685761034488678,
+            0.6776114106178284
+          ],
+          "unit_height": 0.2322109341621399
+        },
+        {
+          "id": "coffee_1",
+          "support": "table",
+          "world": [
+            1.0,
+            -0.63,
+            0.39
+          ],
+          "anchor": [
+            0.6022372841835022,
+            0.7064569890499115
+          ],
+          "unit_height": 0.2431965172290802
+        },
+        {
+          "id": "right_0",
+          "support": "bench",
+          "world": [
+            1.5,
+            -1.43,
+            0.6
+          ],
+          "anchor": [
+            0.6331964731216431,
+            0.7358338236808777
+          ],
+          "unit_height": 0.27943480014801025
+        },
+        {
+          "id": "right_1",
+          "support": "bench",
+          "world": [
+            2.12,
+            -1.43,
+            0.6
+          ],
+          "anchor": [
+            0.7618253827095032,
+            0.7646125555038452
+          ],
+          "unit_height": 0.291406512260437
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.73,
+            -1.44,
+            0.015
+          ],
+          "anchor": [
+            0.1140313670039177,
+            0.748292475938797
+          ],
+          "unit_height": 0.22321367263793945
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.58,
+            -1.69,
+            0.015
+          ],
+          "anchor": [
+            0.2464430034160614,
+            0.8136987090110779
+          ],
+          "unit_height": 0.24427026510238647
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.77,
+            -1.8399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.45527034997940063,
+            0.8940884247422218
+          ],
+          "unit_height": 0.26981810480356216
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            2.02,
+            -1.94,
+            0.015
+          ],
+          "anchor": [
+            0.6981768012046814,
+            0.9813663978129625
+          ],
+          "unit_height": 0.2971360106021166
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -1.9299999999999997,
+            -0.99,
+            0.015
+          ],
+          "anchor": [
+            0.14060750603675842,
+            0.7116495072841644
+          ],
+          "unit_height": 0.21131178736686707
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.67,
+            -0.6399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.91459721326828,
+            0.8725717812776566
+          ],
+          "unit_height": 0.2630162388086319
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "55898f9c9122fefdcc21b5cb0483ac7c938864ed11620afe4e583d419483ea6c",
+        "layout.json": "425b1582f8cf635c2485f84cb450a45223631ca7d3469ac986ec8cc6a9ae4e35"
+      }
+    },
+    {
+      "id": "kitchen_0",
+      "template": "kitchen",
+      "label": "K\u00f6k",
+      "furnishing": 0,
+      "image": "room_kitchen_0.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.4,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.6442654132843018,
+            0.39573174715042114
+          ],
+          "unit_height": 0.20093119144439697
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.52,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.8089159727096558,
+            0.41295355558395386
+          ],
+          "unit_height": 0.21229463815689087
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4042667746543884,
+            0.5413232743740082
+          ],
+          "unit_height": 0.1796412169933319
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.40315482020378113,
+            0.44345957040786743
+          ],
+          "unit_height": 0.18388420343399048
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4020167291164398,
+            0.343295693397522
+          ],
+          "unit_height": 0.18827909231185913
+        },
+        {
+          "id": "counter_0",
+          "support": "table",
+          "world": [
+            -0.02,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.5674917101860046,
+            0.4699540138244629
+          ],
+          "unit_height": 0.19921714067459106
+        },
+        {
+          "id": "counter_1",
+          "support": "table",
+          "world": [
+            0.76,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.6772051453590393,
+            0.4846540689468384
+          ],
+          "unit_height": 0.20685875415802002
+        },
+        {
+          "id": "counter_2",
+          "support": "table",
+          "world": [
+            1.63,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.8101898431777954,
+            0.5024720728397369
+          ],
+          "unit_height": 0.21610376238822937
+        },
+        {
+          "id": "island_0",
+          "support": "table",
+          "world": [
+            -0.25,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.3765696883201599,
+            0.562042623758316
+          ],
+          "unit_height": 0.24017295241355896
+        },
+        {
+          "id": "island_1",
+          "support": "table",
+          "world": [
+            0.5,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.49655717611312866,
+            0.583533376455307
+          ],
+          "unit_height": 0.2509112060070038
+        },
+        {
+          "id": "island_2",
+          "support": "table",
+          "world": [
+            1.22,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.6226131916046143,
+            0.6061110496520996
+          ],
+          "unit_height": 0.26216208934783936
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            1.9,
+            -1.65,
+            0.56
+          ],
+          "anchor": [
+            0.6982890367507935,
+            0.7859811931848526
+          ],
+          "unit_height": 0.29470743238925934
+        },
+        {
+          "id": "side",
+          "support": "bench",
+          "world": [
+            -1.65,
+            -0.8,
+            0.551
+          ],
+          "anchor": [
+            0.19239704310894012,
+            0.597434937953949
+          ],
+          "unit_height": 0.21620863676071167
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.85,
+            -1.5,
+            0.015
+          ],
+          "anchor": [
+            0.0910828560590744,
+            0.7481197416782379
+          ],
+          "unit_height": 0.22315773367881775
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.7,
+            -1.75,
+            0.015
+          ],
+          "anchor": [
+            0.2211592197418213,
+            0.813489705324173
+          ],
+          "unit_height": 0.2442033588886261
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.65,
+            -1.9,
+            0.015
+          ],
+          "anchor": [
+            0.4270919859409332,
+            0.8938300088047981
+          ],
+          "unit_height": 0.26973656564950943
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            1.9,
+            -2.0,
+            0.015
+          ],
+          "anchor": [
+            0.666834831237793,
+            0.9810485057532787
+          ],
+          "unit_height": 0.2970372848212719
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -2.05,
+            -1.05,
+            0.015
+          ],
+          "anchor": [
+            0.11893918365240097,
+            0.7114956080913544
+          ],
+          "unit_height": 0.21126163005828857
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.55,
+            -0.7,
+            0.015
+          ],
+          "anchor": [
+            0.8870328068733215,
+            0.8723271638154984
+          ],
+          "unit_height": 0.2629387825727463
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "6b19b22d4b34f3a7d971ed5ac76c266d8fb696a732a3ed8c7cca0b0c043162b0",
+        "layout.json": "a35e6e3606017830f281fb785c7da44f9a60a1897362d982c1368330b34366da"
+      }
+    },
+    {
+      "id": "kitchen_1",
+      "template": "kitchen",
+      "label": "K\u00f6k",
+      "furnishing": 1,
+      "image": "room_kitchen_1.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.050000000000000044,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.5964087843894958,
+            0.39072614908218384
+          ],
+          "unit_height": 0.19762533903121948
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.17,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.755472719669342,
+            0.4073635935783386
+          ],
+          "unit_height": 0.2086079716682434
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4479540288448334,
+            0.5487223267555237
+          ],
+          "unit_height": 0.18252325057983398
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.44733938574790955,
+            0.44930458068847656
+          ],
+          "unit_height": 0.18690776824951172
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4467100203037262,
+            0.34751051664352417
+          ],
+          "unit_height": 0.19145208597183228
+        },
+        {
+          "id": "counter_0",
+          "support": "table",
+          "world": [
+            0.14,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.5893169641494751,
+            0.47287827730178833
+          ],
+          "unit_height": 0.2007383108139038
+        },
+        {
+          "id": "counter_1",
+          "support": "table",
+          "world": [
+            0.92,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.700782299041748,
+            0.4878130555152893
+          ],
+          "unit_height": 0.20849919319152832
+        },
+        {
+          "id": "counter_2",
+          "support": "table",
+          "world": [
+            1.7899999999999998,
+            1.12,
+            0.955
+          ],
+          "anchor": [
+            0.8359819054603577,
+            0.5059278607368469
+          ],
+          "unit_height": 0.21789461374282837
+        },
+        {
+          "id": "island_0",
+          "support": "table",
+          "world": [
+            -0.47,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.3433501720428467,
+            0.5560927391052246
+          ],
+          "unit_height": 0.23719501495361328
+        },
+        {
+          "id": "island_1",
+          "support": "table",
+          "world": [
+            0.28,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.4602316915988922,
+            0.5770271718502045
+          ],
+          "unit_height": 0.24766328930854797
+        },
+        {
+          "id": "island_2",
+          "support": "table",
+          "world": [
+            1.0,
+            -0.9,
+            0.905
+          ],
+          "anchor": [
+            0.5828771591186523,
+            0.5989940166473389
+          ],
+          "unit_height": 0.25861889123916626
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            1.9,
+            -1.65,
+            0.56
+          ],
+          "anchor": [
+            0.6982890367507935,
+            0.7859811931848526
+          ],
+          "unit_height": 0.29470743238925934
+        },
+        {
+          "id": "side",
+          "support": "bench",
+          "world": [
+            -1.65,
+            -0.8,
+            0.551
+          ],
+          "anchor": [
+            0.19239704310894012,
+            0.597434937953949
+          ],
+          "unit_height": 0.21620863676071167
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.73,
+            -1.44,
+            0.015
+          ],
+          "anchor": [
+            0.1140313670039177,
+            0.748292475938797
+          ],
+          "unit_height": 0.22321367263793945
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.58,
+            -1.69,
+            0.015
+          ],
+          "anchor": [
+            0.2464430034160614,
+            0.8136987090110779
+          ],
+          "unit_height": 0.24427026510238647
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.77,
+            -1.8399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.45527034997940063,
+            0.8940884247422218
+          ],
+          "unit_height": 0.26981810480356216
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            2.02,
+            -1.94,
+            0.015
+          ],
+          "anchor": [
+            0.6981768012046814,
+            0.9813663978129625
+          ],
+          "unit_height": 0.2971360106021166
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -1.9299999999999997,
+            -0.99,
+            0.015
+          ],
+          "anchor": [
+            0.14060750603675842,
+            0.7116495072841644
+          ],
+          "unit_height": 0.21131178736686707
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.67,
+            -0.6399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.91459721326828,
+            0.8725717812776566
+          ],
+          "unit_height": 0.2630162388086319
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "f23c8970dba150c5c96e39a428d62c05bbca5fb75ba2698a58dc4fffabdae3af",
+        "layout.json": "d505c7e93b583537f99e91df8bebacb4a233b20f5ae9b12f734030cea5c3224a"
+      }
+    },
+    {
+      "id": "study_0",
+      "template": "study",
+      "label": "Arbetsrum",
+      "furnishing": 0,
+      "image": "room_study_0.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.4,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.6442654132843018,
+            0.39573174715042114
+          ],
+          "unit_height": 0.20093119144439697
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.52,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.8089159727096558,
+            0.41295355558395386
+          ],
+          "unit_height": 0.21229463815689087
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4042667746543884,
+            0.5413232743740082
+          ],
+          "unit_height": 0.1796412169933319
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.40315482020378113,
+            0.44345957040786743
+          ],
+          "unit_height": 0.18388420343399048
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.4200000000000002,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4020167291164398,
+            0.343295693397522
+          ],
+          "unit_height": 0.18827909231185913
+        },
+        {
+          "id": "desk_0",
+          "support": "table",
+          "world": [
+            0.05,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.5498952865600586,
+            0.5007375776767731
+          ],
+          "unit_height": 0.20714572072029114
+        },
+        {
+          "id": "desk_1",
+          "support": "table",
+          "world": [
+            0.75,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.6516422629356384,
+            0.5155826807022095
+          ],
+          "unit_height": 0.21453970670700073
+        },
+        {
+          "id": "desk_2",
+          "support": "table",
+          "world": [
+            1.45,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.7611167430877686,
+            0.5315552651882172
+          ],
+          "unit_height": 0.22248032689094543
+        },
+        {
+          "id": "side",
+          "support": "bench",
+          "world": [
+            1.9,
+            -1.5,
+            0.551
+          ],
+          "anchor": [
+            0.7094475626945496,
+            0.7741781026124954
+          ],
+          "unit_height": 0.2887120991945267
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            -1.2,
+            -0.7,
+            0.62
+          ],
+          "anchor": [
+            0.26161226630210876,
+            0.589661180973053
+          ],
+          "unit_height": 0.2198941707611084
+        },
+        {
+          "id": "coffee_0",
+          "support": "table",
+          "world": [
+            0.1,
+            -0.6,
+            0.39
+          ],
+          "anchor": [
+            0.4587864577770233,
+            0.6730344593524933
+          ],
+          "unit_height": 0.23046329617500305
+        },
+        {
+          "id": "coffee_1",
+          "support": "table",
+          "world": [
+            0.9,
+            -0.6,
+            0.39
+          ],
+          "anchor": [
+            0.587489902973175,
+            0.7006922364234924
+          ],
+          "unit_height": 0.24100500345230103
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.85,
+            -1.5,
+            0.015
+          ],
+          "anchor": [
+            0.0910828560590744,
+            0.7481197416782379
+          ],
+          "unit_height": 0.22315773367881775
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.7,
+            -1.75,
+            0.015
+          ],
+          "anchor": [
+            0.2211592197418213,
+            0.813489705324173
+          ],
+          "unit_height": 0.2442033588886261
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.65,
+            -1.9,
+            0.015
+          ],
+          "anchor": [
+            0.4270919859409332,
+            0.8938300088047981
+          ],
+          "unit_height": 0.26973656564950943
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            1.9,
+            -2.0,
+            0.015
+          ],
+          "anchor": [
+            0.666834831237793,
+            0.9810485057532787
+          ],
+          "unit_height": 0.2970372848212719
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -2.05,
+            -1.05,
+            0.015
+          ],
+          "anchor": [
+            0.11893918365240097,
+            0.7114956080913544
+          ],
+          "unit_height": 0.21126163005828857
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.55,
+            -0.7,
+            0.015
+          ],
+          "anchor": [
+            0.8870328068733215,
+            0.8723271638154984
+          ],
+          "unit_height": 0.2629387825727463
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "a0c4f7a1b9269f3c405d1e472e8ed491ad9cdbb1e1ac0bf6e5446af6ed7e3765",
+        "layout.json": "d39a548bbc89e359c9b86e4918fc39c8e71bd7c7cba9c0bbaa6a392a37825b64"
+      }
+    },
+    {
+      "id": "study_1",
+      "template": "study",
+      "label": "Arbetsrum",
+      "furnishing": 1,
+      "image": "room_study_1.png",
+      "anchors": [
+        {
+          "id": "sill_0",
+          "support": "sill",
+          "world": [
+            0.050000000000000044,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.5964087843894958,
+            0.39072614908218384
+          ],
+          "unit_height": 0.19762533903121948
+        },
+        {
+          "id": "sill_1",
+          "support": "sill",
+          "world": [
+            1.17,
+            1.43,
+            1.32
+          ],
+          "anchor": [
+            0.755472719669342,
+            0.4073635935783386
+          ],
+          "unit_height": 0.2086079716682434
+        },
+        {
+          "id": "shelf_0",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.39
+          ],
+          "anchor": [
+            0.4479540288448334,
+            0.5487223267555237
+          ],
+          "unit_height": 0.18252325057983398
+        },
+        {
+          "id": "shelf_1",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            0.94
+          ],
+          "anchor": [
+            0.44733938574790955,
+            0.44930458068847656
+          ],
+          "unit_height": 0.18690776824951172
+        },
+        {
+          "id": "shelf_2",
+          "support": "shelf",
+          "world": [
+            -1.05,
+            1.3,
+            1.49
+          ],
+          "anchor": [
+            0.4467100203037262,
+            0.34751051664352417
+          ],
+          "unit_height": 0.19145208597183228
+        },
+        {
+          "id": "desk_0",
+          "support": "table",
+          "world": [
+            -0.2,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.5152760148048401,
+            0.49568653106689453
+          ],
+          "unit_height": 0.20462685823440552
+        },
+        {
+          "id": "desk_1",
+          "support": "table",
+          "world": [
+            0.5,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.6144604086875916,
+            0.5101577639579773
+          ],
+          "unit_height": 0.2118391990661621
+        },
+        {
+          "id": "desk_2",
+          "support": "table",
+          "world": [
+            1.2,
+            0.7,
+            0.885
+          ],
+          "anchor": [
+            0.721077024936676,
+            0.5257133841514587
+          ],
+          "unit_height": 0.21957790851593018
+        },
+        {
+          "id": "side",
+          "support": "bench",
+          "world": [
+            1.9,
+            -1.5,
+            0.551
+          ],
+          "anchor": [
+            0.7094475626945496,
+            0.7741781026124954
+          ],
+          "unit_height": 0.2887120991945267
+        },
+        {
+          "id": "tv_console",
+          "support": "tv_bench",
+          "world": [
+            -1.2,
+            -0.7,
+            0.62
+          ],
+          "anchor": [
+            0.26161226630210876,
+            0.589661180973053
+          ],
+          "unit_height": 0.2198941707611084
+        },
+        {
+          "id": "coffee_0",
+          "support": "table",
+          "world": [
+            0.1,
+            -0.6,
+            0.39
+          ],
+          "anchor": [
+            0.4587864577770233,
+            0.6730344593524933
+          ],
+          "unit_height": 0.23046329617500305
+        },
+        {
+          "id": "coffee_1",
+          "support": "table",
+          "world": [
+            0.9,
+            -0.6,
+            0.39
+          ],
+          "anchor": [
+            0.587489902973175,
+            0.7006922364234924
+          ],
+          "unit_height": 0.24100500345230103
+        },
+        {
+          "id": "floor_0",
+          "support": "floor",
+          "world": [
+            -1.73,
+            -1.44,
+            0.015
+          ],
+          "anchor": [
+            0.1140313670039177,
+            0.748292475938797
+          ],
+          "unit_height": 0.22321367263793945
+        },
+        {
+          "id": "floor_1",
+          "support": "floor",
+          "world": [
+            -0.58,
+            -1.69,
+            0.015
+          ],
+          "anchor": [
+            0.2464430034160614,
+            0.8136987090110779
+          ],
+          "unit_height": 0.24427026510238647
+        },
+        {
+          "id": "floor_2",
+          "support": "floor",
+          "world": [
+            0.77,
+            -1.8399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.45527034997940063,
+            0.8940884247422218
+          ],
+          "unit_height": 0.26981810480356216
+        },
+        {
+          "id": "floor_3",
+          "support": "floor",
+          "world": [
+            2.02,
+            -1.94,
+            0.015
+          ],
+          "anchor": [
+            0.6981768012046814,
+            0.9813663978129625
+          ],
+          "unit_height": 0.2971360106021166
+        },
+        {
+          "id": "floor_outer_left",
+          "support": "floor",
+          "world": [
+            -1.9299999999999997,
+            -0.99,
+            0.015
+          ],
+          "anchor": [
+            0.14060750603675842,
+            0.7116495072841644
+          ],
+          "unit_height": 0.21131178736686707
+        },
+        {
+          "id": "floor_outer_right",
+          "support": "floor",
+          "world": [
+            2.67,
+            -0.6399999999999999,
+            0.015
+          ],
+          "anchor": [
+            0.91459721326828,
+            0.8725717812776566
+          ],
+          "unit_height": 0.2630162388086319
+        }
+      ],
+      "raw_sha256": {
+        "room.png": "f9e390dfe6f4d9525cdd68c14888f305c4e9ce052ccece888624b1433c127e2c",
+        "layout.json": "5d50817fbe41d847c3055063b4f0469694e22775e57eec2ba7f99ded32d3e7b8"
+      }
+    }
+  ],
+  "room_plate": "natural_original_PBR_no_global_floor_or_lift",
+  "room_recipes_sha256": {
+    "automation/assets/pang_room_variants.py": "1c89c59f942e3d9d6d4f0d4849aa25b0cda6720d37a90ef5d91aeacb6ff50bf5",
+    "automation/assets/render_light_room_parts.py": "ef3fa660544ce67978f4f33836e118c1ffc8b6dade03f2a3b6f3c6ef51862e71",
+    "automation/assets/pang_polyhaven.py": "9477553e0aaa20f4629cdc408f13136e0fd14e31ded74a0a3cafe9ade93546f6",
+    "automation/build_pang_rooms.py": "ab0352111336a02e3318b8576e14de2871ea5f268d7e97337d6a3756334f4e6f"
   }
 }

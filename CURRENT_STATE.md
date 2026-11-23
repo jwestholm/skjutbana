@@ -1,5 +1,26 @@
 # Current project state
 
+## PANG! R7 room variety and local display safety — 2026-11-23
+
+Three natural-contrast Cycles room templates (living/kitchen/study), two
+furnishings each, replace the globally lifted background. Ten active objects,
+perspective-based sizes, a dedicated TV cabinet, smaller pots/floor vases,
+filled/light-backed shelving, rug and side furniture. Persistent recent room
+and target-position history spreads layouts across the safe board area. Only
+target silhouettes plus their immediate surroundings retain a camera-proxy
+floor; pixels outside protection remain identical to the natural room plates.
+
+Thirty ten-target layouts cover all six rooms: minimum protected-region proxy
+121.87 DN; max local background edits 22.4%; saved-calibration ROI
+max 438462/1000000 pixels. All 15 relevant test modules pass, including
+50 cases in the final game suites. Fifteen original CC0 assets remain hashed;
+322 PNGs plus model sources total about 37.2 MB. API/menu `light_targets` stays;
+logs now include `room_id` and `polyhaven-rooms-7`. No engine/detector changes,
+commits or camera/projector use. Physical >=95% accuracy remains unverified.
+Previews `/tmp/pang_r7/living.png`, `kitchen.png`, `study.png`; reproduction and
+limits in `GAME_NEW_REPORT.md`. R6 and interim measurements are preserved.
+
+
 ## PANG! Poly Haven PBR room — 2026-11-23
 
 R6 replaces the procedural room furnishings and target meshes with 15 selected

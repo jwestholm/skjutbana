@@ -57,7 +57,11 @@ class RoomTests(unittest.TestCase):
                 total=mask.astype(int) if total is None else total+mask
                 self.assertEqual(len(p['frames']),12)
             self.assertLessEqual(total.max(),1,'visible-part masks must not invent overlapping depth')
-        room=np.asarray(Image.open(ASSET_ROOT/'room.png'));self.assertGreaterEqual(float(camera_level(room[:,:,:3]).min()),124)
+        room=np.asarray(Image.open(ASSET_ROOT/'room.png'))
+        if m.get('rooms'):
+            # R7 intentionally restores natural contrast outside active targets.
+            self.assertLess(float(camera_level(room[:,:,:3]).min()),120)
+        else:self.assertGreaterEqual(float(camera_level(room[:,:,:3]).min()),124)
     def test_layouts_use_real_supports_without_overlap_or_hud_collision(self):
         for size in ((640,480),(760,580),(1280,720)):
             game=LightTargetsGame('',pygame.Rect(0,0,*size));game.on_enter()
@@ -165,7 +169,7 @@ class RoomTests(unittest.TestCase):
     def test_impact_side_changes_only_after_acceptance(self):
         sides=[]
         for direction in (-1,1):
-            self.live();obj,xy=part_point(self.g,'jar','body')
+            self.live();obj,xy=part_point(self.g,'vase','body')  # vase is guaranteed; jar now varies by furnishing
             xy=(xy[0]+direction*obj.geometry.width*.15,xy[1])
             self.g._on_hit(NS(is_simulated=True,game_x=xy[0],game_y=xy[1],shot_id=None))
             self.assertEqual(self.g.phase,'result');self.assertTrue(self.g._effect_ids)

@@ -2,6 +2,8 @@
 from __future__ import annotations
 from dataclasses import replace
 import json
+import os
+from pathlib import Path
 import random
 import time
 import uuid
@@ -21,7 +23,7 @@ PALETTE = ((160, 240, 205), (150, 240, 245), (220, 245, 150))
 INK = (32, 66, 65)
 BREAK_FPS = 20
 RESULT_DWELL_S = .95
-OBJECTS_PER_ROOM = 8
+OBJECTS_PER_ROOM = 10
 PRE_SETTLE_S = 1.7  # >=1.5 s plus 0.2 s projector/camera-receipt guard
 
 
@@ -72,6 +74,9 @@ class LightTargetsGame:
         self._effects_before = 0
         self.layout_id = 0
         self._anchor_uses = {}
+        self._recent_rooms=[];self._recent_positions=[]
+        self._history_path=Path(os.environ.get('SKJUTBANA_PANG_ROOM_HISTORY',os.path.expanduser('~/.local/state/skjutbana/pang_room_recent.json')))
+        self._history_loaded=False
         self.ready_wall_ts = None
         self.sound_enabled = True
         self._sounds = {}
@@ -86,6 +91,7 @@ class LightTargetsGame:
         self.font = pygame.font.Font(None, 23)
         self.big = pygame.font.Font(None, 38)
         self.art = LightRoomArt(self.viewport.size)
+        self._load_room_history()
         self._sounds = build_sounds()
         event_bus.subscribe(self._on_object_event)
         hit_input.subscribe(self._on_hit)
@@ -109,12 +115,58 @@ class LightTargetsGame:
         self.player = 0; self.streak = 0; self._slots = []
         self._next_target()
 
+    def _load_room_history(self):
+        if self._history_loaded:return
+        self._history_loaded=True
+        try:
+            data=json.loads(self._history_path.read_text())
+            if data.get('schema')!='pang-room-history-1':return
+            self._recent_rooms=[str(r) for r in data.get('rooms',[])][-12:]
+            self._recent_positions=[(float(x),float(y)) for x,y in data.get('positions',[])][-96:]
+            self._recent_positions=[(x,y) for x,y in self._recent_positions if 0<=x<=1 and 0<=y<=1]
+        except (OSError,ValueError,TypeError):pass
+
+    def _remember_room(self):
+        if not self.art.rooms:return
+        self._recent_rooms=(self._recent_rooms+[self.art.room_id])[-12:]
+        self._recent_positions=(self._recent_positions+[(i['geometry'].center[0]/self.viewport.w,
+            i['geometry'].center[1]/self.viewport.h) for i in self.items])[-96:]
+        tmp=None
+        try:
+            self._history_path.parent.mkdir(parents=True,exist_ok=True)
+            tmp=self._history_path.with_name(self._history_path.name+'.'+uuid.uuid4().hex+'.tmp')
+            tmp.write_text(json.dumps(dict(schema='pang-room-history-1',rooms=self._recent_rooms,positions=self._recent_positions)))
+            os.replace(tmp,self._history_path)
+        except OSError as exc:
+            print('[PANG-ROOM] history not saved: '+str(exc),flush=True)
+            if tmp is not None:
+                try:tmp.unlink(missing_ok=True)
+                except OSError:pass
+
+    def _choose_room_layout(self):
+        if not self.art.rooms:return self._choose_layout()
+        recent=self._recent_rooms
+        # Prefer another template, then an unused furnishing, then oldest use.
+        candidates=sorted(self.art.rooms,key=lambda r:(
+            r['template'] in [s.rsplit('_',1)[0] for s in recent[-2:]],
+            r['id'] in recent[-4:],
+            max((i for i,s in enumerate(recent) if s==r['id']),default=-1),self.rng.random()))
+        for room in candidates:
+            self.art.select_room(room)
+            items=self._choose_layout()
+            if items:return items
+        return []
+
     def _choose_layout(self):
         w,h=self.viewport.size
         if w<640 or h<480:return []
-        base=[k for k in ('vase','jar','bowl','bottle','lamp') if k in self.art.objects]
+        if self.art.rooms:
+            import numpy as np
+            from content.games.light_room_safety import camera_proxy
+            plate_dn=camera_proxy(pygame.surfarray.array3d(self.art._plate))
+        base=[k for k in (('vase','bottle','plant') if self.art.rooms else ('vase','jar','bowl','bottle','lamp')) if k in self.art.objects]
         extras=[k for k in self.art.objects if k not in base]
-        supports={'books':('shelf',),'tv':('table','bench'),'lamp':('table','bench','shelf'),
+        supports={'books':('shelf',),'tv':(('tv_bench',) if self.art.rooms else ('table','bench')),'lamp':('table','bench','shelf'),
                   'clock':('shelf','sill','table','bench'),'mug':('shelf','sill','table','bench')}
         # Place constrained items first, then backtrack locally if a wide object
         # blocks a later anchor. Shapes remain large and non-overlapping.
@@ -130,12 +182,27 @@ class LightTargetsGame:
                 candidates=[]
                 for anchor in self.art.manifest['anchors']:
                     if kind in supports and anchor['support'] not in supports[kind]:continue
+                    if self.art.rooms and anchor['support']=='tv_bench' and kind!='tv':continue
+                    if self.art.rooms and kind=='bowl' and anchor['support']=='floor':continue
                     factor={'bowl':.68,'lamp':.95,'bottle':1.04,'tv':.82,'books':.85}.get(kind,1.)
                     for size in self.rng.sample([.82,.96,1.08],3):
                         height=max(78,min(132,min(124,h*.21)*factor*size))
+                        if self.art.rooms:
+                            metres={'vase':.46,'jar':.33,'bowl':.24,'bottle':.40,'lamp':.52,'tv':.85,'books':.31,'plant':.55,'clock':.29,'mug':.34}[kind]
+                            minimum=60 if kind in ('books','bottle','vase') else 40
+                            height=max(minimum,min(125,h*anchor['unit_height']*metres*size))
                         g=self.art.geometry(kind,anchor,height)
                         if g.x<w*.075 or g.right>w*.93 or g.y<104 or g.bottom>h*.94:continue
-                        candidates.append((self._anchor_uses.get(anchor['id'],0)+self.rng.random()*1.2,
+                        lighting_cost=0.
+                        if self.art.rooms:
+                            area=pygame.Rect(g.aabb).inflate(24,24).clip(pygame.Rect(0,104,w,h-104))
+                            patch=plate_dn[area.x:area.right,area.y:area.bottom]
+                            # A game may choose naturally bright display bays. This
+                            # is spawn geometry, never a detector/known-hole veto.
+                            lighting_cost=8.*float(np.maximum(124-patch,0).mean())/30.
+                        cx,cy=g.center[0]/w,g.center[1]/h
+                        wear=sum(max(0,1-((cx-x)**2+(cy-y)**2)**.5/.13) for x,y in self._recent_positions)
+                        candidates.append((self._anchor_uses.get(str(self.art.room_id)+anchor['id'],0)+wear+lighting_cost+self.rng.random()*1.2,
                             dict(kind=kind,geometry=g,anchor=anchor,parts={})))
                 choices.append([item for _,item in sorted(candidates,key=lambda c:c[0])])
             budget=[600];items=[];used=set()
@@ -163,7 +230,7 @@ class LightTargetsGame:
         self.phase='settling';self.phase_at=time.monotonic()
         for obj in self.manager.objects:obj.metadata['lamp_token']=self.token
         print('[LAMP-TARGET] '+json.dumps(dict(owner=self.owner,token=self.token,layout_id=self.layout_id,
-            player=self.player+1,shape='visible_part_alpha_polygons',game_version='polyhaven-room-parts-6',
+            player=self.player+1,shape='visible_part_alpha_polygons',game_version='polyhaven-rooms-7',room_id=self.art.room_id,
             asset_manifest_sha256=self.art.manifest_sha256,
             objects=[dict(entity_id=i['entity_id'],kind=i['kind'],support=i['anchor']['support'],
                 anchor_id=i['anchor']['id'],geometry=list(i['geometry'].aabb),parts=i['parts']) for i in self.items],
@@ -172,7 +239,7 @@ class LightTargetsGame:
     def _next_target(self):
         # A fresh room is created at a new player/cleared room, not on every shot.
         object_hit_registry_v2223.cancel_object_queries(self.owner,'light_targets_new_room')
-        self.items=self._choose_layout()
+        self.items=self._choose_room_layout()
         if not self.items:
             self.phase='unsupported';self.feedback='För liten säker spelyta – välj minst 640 × 480.';return
         self.layout_id+=1;self.manager=ObjectManager();self.broken_ids=set();self.effect_sides={}
@@ -181,7 +248,7 @@ class LightTargetsGame:
         touch=2.25*w/(width_cm*10)
         for index,item in enumerate(self.items):
             kind=item['kind'];entity=f'{kind}_{self.layout_id}_{index+1}';item['entity_id']=entity
-            anchor=item['anchor'];self._anchor_uses[anchor['id']]=self._anchor_uses.get(anchor['id'],0)+1
+            anchor=item['anchor'];aid=str(self.art.room_id)+anchor['id'];self._anchor_uses[aid]=self._anchor_uses.get(aid,0)+1
             for part,spec in self.art.objects[kind]['parts'].items():
                 pieces=[HitShapeSpec.polygon(p) for p in spec['polygons']]
                 shape=pieces[0] if len(pieces)==1 else HitShapeSpec.union(*pieces)
@@ -196,7 +263,8 @@ class LightTargetsGame:
                     asset_manifest_sha256=self.art.manifest_sha256)
                 self.manager.add(obj)
         self.target=self.items[0]['geometry'];self.color=PALETTE[self.layout_id%len(PALETTE)]
-        self.art.prepare_round(self.items);self._arm_shot()
+        self.art.prepare_round(self.items)
+        self._remember_room();self._arm_shot()
 
     def entity_states(self):
         states={}
@@ -316,7 +384,7 @@ class LightTargetsGame:
             shot_peak_ts=self.active_peak, player=self.player+1, outcome=outcome, points=points,
             shots_used=self.used[self.player], source='SIMULATED' if simulated else 'OBJECT',
             hypothesis_xy=(hypothesis or {}).get('camera_xy'), reason=(result or {}).get('reason'),
-            game_version='polyhaven-room-parts-6',object_id=oid,entity_id=obj.entity_id if obj else None,
+            game_version='polyhaven-rooms-7',room_id=self.art.room_id,object_id=oid,entity_id=obj.entity_id if obj else None,
             part_id=obj.part_id if obj else None,impact_game_xy=xy,effect_side=side,clear_bonus=self._clear_bonus,
             broken_object_ids=sorted(self.broken_ids), reaction_not_before_wall_ts=self.reaction_wall_ts,
             wall_ts=time.time())), flush=True)
@@ -365,7 +433,7 @@ class LightTargetsGame:
             screen.blit(self._last_frame, self.viewport.topleft); return
         surf = pygame.Surface(self.viewport.size); surf.fill(BACKGROUND)
         if self.phase in ('intro', 'finished', 'unsupported'):
-            title = 'PANG! • VARDAGSRUMMET' if self.phase == 'intro' else ('KLART! ' + ' / '.join(f'Spelare {i+1}: {self.scores[i]}' for i in range(self.players)))
+            title = 'PANG! • HA SÖNDER RUMMET' if self.phase == 'intro' else ('KLART! ' + ' / '.join(f'Spelare {i+1}: {self.scores[i]}' for i in range(self.players)))
             if self.phase == 'unsupported': title = self.feedback
             if self.phase=='finished' and self.items:
                 self.art.render(surf,self.items,self.broken_ids,effect_sides=self.effect_sides)
@@ -389,6 +457,7 @@ class LightTargetsGame:
             colors={'HIT':((35,140,80),(255,255,245)),'MISS':((235,165,45),INK),'UNKNOWN':((40,90,160),(255,255,245))}
             banner,text=colors.get(self.last_outcome,((192,196,190),INK)) if self.phase=='result' else ((192,196,190),INK)
             pygame.draw.rect(surf,banner,(0,0,self.viewport.w,64))
+            if self.art.rooms:status+=' • '+{'living':'Vardagsrum','kitchen':'Kök','study':'Arbetsrum'}[self.art.room_template]
             if self.phase=='live' and self.last_outcome:status+=' • senast '+{'HIT':'TRÄFF','MISS':'MISS','UNKNOWN':'OSÄKERT'}[self.last_outcome]
             surf.blit(self.font.render(header,True,text),(18,8))
             surf.blit(self.font.render(status,True,text),(18,33))

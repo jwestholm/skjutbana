@@ -13,13 +13,23 @@ class LightRoomArt:
         data=(ASSET_ROOT/'manifest.json').read_bytes()
         self.manifest=json.loads(data);self.manifest_sha256=hashlib.sha256(data).hexdigest()
         self.objects=self.manifest['objects'];self.size=size
+        self.rooms=self.manifest.get('rooms',[])
+        self.room_id=None;self._plates={}
         self.background=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/'room.png')),size)
+        self._plate=self.background.copy()
         self._shadows={};self._raw={};self._scaled={};self._raw_hit={};self._scaled_hit={};self._raw_frames={};self._frames={}
         for name,spec in self.objects.items():
             for part,p in spec['parts'].items():
                 self._raw[name,part]=pygame.image.load(str(ASSET_ROOT/p['sprite']))
                 self._raw_hit[name,part]=pygame.image.load(str(ASSET_ROOT/p.get('hit_sprite',p['sprite'])))
                 self._raw_frames[name,part]=[pygame.image.load(str(ASSET_ROOT/f)) for f in p['frames']]
+
+    def select_room(self,room):
+        self.room_id=room['id'];self.room_template=room['template']
+        if room['id'] not in self._plates:
+            self._plates[room['id']]=pygame.transform.smoothscale(pygame.image.load(str(ASSET_ROOT/room['image'])),self.size)
+        self._plate=self._plates[room['id']]
+        self.background=self._plate.copy();self.manifest['anchors']=room['anchors']
 
     def geometry(self,name,anchor,height):
         spec=self.objects[name];x0,y0,x1,y1=spec['source_bbox']
@@ -41,6 +51,12 @@ class LightRoomArt:
                     alpha=pygame.surfarray.pixels_alpha(scaled);alpha[alpha>=252]=255;del alpha
                     cache[item['kind'],part,size]=scaled
                 self.frames(item['kind'],part,size)  # no image I/O/scaling in a shot reaction
+            if self.rooms:
+                import numpy as np
+                item['display_mask']=np.maximum.reduce([pygame.surfarray.array_alpha(self._scaled[item['kind'],p,size])>=128 for p in self.objects[item['kind']]['parts']]).astype(np.uint8)
+        if self.rooms:
+            from content.games.light_room_safety import local_background
+            self.background,self.safety_weight=local_background(self._plate,items)
 
     def frames(self,name,part,size):
         key=(name,part,tuple(size))

@@ -1,7 +1,14 @@
-# PANG! – Vardagsrummet
+# PANG! – rummen
 
 2026-11-23, `claude/latency`, för granskning. Inga commits/push/merge.
 **Kamera/projektor orörda. Nya rummet är inte fysiskt validerat; ≥95 % är målet.**
+
+**Senaste leverans: R7 (2026-11-23).** Tre rum × två möbleringar, tio aktiva
+föremål, naturlig rumskontrast och lokalt färgskydd. Se R7-avsnittet sist för
+aktuella mått och reproduktion; R3–R6 nedan beskriver tidigare leveranser.
+Förhandsbilder: [vardagsrum](/tmp/pang_r7/living.png),
+[kök](/tmp/pang_r7/kitchen.png), [arbetsrum](/tmp/pang_r7/study.png).
+
 
 ## Spelbar version
 
@@ -543,3 +550,102 @@ Nästa fysiska pilot behöver nya träffar, missar och delgränser med operatör
 - API/meny-id `light_targets`, OBJECT-loggning, breakable parts och skyddade
   mätfönster är kvar. Ingen detektorändring, ingen commit, ingen fysisk utrustning
   använd. Fysisk ≥95 % träffsäkerhet är fortfarande ett separat acceptanstest.
+
+
+## R7 — naturlig kontrast, rättad skala och tre rum (2026-11-23)
+
+### Vad som ändrades
+
+- Den globala bildljusningen/kameragolvet är borttaget från bakgrunderna. Sex
+  **oförändrade Cycles-PNG** används: vardagsrum, kök och arbetsrum med två
+  möbleringar vardera. Rumsljuset använder AgX, exponering 0 och material/ljus i
+  3D-receptet. Original-PBR används på möbler; soffan har en varm beige
+  materialvariant och hyllan en ljus invändig rygg. Matta, böcker/prydnader,
+  sidobord/växt och extra möbler i förgrunden gör rummen mindre tomma.
+- TV:n använder en egen TV-bänk, aldrig soffbordet. Målskalan beräknas från
+  ankarets projicerade meterhöjd. Grytan är cirka 0,24 m mot TV:ns 0,85 m i
+  placeringsreceptet; golvvaser cirka 0,40–0,46 m. Grytan placeras inte på golvet.
+  Visuella minimihöjder 40/60 px och max 125 px behåller spelbarhet; det är alltså
+  ingen strikt fysisk arkitekturvisualisering. Smala mål/delgränser behöver
+  fortfarande fysisk provning.
+- **Tio** aktiva målfamiljer per rum (R6 hade åtta): vas, kruka, gryta, smal vas,
+  lampa, TV, böcker, krukväxt, klocka och mjölkkanna. Den sistnämnda behåller
+  historiskt internt id `mug`; det är ingen ny muggmodell. Ramar/fasta möbler är
+  fortsatt dekor, inte poängmål. Glasyr/emaljfärger gör målen mer distinkta;
+  käll-PBR-skuggning, UV-silhuetter, alfamasker och delanimationer återanvänds.
+- Enbart mål och deras omedelbara omgivning skyddas. Bakgrunden skyddas inom
+  **12 px från den synliga silhuetten**, med 32 px mjuk övergång, till 124
+  predikterade DN. Inga rektangulära helt ljusa AABB-paneler. Naturligt ljusa
+  placeringar prioriteras för att minska behovet av lokal ljusning.
+  Bakgrundspixlar utanför skyddet är verifierat byte-identiska med renderingen.
+  Målens PNG-färggolv är 128 DN; skalning/alfablandning verifieras separat.
+- Sparad historik undviker de två senaste rumstyperna och nyligen använda
+  möbleringar. De senaste 96 **presenterade målcentrumen**, inte uppmätta
+  kulhål, används som placeringskostnad för bättre spridning. Extra säkra
+  golvplatser till vänster/höger breddar ytan. Historiken ligger som burkspelets
+  historik under `~/.local/state/skjutbana/pang_room_recent.json`; skrivning sker
+  atomiskt och ett skrivfel stoppar inte spelet. Test-/analysverktyg använder
+  `SKJUTBANA_PANG_ROOM_HISTORY` till en privat fil i `/tmp`.
+
+### Mätning och verifiering
+
+- 30 layouter med tio mål vardera använde samtliga sex rum. Lägsta
+  kompositerade kamerafärgproxy i målens skyddade närområden: **121.87 DN**.
+  Högst **22.4 %** av bakgrundspixlarna ändrades lokalt;
+  resten behölls. Detta är en skärm-/färgmodell, inte en ny kameramätning.
+- De 300 målcentrumen ligger över cirka 9–91 % av bildbredden och 30–86 % av
+  höjden; HUD och dåligt kalibrerade ytterkanter undviks. Det är spridning över
+  den säkra spelytan, inte garanti för jämn verklig hålfördelning.
+- Samma 30-frösvit mot den sparade PANG2-kalibreringen klarar OBJECT-budgeten:
+  högst **438,462 / 1 000 000** kamerabildpunkter.
+- **15 självtestmoduler gröna.** Senaste omkörningen av sex berörda spelmoduler
+  har **50 testfall**; där ingår R7:s fem nya testfall för lokal färgskyddsgräns,
+  sex distinkta bakgrunder, historik över omstart, alla rum i 640×480/760×580/
+  1280×720 samt fryst bakgrund under skottrendering. En separat placeringsprobe
+  klarade 54 kombinationer (tre frön × sex rum × tre upplösningar) med tio mål.
+- Gamla tester som krävde ljusgolv över hela rummet uppdaterades till den nya
+  lokala kontraktsgränsen. Ett test som alltid förutsatte en kruka använder nu
+  den garanterade vasen. Spårtestets tillfälliga `/data` är en privat bindning
+  till `/tmp/pang_r7/object_test_data`; den riktiga `/data` har inte skrivits.
+- Paketet innehåller **322 PNG** (inklusive sex rum); cirka 17,25 MB renderade
+  tillgångar + 19,95 MB oförändrade, använda CC0-modellberoenden. Samma 15
+  Poly Haven-källor som R6, med käll-URL/licens och filhashar. Ingen ny nedladdning.
+
+Underlag: `/tmp/pang_r7/review_final.json` (färg/spridning),
+`budget_final.json` (geometribudget), `checks/release_results.json` (testmoduler),
+`checks/wide_games.log` (50 testfall) och `delivery_results.json` (sex exporter).
+Förhandsbilder per möblering finns i `/tmp/pang_r7/delivery/<rum>_<0|1>/`;
+`living_0` innehåller samtliga 21 simulerade delreaktioner samt MISS/UNKNOWN.
+R6 och tidigare R7-försök är bevarade separat under `/tmp/pang_r7/`.
+
+### Var och hur
+
+`automation/assets/pang_room_variants.py` bygger rum/möbler/ankare i Blender.
+`render_light_room_parts.py --room-template living|kitchen|study --furnishing 0|1
+--room-only --polyhaven-root content/games/pang_polyhaven_sources --out NEW_RAW`
+körs i separat headless CPU-Blender, aldrig mot användarens Blender eller display.
+`automation/build_pang_rooms.py BASELINE RAW_ROOMS NEW_BUNDLE` paketerar sex
+råkataloger. `content/games/light_room_art.py` väljer bakgrund och bereder maskerna;
+`light_room_safety.py` gör endast lokalt färgskydd. Spelregler/historik ligger i
+`light_targets_game.py`. Den installerade artefaktens `room_recipes_sha256` skiljs
+från ärvda R6-recept för målsprites. `palette_report.json` redovisar den lokala
+R7-policyn och naturliga rumsvärden, inte det gamla globala ljusgolvet.
+
+Reproducera kontroll utan utrustning (välj nya outputnamn):
+
+```bash
+python3 -m automation.light_room_preview --room living_0 --all-parts --out /tmp/pang_review_NEW
+python3 -m automation.pang_room_review /tmp/pang_colors_NEW.json --layouts 30
+SKJUTBANA_PANG_ROOM_HISTORY=/tmp/pang_budget_history_NEW.json python3 -m automation.pang_layout_budget /data/skjutbana/source_sessions/20261122T161620Z_4b470454 /tmp/pang_budget_NEW.json --seeds 30
+```
+
+API-/meny-id `light_targets` och startverktyget `automation/play_light_targets.py`
+är kvar. Loggarna har version `polyhaven-rooms-7` och explicit `room_id`; OBJECT-
+semantik, exakta delpolygoner, kantradie, poäng och skyddat PRE/POST-fönster är
+oförändrade. Rummet byts vid ny omgång/spelare eller tömt rum, aldrig mitt i ett
+mätfönster. Detektor, modell, ljudtrösklar och cooldown är orörda.
+
+Ingen commit/push/merge. Användarens befintliga meny-/AI-inställningsändringar
+lämnas orörda. **Fysisk ≥95 % träffsäkerhet och visuell acceptans är inte
+verifierade här**; nästa pilot behöver träffar, missar och delgränser med facit
+per rum. De simulerade klickbilderna är spelreaktionstest, inte detektorevidens.

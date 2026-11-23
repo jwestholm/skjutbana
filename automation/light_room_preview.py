@@ -10,9 +10,10 @@ import wave
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--out',required=True);p.add_argument('--seed',type=int,default=11);p.add_argument('--assets',type=Path,help='Preview an unpublished bundle');p.add_argument('--all-parts',action='store_true');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--out',required=True);p.add_argument('--seed',type=int,default=11);p.add_argument('--assets',type=Path,help='Preview an unpublished bundle');p.add_argument('--room',help='Pin a room id for a reproducible software preview');p.add_argument('--all-parts',action='store_true');a=p.parse_args()
     out=Path(a.out);out.mkdir(parents=True,exist_ok=False)
     os.environ['SDL_VIDEODRIVER']='dummy';os.environ['SDL_AUDIODRIVER']='dummy'
+    os.environ['SKJUTBANA_PANG_ROOM_HISTORY']=str(out/'room_history.json')
     os.environ['SKJUTBANA_PHYSICAL_TRACE_DISABLE']='1';os.environ['SKJUTBANA_SOURCE_RECORD']='0'
     import cv2
     import numpy as np
@@ -34,6 +35,9 @@ def main():
     for kind,part in cases:
         label=part if kind in (None,'vase') else kind+'_'+part
         g=LightTargetsGame('',pygame.Rect(0,0,760,580));g.on_enter()
+        if a.room:
+            g.art.rooms=[r for r in g.art.rooms if r['id']==a.room]
+            if not g.art.rooms:raise ValueError('Unknown room '+a.room)
         for offset in range(80):
             g.rng.seed(a.seed+offset);g.start()
             if g.phase!='unsupported' and (kind is None or any(i['kind']==kind for i in g.items)):break

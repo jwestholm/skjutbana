@@ -25,3 +25,9 @@ Runtime loads sprites, not glTF. Exact per-file hashes are in asset_provenance.
 Palette packaging: automation.recolor_light_room; render_preserving=True.
 Baseline alpha/masks/geometry are preserved. Generated sprites retain CC0-1.0.
 See palette_report.json; DN values are predictions, not physical camera validation.
+
+R7: six natural PBR room plates, three templates/two furnishings each.
+No global camera-floor postprocessing or display gain on room plates.
+Original R6 target sprites and UV silhouettes retained; local safety is applied
+only to active-target surroundings by content/games/light_room_safety.py.
+New room recipe hashes are separate from inherited target recipe hashes.

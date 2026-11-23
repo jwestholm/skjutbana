@@ -21,6 +21,7 @@ def finish():
     sys.stdout.flush();sys.stderr.flush();os._exit(0)
 
 p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--room-only',action='store_true');p.add_argument('--living-room',action='store_true');p.add_argument('--polyhaven-root',type=Path);p.add_argument('--only-kind');p.add_argument('--only-part');p.add_argument('--resume',action='store_true',help='Reuse completed renders in an interrupted raw export')
+p.add_argument('--room-template',choices=('living','kitchen','study'));p.add_argument('--furnishing',type=int,choices=(0,1),default=0)
 a=p.parse_args(sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else [])
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
 if a.polyhaven_root:
@@ -134,7 +135,10 @@ if a.living_room:
 if a.polyhaven_root:
     for ob in room:bpy.data.objects.remove(ob,do_unlink=True)
     room.clear()
-    room,ph_anchors=ph.room(a.polyhaven_root,cube,mat)
+    if a.room_template:
+        from automation.assets.pang_room_variants import room as variant_room
+        room,ph_anchors=variant_room(a.polyhaven_root,cube,mat,a.room_template,a.furnishing)
+    else:room,ph_anchors=ph.room(a.polyhaven_root,cube,mat)
     camera.location=(3.8,-7.2,2.8);camera.rotation_euler=(Vector((0,.1,1.0))-camera.location).to_track_quat('-Z','Y').to_euler()
     camera.data.type='PERSP';camera.data.lens=50
     for ob in list(bpy.context.scene.objects):
@@ -155,9 +159,10 @@ anchors=[('shelf_left','shelf',(-3.6,2.5,1.25)),('shelf_right','shelf',(-1.7,2.5
 if a.polyhaven_root:anchors=ph_anchors
 layout=[]
 for name,support,xyz in anchors:
-    q=world_to_camera_view(s,camera,Vector(xyz));layout.append(dict(id=name,support=support,world=list(xyz),anchor=[q.x,1-q.y]))
+    q=world_to_camera_view(s,camera,Vector(xyz));top=world_to_camera_view(s,camera,Vector(xyz)+Vector((0,0,1)))
+    layout.append(dict(id=name,support=support,world=list(xyz),anchor=[q.x,1-q.y],unit_height=abs(top.y-q.y)))
 (out/'layout.json').write_text(json.dumps(dict(anchors=layout),indent=2))
-s.view_settings.exposure=.5 if a.polyhaven_root else -.35
+s.view_settings.exposure=(0. if a.room_template else .5) if a.polyhaven_root else -.35
 s.cycles.samples=16 if a.living_room else 32
 if not a.only_kind:render('room.png')
 s.view_settings.exposure=.5 if a.polyhaven_root else 0.0

@@ -48,7 +48,7 @@ def load(root,name,height=None,location=(0,0,0),rotation=0,light=.65):
         o.parent=None;o.matrix_world=Matrix.Identity(4)
         for i,m in enumerate(o.data.materials):
             if m is None:continue
-            if m not in cache:cache[m]=lighten(m,light)
+            if m not in cache:cache[m]=lighten(m,light) if light is not None else m
             o.data.materials[i]=cache[m]
     for o in imported:
         if o.type!='MESH':bpy.data.objects.remove(o,do_unlink=True)

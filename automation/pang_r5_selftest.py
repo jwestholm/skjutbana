@@ -40,7 +40,7 @@ class LivingRoomTests(unittest.TestCase):
         self.assertTrue({'tv','books','plant','clock','mug'}<=set(self.g.art.objects))
         for seed in range(5):
             self.g.rng.seed(seed);self.g.start()
-            self.assertEqual(len(self.g.items),8);self.assertTrue(any(i['kind']=='tv' for i in self.g.items))
+            self.assertEqual(len(self.g.items),10);self.assertTrue(any(i['kind']=='tv' for i in self.g.items))
             for i in self.g.items:
                 if i['kind']=='books':self.assertEqual(i['anchor']['support'],'shelf')
     def test_contact_shadows_do_not_add_black_alpha_fringes(self):

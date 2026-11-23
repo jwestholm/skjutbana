@@ -36,7 +36,7 @@ def measure(session,seeds):
                     snap=ObjectShotSnapshotV2223(seed,2.,2.,(),game_regions=regions,camera_regions=camera,
                         transform_available=True,viewport_xywh=tuple(settings['viewport']))
                     query=ObjectPhysicalQuery(snap,[NS(frame_bgr=pre,timestamp=1.94)])
-                    rows.append(dict(seed=seed,objects=len(game.items),regions=len(regions),read_pixels=query.read_pixels,
+                    rows.append(dict(seed=seed,room_id=game.art.room_id,objects=len(game.items),regions=len(regions),read_pixels=query.read_pixels,
                                      reason=(query.result or {}).get('reason')))
                 asset_sha=game.art.manifest_sha256
             finally:game.on_exit()

@@ -63,10 +63,12 @@ class DisplayTests(unittest.TestCase):
     def ready(self):
         self.g.start();self.g.render(self.screen);self.g.on_frame_presented(1.);self.g.presented_mono-=2;self.g.update(0);self.g.ready_wall_ts=0.;self.g.render(self.screen)
     def test_more_objects_varied_sizes_and_composited_proxy_floor(self):
-        self.ready();self.assertEqual(len(self.g.items),8)
+        self.ready();self.assertEqual(len(self.g.items),10)
         heights=[i['geometry'].height for i in self.g.items];self.assertGreater(max(heights)-min(heights),30)
         image=pygame.surfarray.array3d(self.screen).transpose(1,0,2)
-        self.assertGreaterEqual(float(camera_level(image[104:]).min()),120)
+        if self.g.art.rooms:
+            self.assertGreaterEqual(float(camera_level(image[self.g.art.safety_weight.T==1]).min()),120)
+        else:self.assertGreaterEqual(float(camera_level(image[104:]).min()),120)
         self.assertEqual(set(self.g.entity_states().values()),{'intact'})
     def test_partial_and_broken_states_are_explicit(self):
         self.ready();obj,xy=part_point(self.g,'vase','flower');entity=obj.entity_id
@@ -77,7 +79,9 @@ class DisplayTests(unittest.TestCase):
         self.g._on_hit(NS(is_simulated=True,game_x=xy[0],game_y=xy[1],shot_id=None))
         self.assertEqual(self.g.entity_states()[entity],'broken')
         self.g.render(self.screen);rgb=pygame.surfarray.array3d(self.screen).transpose(1,0,2)
-        self.assertGreaterEqual(float(camera_level(rgb[104:]).min()),120)
+        if self.g.art.rooms:
+            self.assertGreaterEqual(float(camera_level(rgb[self.g.art.safety_weight.T==1]).min()),120)
+        else:self.assertGreaterEqual(float(camera_level(rgb[104:]).min()),120)
     def test_animation_is_fast_without_shortening_protected_post(self):
         self.assertEqual(12/BREAK_FPS,.6);self.assertLess(RESULT_DWELL_S,1.)
         self.ready();self.g.active_peak=100.
