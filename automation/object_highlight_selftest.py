@@ -54,6 +54,7 @@ class FlagTests(unittest.TestCase):
             game = LightTargetsGame(Path('content/games'), pygame.Rect(0,0,800,600))
         self.assertFalse(game.object_highlight)
         self.assertEqual(game.precision_glow['reference_frames'],3)
+        self.assertEqual(GlowConfig.from_scene(game).measurement_s,.80)
         game.object_highlight = True
         self.assertEqual(game.precision_flash, 'object_glow')
         self.assertTrue(resolve_policy(game, env={})[0])

@@ -50,7 +50,7 @@ class GlowConfig:
         values['reference_frames']=max(3,values.get('reference_frames',5))
         values['measurement_frames']=max(2,values.get('measurement_frames',3))
         values['reference_s']=max(.10,min(1.5,values.get('reference_s',.40)))
-        values['measurement_s']=max(.016,min(.50,values.get('measurement_s',.18)))
+        values['measurement_s']=max(.016,min(1.0,values.get('measurement_s',.18)))
         values['query_timeout_s']=max(1.,min(8.,values.get('query_timeout_s',8.)))
         if values.get('projector_min_s',.02)>values.get('projector_max_s',.06):raise ValueError('projector delay bounds reversed')
         values['max_mask_fraction']=min(.65,max(.05,values.get('max_mask_fraction',.65)))
@@ -338,8 +338,14 @@ class ObjectGlow:
             probes=np.array([[w*.25,h*.25],[w*.50,h*.50],[w*.75,h*.75]])
             own=self.projection(probes)-np.asarray(self.viewport[:2])
             frozen=np.array([query.snapshot.object_camera_to_game(*p) for p in probes],dtype=float)
-            if frozen.shape!=own.shape or not np.isfinite(frozen).all() or float(np.max(np.abs(frozen-own)))>.05:
+            max_diff=(float(np.max(np.abs(frozen-own))) if frozen.shape==own.shape and np.isfinite(frozen).all() else math.inf)
+            if max_diff>.05:
                 query.finish(reason='reference_projection_changed')
+                query.result['projection_check']=dict(max_abs_game_px=max_diff,
+                    glow_local=own.tolist(),shot_local=frozen.tolist(),
+                    glow_method=getattr(self.projection,'state',{}).get('method'),
+                    shot_method=getattr(query.snapshot,'transform_method','none'),
+                    glow_viewport=list(self.viewport),shot_viewport=getattr(query.snapshot,'viewport_xywh',None))
     def excludes_frame(self,ts):
         return any(ts>=a and (b is None or ts<=b+self.parent.cfg.exclude_tail_s) for a,b in self.windows[-8:])
     def _start(self,reference):

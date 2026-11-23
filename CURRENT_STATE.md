@@ -1,5 +1,22 @@
 # Current project state
 
+## PANG R8 live synthetic optical lane — 2026-11-24
+
+PANG's object-glow post-shot window is now 0.80 s (engine accepts configured
+windows up to 1.0 s), while the initial reference still requires three stable
+frames. A rejected frozen-projection comparison now records both mappings and
+their maximum difference to make calibration/context mismatches diagnosable.
+
+Verification: a ten-shot live synthetic lane ran through the actual projector
+and camera path. The harness injected a shot event, projected one dark hole on
+an active target, retained it through detector completion, then cleared it
+before the next shot. All 10 shots returned `PHYSICAL_HIT` with one measured
+hole each; measured glow windows were 0.806–0.885 s and supplied 5–12 plateau
+frames. The 21 `object_glow`, 12 `object_highlight`, and 19 `precision_flash`
+selftests pass. This verifies the synthetic optical path only; physical shot
+accuracy remains unverified. No generated traces or local calibration settings
+are part of the source change.
+
 ## PANG R8 visible scan halo and reference retry — 2026-11-23
 
 During the reference and post-shot measurement windows, PANG now keeps each
