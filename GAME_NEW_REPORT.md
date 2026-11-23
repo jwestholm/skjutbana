@@ -19,6 +19,12 @@ Förhandsbild: [/tmp/pang-dev-r8-pastel-living/show_targets.png](/tmp/pang-dev-r
   via `SKJUTBANA_PANG_OBJECT_HIGHLIGHT=1`, `--object-highlight` eller G i spelet.
   `--object-glow` och den äldre `SKJUTBANA_PANG_OBJECT_GLOW` fungerar som alias.
   En uttrycklig `precision_flash=off`/miljö-off stänger av presentationen.
+- PANG-launchern kör nu `automation.bench calibration-check --save` före
+  appstart när `--object-highlight` används. Den visar befintliga ArUco-markörer,
+  tar en ny kamerakalibrering och använder befintlig backup-/linsmodellspolicy.
+  Misslyckad kalibrering stoppar appstarten. Kamera och ljud spelas sedan in i
+  en ny rå session; efteråt kan `automation.bench replay --export-candidates`
+  spela samma indata genom den inspelade live-pipeline-konfigurationen.
 - Endast objektens frysta synliga silhuetter ljusas upp, i en mildare skala av
   samma ursprungliga färg. Varje objekt får en tunn ljusgul ring. De större
   cirklarna används bara för mätning och visas inte som fyllda fält. Markeringen

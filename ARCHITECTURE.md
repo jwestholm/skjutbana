@@ -1072,8 +1072,11 @@ rules. The trace records nearby tracks excluded by the producer predicate.
   return after presentation while the worker finishes. Default is off; explicit
   `PRECISION_FLASH=off` has priority. PANG's `object_highlight` flag and
   `--object-highlight` enable it; legacy `object_glow`/`--object-glow` remain
-  aliases. This path has synthetic pixel/timing checks and a recorded-evidence
-  measurement replay, not a full gameplay replay or physical validation.
+  aliases. The PANG launcher performs the existing backed-up ArUco
+  `calibration-check --save` preflight before starting the game in this mode;
+  a failed preflight blocks launch. This path has synthetic pixel/timing checks
+  and recorded-source measurement/live-path replay, not physical accuracy
+  validation.
 - **Real-hole stamps:** `src/engine/offline/hole_stamps.py` + `/data/skjutbana/hole_library/`
   (offline bench `hole_model="stamps"`, AI test scene projected holes).
 - **Winner-selection experiments:** `src/engine/winner_selection_flags.py` (all default off).

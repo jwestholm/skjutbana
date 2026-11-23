@@ -1,5 +1,16 @@
 # Current project state
 
+## PANG calibration preflight and recorded detector comparison — 2026-11-23
+
+Launching PANG with `--object-highlight` now runs the existing backed-up
+`automation.bench calibration-check --save` ArUco workflow before the app.
+The app is blocked if the fresh fit fails. The launcher's already-enabled raw
+camera/audio session then supports both `object_glow_replay` and
+`automation.bench replay --export-candidates`, so actual impact photos can be
+compared with local evidence and candidate coordinates. Three no-hardware
+launcher selftests pass. This code has not yet been exercised with a new live
+calibration; calibration quality and nine-shot accuracy remain pending.
+
 ## PANG R8 object-highlight mode — 2026-11-23
 
 Local `dev` now contains the recovered R8 work: three natural room templates,

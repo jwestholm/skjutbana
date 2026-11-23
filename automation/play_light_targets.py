@@ -2,9 +2,14 @@
 import argparse
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[1]
+
+def sync_board():
+    """Refresh camera/projector geometry through the existing backed-up calibration path."""
+    return subprocess.run([sys.executable,'-m','automation.bench','calibration-check','--save'],cwd=REPO).returncode
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
@@ -13,6 +18,10 @@ def main(argv=None):
     p.add_argument('--object-highlight','--object-glow',dest='object_glow',action='store_true',help='Opt in to local target highlights and natural materials')
     a = p.parse_args(argv)
     if a.api and a.object_glow:p.error('Choose G in the game intro for an already running API instance; client environment cannot change the server.')
+    if a.object_glow and not a.api:
+        print('[PANG] Re-synchronizing the projector board before game startup.',flush=True)
+        code=sync_board()
+        if code:raise SystemExit(f'[PANG] Board synchronization failed (exit {code}); game not started.')
     if a.object_glow:os.environ['SKJUTBANA_PANG_OBJECT_HIGHLIGHT']='1'
     os.chdir(REPO)
     if str(REPO) not in sys.path: sys.path.insert(0,str(REPO))
