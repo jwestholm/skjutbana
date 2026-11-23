@@ -15,6 +15,8 @@ import cv2
 @dataclass(frozen=True)
 class GlowConfig:
     color: tuple = (230,220,150)
+    halo_color: tuple = (248,244,214)
+    halo_mix: float = .82
     radius_px: float = 12.
     pastel_mix: float = .30
     ring_width_px: int = 1
@@ -38,8 +40,8 @@ class GlowConfig:
         data=getattr(scene,'precision_glow',None) or {};values={}
         for key,value in data.items():
             if key not in cls.__dataclass_fields__:continue
-            if key=='color':
-                if len(value)!=3:raise ValueError('glow color requires RGB')
+            if key in ('color','halo_color'):
+                if len(value)!=3:raise ValueError('glow colors require RGB')
                 values[key]=tuple(max(0,min(255,int(v))) for v in value);continue
             n=float(value)
             if not math.isfinite(n) or n<0:raise ValueError('invalid glow '+key)
@@ -54,6 +56,7 @@ class GlowConfig:
         values['max_mask_fraction']=min(.65,max(.05,values.get('max_mask_fraction',.65)))
         values['radius_px']=max(2.,min(80.,values.get('radius_px',12.)))
         values['pastel_mix'] = min(.55, values.get('pastel_mix', .30))
+        values['halo_mix'] = min(1., values.get('halo_mix', .82))
         values['ring_width_px'] = max(1, min(3, int(values.get('ring_width_px', 1))))
         return cls(**values)
 
@@ -148,20 +151,26 @@ def glow_mask(regions, size, radius):
 
 
 
-def pastel_highlight(rgb, mask, circles, *, mix=.30, ring_color=(230, 220, 150), ring_width=1):
-    """Subtly lighten exact object pixels, preserving hue, with thin yellow rings."""
+def pastel_highlight(rgb, mask, circles, *, halo_mask=None, mix=.30, halo_color=(248,244,214),
+                     halo_mix=.82, ring_color=(230,220,150), ring_width=1):
+    """Pastel exact object pixels, pale scan halo around them, and yellow outline."""
     rgb = np.asarray(rgb)
     if rgb.dtype != np.uint8 or rgb.shape != (*mask.shape, 3):
         raise ValueError('highlight requires viewport RGB pixels and its frozen mask')
-    if not np.isfinite(mix) or not 0 <= mix <= .55:
-        raise ValueError('invalid pastel mix')
+    if not np.isfinite(mix) or not 0 <= mix <= .55 or not np.isfinite(halo_mix) or not 0 <= halo_mix <= 1:
+        raise ValueError('invalid highlight mix')
+    halo_mask = mask if halo_mask is None else np.asarray(halo_mask)
+    if halo_mask.shape != mask.shape or np.any((mask > 0) & (halo_mask == 0)):
+        raise ValueError('scan halo must contain every highlighted object pixel')
     pixels = rgb.astype(np.float32)
-    light = np.rint(pixels + (255.0 - pixels) * float(mix)).clip(0, 255).astype(np.uint8)
     output = rgb.copy()
+    halo = np.rint(pixels + (np.asarray(halo_color,dtype=np.float32)-pixels)*float(halo_mix)).clip(0,255).astype(np.uint8)
+    output[halo_mask > 0] = halo[halo_mask > 0]
+    light = np.rint(pixels + (255.0 - pixels) * float(mix)).clip(0, 255).astype(np.uint8)
     output[mask > 0] = light[mask > 0]
-    ring = ring_mask(mask, circles, ring_width)
+    ring = ring_mask(halo_mask, circles, ring_width)
     output[ring > 0] = ring_color
-    overlay = ((mask > 0) | (ring > 0)).astype(np.uint8)
+    overlay = ((halo_mask > 0) | (ring > 0)).astype(np.uint8)
     return output, overlay
 
 
@@ -252,6 +261,7 @@ class ObjectGlow:
         self.generation=0;self.worker_result=None;self.lock=threading.Lock();self.results=[]
         self._awaiting_disabled_off=False;self.map_id=None;self.ready=False;self.last_peak=-1e9;self.mm_per_px=(1.,1.)
         self.circles=[];self.highlight_mask=None;self.highlight_rgb_sha256=None;self._palette_rgb=None
+        self.reference_failures=0
     def _notify(self,status):
         cb=getattr(self.scene,'on_precision_glow_state',None)
         if callable(cb):
@@ -282,8 +292,11 @@ class ObjectGlow:
             self.initial_regions={r.object_id:deepcopy(_shape(r)) for r in self.frozen_regions}
             self.mask=glow_mask(self.frozen_regions,viewport[2:],cfg.radius_px)
             self.highlight_mask=object_highlight_mask(self.frozen_regions,viewport[2:])
-            self.circles=measurement_circles(self.frozen_regions,0)
+            # Outline the same expanded area that the camera scans, so the
+            # visible pale halo and its boundary describe one measurement zone.
+            self.circles=measurement_circles(self.frozen_regions,cfg.radius_px)
             self._palette_rgb=None;self.highlight_rgb_sha256=None
+            self.reference_failures=0
             if float(self.mask.mean())>cfg.max_mask_fraction:raise ValueError('local mask too large')
             self.context_since=self.monotonic()
             self.camera_valid=None;self._surface=None;self.peaks=[];self.seen=[];self.state='REFERENCE_WAIT'
@@ -300,8 +313,8 @@ class ObjectGlow:
                 self.mask &= new  # no newly lit pixel can borrow an unlit reference
                 active_highlight=object_highlight_mask(active,viewport[2:]) if active else np.zeros_like(self.highlight_mask)
                 self.highlight_mask &= active_highlight
-                self.circles=measurement_circles(active,0)
-                self._presentation_mask=presentation_mask(self.highlight_mask,self.circles,cfg.ring_width_px)
+                self.circles=measurement_circles(active,cfg.radius_px)
+                self._presentation_mask=presentation_mask(self.mask,self.circles,cfg.ring_width_px)
                 self._surface=None
                 self.frozen_regions=deepcopy(active);self.active_signature=signature
                 self.camera_valid=None;self._surface=None
@@ -365,7 +378,8 @@ class ObjectGlow:
             if self._palette_rgb is None:
                 original=pygame.surfarray.array3d(screen.subsurface(pygame.Rect(self.viewport))).transpose(1,0,2)
                 self._palette_rgb,self._presentation_mask=pastel_highlight(original,self.highlight_mask,self.circles,
-                    mix=self.cfg.pastel_mix,ring_color=self.cfg.color,ring_width=self.cfg.ring_width_px)
+                    halo_mask=self.mask,mix=self.cfg.pastel_mix,halo_color=self.cfg.halo_color,halo_mix=self.cfg.halo_mix,
+                    ring_color=self.cfg.color,ring_width=self.cfg.ring_width_px)
             # Damage may shrink the alpha mask, but remaining pixels must keep
             # the reference palette; a new tint/ring cannot masquerade as a hole.
             rgb=self._palette_rgb
@@ -431,7 +445,19 @@ class ObjectGlow:
         if self.is_reference:
             if any(p>=self.on for p in self.peaks):
                 self.reference=None;self.ready=False;result.update(valid=False,reason='shot_during_reference')
-            self.state='IDLE' if self.ready else 'FAILED'
+            if self.ready:
+                self.reference_failures=0;self.state='IDLE'
+            else:
+                self.reference_failures+=1
+                retryable=result.get('reason') in ('insufficient_causal_plateau','rolling_or_partial_plateau',
+                    'highlight_not_observed','no_frames','shot_during_reference','display_wall_clock_changed',
+                    'highlight_display_overrun')
+                max_attempts=max(1,int(getattr(self.parent.cfg,'reference_max_attempts',3)))
+                if retryable and self.reference_failures<max_attempts:
+                    self.context_since=self.monotonic();self.state='REFERENCE_WAIT'
+                    result['reference_retry']=dict(attempt=self.reference_failures,
+                        next_attempt=self.reference_failures+1,max_attempts=max_attempts)
+                else:self.state='FAILED'
         else:
             current=[q for q in self.queries if not q.final and q.peak_ts<self.on]
             finished_here=current

@@ -119,6 +119,10 @@ class LifecycleTests(unittest.TestCase):
         clock,parent,g=self.make_glow();g.state='SHOWING';surface=pygame.Surface(SIZE);surface.fill((40,60,80));g.render(surface)
         rgb=pygame.surfarray.array3d(surface).transpose(1,0,2)
         self.assertTrue(np.all(rgb[g._presentation_mask==0]==(40,60,80)))
+        halo_only=(g.mask>0)&(g.highlight_mask==0)
+        self.assertTrue(halo_only.any())
+        self.assertTrue(np.all(rgb[halo_only]>(40,60,80)))
+        self.assertTrue(np.all(g._presentation_mask[g.mask>0]>0))
         self.assertTrue(np.all(rgb[g.highlight_mask>0]>(40,60,80)))
     def test_duplicate_query_completion_is_idempotent(self):
         q=ObjectGlowQuery(N(shot_id=1,peak_ts=1.,game_regions=[],camera_regions=[]),lambda:2.)
@@ -126,6 +130,18 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(q.compact_record()['shot_id'],1)
 
 class ShrinkAndClockTests(unittest.TestCase):
+    def test_short_reference_capture_retries_then_fails_boundedly(self):
+        clock,parent,g=LifecycleTests().make_glow()
+        parent.cfg=replace(parent.cfg,reference_max_attempts=2)
+        g.is_reference=True;g.state='MEASURING'
+        g._finish(dict(valid=False,reason='insufficient_causal_plateau',frames=4))
+        self.assertEqual(g.state,'REFERENCE_WAIT');self.assertFalse(g.ready)
+        self.assertEqual(g.results[-1]['reference_retry']['next_attempt'],2)
+        g.state='MEASURING';g.is_reference=True
+        g._finish(dict(valid=False,reason='insufficient_causal_plateau',frames=4))
+        self.assertEqual(g.state,'FAILED')
+        self.assertNotIn('reference_retry',g.results[-1])
+
     def test_active_subset_uses_last_reference_without_a_second_intro(self):
         mask=glow_mask([region(),region('two',x=140)],SIZE,12)
         cfg=GlowConfig();fc=FlashConfig(edge_margin_px=3)

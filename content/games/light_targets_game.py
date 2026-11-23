@@ -38,7 +38,8 @@ class LightTargetsGame:
         self.viewport = viewport.copy()
         self.object_highlight=os.environ.get('SKJUTBANA_PANG_OBJECT_HIGHLIGHT',
             os.environ.get('SKJUTBANA_PANG_OBJECT_GLOW','0'))=='1'
-        self.precision_glow=dict(color=(230,220,150),radius_px=12,reference_s=.40,measurement_s=.18,min_interval_s=2.)
+        self.precision_glow=dict(color=(255,248,175),halo_color=(248,244,214),halo_mix=.82,
+            radius_px=12,pastel_mix=.45,reference_s=.60,measurement_s=.40,min_interval_s=2.)
         self._glow_ready=False;self._glow_regions=();self._glow_state='show_targets'
         self.manager = ObjectManager()
         self.rng = random.Random()

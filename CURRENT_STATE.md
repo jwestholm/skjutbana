@@ -1,5 +1,24 @@
 # Current project state
 
+## PANG R8 visible scan halo and reference retry — 2026-11-23
+
+During the reference and post-shot measurement windows, PANG now keeps each
+active target in its lighter same-hue palette and fills the frozen per-object
+measurement radius with a pale yellow-white tint. A yellow outline frames that
+same expanded scan zone. The measurement presentation lasts 0.40 s; reference
+presentation lasts 0.60 s. A transiently short causal reference capture retries
+within the configured attempt bound instead of immediately leaving the game
+stuck in settling. Other modes retain their prior pastel defaults.
+
+Verification: 20 `object_glow`, 11 `object_highlight`, and 19
+`precision_flash` selftests pass; this includes a synthetic camera-hole case
+which yields a unique frozen-shape hit. A software PANG preview rendered the
+expanded halo and simulated a vase hit/break. The live launcher refreshed the
+calibration (17 inliers, 2.62 px reprojection error) and started PANG. The saved
+calibration check was just over its 3 px tolerance (3.14 px maximum); no new
+physical shot has yet verified accuracy. No physical accuracy improvement is
+claimed.
+
 ## PANG calibration preflight and recorded detector comparison — 2026-11-23
 
 Launching PANG with `--object-highlight` now runs the existing backed-up
