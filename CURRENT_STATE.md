@@ -10,14 +10,28 @@ presentation lasts 0.60 s. A transiently short causal reference capture retries
 within the configured attempt bound instead of immediately leaving the game
 stuck in settling. Other modes retain their prior pastel defaults.
 
-Verification: 20 `object_glow`, 11 `object_highlight`, and 19
+Verification: 21 `object_glow`, 12 `object_highlight`, and 19
 `precision_flash` selftests pass; this includes a synthetic camera-hole case
 which yields a unique frozen-shape hit. A software PANG preview rendered the
 expanded halo and simulated a vase hit/break. The live launcher refreshed the
-calibration (17 inliers, 2.62 px reprojection error) and started PANG. The saved
-calibration check was just over its 3 px tolerance (3.14 px maximum); no new
-physical shot has yet verified accuracy. No physical accuracy improvement is
-claimed.
+calibration and started PANG. Physical accuracy remains unverified.
+
+## PANG R8 keep object mode active through settling — 2026-11-23
+
+Recorded live-path replay of the two reported shots found two audio triggers
+and two emitted candidate coordinates, while both shot dispatches had
+`objects=0`. The live log also showed a second room being created during the
+initial settling window and object precision turning off before either shot.
+`G` had been allowed to toggle the object mode and replace the room during
+settling. It now only toggles from the intro or results screen, leaving the
+active round and its detector policy intact. Object highlights render only in
+the detector's `SHOWING` state; the `IDLE` palette remains untouched.
+
+Verification: 21 `object_glow`, 12 `object_highlight`, 19 `precision_flash`,
+and 3 launcher selftests pass. Recorded-source replay recovered two detector
+emissions at camera coordinates (2627, 1074) and (2690, 1402), but this replay
+was from the run where object mode had been disabled. The fixed live path still
+needs a fresh shot before claiming gameplay success.
 
 ## PANG calibration preflight and recorded detector comparison — 2026-11-23
 

@@ -124,6 +124,11 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(np.all(rgb[halo_only]>(40,60,80)))
         self.assertTrue(np.all(g._presentation_mask[g.mask>0]>0))
         self.assertTrue(np.all(rgb[g.highlight_mask>0]>(40,60,80)))
+    def test_targets_keep_their_normal_palette_until_detector_requests_showing(self):
+        import pygame
+        clock,parent,g=self.make_glow();g.state='IDLE';surface=pygame.Surface(SIZE);surface.fill((40,60,80))
+        before=pygame.surfarray.array3d(surface).copy();g.render(surface)
+        np.testing.assert_array_equal(pygame.surfarray.array3d(surface),before)
     def test_duplicate_query_completion_is_idempotent(self):
         q=ObjectGlowQuery(N(shot_id=1,peak_ts=1.,game_regions=[],camera_regions=[]),lambda:2.)
         q.finish(reason='one');q.finish(reason='two');self.assertEqual(q.result['reason'],'one')

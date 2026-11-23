@@ -446,11 +446,14 @@ class LightTargetsGame:
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN:return None
-        if event.key==pygame.K_g and self.phase in ('intro','finished','settling'):
+        # The mode is chosen in the intro.  Toggling it during settling used
+        # to cancel the glow context and silently start a non-glow room, so
+        # shots then arrived with no object regions.  Keep the active round's
+        # hit policy and target layout frozen once play has begun.
+        if event.key==pygame.K_g and self.phase in ('intro','finished'):
             self.object_highlight = not self.object_highlight
             self.art=LightRoomArt(self.viewport.size,natural=self._uses_glow())
             self._last_frame=None;self._render_key=None
-            if self.phase=='settling':self._next_target()
             return None
         if event.key==pygame.K_m:
             self.sound_enabled=not self.sound_enabled

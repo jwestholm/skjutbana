@@ -61,6 +61,19 @@ class FlagTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             game.object_highlight = 'false'
 
+    def test_g_cannot_disable_or_replace_an_active_settling_round(self):
+        from pathlib import Path
+        from content.games.light_targets_game import LightTargetsGame
+        with patch.dict(os.environ, {'SKJUTBANA_PANG_OBJECT_HIGHLIGHT':'1'}):
+            game = LightTargetsGame(Path('content/games'), pygame.Rect(0,0,800,600))
+        game.phase='settling'
+        game.layout_id=7
+        with patch.object(game, '_next_target') as next_target:
+            game.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g))
+        self.assertTrue(game.object_highlight)
+        self.assertEqual(game.layout_id,7)
+        next_target.assert_not_called()
+
 
 class PaletteTests(unittest.TestCase):
     def test_red_green_blue_and_wood_keep_their_hues(self):
