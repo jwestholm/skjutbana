@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import threading
 import time
 from typing import Any, Mapping
@@ -199,6 +200,7 @@ def _capture_known_gt(scene: Any, candidates: list[Mapping[str, Any]]) -> bool:
                 "pool_contract": "v2231_v28_recall_union",
                 "pool_counts": pool_counts,
                 "v2232_framepack_expected": True,
+                "synthetic_hole": dict(getattr(scene, "_last_synthetic_hole_provenance", {}) or {}),
             },
         )
         framepack = save_scene_framepack(
@@ -335,6 +337,16 @@ def install_v2230_training_pipeline() -> None:
                     cap.update_metadata(
                         mode="f2_headless" if headless else "f1_visual",
                         sampling_mode=str(getattr(getattr(self, "runtime", None), "sampling_mode", "unknown")),
+                        synthetic_hole_profile=str(getattr(getattr(self, "_content", None), "hole_profile", "unknown")),
+                        synthetic_hole_profile_effective=str(getattr(getattr(self, "_content", None),
+                                                                      "effective_hole_profile", lambda: "unknown")()),
+                        synthetic_hole_mix=(
+                            {"co2_ar15": 0.5, "airgun": 0.5}
+                            if str(getattr(getattr(self, "_content", None), "hole_profile", "")) == "mixed_co2_airgun"
+                            else None
+                        ),
+                        excluded_ar15_stamp_ids=sorted({x.strip() for x in
+                            os.environ.get("SKJUTBANA_EXCLUDE_AR15_STAMPS", "").split(",") if x.strip()}),
                     )
             except Exception:
                 pass

@@ -9,6 +9,7 @@ graceful fallback without stamps, every new background mode renders, and
 from __future__ import annotations
 
 import os
+import random
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -82,6 +83,23 @@ class RealStampTests(unittest.TestCase):
             else:
                 sho._STAMP_CACHE[key] = saved
 
+    def test_ar15_exclusion_keeps_other_runtime_stamps(self):
+        key = str(sho.AR15_STAMP_LIBRARY_DIR)
+        saved_cache = sho._STAMP_CACHE.pop(key, "missing")
+        old_env = os.environ.get("SKJUTBANA_EXCLUDE_AR15_STAMPS")
+        try:
+            os.environ["SKJUTBANA_EXCLUDE_AR15_STAMPS"] = "aim8a,aim10"
+            stamps = sho.load_real_hole_stamps(sho.AR15_STAMP_LIBRARY_DIR)
+            self.assertEqual(len(stamps or []), 6)
+        finally:
+            if old_env is None:
+                os.environ.pop("SKJUTBANA_EXCLUDE_AR15_STAMPS", None)
+            else:
+                os.environ["SKJUTBANA_EXCLUDE_AR15_STAMPS"] = old_env
+            sho._STAMP_CACHE.pop(key, None)
+            if saved_cache != "missing":
+                sho._STAMP_CACHE[key] = saved_cache
+
 
 class SceneContentTests(unittest.TestCase):
     @classmethod
@@ -116,6 +134,21 @@ class SceneContentTests(unittest.TestCase):
         s._toggle_auto_training(headless=True)
         self.assertFalse(s.auto_training_enabled)
         self.assertIn("Autoträning spärrad", s.status_message)
+
+    def test_mixed_profile_uses_both_measured_libraries(self):
+        from src.engine.scenes.ai_training_content import AITrainingContent
+        c = AITrainingContent(hole_profile="mixed_co2_airgun")
+        counts = {"co2": 0, "airgun": 0}
+        rng = random.Random(20261124)
+        for _ in range(1000):
+            kind, _ = c.choose_hole(rng)
+            counts[c.last_selected_profile] += 1
+            if c.last_selected_profile == "co2":
+                self.assertEqual(kind, "real_stamp_ar15")
+            else:
+                self.assertEqual(kind, "real_stamp")
+        self.assertGreater(counts["co2"], 400)
+        self.assertGreater(counts["airgun"], 400)
 
     def test_new_modes_render(self):
         s = self.scene

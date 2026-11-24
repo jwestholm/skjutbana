@@ -37,7 +37,7 @@ from src.engine.synthetic.synthetic_hole_overlay import (
 
 # co2 = real CO2 AR15 stamps at true size (2026-11-18); co2_shrunk = the earlier proxy
 # (airgun stamps shrunk); airgun = real airgun stamps at true size.
-HOLE_PROFILES = ("co2", "airgun", "co2_shrunk", "legacy")
+HOLE_PROFILES = ("co2", "airgun", "mixed_co2_airgun", "co2_shrunk", "legacy")
 HOLE_PROFILE_SCALE = {"co2": (1.0, 1.0), "co2_shrunk": (0.2, 0.5), "airgun": (1.0, 1.0)}
 # PROJECTED holes must look like real holes to the CAMERA.  Projector + camera
 # re-imaging loses ~6x of the stamp's darkening, and CO2-size stamps (scale
@@ -126,6 +126,12 @@ class AITrainingContent:
 
     def effective_hole_profile(self) -> str:
         profile = self.hole_profile
+        if profile == "mixed_co2_airgun":
+            has_ar15 = real_stamps_available(REAL_STAMP_LIBRARIES[REAL_STAMP_AR15_KIND])
+            has_airgun = real_stamps_available(REAL_STAMP_LIBRARIES[REAL_STAMP_KIND])
+            if has_ar15 and has_airgun:
+                return profile
+            profile = "co2" if has_ar15 else "airgun" if has_airgun else "legacy"
         if profile == "co2" and not real_stamps_available(REAL_STAMP_LIBRARIES[REAL_STAMP_AR15_KIND]):
             profile = "co2_shrunk"   # AR15 library missing -> earlier proxy
         if profile != "legacy" and not real_stamps_available():
@@ -165,6 +171,9 @@ class AITrainingContent:
     def choose_hole(self, rng: random.Random | Any = random) -> tuple[str, float]:
         """Return (kind, radius_px) for the next synthetic hole (screen px)."""
         profile = self.effective_hole_profile()
+        if profile == "mixed_co2_airgun":
+            profile = "co2" if rng.random() < 0.5 else "airgun"
+        self.last_selected_profile = profile
         if profile == "legacy":
             kind = rng.choices(LEGACY_KINDS, weights=LEGACY_WEIGHTS, k=1)[0]
             return kind, rng.uniform(1.7, 2.9)
@@ -176,7 +185,7 @@ class AITrainingContent:
 
     def hole_strength(self, rng: random.Random | Any = random) -> float:
         """Strength for the hole spec: optical gain for real stamps, legacy range otherwise."""
-        if self.effective_hole_profile() == "legacy":
+        if getattr(self, "last_selected_profile", self.effective_hole_profile()) == "legacy":
             return rng.uniform(0.90, 1.18)
         return float(getattr(self, "last_gain", 1.0))
 

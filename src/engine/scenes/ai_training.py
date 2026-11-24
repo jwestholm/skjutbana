@@ -164,7 +164,8 @@ class AITrainingScene(Scene):
         # extra background modes. Defaults: co2 real stamps, effects off, freeze on.
         from src.engine.scenes.ai_training_content import AITrainingContent
         self._content = AITrainingContent(
-            hole_profile=str(self.runtime.settings.get("ai_synthetic_hole_profile", "co2"))
+            hole_profile=str(os.environ.get("SKJUTBANA_AI_HOLE_PROFILE") or
+                             self.runtime.settings.get("ai_synthetic_hole_profile", "co2"))
             if isinstance(getattr(self.runtime, "settings", None), dict) else "co2"
         )
 
@@ -232,6 +233,7 @@ class AITrainingScene(Scene):
 
         # The synthetic hole must not be rendered until AFTER the audio event.
         self.synthetic_pending_hole_spec: dict[str, Any] | None = None
+        self._last_synthetic_hole_provenance: dict[str, Any] | None = None
 
         # Single synthetic round (right click).
         self.single_synth_round_active = False
@@ -1177,6 +1179,7 @@ class AITrainingScene(Scene):
         # darkening, radius = equivalent screen-px core radius); legacy = old
         # procedural kinds. Falls back to legacy when the stamp library is missing.
         hole_kind, radius_px = self._content.choose_hole(random)
+        self._last_selected_hole_profile = getattr(self._content, "last_selected_profile", self._content.effective_hole_profile())
 
         # Store the hole, but do NOT render it yet. The real-world sequence is:
         # audio peak / pre-shot snapshot first, then the physical hole appears
@@ -1301,6 +1304,14 @@ class AITrainingScene(Scene):
             strength=float(spec["strength"]),
             opacity=float(spec["opacity"]),
         )
+        rendered_hole = self.synthetic_overlay._holes.get(self.auto_active_hole_id)
+        self._last_synthetic_hole_provenance = {
+            "profile": getattr(self, "_last_selected_hole_profile", self._content.effective_hole_profile()),
+            "kind": str(spec["kind"]), "radius_px": float(spec["radius_px"]),
+            "strength": float(spec["strength"]), "opacity": float(spec["opacity"]),
+            "rotation_deg": float(rendered_hole.rotation_deg) if rendered_hole else None,
+            "stamp_seed": int(rendered_hole.seed) if rendered_hole else None,
+        }
         # Optional game shot reactions (F7, default off).
         self._content.on_hole_revealed(int(spec["x"]), int(spec["y"]))
         batch_mode = self.synthetic_trigger_batch_mode

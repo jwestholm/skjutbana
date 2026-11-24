@@ -16,6 +16,19 @@ it does not promote the V2.23.6 shadow challenger. Before the next F2 run, the
 active memory, settings, and ranker V7/V8/V9 files were snapshotted under
 `/data/skjutbana/backups/projected_f2_preflight_20261124` with SHA-256 manifest.
 
+The 20-run experiment setup now supports a deterministic 50/50 mixture of CO2
+AR-15 and air-rifle real stamps, excludes named AR-15 stamps through an explicit
+process setting, and records per-shot synthetic-hole provenance. The F2 loop can
+run short balanced sessions and freeze learning for matched baseline/post runs;
+results default to `/data/skjutbana/evaluation_runs/projected_f2_runs`.
+`aim8a` and `aim10` are excluded by the experiment configuration, not removed
+from source libraries.
+
+Calibration preflight on the active projector/camera saved a fresh lens-aware
+fit (24 markers, 15 inliers, 2.64 px reprojection error). The read-only saved-map
+check measured 1.34 px median and 3.35 px maximum against a strict 3.0 px gate,
+so the F2 safety gate remains closed. No training shots have been run yet.
+
 Added `automation.hole_stamp_qc` to create a new, read-only review pack outside
 the repository. Review pack
 `/data/skjutbana/evaluation_runs/hole_stamp_qc_20261124T121500Z` covers all 89
@@ -25,7 +38,8 @@ current run using the exact PNGs loaded by F2 is
 component screen flags two of the eight AR-15 stamps for human review (`aim8a`,
 `aim10`). All source libraries remain unchanged. This rule is a visual-review
 aid, not an automatic quality verdict. The AI-training content selftest passes
-(9 tests, including the failed-calibration F2 guard). No F2 optical session or model training was run during this inventory;
+(11 tests, including calibration blocking, mixed profiles, and the two-stamp
+exclusion). No F2 optical session or model training was run during this inventory;
 the backup is ready before the next run.
 
 ## Nightly calibration snapshot and output-marker fix — 2026-11-24

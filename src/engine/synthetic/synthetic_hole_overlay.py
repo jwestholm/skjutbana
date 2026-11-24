@@ -48,9 +48,18 @@ def load_real_hole_stamps(library_dir: Optional[Path] = None) -> Optional[List[n
     key = str(root)
     if key in _STAMP_CACHE:
         return _STAMP_CACHE[key]
+    excluded_ids: set[str] = set()
+    try:
+        if root.resolve() == AR15_STAMP_LIBRARY_DIR.resolve():
+            excluded_ids = {x.strip() for x in os.environ.get("SKJUTBANA_EXCLUDE_AR15_STAMPS", "").split(",")
+                            if x.strip()}
+    except Exception:
+        pass
     stamps: List[np.ndarray] = []
     try:
         for path in sorted((root / "stamps_png").glob("*.png")):
+            if path.stem in excluded_ids:
+                continue
             img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
             if img is None or img.ndim != 3 or img.shape[2] != 4:
                 continue
@@ -60,7 +69,9 @@ def load_real_hole_stamps(library_dir: Optional[Path] = None) -> Optional[List[n
     if not stamps:
         try:
             data = np.load(root / "clean_stamps.npz", allow_pickle=False)
-            stamps = [np.asarray(s, dtype=np.float32) for s in data["stamps"]]
+            ids = data["id"] if "id" in data.files else np.arange(len(data["stamps"]))
+            stamps = [np.asarray(s, dtype=np.float32) for sid, s in zip(ids, data["stamps"])
+                      if str(sid) not in excluded_ids]
         except Exception:
             stamps = []
     stamps = [s for s in stamps if s.ndim == 2 and float(s.max()) > 0.0]
