@@ -692,12 +692,11 @@ class AutomationAITrainingScene(AITrainingScene):
 
         self._automation_calibration_finished_emitted = True
         result_text = str(self._auto_cal_result or "")
-        lower_result = result_text.lower()
-        failed = (
-            "misslyck" in lower_result
-            or "failed" in lower_result
-            or "avbruten" in lower_result
-        )
+        # F2 labels projected screen points through this mapping. A missing
+        # ArUco detector, warning, or absent validation result must not be
+        # announced as calibration success or trigger headless training.
+        calibrated = result_text.startswith(("Kalibrering klar:", "Kalibrering behållen"))
+        failed = not calibrated
         if failed:
             event_bus.emit(
                 "aiTraining.calibrationFailed",

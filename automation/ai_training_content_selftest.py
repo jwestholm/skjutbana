@@ -109,6 +109,14 @@ class SceneContentTests(unittest.TestCase):
         self.assertEqual(self.scene.MODE_NAMES[:8], ["white", "white_grid", "coord_grid", "gray", "black",
                                                       "checker", "checker_anim", "bubbles"])
 
+    def test_f2_is_blocked_without_verified_calibration(self):
+        s = self.scene
+        s.auto_training_enabled = False
+        s._auto_cal_result = "VARNING: sparad kalibrering klarade inte markörkontrollen"
+        s._toggle_auto_training(headless=True)
+        self.assertFalse(s.auto_training_enabled)
+        self.assertIn("Autoträning spärrad", s.status_message)
+
     def test_new_modes_render(self):
         s = self.scene
         for mode in NEW_MODES:

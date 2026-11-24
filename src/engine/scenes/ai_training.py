@@ -312,11 +312,13 @@ class AITrainingScene(Scene):
             self._calibrator = ArucoCalibrator(self.viewport)
             if not self._calibrator.available:
                 print("[AUTO-CAL] ArUco not available")
+                self._auto_cal_result = "ArUco saknas — kalibrering ej verifierad"
                 self._auto_cal_phase = None
             else:
                 print("[AUTO-CAL] Starting auto-calibration...")
         except Exception as exc:
             print(f"[AUTO-CAL] Init failed: {exc}")
+            self._auto_cal_result = f"Autokalibrering kunde inte starta: {type(exc).__name__}"
             self._auto_cal_phase = None
 
     def on_exit(self) -> None:
@@ -426,6 +428,10 @@ class AITrainingScene(Scene):
                 check = self._calibrator.validate_existing(frame_bgr, hit_input)
                 errors = sorted(float(r["error_camera_px"]) for r in (check.get("points") or [])
                                 if isinstance(r, dict) and r.get("error_camera_px") is not None)
+                if not check.get("passed"):
+                    self._auto_cal_result = ("VARNING: sparad kalibrering klarade inte markörkontrollen — kör "
+                                             "python3 -m automation.bench calibration-check --distortion --save")
+                    print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
                 if errors:
                     median = errors[len(errors) // 2]
                     print(f"[AUTO-CAL] saved calibration marker error median {median:.1f} camera px "
@@ -436,6 +442,7 @@ class AITrainingScene(Scene):
                         print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
             except Exception as exc:
                 print(f"[AUTO-CAL] calibration validation failed: {exc}")
+                self._auto_cal_result = f"VARNING: kalibrering kunde inte verifieras ({type(exc).__name__})"
             return True
         try:
             import shutil
@@ -1070,6 +1077,18 @@ class AITrainingScene(Scene):
     # Synthetic shot setup / firing
     # ------------------------------------------------------------------
     def _toggle_auto_training(self, headless: bool = False) -> None:
+        # F2 labels each projected synthetic hole through the saved screen→camera
+        # mapping. Never collect or learn those labels until this scene's ArUco
+        # calibration was freshly accepted or its validated lens-aware mapping
+        # passed the on-screen marker check.
+        if not self.auto_training_enabled:
+            calibration_result = str(getattr(self, "_auto_cal_result", ""))
+            calibration_ok = calibration_result.startswith(("Kalibrering klar:", "Kalibrering behållen"))
+            if not calibration_ok:
+                detail = calibration_result or "ingen verifierad kamerakalibrering"
+                self.status_message = f"Autoträning spärrad: {detail}. Kalibrera kameran först."
+                print(f"[AI-TEST] F2 blocked: {self.status_message}")
+                return
         self.auto_training_enabled = not self.auto_training_enabled
         self.auto_headless = headless if self.auto_training_enabled else False
         self.auto_report_visible = False

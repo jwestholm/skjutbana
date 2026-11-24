@@ -1,5 +1,33 @@
 # Current project state
 
+## F2 projected-stamp training inventory and stamp review — 2026-11-24
+
+The existing AI-training scene already supports the requested optical experiment:
+F2 uses the `co2` profile by default, which projects measured AR-15 hole stamps;
+stamp choice, rotation, mirror, and optical gain vary per synthetic shot. F2
+captures known camera-space truth and candidate groups into the V2.23 training
+capture, then schedules the V2.23.6 heatmap cycle in shadow mode after at least
+10 saved groups. Entering the scene runs ArUco calibration/validation first; F2
+now refuses to collect examples if the result is missing, failed, or above the
+marker-drift tolerance. The automation scene emits `calibrationFailed` in those
+cases instead of announcing readiness.
+F2 also calls the existing online learner, which can mutate `content/ai/memory.json`;
+it does not promote the V2.23.6 shadow challenger. Before the next F2 run, the
+active memory, settings, and ranker V7/V8/V9 files were snapshotted under
+`/data/skjutbana/backups/projected_f2_preflight_20261124` with SHA-256 manifest.
+
+Added `automation.hole_stamp_qc` to create a new, read-only review pack outside
+the repository. Review pack
+`/data/skjutbana/evaluation_runs/hole_stamp_qc_20261124T121500Z` covers all 89
+available stamp maps and deterministic rotated/flipped/gain-scaled previews. The
+current run using the exact PNGs loaded by F2 is
+`/data/skjutbana/evaluation_runs/hole_stamp_qc_20261124T132000Z`; its connected-
+component screen flags two of the eight AR-15 stamps for human review (`aim8a`,
+`aim10`). All source libraries remain unchanged. This rule is a visual-review
+aid, not an automatic quality verdict. The AI-training content selftest passes
+(9 tests, including the failed-calibration F2 guard). No F2 optical session or model training was run during this inventory;
+the backup is ready before the next run.
+
 ## Nightly calibration snapshot and output-marker fix — 2026-11-24
 
 The scheduled 02:30 nightly run stopped in preflight because the live calibration
