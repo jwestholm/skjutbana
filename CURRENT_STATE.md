@@ -1,5 +1,26 @@
 # Current project state
 
+## Nightly calibration snapshot and output-marker fix — 2026-11-24
+
+The scheduled 02:30 nightly run stopped in preflight because the live calibration
+had changed `content/settings.json` since the frozen regression baselines. The
+old baselines and manifest remain preserved. A new immutable settings snapshot
+and matching `defaults`/`pilot` regression baselines now live under
+`/data/skjutbana/nightly/baselines/rebase_20261124T101251`; the active nightly
+manifest points at that snapshot so later live recalibrations do not silently
+change the offline comparison.
+
+Restarted nightly run `2026-11-24_105157_538406` completed. Both regression
+arms were `NO_SIGNIFICANT_DIFFERENCE`; holdout scored 128/150 for the shadow
+model and 126/150 for the live score. The model remains
+`OFFLINE_REPLAY_ONLY_UNVALIDATED`, with no live authority.
+
+The baseline rebuild exposed an output-directory check that rejected the
+disk guard's own `.disk_run.json.claim` marker. Synth and recorded replay now
+allow only the disk guard's three marker files in an otherwise empty output
+directory, and still refuse to overwrite any experiment output. The
+`disk_guard`, `bench`, and `bench_training` selftests pass.
+
 ## PANG R8 live synthetic optical lane — 2026-11-24
 
 PANG's object-glow post-shot window is now 0.80 s (engine accepts configured

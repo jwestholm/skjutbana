@@ -280,8 +280,8 @@ def load_base_gray(path: str | None) -> tuple[np.ndarray, str]:
 def run(args) -> Path:
     out = Path(args.output)
     # never overwrite: the dir may only pre-exist holding the disk-guard run marker
-    if out.exists() and any(q.name not in (".disk_run.json", ".disk_run.json.partial") for q in out.iterdir()):
-        raise FileExistsError(f"output exists and is not empty: {out}")
+    from automation.disk_guard import assert_output_directory_available
+    assert_output_directory_available(out)
     out.mkdir(parents=True, exist_ok=True)
     settings = load_settings(args.settings)
     geometry = ViewportGeometry(settings)

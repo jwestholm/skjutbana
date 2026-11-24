@@ -137,6 +137,21 @@ def test_unknown_marker_never_reclaimed_and_claim_is_exclusive() -> None:
             pass
 
 
+def test_claimed_output_accepts_guard_markers_only() -> None:
+    with tempfile.TemporaryDirectory() as t:
+        out = Path(t) / "run"
+        out.mkdir()
+        for name in dg.MARKER_FILES:
+            (out / name).write_text("marker")
+        dg.assert_output_directory_available(out)
+        (out / "results.json").write_text("{}")
+        try:
+            dg.assert_output_directory_available(out)
+        except FileExistsError:
+            return
+        raise AssertionError("existing experiment output must never be overwritten")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

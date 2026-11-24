@@ -38,6 +38,9 @@ from pathlib import Path
 ROOT = Path(os.environ.get("SKJUTBANA_DISK_ROOT", "/data/skjutbana"))
 MIN_FREE_GB = float(os.environ.get("SKJUTBANA_DISK_MIN_FREE_GB", "20"))
 MARKER = ".disk_run.json"
+MARKER_PARTIAL = MARKER + ".partial"
+MARKER_CLAIM = MARKER + ".claim"
+MARKER_FILES = frozenset((MARKER, MARKER_PARTIAL, MARKER_CLAIM))
 
 # Never deleted automatically.  First match wins (relative to ROOT).
 PROTECTED_RULES: list[tuple[str, str]] = [
@@ -150,7 +153,7 @@ def _read_marker(run_dir: Path) -> dict | None:
 
 
 def _write_marker(run_dir: Path, data: dict) -> None:
-    tmp = run_dir / (MARKER + ".partial")
+    tmp = run_dir / MARKER_PARTIAL
     tmp.write_text(json.dumps(data, indent=1))
     os.replace(tmp, run_dir / MARKER)
 
@@ -193,6 +196,13 @@ def _remove_temp(run_dir: Path, globs: list[str], why: str, root: Path, dry_run:
         _log(dict(action="remove_temp" if not dry_run else "dry_run_remove_temp", run=str(run_dir), why=why,
                   files=removed, freed_mb=round(freed / 1e6, 1), skipped=skipped[:10]), root)
     return freed
+
+
+def assert_output_directory_available(out_dir: Path | str) -> None:
+    """Allow only this experiment's disk-guard markers in a claimed output directory."""
+    out = Path(out_dir)
+    if out.exists() and any(p.name not in MARKER_FILES for p in out.iterdir()):
+        raise FileExistsError(f"output exists and is not empty: {out}")
 
 
 def ensure_space(estimate_gb: float, *, label: str = "", root: Path | None = None,
@@ -258,7 +268,7 @@ def experiment(out_dir: Path | str, *, estimate_gb: float = 1.0, temp_globs: lis
     ensure_space(estimate_gb, label=label or out.name, root=root, min_free_gb=min_free_gb)
     out.mkdir(parents=True, exist_ok=True)
     try:   # atomic claim: two processes cannot both own (and later write markers into) the same run dir
-        with open(out / (MARKER + ".claim"), "x") as fh:
+        with open(out / MARKER_CLAIM, "x") as fh:
             fh.write(str(os.getpid()))
     except FileExistsError:
         raise FileExistsError(f"{out} is already claimed by another experiment") from None
