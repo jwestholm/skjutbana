@@ -17,6 +17,11 @@ from src.engine.scenes.ai_training import AITrainingScene
 AUTOMATION_RESULT_SCHEMA_VERSION = "1.2"
 BENCHMARK_CONTROL_PATH = Path("content/ai/benchmark_control.json")
 V221_CAPTURE_CONTROL_PATH = Path("content/ai/v221_capture_control.json")
+MAX_V221_CAPTURE_SHOTS = 10000
+
+
+def _capture_control_shot_count(value: Any) -> int:
+    return max(1, min(MAX_V221_CAPTURE_SHOTS, int(value)))
 
 
 class AutomationAITrainingScene(AITrainingScene):
@@ -177,7 +182,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 print("[V2.21.1 CAPTURE] Ignoring expired capture control")
                 return
 
-            shots = max(1, min(100, int(payload.get("shots", 30))))
+            shots = _capture_control_shot_count(payload.get("shots", 30))
             freeze_learning = bool(payload.get("freeze_learning", True))
             self.auto_target_iterations = shots
             if freeze_learning:
@@ -330,6 +335,57 @@ class AutomationAITrainingScene(AITrainingScene):
         except Exception:
             return None, 0.0
 
+    @staticmethod
+    def _camera_post_frames_after_reveal(reveal_ts: float, *, min_delay_s: float = 0.35,
+                                         max_frames: int = 3):
+        """Use settled camera frames, or the actual black-background flash.
+
+        The first frame after the audio peak can still be an exposure from before
+        the projector displayed the synthetic stamp. For black F2 rounds, the
+        useful white flash is brief, so prefer camera-ring frames from that exact
+        flash window. Other rounds use frames at least 350 ms after reveal.
+        """
+        try:
+            import cv2
+            from src.engine.camera.camera_manager import camera_manager
+            from src.engine.precision_flash import get_controller
+            ring = camera_manager.get_ring_snapshot()
+            controller = get_controller()
+            windows = list(getattr(controller, "flash_windows", ()) or ())
+            cfg = getattr(controller, "cfg", None)
+            receive_latency = float(getattr(cfg, "receive_latency_s", 0.06) or 0.06)
+            reveal = float(reveal_ts)
+            matching = [
+                (float(on), float(off)) for on, off in windows
+                if off is not None and reveal <= float(on) <= reveal + 1.5
+            ]
+            if matching:
+                on, off = max(matching, key=lambda row: row[0])
+                flash = [item for item in ring
+                         if on + max(0.0, receive_latency - 0.05)
+                         <= float(getattr(item, "timestamp", 0.0) or 0.0)
+                         <= off + receive_latency + 0.08]
+                if flash:
+                    frames = [(cv2.cvtColor(item.frame_bgr, cv2.COLOR_BGR2GRAY).copy(),
+                               float(item.timestamp)) for item in flash if getattr(item, "frame_bgr", None) is not None]
+                    frames.sort(key=lambda row: row[1])
+                    if frames:
+                        return frames[-max(1, int(max_frames)):], "precision_flash_window"
+
+            threshold = reveal + max(0.0, float(min_delay_s))
+            frames = []
+            for item in ring:
+                ts = float(getattr(item, "timestamp", 0.0) or 0.0)
+                bgr = getattr(item, "frame_bgr", None)
+                if ts < threshold or bgr is None:
+                    continue
+                gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+                frames.append((gray.copy(), ts))
+            frames.sort(key=lambda row: row[1])
+            return frames[-max(1, int(max_frames)):], "camera_ring_after_projector_settle"
+        except Exception:
+            return [], "unavailable"
+
     def _start_auto_iteration(self, screen: pygame.Surface) -> None:
         """Capture existing HitScanner known holes before each synthetic shot.
 
@@ -368,13 +424,11 @@ class AutomationAITrainingScene(AITrainingScene):
                     default=0.0,
                 )
             recent_pre, recent_pre_ts = self._resolve_v217_recent_pre_frame(shot_ts)
-            post = self._copy_v216_frame(getattr(self.runtime, "post_shot_gray", None))
-            post_frames = []
-            for item in list(getattr(self.runtime, "_post_shot_frames", []) or []):
-                if isinstance(item, (tuple, list)) and item:
-                    frame = self._copy_v216_frame(item[0])
-                    ts = float(item[1]) if len(item) > 1 else 0.0
-                    post_frames.append((frame, ts))
+            post_frames, post_source = self._camera_post_frames_after_reveal(
+                float(getattr(self, "synthetic_reveal_ts", 0.0) or 0.0),
+                max_frames=3,
+            )
+            post = post_frames[-1][0] if post_frames else None
             sx, sy = float(self.auto_target_screen_xy[0]), float(self.auto_target_screen_xy[1])
             projected = project_screen_point(sx, sy)
             return {
@@ -385,6 +439,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 "shot_timestamp": float(shot_ts),
                 "post_gray": post,
                 "post_frames": post_frames,
+                "post_frame_source": post_source,
                 "gt_camera_xy": (float(projected.camera_x), float(projected.camera_y)),
                 "gt_screen_xy": (sx, sy),
                 "match_radius_px": float(self.runtime.settings.get("click_match_radius_px", 42.0)),
@@ -415,6 +470,7 @@ class AutomationAITrainingScene(AITrainingScene):
                 gt_camera_xy=snapshot["gt_camera_xy"],
                 gt_screen_xy=snapshot["gt_screen_xy"],
                 match_radius_px=float(snapshot["match_radius_px"]),
+                background=self.MODE_NAMES[self.bg_mode_index],
                 extra_metadata={
                     "auto_iteration_after_detection": int(self.auto_iteration),
                     "background_number": int(self.bg_mode_index + 1),
@@ -423,6 +479,8 @@ class AutomationAITrainingScene(AITrainingScene):
                     "known_hole_registry_semantics": "session-local accepted HitScanner holes; incomplete for physical holes present before scene start",
                     "recent_pre_timestamp": snapshot.get("recent_pre_timestamp"),
                     "shot_timestamp": snapshot.get("shot_timestamp"),
+                    "post_frame_source": snapshot.get("post_frame_source", "unknown"),
+                    "post_frame_min_delay_s": 0.35,
                     "recent_pre_semantics": "true camera frame before audio peak for temporal/new-hole learning; capture-only, does not alter live HitScanner pre-shot/reference behaviour",
                 },
             )

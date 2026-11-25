@@ -391,6 +391,7 @@ class CandidateShadowRecorderV216:
         gt_camera_xy: tuple[float, float] | None,
         gt_screen_xy: tuple[float, float] | None = None,
         match_radius_px: float = 42.0,
+        background: str | None = None,
         extra_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not self.enabled:
@@ -517,7 +518,7 @@ class CandidateShadowRecorderV216:
                 "session_id": self.session_id,
                 "round_id": int(round_id),
                 "captured_at": time.time(),
-                "background": self.background,
+                "background": str(background or self.background),
                 "benchmark_seed": self.benchmark_seed,
                 "sampling_mode": self.sampling_mode,
                 "match_radius_px": float(match_radius_px),

@@ -54,6 +54,11 @@ class OverlayScene(Scene):
     def precision_flash(self):
         return getattr(self.inner, "precision_flash", "auto")
 
+    def render_after_precision_flash(self, screen):
+        callback = getattr(self.inner, "render_after_precision_flash", None)
+        if callable(callback):
+            callback(screen)
+
     @property
     def shot_input_mode(self):
         return getattr(self.inner, "shot_input_mode", None)

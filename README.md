@@ -101,8 +101,8 @@ python3 -m automation.ai_training_loop 1 100
 ```
 
 The first argument is the background (1-8 or name), the second is the number
-of complete runs. Note (2026-11-18): F2 in the AI test scene is now a matrix run over
-all 12 backgrounds (rounds per background = iterations // 12), shots go through the
+of complete runs. Note (2026-11-24): F2 in the AI test scene is now a matrix run over
+all 13 backgrounds (rounds per background = iterations // 13), shots go through the
 real audio queue with AR15 doubles/strings, and the report adds live-path scoring
 (what the game receives, ±5 mm). F6 freeze, F7 shot effects, F8 hole profile. Results are saved under `content/ai/automation_runs/` in
 machine-readable JSON/JSONL plus CSV. See `NETWORK_AUTOMATION.md` for protocol,

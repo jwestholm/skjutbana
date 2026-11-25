@@ -764,6 +764,12 @@ def render_hook(screen, scene=None) -> None:
     if current is not controller.scene or not resolve_policy(current)[0]:controller.sync_policy(current)
     if not controller.is_flashing():return
     controller.render(screen)
+    # Synthetic F2 holes are projected layers, so a white precision flash would
+    # otherwise cover them. Let the training scene redraw its labelled stamp
+    # over the flash frame when it explicitly supports this hook.
+    after_flash = getattr(current, "render_after_precision_flash", None)
+    if callable(after_flash):
+        after_flash(screen)
 
 
 def presented_hook(timestamp=None):

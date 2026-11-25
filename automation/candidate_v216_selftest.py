@@ -108,6 +108,7 @@ def main() -> int:
             gt_camera_xy=(110.0, 90.0),
             gt_screen_xy=(400.0, 300.0),
             match_radius_px=42.0,
+            background="checker_anim",
         )
         assert result["saved"] is True
         pack = CandidatePackV216.load(Path(result["json_path"]))
@@ -116,6 +117,7 @@ def main() -> int:
         assert pack.post_patches.shape == (3, 3, 64, 64)
         assert pack.gt_pre_patch is not None and pack.gt_post_patches.shape == (3, 64, 64)
         assert pack.metadata["shadow_only"] is True
+        assert pack.metadata["background"] == "checker_anim"
         assert pack.full_pre_frame is not None and pack.full_post_frames is not None
         assert pack.full_post_frames.shape[0] == 1
         _pass("candidate pack roundtrip stores pre/post patches, GT, optional full frames and detector provenance")

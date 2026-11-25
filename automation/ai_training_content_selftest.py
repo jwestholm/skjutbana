@@ -28,7 +28,7 @@ from src.engine.synthetic.synthetic_hole_overlay import (
     real_stamps_available,
 )
 
-NEW_MODES = ("images", "dark_scene", "scroll_landscape", "moving_targets")
+NEW_MODES = ("images", "dark_scene", "scroll_landscape", "moving_targets", "pastel_images")
 
 
 def _composite(bg_value: int, radius_px: float, seed: int = 3):
@@ -135,6 +135,130 @@ class SceneContentTests(unittest.TestCase):
         self.assertFalse(s.auto_training_enabled)
         self.assertIn("Autoträning spärrad", s.status_message)
 
+    def test_black_f2_enables_flash_only_while_headless_training(self):
+        s = self.scene
+        old = (s.auto_training_enabled, s.auto_headless, s.bg_mode_index)
+        try:
+            s.auto_training_enabled = True
+            s.auto_headless = True
+            s.bg_mode_index = s.MODE_NAMES.index("black")
+            self.assertEqual(s.precision_flash, "on")
+            s.bg_mode_index = s.MODE_NAMES.index("white")
+            self.assertEqual(s.precision_flash, "auto")
+            s.auto_training_enabled = False
+            s.bg_mode_index = s.MODE_NAMES.index("black")
+            self.assertEqual(s.precision_flash, "auto")
+        finally:
+            s.auto_training_enabled, s.auto_headless, s.bg_mode_index = old
+
+    def test_flash_wrapper_redraws_black_f2_hole(self):
+        from src.engine.scenes.overlay_scene import OverlayScene
+        from src.engine.precision_flash import resolve_policy
+        s = self.scene
+        old = (s.auto_training_enabled, s.auto_headless, s.bg_mode_index,
+               getattr(s, "synthetic_overlay", None))
+        try:
+            s.auto_training_enabled = True
+            s.auto_headless = True
+            s.bg_mode_index = s.MODE_NAMES.index("black")
+            self.assertTrue(resolve_policy(OverlayScene(s))[0])
+            overlay = SyntheticHoleOverlay(self.screen.get_width(), self.screen.get_height())
+            overlay.add_hole(400, 300, kind="clean_hole", radius_px=12,
+                             strength=1.0, opacity=1.0, rotation_deg=0.0)
+            s.synthetic_overlay = overlay
+            self.screen.fill((248, 248, 248))  # precision flash white frame
+            OverlayScene(s).render_after_precision_flash(self.screen)
+            pixels = pygame.surfarray.array3d(self.screen)
+            self.assertLess(int(pixels[400, 300].mean()), 248)
+        finally:
+            (s.auto_training_enabled, s.auto_headless, s.bg_mode_index,
+             s.synthetic_overlay) = old
+
+    def test_f2_evidence_uses_camera_frames_after_projector_settle(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from src.engine.camera.camera_manager import camera_manager
+        from src.engine.scenes.automation_ai_training import AutomationAITrainingScene
+        frames = [
+            SimpleNamespace(timestamp=10.20, frame_bgr=np.full((16, 16, 3), 100, np.uint8)),
+            SimpleNamespace(timestamp=10.36, frame_bgr=np.full((16, 16, 3), 110, np.uint8)),
+            SimpleNamespace(timestamp=10.40, frame_bgr=np.full((16, 16, 3), 120, np.uint8)),
+        ]
+        with patch.object(camera_manager, "get_ring_snapshot", return_value=frames):
+            posts, source = AutomationAITrainingScene._camera_post_frames_after_reveal(10.0)
+        self.assertEqual(source, "camera_ring_after_projector_settle")
+        self.assertEqual([ts for _, ts in posts], [10.36, 10.40])
+        self.assertEqual(posts[-1][0].shape, (16, 16))
+
+    def test_black_f2_evidence_captures_frames_inside_flash_window(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from src.engine.camera.camera_manager import camera_manager
+        from src.engine import precision_flash
+        from src.engine.scenes.automation_ai_training import AutomationAITrainingScene
+        frames = [
+            SimpleNamespace(timestamp=10.35, frame_bgr=np.full((16, 16, 3), 240, np.uint8)),
+            SimpleNamespace(timestamp=10.40, frame_bgr=np.full((16, 16, 3), 230, np.uint8)),
+            SimpleNamespace(timestamp=10.45, frame_bgr=np.full((16, 16, 3), 220, np.uint8)),
+            SimpleNamespace(timestamp=10.50, frame_bgr=np.full((16, 16, 3), 210, np.uint8)),
+            SimpleNamespace(timestamp=10.70, frame_bgr=np.zeros((16, 16, 3), np.uint8)),
+        ]
+        fake_controller = SimpleNamespace(flash_windows=[(10.30, 10.50)],
+                                          cfg=SimpleNamespace(receive_latency_s=0.06))
+        with patch.object(camera_manager, "get_ring_snapshot", return_value=frames), \
+             patch.object(precision_flash, "get_controller", return_value=fake_controller):
+            posts, source = AutomationAITrainingScene._camera_post_frames_after_reveal(10.0)
+        self.assertEqual(source, "precision_flash_window")
+        self.assertEqual([ts for _, ts in posts], [10.40, 10.45, 10.50])
+
+    def test_f2_capture_control_keeps_130_round_matrix(self):
+        from src.engine.scenes.automation_ai_training import _capture_control_shot_count
+        self.assertEqual(_capture_control_shot_count(130), 130)
+        self.assertEqual(_capture_control_shot_count(10001), 10000)
+
+    def test_f2_stays_overlay_free_after_stop(self):
+        from unittest.mock import patch
+        s = self.scene
+        old = (s.auto_training_enabled, s.auto_headless, s.auto_report_visible)
+        try:
+            s.auto_training_enabled = False
+            s.auto_headless = True
+            s.auto_report_visible = True
+            with patch.object(s, "_render_candidates") as draw_candidates:
+                self._frame()
+                draw_candidates.assert_not_called()
+        finally:
+            s.auto_training_enabled, s.auto_headless, s.auto_report_visible = old
+
+    def test_headless_f2_is_single_shot_and_paced_for_camera(self):
+        from unittest.mock import patch
+        from src.engine.scenes.ai_training import (
+            AUTO_HEADLESS_ITERATION_GAP_S,
+            SYNTHETIC_MIN_SETTLE_SECONDS,
+        )
+        s = self.scene
+        old = (s.auto_training_enabled, s.auto_headless, s.synthetic_trigger_batch_mode,
+               getattr(s, "_live", None), s.synthetic_reveal_ts,
+               s.synthetic_camera_frames_after_reveal)
+        try:
+            s.auto_training_enabled = True
+            s.auto_headless = True
+            s.synthetic_trigger_batch_mode = True
+            s._live = dict(rounds=[{}], hits=[], burst_queue=[], subscribed=False)
+            s._schedule_burst(time.time())
+            self.assertEqual(s._live["burst_queue"], [])
+            self.assertEqual(AUTO_HEADLESS_ITERATION_GAP_S, 3.0)
+            self.assertEqual(s.synthetic_min_camera_frames_after_reveal, 12)
+            self.assertEqual(SYNTHETIC_MIN_SETTLE_SECONDS, 1.0)
+            s.synthetic_reveal_ts = 10.0
+            s.synthetic_camera_frames_after_reveal = 12
+            with patch.object(s, "_update_synthetic_camera_progress"):
+                self.assertFalse(s._synthetic_camera_window_ready(10.99))
+                self.assertTrue(s._synthetic_camera_window_ready(11.0))
+        finally:
+            (s.auto_training_enabled, s.auto_headless, s.synthetic_trigger_batch_mode, s._live,
+             s.synthetic_reveal_ts, s.synthetic_camera_frames_after_reveal) = old
+
     def test_mixed_profile_uses_both_measured_libraries(self):
         from src.engine.scenes.ai_training_content import AITrainingContent
         c = AITrainingContent(hole_profile="mixed_co2_airgun")
@@ -159,6 +283,10 @@ class SceneContentTests(unittest.TestCase):
             ms = (time.perf_counter() - t0) / 5 * 1000.0
             self.assertGreater(float(frames[-1].std()), 3.0, f"{mode} renders content")
             print(f"  {mode}: {ms:.1f} ms/frame (incl. HUD + overlay composite)")
+        s.auto_iteration = 0
+        s.bg_mode_index = s.MODE_NAMES.index("pastel_images")
+        pastel_mean = float(self._frame().mean())
+        self.assertGreater(pastel_mean, 155.0, f"pastel image mean {pastel_mean:.1f}")
         s.bg_mode_index = s.MODE_NAMES.index("dark_scene")
         mean = float(self._frame().mean())
         self.assertTrue(30.0 <= mean <= 90.0, f"dark_scene mean {mean:.1f}")

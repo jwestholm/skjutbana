@@ -65,13 +65,21 @@ PROJECTED_PROFILE = {"co2": dict(scale=(0.95, 1.0), gain=(4.5, 6.0), kind=REAL_S
                      "co2_shrunk": dict(scale=(0.55, 0.65), gain=(2.5, 4.0), kind=REAL_STAMP_KIND),
                      "airgun": dict(scale=(0.95, 1.0), gain=(2.5, 3.5), kind=REAL_STAMP_KIND)}
 EFFECT_LEVELS = ("off", "marker", "marker+score", "all")
-NEW_MODE_NAMES = ("images", "dark_scene", "scroll_landscape", "moving_targets")
+NEW_MODE_NAMES = ("images", "dark_scene", "scroll_landscape", "moving_targets", "pastel_images")
 NEW_MODE_LABELS = {
     "images": "Bildspel",
     "dark_scene": "Mörk scen",
     "scroll_landscape": "Rullande landskap",
     "moving_targets": "Rörliga mål",
+    "pastel_images": "Pastellbilder",
 }
+PASTEL_TINTS = (
+    (255, 222, 229),  # rosa
+    (220, 235, 255),  # blå
+    (220, 245, 228),  # mint
+    (239, 224, 255),  # lavendel
+    (255, 245, 215),  # gul
+)
 LEGACY_KINDS = ["clean_hole", "torn_hole", "ragged_hole", "dent_ring", "weak_indent"]
 LEGACY_WEIGHTS = [66, 16, 10, 6, 2]
 IMAGE_DIR = Path("assets/images")
@@ -209,6 +217,9 @@ class AITrainingContent:
         if mode == "images":
             self._maybe_advance_image(scene)
             self._draw_images(screen, vp)
+        elif mode == "pastel_images":
+            self._maybe_advance_image(scene)
+            self._draw_pastel_images(scene, screen, vp)
         elif mode == "dark_scene":
             screen.blit(self._dark_scene(vp.size), vp.topleft)
         elif mode == "scroll_landscape":
@@ -269,6 +280,37 @@ class AITrainingContent:
             except Exception:
                 surf = pygame.Surface(vp.size)
                 surf.fill((128, 128, 128))
+            self._cache[key] = surf
+        screen.blit(surf, vp.topleft)
+
+    def _draw_pastel_images(self, scene: Any, screen: pygame.Surface, vp: pygame.Rect) -> None:
+        """Tint the existing room/target photos into bright pastel training frames."""
+        tint_index = int(getattr(scene, "auto_iteration", self.image_index)) % len(PASTEL_TINTS)
+        tint = PASTEL_TINTS[tint_index]
+        if not self.image_paths:
+            screen.fill(tint, vp)
+            return
+        path = self.image_paths[self.image_index % len(self.image_paths)]
+        key = ("pastel_image", str(path), vp.size, tint_index)
+        surf = self._cache.get(key)
+        if surf is None:
+            source_key = ("image", str(path), vp.size)
+            source = self._cache.get(source_key)
+            if source is None:
+                try:
+                    img = pygame.image.load(str(path))
+                    source = pygame.transform.smoothscale(
+                        img.convert() if pygame.display.get_surface() else img, vp.size
+                    )
+                except Exception:
+                    source = pygame.Surface(vp.size)
+                    source.fill((128, 128, 128))
+                self._cache[source_key] = source
+            surf = source.copy()
+            wash = pygame.Surface(vp.size)
+            wash.fill(tint)
+            wash.set_alpha(200)  # bright pastel wash, with the original scene still visible
+            surf.blit(wash, (0, 0))
             self._cache[key] = surf
         screen.blit(surf, vp.topleft)
 

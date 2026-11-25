@@ -57,6 +57,18 @@ GRID_LINE = (222, 222, 222)
 WHITE = (240, 240, 240)
 SOFT_WHITE = (210, 210, 210)
 
+# Projected F2 must leave enough time for the camera/CV worker to settle before
+# the next labelled sample. Live measurements on the 4K camera are around
+# 1.5-2.0 s per shot; the old 50 ms cadence flooded the async pipeline.
+AUTO_HEADLESS_ITERATION_GAP_S = 3.0
+# Camera/projector transport can lag the synthetic reveal by several frames.
+# The first post frame observed at +56 ms still contained no visible hole.
+SYNTHETIC_MIN_CAMERA_FRAMES_AFTER_REVEAL = 12
+# Live camera captures showed that the first visible projected hole can arrive
+# roughly a second after the synthetic reveal even when several camera frames
+# have already advanced. Do not score earlier frames as a miss.
+SYNTHETIC_MIN_SETTLE_SECONDS = 1.0
+
 
 # ------------------------------------------------------------------
 # Sampling mode functions for auto-training hole placement
@@ -146,14 +158,36 @@ class AITrainingScene(Scene):
     wants_camera_preview = False
 
     @property
+    def precision_flash(self) -> str:
+        # A black projected field cannot show a multiplicatively darkened hole.
+        # In F2 only, briefly light the field and redraw the synthetic stamp on
+        # top of that white flash so the camera receives a usable hole image.
+        if (self.auto_training_enabled and self.auto_headless
+                and self.MODE_NAMES[self.bg_mode_index] == "black"):
+            return "on"
+        return "auto"
+
+    def render_after_precision_flash(self, screen: pygame.Surface) -> None:
+        """Keep synthetic holes visible over the precision flash on black F2 rounds."""
+        if not (self.auto_training_enabled and self.auto_headless
+                and self.MODE_NAMES[self.bg_mode_index] == "black"):
+            return
+        overlay = self.synthetic_overlay
+        if overlay is None or not overlay._holes:
+            return
+        frame = pygame.surfarray.array3d(screen).swapaxes(0, 1)
+        composed = overlay.composite_on(frame).swapaxes(0, 1)
+        pygame.surfarray.blit_array(screen, composed)
+
+    @property
     def suppress_overlays(self) -> bool:
         """Suppress HUD/overlays during auto-calibration."""
         return self._auto_cal_phase is not None
 
     MODE_NAMES = [
         "white", "white_grid", "coord_grid", "gray", "black", "checker", "checker_anim", "bubbles",
-        # Game-like content (src/engine/scenes/ai_training_content.py); append only.
-        "images", "dark_scene", "scroll_landscape", "moving_targets",
+        # Game-like and pastel photo content; append only to preserve saved indices.
+        "images", "dark_scene", "scroll_landscape", "moving_targets", "pastel_images",
     ]
 
     def __init__(self, bg_color=None, **kwargs) -> None:
@@ -221,7 +255,7 @@ class AITrainingScene(Scene):
         # revealed shortly after the registered audio peak and the round is not
         # evaluated until several unique camera frames have observed it.
         self.synthetic_hole_delay_s = 0.025
-        self.synthetic_min_camera_frames_after_reveal = 4
+        self.synthetic_min_camera_frames_after_reveal = SYNTHETIC_MIN_CAMERA_FRAMES_AFTER_REVEAL
         self.synthetic_detection_timeout_s = 1.80
         self.synthetic_reveal_pending = False
         self.synthetic_reveal_ready_ts = 0.0
@@ -394,6 +428,41 @@ class AITrainingScene(Scene):
         if self._calibrator is not None:
             self._calibrator.render_markers(screen)
 
+    def _validate_saved_calibration_from_recent_frames(self, fallback_frame):
+        """Validate the saved map from median marker positions across recent frames."""
+        from src.engine.input.hit_input import hit_input
+
+        ring = camera_manager.get_ring_snapshot()
+        since = float(getattr(self, "_auto_cal_start_ts", 0.0) or 0.0) - 0.1
+        frames = [cf for cf in ring if cf.timestamp >= since]
+        frames = frames[-24:]
+        if len(frames) > 12:
+            stride = max(1, len(frames) // 12)
+            frames = frames[::stride][-12:]
+        observations: dict[int, list[np.ndarray]] = {}
+        for cf in frames:
+            try:
+                corners, ids, _ = self._calibrator.detect_markers(cf.frame_bgr)
+            except Exception:
+                continue
+            if ids is None:
+                continue
+            for index, marker_id in enumerate(ids.flatten()):
+                center = np.mean(corners[index][0], axis=0)
+                if center.shape == (2,) and np.isfinite(center).all():
+                    observations.setdefault(int(marker_id), []).append(center)
+
+        # Require repeated observations for each marker. Fall back to the one
+        # current frame only when the camera ring has not accumulated enough.
+        observed = {
+            marker_id: np.median(np.stack(points), axis=0).tolist()
+            for marker_id, points in observations.items() if len(points) >= 3
+        }
+        if len(observed) < 8:
+            check = self._calibrator.validate_existing(fallback_frame, hit_input)
+            return check, 1
+        return self._calibrator.validate_points(observed, hit_input), len(frames)
+
     def _try_auto_calibrate(self) -> bool:
         """Try to detect markers and compute homography. Returns True if successful."""
         if self._calibrator is None or not self._calibrator.available:
@@ -427,21 +496,37 @@ class AITrainingScene(Scene):
             # that are on screen right now and warn loudly; never overwrite here.
             try:
                 from src.engine.input.hit_input import hit_input
-                check = self._calibrator.validate_existing(frame_bgr, hit_input)
+                check, validation_frames = self._validate_saved_calibration_from_recent_frames(frame_bgr)
                 errors = sorted(float(r["error_camera_px"]) for r in (check.get("points") or [])
                                 if isinstance(r, dict) and r.get("error_camera_px") is not None)
-                if not check.get("passed"):
+                median = float(np.median(errors)) if errors and np is not None else float("inf")
+                p90 = float(np.percentile(errors, 90)) if errors and np is not None else float("inf")
+                # A single misdetected marker can fail the calibrator's strict
+                # max-error check even when the saved lens-aware map agrees
+                # across the projected board. F2 needs distributed, robust
+                # agreement; use per-marker temporal medians, while retaining
+                # the strict single-frame check for reporting.
+                robust_pass = (
+                    bool(check.get("distributed_coverage"))
+                    and len(errors) >= 12
+                    and median <= 2.5
+                    and p90 <= 5.5
+                )
+                print(
+                    f"[AUTO-CAL] robust marker validation: frames={validation_frames} n={len(errors)} "
+                    f"median={median:.2f}px p90={p90:.2f}px "
+                    f"max={max(errors, default=float('inf')):.2f}px "
+                    f"strict={check.get('status')}"
+                )
+                if not check.get("passed") and not robust_pass:
                     self._auto_cal_result = ("VARNING: sparad kalibrering klarade inte markörkontrollen — kör "
                                              "python3 -m automation.bench calibration-check --distortion --save")
                     print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
-                if errors:
-                    median = errors[len(errors) // 2]
-                    print(f"[AUTO-CAL] saved calibration marker error median {median:.1f} camera px "
-                          f"(n={len(errors)})")
-                    if median > 3.0:
-                        self._auto_cal_result = (f"VARNING: kalibreringen har glidit {median:.1f} px — kör "
-                                                 "python3 -m automation.bench calibration-check --save")
-                        print(f"[AUTO-CAL WARNING] {self._auto_cal_result}")
+                elif robust_pass:
+                    self._auto_cal_result = (
+                        f"Kalibrering behållen (linsmodell skyddad; robust markörkontroll "
+                        f"n={len(errors)}, median={median:.2f}px, p90={p90:.2f}px)"
+                    )
             except Exception as exc:
                 print(f"[AUTO-CAL] calibration validation failed: {exc}")
                 self._auto_cal_result = f"VARNING: kalibrering kunde inte verifieras ({type(exc).__name__})"
@@ -1091,8 +1176,9 @@ class AITrainingScene(Scene):
                 self.status_message = f"Autoträning spärrad: {detail}. Kalibrera kameran först."
                 print(f"[AI-TEST] F2 blocked: {self.status_message}")
                 return
+        was_headless = self.auto_headless
         self.auto_training_enabled = not self.auto_training_enabled
-        self.auto_headless = headless if self.auto_training_enabled else False
+        self.auto_headless = headless if self.auto_training_enabled else was_headless
         self.auto_report_visible = False
         self.auto_report_lines = []
 
@@ -1117,9 +1203,12 @@ class AITrainingScene(Scene):
             self.status_message = f"Autoträning startad ({mode_label}, F1/F2 stoppar)."
         else:
             self.auto_phase = "idle"
-            self.auto_headless = False
             self.status_message = "Autoträning stoppad."
             self._reset_shot_state(clear_synthetic=True)
+            if was_headless:
+                # Keep F2 visually clean after a stop; stale candidates must
+                # not remain projected as hundreds of crosses.
+                hit_visualizer.clear_all()
 
     def _choose_auto_screen_point(self, vp: pygame.Rect) -> tuple[int, int]:
         mode = self.runtime.sampling_mode
@@ -1353,7 +1442,9 @@ class AITrainingScene(Scene):
         if self.synthetic_reveal_ts <= 0.0:
             return False
         self._update_synthetic_camera_progress()
-        if self.synthetic_camera_frames_after_reveal >= self.synthetic_min_camera_frames_after_reveal:
+        frames_ready = self.synthetic_camera_frames_after_reveal >= self.synthetic_min_camera_frames_after_reveal
+        time_ready = now - self.synthetic_reveal_ts >= SYNTHETIC_MIN_SETTLE_SECONDS
+        if frames_ready and time_ready:
             return True
         # Timeout is independent of runtime.has_new_shot. Otherwise a scanner
         # timeout could make the training scene wait forever.
@@ -1421,6 +1512,11 @@ class AITrainingScene(Scene):
         state = self._live_state()
         state["burst_queue"] = []
         if not (self.auto_training_enabled and self.synthetic_trigger_batch_mode):
+            return
+        # One labelled F2 round represents one known synthetic impact. Bursts
+        # overlap camera processing and make the per-round ground truth
+        # ambiguous; manual/visible auto rounds retain their burst simulation.
+        if self.auto_headless:
             return
         mix = self.runtime.settings.get("burst_mix", {"single": 0.5, "double": 0.3, "string3": 0.2})
         kinds, weights = zip(*[(k, float(v)) for k, v in mix.items() if k in ("single", "double", "string3")])
@@ -1649,6 +1745,8 @@ class AITrainingScene(Scene):
                 self.auto_report_visible = False
                 self.auto_report_lines = []
                 self._reset_shot_state(clear_synthetic=True)
+                self.auto_headless = False
+                hit_visualizer.clear_all()
                 self.status_message = ""
             return None
 
@@ -1788,7 +1886,8 @@ class AITrainingScene(Scene):
                         self.auto_phase = "idle"
                         self._build_auto_report()
                     else:
-                        delay = 0.05 if self.auto_headless else self.auto_next_iteration_delay_s
+                        delay = (AUTO_HEADLESS_ITERATION_GAP_S if self.auto_headless
+                                 else self.auto_next_iteration_delay_s)
                         self.auto_next_iteration_ts = now + delay
                         self.auto_phase = "waiting_next"
 
@@ -2147,16 +2246,14 @@ class AITrainingScene(Scene):
             return
 
         # Headless mode: only show progress counter, no candidates/review/HUD
-        if self.auto_headless and self.auto_training_enabled:
+        if self.auto_headless:
             # No on-board progress text: a counter that changes between rounds is
             # projected onto the board and was detected as a "new hole" (5/30 wrong
             # emissions in the 2026-11-18 AI-test replay).  Progress goes to stdout.
-            if self.auto_iteration != getattr(self, "_last_progress_print", -1):
+            if self.auto_training_enabled and self.auto_iteration != getattr(self, "_last_progress_print", -1):
                 self._last_progress_print = self.auto_iteration
                 if self.auto_iteration % 10 == 0:
                     print(f"[AI-TEST] headless {self.auto_iteration}/{self.auto_target_iterations}", flush=True)
-            if self.auto_report_visible:
-                self._render_auto_report(screen, vp)
             return
 
         self._render_candidates(screen, vp)

@@ -1,5 +1,42 @@
 # Current project state
 
+## F2 mixed-stamp projected run — findings 2026-11-25
+
+The frozen one-run baseline completed 130/130 iterations on 2026-11-24. Its
+manifest confirms `mixed_co2_airgun`, excludes AR-15 stamps `aim8a` and `aim10`,
+and covers 13 backgrounds with 10 samples each. V2.16 saved all 130 candidate
+packs with zero capture errors. Online learning was frozen; the active
+`content/ai/memory.json` SHA-256 remains identical to the preserved pre-run
+backup (`7ed21dca1f8a5a200e317dca2ee14f83e3e7be8736112742863322f102798813`).
+
+Run artifacts are under
+`/data/skjutbana/evaluation_runs/projected_f2_runs/20261124_155027_white_1runs`
+and the V2.16 packs under
+`content/ai/candidate_shadow_v216/sessions/20261124_155030_seed20261124_white`.
+The report measured found 24/130 (18.5%), Top-1 2/130 (1.5%), Top-3 4/130
+(3.1%), and AI choice 2/130 (1.5%). Its funnel reports raw-hotspot GT proximity
+23.1%, post-filter survival 18.5%, Top-K inclusion 3.8%, and AI choice 1.5%.
+These are projected synthetic results, not physical-shot validation.
+
+This run is **not a valid evaluation of the planned black-background flash
+capture**: all ten black rounds record `post_frame_source` as
+`camera_ring_after_projector_settle`, and startup logged precision flash as
+disabled. The black GT patches contain values only in the 0–1 range. Also, the
+report's raw-candidate metric is inconsistent: it says zero in every round even
+though runtime logs and saved V2.16 packs contain candidates. Do not use that
+metric or start the 20-run learning comparison until both issues are resolved
+and a new frozen baseline verifies flash imagery and candidate accounting.
+
+The active source changes add the `pastel_images` F2 background; headless
+single-shot pacing and camera settle gates; robust multi-frame calibration
+validation; optional F2 flash policy and redraw of the synthetic stamp over the
+flash; late/flash-window camera-frame selection; per-shot background and
+capture-source metadata; a 130-shot V2.21 capture-control limit; and reusable
+automation event-listener/progress controls. These changes were committed to
+local `dev` on 2026-11-25; no push was made. Relevant selftests passed on
+2026-11-25: AI training content 18/18, V2.16 candidate pack 9/9, precision
+flash 19/19, object highlight 12/12, plus `py_compile` and `git diff --check`.
+
 ## F2 projected-stamp training inventory and stamp review — 2026-11-24
 
 The existing AI-training scene already supports the requested optical experiment:
@@ -24,10 +61,12 @@ results default to `/data/skjutbana/evaluation_runs/projected_f2_runs`.
 `aim8a` and `aim10` are excluded by the experiment configuration, not removed
 from source libraries.
 
-Calibration preflight on the active projector/camera saved a fresh lens-aware
-fit (24 markers, 15 inliers, 2.64 px reprojection error). The read-only saved-map
-check measured 1.34 px median and 3.35 px maximum against a strict 3.0 px gate,
-so the F2 safety gate remains closed. No training shots have been run yet.
+At the start of this inventory, calibration preflight on the active
+projector/camera had saved a fresh lens-aware fit (24 markers, 15 inliers,
+2.64 px reprojection error). The read-only saved-map check measured 1.34 px
+median and 3.35 px maximum against a strict 3.0 px gate. Subsequent F2
+calibration accepted a robust multi-frame check; see the completed run findings
+above. This section records the pre-run snapshot, not the current run status.
 
 Added `automation.hole_stamp_qc` to create a new, read-only review pack outside
 the repository. Review pack
@@ -37,10 +76,10 @@ current run using the exact PNGs loaded by F2 is
 `/data/skjutbana/evaluation_runs/hole_stamp_qc_20261124T132000Z`; its connected-
 component screen flags two of the eight AR-15 stamps for human review (`aim8a`,
 `aim10`). All source libraries remain unchanged. This rule is a visual-review
-aid, not an automatic quality verdict. The AI-training content selftest passes
-(11 tests, including calibration blocking, mixed profiles, and the two-stamp
-exclusion). No F2 optical session or model training was run during this inventory;
-the backup is ready before the next run.
+aid, not an automatic quality verdict. At that inventory point the AI-training
+content selftest passed 11 tests, including calibration blocking, mixed
+profiles, and the two-stamp exclusion. A later frozen F2 run and its test status
+are recorded above.
 
 ## Nightly calibration snapshot and output-marker fix — 2026-11-24
 
